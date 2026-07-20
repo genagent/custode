@@ -10,6 +10,10 @@ config :custode,
   feed_path: "tmp/test/feed.jsonl",
   mcp_port: 6171
 
+config :custode, CustodeWeb.Endpoint,
+  http: [ip: {127, 0, 0, 1}, port: 4647],
+  server: false
+
 config :custode, Custode.Repo,
   database: "tmp/test/custode_test.db",
   pool_size: 1,

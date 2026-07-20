@@ -42,4 +42,17 @@ config :custode, Custode.Repo,
 # The MCP endpoint (localhost only) agents use to drive sibling agents/jobs.
 config :custode, mcp_port: 6161
 
+# The dashboard (localhost only, no auth -- same caveat as the MCP endpoint).
+config :custode, CustodeWeb.Endpoint,
+  adapter: Bandit.PhoenixAdapter,
+  url: [host: "localhost"],
+  http: [ip: {127, 0, 0, 1}, port: 4646],
+  server: true,
+  secret_key_base: "custode-demo-secret-key-base-not-for-production-0123456789abcdef",
+  live_view: [signing_salt: "custode-lv"],
+  render_errors: [formats: [html: CustodeWeb.ErrorHTML], layout: false],
+  pubsub_server: Custode.PubSub
+
+config :phoenix, :json_library, Jason
+
 import_config "#{config_env()}.exs"

@@ -32,7 +32,14 @@ defmodule Custode.MixProject do
       {:jason, "~> 1.4"},
       # The MCP server: agents running here can drive sibling agents/jobs.
       {:anubis_mcp, "~> 1.10"},
-      {:bandit, "~> 1.5"}
+      {:bandit, "~> 1.5"},
+      # The dashboard: LiveView over the facade + PubSub, daisyUI via CDN
+      # (no node/asset pipeline; see CustodeWeb.Layouts).
+      {:phoenix, "~> 1.8"},
+      {:phoenix_html, "~> 4.1"},
+      {:phoenix_live_view, "~> 1.1"},
+      {:phoenix_pubsub, "~> 2.1"},
+      {:lazy_html, ">= 0.1.0", only: :test}
     ]
   end
 end

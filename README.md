@@ -79,6 +79,19 @@ Things to try:
   cold-starts it via `if_offline: "start"`. `Custode.peek()` says exactly
   that.
 
+## The dashboard
+
+`iex -S mix` (or `mix run --no-halt`) also serves a LiveView dashboard at
+[http://localhost:4646](http://localhost:4646): one card per routine (and any
+running sub-agents) with its live status badge, turns/spend, inline
+approve/reject and answer forms when gated, a prompt box, pause/resume, and
+the activity feed streaming down the side. No polling: every update arrives
+over PubSub from the same telemetry the feed uses.
+
+No node or asset pipeline: daisyUI 5 + Tailwind come from CDN (internet
+needed on first page load) and the LiveView client JS is served from the hex
+packages. Localhost only, no auth -- same caveat as the MCP endpoint.
+
 ## The feed
 
 Every noteworthy event appends one JSON line to `feed.jsonl`: finished turns

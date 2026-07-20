@@ -93,7 +93,10 @@ defmodule Custode.Feed do
 
   defp write(entry, opts \\ []) do
     entry = Map.put(entry, :at, DateTime.to_iso8601(DateTime.utc_now()))
-    File.write!(path(), Jason.encode!(entry) <> "\n", [:append])
+    encoded = Jason.encode!(entry)
+    File.write!(path(), encoded <> "\n", [:append])
+    # the dashboard's live stream: same shape as tail/1 (string keys)
+    Custode.PubSubBridge.broadcast({:feed_entry, Jason.decode!(encoded)})
     if opts[:notify], do: notify(entry)
     :ok
   end
