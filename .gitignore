@@ -25,3 +25,6 @@ custode-*.tar
 
 # The demo database is runtime state, not source.
 custode.db*
+
+# The activity feed is runtime state, not source.
+feed.jsonl

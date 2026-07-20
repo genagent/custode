@@ -23,7 +23,12 @@ config :custode,
   ],
   # Defaults shared by every routine unless overridden per-entry.
   model: "sonnet",
-  max_budget_usd: 0.75
+  max_budget_usd: 0.75,
+  # The activity feed (one JSON line per noteworthy event; see Custode.Feed).
+  feed_path: "feed.jsonl",
+  # macOS desktop notifications for events that need a human
+  # (needs_approval / needs_input / turn_failed).
+  desktop_notifications: true
 
 config :custode, Custode.Repo,
   database: "custode.db",

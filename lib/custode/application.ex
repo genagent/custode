@@ -13,6 +13,7 @@ defmodule Custode.Application do
   @impl Application
   def start(_type, _args) do
     Custode.Observer.attach()
+    Custode.Feed.attach()
 
     children = [
       Custode.Repo,

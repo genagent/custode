@@ -76,6 +76,24 @@ defmodule Custode do
   @doc "Release a paused agent."
   def resume(id \\ nil), do: Agent.resume_agent(fetch!(id).id)
 
+  @doc "Pretty-print the last `n` feed entries (see `Custode.Feed`)."
+  def feed(n \\ 20) do
+    case Custode.Feed.tail(n) do
+      [] ->
+        IO.puts("(no feed yet: #{Custode.Feed.path()})")
+
+      entries ->
+        for entry <- entries do
+          time = entry["at"] |> String.slice(11, 8)
+          detail = entry["summary"] || entry["action"] || entry["question"] || entry["kind"] || ""
+          cost = if entry["cost_usd"], do: " ($#{entry["cost_usd"]})", else: ""
+          IO.puts("#{time} [#{entry["agent"]}] #{entry["event"]}#{cost} #{detail}")
+        end
+    end
+
+    :ok
+  end
+
   @doc "One readable snapshot: status, spend, pendings, and recent history."
   def peek(id \\ nil) do
     routine = fetch!(id)

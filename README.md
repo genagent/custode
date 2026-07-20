@@ -79,6 +79,27 @@ Things to try:
   cold-starts it via `if_offline: "start"`. `Custode.peek()` says exactly
   that.
 
+## The feed
+
+Every noteworthy event appends one JSON line to `feed.jsonl`: finished turns
+(directive, sweep report, spend), failed turns, the two gated states (with the
+action/question the agent is blocked on), and pause/resume. Transitions that
+are just machinery (idle->running) stay out -- the feed is signal.
+
+```elixir
+Custode.feed()        # pretty-print the tail
+```
+
+```
+tail -f feed.jsonl | jq .      # stream it from a terminal
+```
+
+Events that need a human -- `needs_approval`, `needs_input`, `turn_failed` --
+also raise a macOS desktop notification (config
+`desktop_notifications: false` to turn off). Mobile is one more consumer of
+the same file/telemetry away, e.g. a handler that curls an
+[ntfy.sh](https://ntfy.sh) topic.
+
 ## Run a fleet
 
 `config :custode, routines: [...]` is a list. Each entry is one always-on
