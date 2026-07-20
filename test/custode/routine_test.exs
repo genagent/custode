@@ -58,10 +58,15 @@ defmodule Custode.RoutineTest do
       claude_args = Custode.Routine.tick_args(routine)["start"]["args"]
 
       assert claude_args["working_dir"] == Path.expand("workspace")
-      assert claude_args["permission_mode"] == "accept_edits"
+      # bookkeeping is tool-mediated, so routines get NO standing write
+      # permission (claude's default mode denies writes non-interactively)
+      refute Map.has_key?(claude_args, "permission_mode")
       assert is_binary(claude_args["json_schema"])
       assert claude_args["json_schema"] =~ "request_permission"
       assert claude_args["append_system_prompt"] =~ "caretaker"
+      assert claude_args["append_system_prompt"] =~ routine.id
+      assert claude_args["append_system_prompt"] =~ "inbox_list"
+      assert claude_args["append_system_prompt"] =~ "recall"
     end
 
     test "mcp: true adds the config file, the tool allowlist, and delegation orders" do
@@ -85,12 +90,14 @@ defmodule Custode.RoutineTest do
   end
 
   describe "sub_agent_args/2" do
-    test "defaults: worker-bee prompt, no delegation, sandboxed to the workspace" do
+    test "defaults: worker-bee prompt, memory-only MCP, sandboxed to the workspace" do
       args = Custode.Routine.sub_agent_args("/tmp")
 
       assert args["working_dir"] == "/tmp"
       assert args["append_system_prompt"] =~ "sub-agent"
-      refute Map.has_key?(args, "mcp_config")
+      # persistence without delegation: the memory-only server, nothing else
+      assert args["mcp_config"] == [Custode.MCP.memory_config_path()]
+      assert args["allowed_tools"] == ["mcp__memory"]
       assert args["permission_mode"] == "accept_edits"
     end
 

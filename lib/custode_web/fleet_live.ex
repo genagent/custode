@@ -39,6 +39,10 @@ defmodule CustodeWeb.FleetLive do
     {:noreply, socket |> stream_insert(:feed, entry, at: 0) |> refresh_agents()}
   end
 
+  def handle_info({:notebook_changed, _routine_id}, socket) do
+    {:noreply, refresh_agents(socket)}
+  end
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl Phoenix.LiveView
@@ -72,6 +76,11 @@ defmodule CustodeWeb.FleetLive do
     {:noreply, refresh_agents(socket)}
   end
 
+  def handle_event("todo_done", %{"todo" => todo_id}, socket) do
+    Custode.Notebook.todo_complete(String.to_integer(todo_id))
+    {:noreply, refresh_agents(socket)}
+  end
+
   @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
@@ -88,12 +97,19 @@ defmodule CustodeWeb.FleetLive do
             id={routine.id}
             agent={@agents[routine.id]}
             routine={routine}
+            notebook={@notebooks[routine.id]}
           />
 
           <div :if={@others != []}>
             <h2 class="mb-2 mt-6 text-lg font-semibold text-base-content/70">other agents</h2>
             <div class="space-y-4">
-              <.agent_card :for={id <- @others} id={id} agent={@agents[id]} routine={nil} />
+              <.agent_card
+                :for={id <- @others}
+                id={id}
+                agent={@agents[id]}
+                routine={nil}
+                notebook={nil}
+              />
             </div>
           </div>
         </div>
@@ -166,6 +182,28 @@ defmodule CustodeWeb.FleetLive do
         <p :if={@agent.state == :offline} class="text-sm text-base-content/50">
           offline -- the next beat starts it
         </p>
+
+        <div :if={@notebook} class="text-sm">
+          <div :if={@notebook.todos != []}>
+            <p class="font-semibold text-base-content/70">todo</p>
+            <ul class="mt-1 space-y-1">
+              <li :for={todo <- @notebook.todos} class="flex items-center gap-2">
+                <button
+                  class="btn btn-ghost btn-xs"
+                  title="mark done"
+                  phx-click="todo_done"
+                  phx-value-todo={todo.id}
+                >
+                  ✓
+                </button>
+                <span>{todo.text}</span>
+              </li>
+            </ul>
+          </div>
+          <p :if={@notebook.latest} class="mt-1 text-xs text-base-content/60">
+            journal: {@notebook.journal_count} entries, latest: {@notebook.latest}
+          </p>
+        </div>
 
         <div :if={match?({:awaiting_permission, _}, @agent.status)} class="alert alert-warning">
           <div class="flex-1">
@@ -251,7 +289,19 @@ defmodule CustodeWeb.FleetLive do
 
     others = (all_ids -- routine_ids) |> Enum.sort()
 
-    assign(socket, routines: routines, agents: agents, others: others)
+    notebooks =
+      Map.new(routine_ids, fn id ->
+        latest =
+          case Custode.Notebook.journal(id, 1) do
+            [entry] -> entry.title || String.slice(entry.body, 0, 60)
+            [] -> nil
+          end
+
+        journal_count = length(Custode.Notebook.journal(id, 200))
+        {id, %{todos: Custode.Notebook.todos(id), latest: latest, journal_count: journal_count}}
+      end)
+
+    assign(socket, routines: routines, agents: agents, others: others, notebooks: notebooks)
   end
 
   defp state_of({state, _payload}), do: state

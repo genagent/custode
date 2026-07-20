@@ -24,6 +24,7 @@ defmodule Custode.Application do
       {Oban, oban_config()},
       ObanClaude.Agent.Supervisor,
       {Custode.MCP.Server, transport: :streamable_http},
+      {Custode.MCP.MemoryServer, transport: :streamable_http},
       {Bandit, plug: Custode.MCP.Router, port: Custode.MCP.port(), ip: {127, 0, 0, 1}},
       CustodeWeb.Endpoint
     ]

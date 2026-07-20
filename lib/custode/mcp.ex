@@ -12,15 +12,26 @@ defmodule Custode.MCP do
 
   def url, do: "http://127.0.0.1:#{port()}/mcp"
 
+  def memory_url, do: url() <> "/memory"
+
   def config_path, do: Path.expand("tmp/custode_mcp.json")
 
-  @doc "Write the `.mcp.json` file routines reference via their `mcp_config` arg."
+  def memory_config_path, do: Path.expand("tmp/custode_mcp_memory.json")
+
+  @doc """
+  Write the `.mcp.json` files agents reference via their `mcp_config` arg:
+  the full toolbox for routines, the memory-only server for sub-agents.
+  """
   def write_config! do
     File.mkdir_p!(Path.dirname(config_path()))
 
     ClaudeWrapper.McpConfig.new()
     |> ClaudeWrapper.McpConfig.add_http("custode", url())
     |> ClaudeWrapper.McpConfig.write!(config_path())
+
+    ClaudeWrapper.McpConfig.new()
+    |> ClaudeWrapper.McpConfig.add_http("memory", memory_url())
+    |> ClaudeWrapper.McpConfig.write!(memory_config_path())
 
     config_path()
   end

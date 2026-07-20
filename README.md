@@ -92,6 +92,33 @@ No node or asset pipeline: daisyUI 5 + Tailwind come from CDN (internet
 needed on first page load) and the LiveView client JS is served from the hex
 packages. Localhost only, no auth -- same caveat as the MCP endpoint.
 
+## The notebook and memory
+
+The journal and TODO list are database-backed (same SQLite file as the queue)
+and mutated only through MCP tools -- `journal_append`, `todo_add`,
+`todo_list`, `todo_complete`, plus `inbox_list` / `inbox_mark_filed` for
+mechanical inbox bookkeeping. `workspace/journal.md` and `TODO.md` are
+*generated views*, re-rendered after every mutation: the git-diffable paper
+trail survives, but the source of truth is queryable and safe under
+concurrent writers.
+
+Because bookkeeping is tool-mediated, **routine agents run with no standing
+filesystem write permission at all** -- writes only ever happen through an
+approved `request_permission` gate.
+
+Agents also get persistent key-value memory across their (always-fresh)
+sessions: `remember` / `recall` / `forget`, keyed by agent id. The caretaker's
+standing orders start every sweep with `recall`. Sub-agents get memory too,
+through a second, capability-scoped MCP server (`/mcp/memory`) that exposes
+*only* the memory tools -- persistence without delegation powers.
+
+From the console: `Custode.todos()`, `Custode.done(id)`, `Custode.journal()`.
+The dashboard renders open todos (checkable) and the journal ledger per card.
+
+Identity caveat: tool calls carry no caller identity, so `routine_id` /
+`agent_id` are trusted parameters -- fine on localhost, needs per-agent
+credentials before anything multi-tenant.
+
 ## The feed
 
 Every noteworthy event appends one JSON line to `feed.jsonl`: finished turns

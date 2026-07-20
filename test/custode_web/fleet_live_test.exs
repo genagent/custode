@@ -118,6 +118,21 @@ defmodule CustodeWeb.FleetLiveTest do
     assert render(view) =~ "idle"
   end
 
+  test "todos render on the card and can be checked off; the panel updates live",
+       %{conn: conn, routine: routine} do
+    {:ok, todo} = Custode.Notebook.todo_add(routine.id, "water the plants", source: "human")
+
+    {:ok, view, html} = live(conn, "/")
+    assert html =~ "water the plants"
+
+    view |> element("button[phx-value-todo='#{todo.id}']") |> render_click()
+    refute render(view) =~ "water the plants"
+
+    # a mutation from elsewhere pushes into the panel without a reload
+    {:ok, _todo} = Custode.Notebook.todo_add(routine.id, "sharpen the shears", source: "human")
+    assert render(view) =~ "sharpen the shears"
+  end
+
   test "feed entries stream in live", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/")
 

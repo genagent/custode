@@ -21,4 +21,33 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.Tools.ApproveAction, name: "approve_action")
   component(Custode.MCP.Tools.RejectAction, name: "reject_action")
   component(Custode.MCP.Tools.RunJob, name: "run_job")
+
+  component(Custode.MCP.NotebookTools.JournalAppend, name: "journal_append")
+  component(Custode.MCP.NotebookTools.TodoAdd, name: "todo_add")
+  component(Custode.MCP.NotebookTools.TodoList, name: "todo_list")
+  component(Custode.MCP.NotebookTools.TodoComplete, name: "todo_complete")
+  component(Custode.MCP.NotebookTools.InboxList, name: "inbox_list")
+  component(Custode.MCP.NotebookTools.InboxMarkFiled, name: "inbox_mark_filed")
+
+  component(Custode.MCP.MemoryTools.Remember, name: "remember")
+  component(Custode.MCP.MemoryTools.Recall, name: "recall")
+  component(Custode.MCP.MemoryTools.Forget, name: "forget")
+end
+
+defmodule Custode.MCP.MemoryServer do
+  @moduledoc """
+  The capability-scoped MCP server for sub-agents: ONLY the persistent memory
+  tools. Sub-agents get this endpoint (never the full one), so they can carry
+  facts across their own sessions without gaining delegation, notebook, or
+  lifecycle powers.
+  """
+
+  use Anubis.Server,
+    name: "memory",
+    version: "0.1.0",
+    capabilities: [:tools]
+
+  component(Custode.MCP.MemoryTools.Remember, name: "remember")
+  component(Custode.MCP.MemoryTools.Recall, name: "recall")
+  component(Custode.MCP.MemoryTools.Forget, name: "forget")
 end

@@ -15,6 +15,12 @@ defmodule Custode.MCP.Router do
     StreamableHTTP.Plug.call(conn, opts)
   end
 
+  # The memory-only server sub-agents are pointed at.
+  match "/mcp/memory" do
+    opts = StreamableHTTP.Plug.init(server: Custode.MCP.MemoryServer)
+    StreamableHTTP.Plug.call(conn, opts)
+  end
+
   match _ do
     send_resp(conn, 404, "not found")
   end

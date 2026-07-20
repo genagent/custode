@@ -76,6 +76,28 @@ defmodule Custode do
   @doc "Release a paused agent."
   def resume(id \\ nil), do: Agent.resume_agent(fetch!(id).id)
 
+  @doc "Print the routine's open todos (ids for `done/1`)."
+  def todos(id \\ nil) do
+    for todo <- Custode.Notebook.todos(fetch!(id).id) do
+      IO.puts("  ##{todo.id}  #{todo.text}")
+    end
+
+    :ok
+  end
+
+  @doc "Mark a todo done by id."
+  def done(todo_id), do: Custode.Notebook.todo_complete(todo_id)
+
+  @doc "Print the routine's newest `n` journal entries."
+  def journal(n \\ 10, id \\ nil) do
+    for entry <- Custode.Notebook.journal(fetch!(id).id, n) do
+      stamp = Calendar.strftime(entry.inserted_at, "%m-%d %H:%M")
+      IO.puts("  #{stamp}  #{entry.title || String.slice(entry.body, 0, 70)}")
+    end
+
+    :ok
+  end
+
   @doc "Pretty-print the last `n` feed entries (see `Custode.Feed`)."
   def feed(n \\ 20) do
     case Custode.Feed.tail(n) do

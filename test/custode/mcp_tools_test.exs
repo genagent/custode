@@ -56,7 +56,9 @@ defmodule Custode.MCPToolsTest do
       assert job.args["prompt"] == "hello"
       assert job.args["model"] == "haiku"
       assert job.args["working_dir"] == workspace
-      refute Map.has_key?(job.args, "mcp_config")
+      # the memory-only endpoint, never the full delegation toolbox
+      assert job.args["mcp_config"] == [Custode.MCP.memory_config_path()]
+      assert job.args["allowed_tools"] == ["mcp__memory"]
     end
 
     test "a missing workspace is a tool error, not a crash" do
@@ -157,6 +159,102 @@ defmodule Custode.MCPToolsTest do
 
       assert json["rejected"] == action_id
       assert {:ok, :idle} = Agent.await(id, :idle, 1_000)
+    end
+  end
+
+  describe "notebook and memory tools" do
+    alias Custode.MCP.MemoryTools
+    alias Custode.MCP.NotebookTools
+
+    test "the sweep loop: inbox_list -> journal_append + todo_add -> inbox_mark_filed" do
+      workspace = tmp_workspace!()
+      routine = routine_fixture!(workspace)
+      File.write!(Path.join([workspace, "inbox", "note.md"]), "rotate the api key\n")
+
+      json = tool_json(NotebookTools.InboxList.execute(%{routine_id: routine.id}, @frame))
+      assert [%{"name" => "note.md", "content" => "rotate the api key\n"}] = json["notes"]
+
+      json =
+        tool_json(
+          NotebookTools.JournalAppend.execute(
+            %{routine_id: routine.id, body: "note about key rotation", title: "keys"},
+            @frame
+          )
+        )
+
+      assert is_integer(json["entry_id"])
+
+      json =
+        tool_json(
+          NotebookTools.TodoAdd.execute(%{routine_id: routine.id, text: "rotate key"}, @frame)
+        )
+
+      todo_id = json["todo_id"]
+
+      json =
+        tool_json(
+          NotebookTools.InboxMarkFiled.execute(%{routine_id: routine.id, name: "note.md"}, @frame)
+        )
+
+      assert json["filed"] == "note.md"
+
+      assert tool_json(NotebookTools.InboxList.execute(%{routine_id: routine.id}, @frame)) ==
+               %{"notes" => []}
+
+      json = tool_json(NotebookTools.TodoList.execute(%{routine_id: routine.id}, @frame))
+      assert [%{"id" => ^todo_id, "status" => "open"}] = json["todos"]
+
+      json = tool_json(NotebookTools.TodoComplete.execute(%{todo_id: todo_id}, @frame))
+      assert json["status"] == "done"
+
+      # and the rendered views followed along
+      assert File.read!(Path.join(workspace, "journal.md")) =~ "keys"
+      assert File.read!(Path.join(workspace, "TODO.md")) =~ "- [x]"
+    end
+
+    test "notebook tool error paths" do
+      routine = routine_fixture!(tmp_workspace!())
+
+      assert tool_error(NotebookTools.InboxList.execute(%{routine_id: "ghost"}, @frame)) =~
+               "unknown routine"
+
+      assert tool_error(
+               NotebookTools.InboxMarkFiled.execute(
+                 %{routine_id: routine.id, name: "../escape.md"},
+                 @frame
+               )
+             ) =~ "must not be a path"
+
+      assert tool_error(NotebookTools.TodoComplete.execute(%{todo_id: 999_999}, @frame)) =~
+               "no todo"
+
+      assert tool_error(
+               NotebookTools.TodoList.execute(%{routine_id: routine.id, status: "wat"}, @frame)
+             ) =~ "unknown status"
+    end
+
+    test "remember / recall / forget round trip" do
+      id = uid("mem")
+
+      json =
+        tool_json(
+          MemoryTools.Remember.execute(%{agent_id: id, key: "pref", value: "be brief"}, @frame)
+        )
+
+      assert json["remembered"] == "pref"
+
+      json = tool_json(MemoryTools.Recall.execute(%{agent_id: id, key: "pref"}, @frame))
+      assert json["value"] == "be brief"
+
+      json = tool_json(MemoryTools.Recall.execute(%{agent_id: id}, @frame))
+      assert [%{"key" => "pref", "value" => "be brief"}] = json["memories"]
+
+      assert tool_error(MemoryTools.Recall.execute(%{agent_id: id, key: "nope"}, @frame)) =~
+               "nothing remembered"
+
+      json = tool_json(MemoryTools.Forget.execute(%{agent_id: id, key: "pref"}, @frame))
+      assert json["forgot"] == "pref"
+      assert tool_json(MemoryTools.Recall.execute(%{agent_id: id}, @frame)) == %{"memories" => []}
     end
   end
 
