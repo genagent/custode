@@ -89,6 +89,60 @@ defmodule Custode.RoutineTest do
     end
   end
 
+  describe "repo caretaker (working_dir split, approved worktree, git grants)" do
+    defp dev_fixture! do
+      routine_fixture!("workspace", %{
+        role: :repo_caretaker,
+        working_dir: ".",
+        mcp: true,
+        extra_allowed_tools: ["Bash(git log:*)"],
+        approved_args: %{"permission_mode" => "dont_ask", "worktree" => "dev-wt"}
+      })
+    end
+
+    test "working_dir defaults to workspace, and splits when given" do
+      plain = routine_fixture!("workspace")
+      assert plain.working_dir == "workspace"
+
+      dev = dev_fixture!()
+      assert dev.workspace == "workspace"
+      assert dev.working_dir == "."
+
+      claude_args = Custode.Routine.tick_args(dev)["start"]["args"]
+      assert claude_args["working_dir"] == Path.expand(".")
+    end
+
+    test "approved_args override rides the tick spec (worktree isolation)" do
+      dev = dev_fixture!()
+
+      assert Custode.Routine.tick_args(dev)["start"]["approved_args"] ==
+               %{"permission_mode" => "dont_ask", "worktree" => "dev-wt"}
+
+      plain = routine_fixture!("workspace")
+
+      assert Custode.Routine.tick_args(plain)["start"]["approved_args"] ==
+               %{"permission_mode" => "dont_ask"}
+    end
+
+    test "extra_allowed_tools append to the MCP allowlist" do
+      dev = dev_fixture!()
+      claude_args = Custode.Routine.tick_args(dev)["start"]["args"]
+
+      assert claude_args["allowed_tools"] == ["mcp__custode", "Bash(git log:*)"]
+    end
+
+    test "the repo caretaker role gets its own standing orders" do
+      dev = dev_fixture!()
+      claude_args = Custode.Routine.tick_args(dev)["start"]["args"]
+
+      assert claude_args["append_system_prompt"] =~ "repository caretaker"
+      assert claude_args["append_system_prompt"] =~ "isolated git worktree"
+      assert claude_args["append_system_prompt"] =~ "one small, concrete improvement"
+      # still gets no standing write permission
+      refute Map.has_key?(claude_args, "permission_mode")
+    end
+  end
+
   describe "sub_agent_args/2" do
     test "defaults: worker-bee prompt, memory-only MCP, sandboxed to the workspace" do
       args = Custode.Routine.sub_agent_args("/tmp")
