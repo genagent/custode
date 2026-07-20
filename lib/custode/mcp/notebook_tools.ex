@@ -111,13 +111,15 @@ defmodule Custode.MCP.NotebookTools.InboxList do
 
   import Custode.MCP.Tools
 
+  alias Custode.MCP.NotebookTools
+
   schema do
     field(:routine_id, :string, required: true)
   end
 
   @impl true
   def execute(%{routine_id: routine_id}, frame) do
-    case Custode.MCP.NotebookTools.fetch_routine(routine_id) do
+    case NotebookTools.fetch_routine(routine_id) do
       {:ok, routine} -> reply(frame, %{notes: Custode.Notebook.unfiled_notes(routine)})
       {:error, message} -> fail(frame, message)
     end
@@ -130,6 +132,8 @@ defmodule Custode.MCP.NotebookTools.InboxMarkFiled do
 
   import Custode.MCP.Tools
 
+  alias Custode.MCP.NotebookTools
+
   schema do
     field(:routine_id, :string, required: true)
     field(:name, :string, required: true, description: "the note's file name (not a path)")
@@ -137,7 +141,7 @@ defmodule Custode.MCP.NotebookTools.InboxMarkFiled do
 
   @impl true
   def execute(%{routine_id: routine_id, name: name}, frame) do
-    with {:ok, routine} <- Custode.MCP.NotebookTools.fetch_routine(routine_id),
+    with {:ok, routine} <- NotebookTools.fetch_routine(routine_id),
          :ok <- safe_mark(routine, name) do
       reply(frame, %{filed: name})
     else

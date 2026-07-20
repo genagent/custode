@@ -87,7 +87,7 @@ defmodule Custode.Notebook do
     {:ok, todo}
   end
 
-  @doc "Todos for a routine: status \"open\" (default), \"done\", or \"all\"."
+  @doc ~s|Todos for a routine: status "open" (default), "done", or "all".|
   def todos(routine_id, status \\ "open") do
     base = from(t in Todo, where: t.routine_id == ^routine_id, order_by: [asc: t.id])
 

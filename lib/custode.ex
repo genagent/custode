@@ -14,6 +14,7 @@ defmodule Custode do
 
   alias Custode.Routine
   alias ObanClaude.Agent
+  alias ObanClaude.Agent.Tick
 
   @doc "Lifecycle status, straight off the registry."
   def status(id \\ nil), do: Agent.status(fetch!(id).id)
@@ -31,9 +32,7 @@ defmodule Custode do
   def beat(id \\ nil) do
     routine = fetch!(id)
 
-    {:ok, job} =
-      Oban.insert(ObanClaude.Agent.Tick.new(Routine.tick_args(routine), queue: :ticks))
-
+    {:ok, job} = Oban.insert(Tick.new(Routine.tick_args(routine), queue: :ticks))
     {:ok, job.id}
   end
 
@@ -101,19 +100,18 @@ defmodule Custode do
   @doc "Pretty-print the last `n` feed entries (see `Custode.Feed`)."
   def feed(n \\ 20) do
     case Custode.Feed.tail(n) do
-      [] ->
-        IO.puts("(no feed yet: #{Custode.Feed.path()})")
-
-      entries ->
-        for entry <- entries do
-          time = entry["at"] |> String.slice(11, 8)
-          detail = entry["summary"] || entry["action"] || entry["question"] || entry["kind"] || ""
-          cost = if entry["cost_usd"], do: " ($#{entry["cost_usd"]})", else: ""
-          IO.puts("#{time} [#{entry["agent"]}] #{entry["event"]}#{cost} #{detail}")
-        end
+      [] -> IO.puts("(no feed yet: #{Custode.Feed.path()})")
+      entries -> Enum.each(entries, &print_feed_entry/1)
     end
 
     :ok
+  end
+
+  defp print_feed_entry(entry) do
+    time = String.slice(entry["at"], 11, 8)
+    detail = entry["summary"] || entry["action"] || entry["question"] || entry["kind"] || ""
+    cost = if entry["cost_usd"], do: " ($#{entry["cost_usd"]})", else: ""
+    IO.puts("#{time} [#{entry["agent"]}] #{entry["event"]}#{cost} #{detail}")
   end
 
   @doc "One readable snapshot: status, spend, pendings, and recent history."

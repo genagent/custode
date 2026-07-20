@@ -8,6 +8,8 @@ defmodule Custode.TestHelpers do
 
   import ExUnit.Callbacks, only: [on_exit: 1]
 
+  alias Anubis.Server.Response
+
   @doc "A unique id with a prefix."
   def uid(prefix), do: prefix <> "-" <> Integer.to_string(System.unique_integer([:positive]))
 
@@ -67,7 +69,7 @@ defmodule Custode.TestHelpers do
   @doc "Decode the JSON payload out of an MCP tool `{:reply, response, frame}`."
   def tool_json({:reply, response, _frame}) do
     %{"content" => [%{"text" => text} | _rest], "isError" => false} =
-      Anubis.Server.Response.to_protocol(response)
+      Response.to_protocol(response)
 
     Jason.decode!(text)
   end
@@ -75,7 +77,7 @@ defmodule Custode.TestHelpers do
   @doc "Extract the error text out of an MCP tool error reply."
   def tool_error({:reply, response, _frame}) do
     %{"content" => [%{"text" => text} | _rest], "isError" => true} =
-      Anubis.Server.Response.to_protocol(response)
+      Response.to_protocol(response)
 
     text
   end
