@@ -119,6 +119,26 @@ Identity caveat: tool calls carry no caller identity, so `routine_id` /
 `agent_id` are trusted parameters -- fine on localhost, needs per-agent
 credentials before anything multi-tenant.
 
+## Spend and budgets
+
+Every claude turn (success or failure) lands a row in the `spend` table, so
+the money trail survives restarts. A routine with `daily_budget_usd` (shared
+default in config, per-routine override, `nil` disables) is **auto-paused**
+the moment its UTC-day total crosses the cap -- with a `budget_paused` feed
+entry and desktop notification. Resuming is a human override; the next turn's
+spend re-pauses if still over. `Custode.spend()` prints today's totals; the
+dashboard shows `today $X / $Y` per card and the fleet total in the header.
+(Known leak: a restart clears the pause, costing at most one turn -- see
+ROADMAP.)
+
+## Durable gates
+
+Every `awaiting_permission` / `waiting_for_user` gate is recorded in the
+`gates` table as it opens and resolves. On boot, gates left open by a restart
+become RESTART NOTICE inbox notes: the next sweep reads them and re-raises
+the gate if still warranted -- the agent re-derives its own state, no state
+injection.
+
 ## The feed
 
 Every noteworthy event appends one JSON line to `feed.jsonl`: finished turns

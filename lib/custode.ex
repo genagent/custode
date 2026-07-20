@@ -97,6 +97,20 @@ defmodule Custode do
     :ok
   end
 
+  @doc "Print today's (UTC) spend per routine and the fleet total."
+  def spend do
+    for routine <- Routine.all() do
+      budget = if routine.daily_budget_usd, do: " / $#{routine.daily_budget_usd}", else: ""
+
+      IO.puts(
+        "  #{routine.id}: $#{Float.round(Custode.SpendLedger.today(routine.id), 4)}#{budget}"
+      )
+    end
+
+    IO.puts("  fleet today: $#{Float.round(Custode.SpendLedger.fleet_today(), 4)}")
+    :ok
+  end
+
   @doc "Pretty-print the last `n` feed entries (see `Custode.Feed`)."
   def feed(n \\ 20) do
     case Custode.Feed.tail(n) do

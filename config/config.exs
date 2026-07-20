@@ -27,6 +27,10 @@ config :custode,
   # Defaults shared by every routine unless overridden per-entry.
   model: "sonnet",
   max_budget_usd: 0.75,
+  # Daily (UTC) spend cap per routine: crossing it auto-pauses the routine
+  # (resume is a human override; a restart leaks at most one turn). nil
+  # disables. Per-routine override: daily_budget_usd in the routine map.
+  daily_budget_usd: 5.0,
   # The activity feed (one JSON line per noteworthy event; see Custode.Feed).
   feed_path: "feed.jsonl",
   # macOS desktop notifications for events that need a human

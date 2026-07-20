@@ -88,6 +88,9 @@ defmodule CustodeWeb.FleetLive do
       <header class="mb-6 flex items-baseline gap-3">
         <h1 class="text-3xl font-bold">custode</h1>
         <span class="text-base-content/60">the caretaker fleet</span>
+        <span class="ml-auto font-mono text-sm text-base-content/70">
+          fleet today ${Float.round(@fleet_today, 4)}
+        </span>
       </header>
 
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -98,6 +101,7 @@ defmodule CustodeWeb.FleetLive do
             agent={@agents[routine.id]}
             routine={routine}
             notebook={@notebooks[routine.id]}
+            spend_today={@spend[routine.id]}
           />
 
           <div :if={@others != []}>
@@ -109,6 +113,7 @@ defmodule CustodeWeb.FleetLive do
                 agent={@agents[id]}
                 routine={nil}
                 notebook={nil}
+                spend_today={nil}
               />
             </div>
           </div>
@@ -171,10 +176,18 @@ defmodule CustodeWeb.FleetLive do
           </div>
         </div>
 
-        <div :if={@agent.info} class="flex gap-6 text-sm text-base-content/70">
-          <span>turns <b>{@agent.info.turns}</b></span>
-          <span>spend <b>${Float.round(@agent.info.cost_usd, 4)}</b></span>
-          <span :if={@agent.info.session_id} class="truncate font-mono text-xs">
+        <div class="flex gap-6 text-sm text-base-content/70">
+          <span :if={@agent.info}>turns <b>{@agent.info.turns}</b></span>
+          <span :if={@spend_today}>
+            today <b>${Float.round(@spend_today, 4)}</b>
+            <span :if={@routine && @routine.daily_budget_usd} class="text-base-content/50">
+              / ${@routine.daily_budget_usd}
+            </span>
+          </span>
+          <span
+            :if={@agent.info && @agent.info.session_id}
+            class="truncate font-mono text-xs"
+          >
             {String.slice(@agent.info.session_id, 0, 8)}
           </span>
         </div>
@@ -301,7 +314,16 @@ defmodule CustodeWeb.FleetLive do
         {id, %{todos: Custode.Notebook.todos(id), latest: latest, journal_count: journal_count}}
       end)
 
-    assign(socket, routines: routines, agents: agents, others: others, notebooks: notebooks)
+    spend = Map.new(routine_ids, fn id -> {id, Custode.SpendLedger.today(id)} end)
+
+    assign(socket,
+      routines: routines,
+      agents: agents,
+      others: others,
+      notebooks: notebooks,
+      spend: spend,
+      fleet_today: Custode.SpendLedger.fleet_today()
+    )
   end
 
   defp state_of({state, _payload}), do: state

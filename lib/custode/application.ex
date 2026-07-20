@@ -15,6 +15,8 @@ defmodule Custode.Application do
     Custode.Observer.attach()
     Custode.Feed.attach()
     Custode.PubSubBridge.attach()
+    Custode.SpendLedger.attach()
+    Custode.Gates.attach()
     Custode.MCP.write_config!()
 
     children = [
@@ -23,6 +25,9 @@ defmodule Custode.Application do
       {Ecto.Migrator, repos: [Custode.Repo], log_migrations_sql: false},
       {Oban, oban_config()},
       ObanClaude.Agent.Supervisor,
+      # boot reconciliation: unresolved gates from before the restart become
+      # RESTART NOTICE inbox notes the next sweep re-evaluates
+      Supervisor.child_spec({Task, &Custode.Gates.reconcile!/0}, id: :gates_reconcile),
       # start: true is load-bearing: anubis otherwise guesses whether to boot
       # its session machinery by sniffing for Phoenix config, and the
       # dashboard's endpoint config flips that guess to "no" -- which

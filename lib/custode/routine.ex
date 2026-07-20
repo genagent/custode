@@ -95,6 +95,8 @@ defmodule Custode.Routine do
       model: Map.get(routine, :model, Application.fetch_env!(:custode, :model)),
       max_budget_usd:
         Map.get(routine, :max_budget_usd, Application.fetch_env!(:custode, :max_budget_usd)),
+      daily_budget_usd:
+        Map.get(routine, :daily_budget_usd, Application.get_env(:custode, :daily_budget_usd)),
       system_prompt: Map.get(routine, :system_prompt, caretaker_prompt(Map.fetch!(routine, :id))),
       mcp: Map.get(routine, :mcp, false)
     }

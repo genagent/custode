@@ -41,6 +41,13 @@ defmodule Custode.Feed do
     end
   end
 
+  @doc """
+  Record an app-level event (e.g. `budget_paused`) into the feed, same shape
+  and delivery as the telemetry-driven entries. `notify: true` raises the
+  desktop notification.
+  """
+  def record(entry, opts \\ []) when is_map(entry), do: write(entry, opts)
+
   def handle_event([:oban_claude, :run, :stop], measurements, meta, _config) do
     out = ObanClaude.structured(meta.result) || %{}
 
