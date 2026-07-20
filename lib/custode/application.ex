@@ -44,7 +44,10 @@ defmodule Custode.Application do
       # ticks on their own queue so a beat observes the agent's state, not a
       # queue slot behind the agent's own turn job. Overridable so the test
       # env can run with no executing queues at all (no paid calls, ever).
-      queues: Application.get_env(:custode, :oban_queues, agents: 2, ticks: 1)
+      # agents: 3 so a routine turn, a one-shot job, and a sub-agent turn can
+      # all run concurrently (a delegating parent occupies a slot while its
+      # children need their own)
+      queues: Application.get_env(:custode, :oban_queues, agents: 3, ticks: 1)
     ]
   end
 end

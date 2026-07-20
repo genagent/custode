@@ -100,6 +100,30 @@ also raise a macOS desktop notification (config
 the same file/telemetry away, e.g. a handler that curls an
 [ntfy.sh](https://ntfy.sh) topic.
 
+## Delegation: agents driving agents
+
+Routines with `mcp: true` (the default caretaker has it) get the custode MCP
+toolbox -- a streamable-HTTP server on localhost that claude sessions reach
+via their `mcp_config`. Two tiers:
+
+- **`run_job`** -- a fire-and-forget one-shot claude job. Its result comes
+  back as a NOTE in a `report_inbox` directory (usually the caller's own
+  inbox), filed by a later sweep. Workspace-files-as-mailboxes: the parent is
+  never interrupted mid-turn, and the paper trail is ordinary files.
+- **`start_agent` / `prompt_agent` / `await_agent` / `agent_status` /
+  `agent_history` / `approve_action` / `reject_action`** -- full sub-agents
+  with the whole lifecycle. The calling agent is its sub-agents' operator:
+  it answers their questions and decides their permission gates. Sub-agents
+  get no delegation tools (no recursive spawning).
+
+Try it: `Custode.ask("Use run_job to inventory this workspace's markdown
+files, reporting to your own inbox")` -- then watch the feed, and the next
+sweep files the report. `scripts/mcp_live.exs` runs the full choreography
+(parent spawns a scribe sub-agent AND a one-shot job) with real claude calls.
+
+The endpoint binds 127.0.0.1 only and has no auth: do not expose it beyond
+the machine as-is.
+
 ## Run a fleet
 
 `config :custode, routines: [...]` is a list. Each entry is one always-on
