@@ -44,8 +44,9 @@ defmodule Custode.NotebookTest do
     end
 
     test "journaling for an unconfigured routine skips the render, keeps the row" do
-      {:ok, _entry} = Notebook.journal_append("some-sub-agent", "learned a thing")
-      assert [%{body: "learned a thing"}] = Notebook.journal("some-sub-agent")
+      id = uid("sub-agent")
+      {:ok, _entry} = Notebook.journal_append(id, "learned a thing")
+      assert [%{body: "learned a thing"}] = Notebook.journal(id)
     end
   end
 
