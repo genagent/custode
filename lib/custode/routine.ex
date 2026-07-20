@@ -38,8 +38,26 @@ defmodule Custode.Routine do
     }
   end
 
-  defp claude_args(routine) do
+  @doc """
+  Claude args for a sub-agent started via the `start_agent` MCP tool: same
+  shape as a routine agent, but no MCP tools (no recursive delegation) and a
+  worker-bee default system prompt. `opts` are the tool's params.
+  """
+  def sub_agent_args(workspace, opts \\ %{}) do
     ObanClaude.Args.defaults(
+      model: opts[:model] || Application.fetch_env!(:custode, :model),
+      working_dir: Path.expand(workspace),
+      permission_mode: :accept_edits,
+      max_turns: 20,
+      max_budget_usd: Application.fetch_env!(:custode, :max_budget_usd),
+      timeout: 200_000,
+      json_schema: directive_schema(),
+      append_system_prompt: opts[:system_prompt] || sub_agent_prompt()
+    )
+  end
+
+  defp claude_args(routine) do
+    base = [
       model: routine.model,
       working_dir: Path.expand(routine.workspace),
       permission_mode: :accept_edits,
@@ -47,9 +65,19 @@ defmodule Custode.Routine do
       max_budget_usd: routine.max_budget_usd,
       timeout: 200_000,
       json_schema: directive_schema(),
-      append_system_prompt: routine.system_prompt
-    )
+      append_system_prompt: system_prompt(routine)
+    ]
+
+    mcp =
+      if routine.mcp,
+        do: [mcp_config: [Custode.MCP.config_path()], allowed_tools: ["mcp__custode"]],
+        else: []
+
+    ObanClaude.Args.defaults(base ++ mcp)
   end
+
+  defp system_prompt(%{mcp: true} = routine), do: routine.system_prompt <> delegation_prompt()
+  defp system_prompt(routine), do: routine.system_prompt
 
   defp normalize(routine) do
     %{
@@ -60,7 +88,8 @@ defmodule Custode.Routine do
       model: Map.get(routine, :model, Application.fetch_env!(:custode, :model)),
       max_budget_usd:
         Map.get(routine, :max_budget_usd, Application.fetch_env!(:custode, :max_budget_usd)),
-      system_prompt: Map.get(routine, :system_prompt, caretaker_prompt())
+      system_prompt: Map.get(routine, :system_prompt, caretaker_prompt()),
+      mcp: Map.get(routine, :mcp, false)
     }
   end
 
@@ -102,6 +131,37 @@ defmodule Custode.Routine do
        question.
     5. Otherwise directive=none. Always put a one-line sweep report in
        summary (e.g. "filed 2 notes, 1 new TODO" or "nothing to do").
+    """
+  end
+
+  defp sub_agent_prompt do
+    """
+    You are a sub-agent working for a supervising agent (your operator).
+    Complete the task in each prompt within your workspace directory. Always
+    return the structured output: directive=ask_user with a question when you
+    need information only your operator has; directive=request_permission
+    with a one-line action description before anything destructive or outside
+    your workspace; otherwise directive=none with your result in summary.
+    """
+  end
+
+  defp delegation_prompt do
+    """
+
+    ## Delegation
+
+    You have custode MCP tools for delegating work:
+
+    - mcp__custode__run_job: a fire-and-forget one-shot claude job. Give it a
+      prompt, optionally a workspace path, and report_inbox = YOUR OWN
+      absolute inbox/ path. The job's result arrives there as a note that you
+      will file on a later sweep. Prefer this for bounded single tasks.
+    - mcp__custode__start_agent + prompt_agent + await_agent + agent_status +
+      agent_history + approve_action + reject_action: full sub-agents with a
+      lifecycle, for multi-step supervised work. YOU are your sub-agents'
+      operator: answer their questions with prompt_agent and decide their
+      request_permission gates with approve_action/reject_action. Sub-agents
+      have no delegation tools.
     """
   end
 end

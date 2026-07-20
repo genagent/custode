@@ -16,8 +16,11 @@ config :custode,
       cron: "*/10 * * * *",
       # The directory this agent tends. Relative paths resolve from the cwd.
       workspace: "workspace",
-      prompt: "Do your caretaker sweep now."
-      # Optional per-routine overrides:
+      prompt: "Do your caretaker sweep now.",
+      # Fleet powers: this agent gets the custode MCP tools (run_job,
+      # start_agent, ...) so it can delegate to one-shot jobs and sub-agents.
+      mcp: true
+      # Other per-routine overrides:
       #   model: "haiku", max_budget_usd: 0.25, system_prompt: "..."
     }
   ],
@@ -35,3 +38,8 @@ config :custode, Custode.Repo,
   pool_size: 1,
   busy_timeout: 5_000,
   log: false
+
+# The MCP endpoint (localhost only) agents use to drive sibling agents/jobs.
+config :custode, mcp_port: 6161
+
+import_config "#{config_env()}.exs"

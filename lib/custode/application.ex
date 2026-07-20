@@ -14,12 +14,15 @@ defmodule Custode.Application do
   def start(_type, _args) do
     Custode.Observer.attach()
     Custode.Feed.attach()
+    Custode.MCP.write_config!()
 
     children = [
       Custode.Repo,
       {Ecto.Migrator, repos: [Custode.Repo], log_migrations_sql: false},
       {Oban, oban_config()},
-      ObanClaude.Agent.Supervisor
+      ObanClaude.Agent.Supervisor,
+      {Custode.MCP.Server, transport: :streamable_http},
+      {Bandit, plug: Custode.MCP.Router, port: Custode.MCP.port(), ip: {127, 0, 0, 1}}
     ]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: Custode.Supervisor)
@@ -39,8 +42,9 @@ defmodule Custode.Application do
       peer: Oban.Peers.Isolated,
       plugins: [{Oban.Plugins.Cron, crontab: crontab}],
       # ticks on their own queue so a beat observes the agent's state, not a
-      # queue slot behind the agent's own turn job
-      queues: [agents: 2, ticks: 1]
+      # queue slot behind the agent's own turn job. Overridable so the test
+      # env can run with no executing queues at all (no paid calls, ever).
+      queues: Application.get_env(:custode, :oban_queues, agents: 2, ticks: 1)
     ]
   end
 end
