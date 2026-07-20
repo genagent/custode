@@ -27,6 +27,9 @@ defmodule Custode.Feed do
 
   def path, do: Application.get_env(:custode, :feed_path, "feed.jsonl")
 
+  @doc "The size, in bytes, past which `path/0` rotates to `path/0 <> \".1\"`."
+  def max_bytes, do: Application.get_env(:custode, :feed_max_bytes, 10 * 1024 * 1024)
+
   @doc "The last `n` feed entries as maps, oldest first."
   def tail(n \\ 20) do
     case File.read(path()) do
@@ -101,6 +104,14 @@ defmodule Custode.Feed do
   defp write(entry, opts \\ []) do
     entry = Map.put(entry, :at, DateTime.to_iso8601(DateTime.utc_now()))
     encoded = Jason.encode!(entry)
+
+    max = max_bytes()
+
+    case File.stat(path()) do
+      {:ok, %{size: size}} when size >= max -> File.rename(path(), path() <> ".1")
+      _other -> :ok
+    end
+
     File.write!(path(), encoded <> "\n", [:append])
     # the dashboard's live stream: same shape as tail/1 (string keys)
     Custode.PubSubBridge.broadcast({:feed_entry, Jason.decode!(encoded)})

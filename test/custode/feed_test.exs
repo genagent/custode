@@ -11,7 +11,12 @@ defmodule Custode.FeedTest do
   setup do
     path = Path.join(System.tmp_dir!(), uid("feed") <> ".jsonl")
     put_env!(:feed_path, path)
-    on_exit(fn -> File.rm(path) end)
+
+    on_exit(fn ->
+      File.rm(path)
+      File.rm(path <> ".1")
+    end)
+
     %{path: path}
   end
 
@@ -77,6 +82,21 @@ defmodule Custode.FeedTest do
     assert {"needs_input", "which one?"} in events
     assert {"paused", nil} in events
     assert {"resumed", nil} in events
+  end
+
+  test "the feed rotates to .1 once it crosses feed_max_bytes", %{path: path} do
+    put_env!(:feed_max_bytes, 10)
+
+    Custode.Feed.record(%{event: "first"})
+    Custode.Feed.record(%{event: "second"})
+
+    assert [%{"event" => "first"}] =
+             (path <> ".1")
+             |> File.read!()
+             |> String.split("\n", trim: true)
+             |> Enum.map(&Jason.decode!/1)
+
+    assert [%{"event" => "second"}] = Custode.Feed.tail()
   end
 
   test "tail/1 bounds and orders; missing file reads as empty" do

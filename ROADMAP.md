@@ -25,10 +25,25 @@ runs, 2026-07-20.
 - [ ] **Sub-agents don't revive.** Routines self-heal via crontab-as-spec;
       sub-agents have no spec anywhere. A `sub_agents` table written by
       `start_agent` + revival on boot.
-- [ ] **Feed rotation.** `feed.jsonl` grows forever.
+- [x] **Feed rotation.** `feed.jsonl` rotates to `.1` past `feed_max_bytes`
+      (default 10MB). Proposed, and implemented in its worktree, by the
+      custode-dev routine itself; human review fixed a function-in-guard
+      compile error and merged.
 - [ ] **Post-restart budget leak.** A restart clears an auto-pause, so an
       over-budget routine leaks one turn before re-pausing. A boot-time
       budget check (or a Tick-level guard) closes it.
+- [ ] **Worktree dev loop.** custode-dev cannot compile or test inside its
+      worktree: the `../oban_claude` path dep does not resolve from
+      `.claude/worktrees/`, so its changes are unverified-by-author (the
+      first merged diff shipped a function-in-guard error the author could
+      not have caught). Symlinked deps/_build or an absolute path dep would
+      let it run `mix test` before proposing done.
+- [ ] **Elevation continuity across rail-stops.** An approved turn that
+      rail-stops (per-turn budget) resumes its session on the next prompt
+      WITHOUT the approved_args elevation -- the continuation cannot finish
+      the approved work. Re-propose/re-approve works (proven live) but a
+      sticky per-approval elevation until the action resolves would be
+      cleaner.
 
 ## Tier 3: product "of course"s
 

@@ -36,7 +36,10 @@ config :custode,
       prompt: "Do your repository caretaker sweep now.",
       role: :repo_caretaker,
       mcp: true,
-      daily_budget_usd: 3.0,
+      # repo-context turns are pricier than workspace sweeps: a bigger
+      # per-turn cap so an approved implementation can finish in one turn
+      max_budget_usd: 1.5,
+      daily_budget_usd: 5.0,
       extra_allowed_tools: [
         "Bash(git log:*)",
         "Bash(git status:*)",
