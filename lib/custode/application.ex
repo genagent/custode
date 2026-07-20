@@ -23,8 +23,12 @@ defmodule Custode.Application do
       {Ecto.Migrator, repos: [Custode.Repo], log_migrations_sql: false},
       {Oban, oban_config()},
       ObanClaude.Agent.Supervisor,
-      {Custode.MCP.Server, transport: :streamable_http},
-      {Custode.MCP.MemoryServer, transport: :streamable_http},
+      # start: true is load-bearing: anubis otherwise guesses whether to boot
+      # its session machinery by sniffing for Phoenix config, and the
+      # dashboard's endpoint config flips that guess to "no" -- which
+      # silently breaks every MCP request with a missing session_config
+      {Custode.MCP.Server, transport: {:streamable_http, start: true}},
+      {Custode.MCP.MemoryServer, transport: {:streamable_http, start: true}},
       {Bandit, plug: Custode.MCP.Router, port: Custode.MCP.port(), ip: {127, 0, 0, 1}},
       CustodeWeb.Endpoint
     ]
@@ -44,7 +48,14 @@ defmodule Custode.Application do
       engine: Oban.Engines.Lite,
       notifier: Oban.Notifiers.PG,
       peer: Oban.Peers.Isolated,
-      plugins: [{Oban.Plugins.Cron, crontab: crontab}],
+      plugins: [
+        {Oban.Plugins.Cron, crontab: crontab},
+        # a crash mid-turn leaves the job row stuck executing; Lifeline
+        # rescinds it so the durable-restart story holds for turns too
+        {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(10)},
+        # the jobs table is the audit trail: keep a week, not forever
+        {Oban.Plugins.Pruner, max_age: 7 * 24 * 60 * 60}
+      ],
       # ticks on their own queue so a beat observes the agent's state, not a
       # queue slot behind the agent's own turn job. Overridable so the test
       # env can run with no executing queues at all (no paid calls, ever).
