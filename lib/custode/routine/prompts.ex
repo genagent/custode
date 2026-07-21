@@ -342,6 +342,12 @@ defmodule Custode.Routine.Prompts do
       operator: answer their questions with prompt_agent and decide their
       request_permission gates with approve_action/reject_action. Sub-agents
       have no delegation tools.
+    - MODEL CHOICE when delegating: pick the cheapest model that can do
+      the job -- haiku for mechanical transforms and summaries, sonnet
+      for bounded well-specified code or research, opus ONLY for
+      design-heavy or ambiguous work. Say why in one clause when you
+      pick opus. Your own sweeps run cheap on purpose; approved
+      implementations are upgraded automatically.
     - mcp__custode__repo_open_pr / repo_comment / repo_ready_pr /
       repo_merge_pr: typed GitHub writes on the repos custode serves,
       policy-checked mechanically (conventional titles enforced, PRs always

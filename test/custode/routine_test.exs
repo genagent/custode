@@ -174,6 +174,26 @@ defmodule Custode.RoutineTest do
       assert claude_args["append_system_prompt"] =~ "run_job"
     end
 
+    test "phase-split models: cheap sweeps, expensive approved implementations" do
+      put_env!(:profiles, %{
+        split: %{
+          role: :backlog_worker,
+          cron: :manual,
+          model: "sonnet",
+          effort: "low",
+          approved_args: %{"model" => "opus", "effort" => "high"}
+        }
+      })
+
+      routine = routine_fixture!(tmp_workspace!(), %{profile: :split})
+      start = Custode.Routine.tick_args(routine)["start"]
+
+      assert start["args"]["model"] == "sonnet"
+      assert start["args"]["effort"] == "low"
+      assert start["approved_args"]["model"] == "opus"
+      assert start["approved_args"]["effort"] == "high"
+    end
+
     test "tool tiers: operator verbs go to the caretaker role only (#40)" do
       caretaker = routine_fixture!("workspace", %{mcp: true})
       caretaker_tools = Custode.Routine.tick_args(caretaker)["start"]["args"]["allowed_tools"]

@@ -216,6 +216,11 @@ defmodule Custode.Routine do
         do: Keyword.put(extra, :hermetic, routine.hermetic),
         else: extra
 
+    extra =
+      if routine.effort != nil,
+        do: Keyword.put(extra, :effort, String.to_existing_atom(routine.effort)),
+        else: extra
+
     ObanClaude.Args.defaults(base ++ extra)
   end
 
@@ -285,6 +290,9 @@ defmodule Custode.Routine do
       # agentic turns inside one claude run; an approved implementation
       # (edit + build + test loops) needs far more than a sweep
       max_turns: Map.get(routine, :max_turns, 20),
+      # reasoning effort for SWEEPS (approved_args may raise it for
+      # implementations); nil leaves the CLI default
+      effort: Map.get(routine, :effort),
       system_prompt: resolve_prompt(routine, role, id),
       # non-hermetic runs inherit the repo's own CLAUDE.md/persona (#19);
       # set hermetic: true to shut ambient context out for a routine

@@ -121,6 +121,19 @@ defmodule Custode.SpendLedgerTest do
     assert SpendLedger.today_tokens(id) == 1_650
   end
 
+  test "the model rides every ledger row (adaptation's raw data)" do
+    id = uid("modeled")
+
+    {:ok, _} =
+      ObanClaude.run(%{"prompt" => "x", "model" => "opus"},
+        job: %Oban.Job{args: %{"model" => "opus"}, meta: %{"agent_id" => id}},
+        query_fun: respond(result(result: "done", cost_usd: 0.5))
+      )
+
+    [[model]] = Custode.Repo.query!("SELECT model FROM spend WHERE agent_id = ?", [id]).rows
+    assert model == "opus"
+  end
+
   test "the token rail pauses like the dollar rail (#30)" do
     workspace = tmp_workspace!()
     routine = routine_fixture!(workspace, %{daily_budget_tokens: 1_000, daily_budget_usd: nil})

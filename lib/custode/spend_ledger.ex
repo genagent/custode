@@ -35,6 +35,7 @@ defmodule Custode.SpendLedger do
       field(:cache_creation_tokens, :integer)
       field(:cache_read_tokens, :integer)
       field(:stop_reason, :string)
+      field(:model, :string)
       timestamps(type: :utc_datetime_usec, updated_at: false)
     end
   end
@@ -71,7 +72,7 @@ defmodule Custode.SpendLedger do
           agent_id,
           measurements.cost_usd,
           if(outcome == :stop, do: "turn", else: "failed"),
-          usage_of(meta)
+          usage_of(meta) ++ [model: model_of(meta)]
         )
 
       _no_agent ->
@@ -89,6 +90,9 @@ defmodule Custode.SpendLedger do
 
   defp usage_of(_meta), do: []
 
+  defp model_of(%{args: %{"model" => model}}), do: model
+  defp model_of(_meta), do: nil
+
   @doc "Record spend for an agent and enforce its budget (if it is a routine with one)."
   def record(agent_id, cost_usd, outcome \\ "turn", opts \\ []) when is_number(cost_usd) do
     usage = opts[:usage] || %{}
@@ -101,7 +105,8 @@ defmodule Custode.SpendLedger do
       output_tokens: usage[:output],
       cache_creation_tokens: usage[:cache_creation],
       cache_read_tokens: usage[:cache_read],
-      stop_reason: opts[:stop_reason]
+      stop_reason: opts[:stop_reason],
+      model: opts[:model]
     })
 
     enforce(agent_id)
