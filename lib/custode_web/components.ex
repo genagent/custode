@@ -36,12 +36,10 @@ defmodule CustodeWeb.Components do
             <span :if={@show_agent}>{@entry["agent"]}</span>
           </span>
           <span :if={@entry["cost_usd"]} class="ml-auto font-mono text-xs">
-            ${@entry["cost_usd"]}
+            ${usd(@entry["cost_usd"])}
           </span>
         </div>
-        <p class="text-base-content/80">
-          {@entry["summary"] || @entry["action"] || @entry["question"] || @entry["kind"]}
-        </p>
+        <p class="text-base-content/80">{feed_text(@entry)}</p>
       </div>
     </div>
     """
@@ -67,13 +65,43 @@ defmodule CustodeWeb.Components do
           {attention_text(@attention)}
         </.link>
         <span class="ml-auto font-mono text-sm text-base-content/70">
-          fleet today ${Float.round(@fleet_today, 4)}
+          fleet today ${usd(@fleet_today)}
         </span>
       </header>
       {render_slot(@inner_block)}
     </div>
     """
   end
+
+  @doc "Dollar amounts render with two decimals everywhere (#31)."
+  def usd(value) when is_number(value), do: :erlang.float_to_binary(value / 1, decimals: 2)
+
+  @doc """
+  The text of a feed card. Failure events carry a what-happens-next hint --
+  a bare rail kind ("max_turns_exceeded") tells the operator what broke but
+  not whether anyone has to do anything (#31).
+  """
+  def feed_text(%{"event" => "turn_failed"} = entry),
+    do: "#{entry["kind"]} -- #{failure_hint(entry["kind"])}"
+
+  def feed_text(%{"event" => "budget_paused"}),
+    do: "daily budget rail crossed; auto-paused until a human resumes"
+
+  def feed_text(entry),
+    do: entry["summary"] || entry["action"] || entry["question"] || entry["kind"]
+
+  defp failure_hint("max_turns_exceeded"),
+    do:
+      "turn cap hit mid-run; if this was an approval it re-gated, and re-approving grants a fresh turn budget"
+
+  defp failure_hint("max_budget_exceeded"),
+    do: "per-turn cost cap hit; a re-approval retries, or raise the routine's max_budget_usd"
+
+  defp failure_hint("timeout"),
+    do: "subprocess time cap hit; a re-approval retries, or raise the routine's timeout_ms"
+
+  defp failure_hint(_kind),
+    do: "the next beat retries; check the machine log if it repeats"
 
   @attention_states [:awaiting_permission, :waiting_for_user, :paused]
 

@@ -90,7 +90,7 @@ defmodule CustodeWeb.AgentLive do
       </div>
 
       <div class="mb-4 flex flex-wrap gap-6 text-sm text-base-content/70">
-        <span>today <b>${Float.round(@spend_today, 4)}</b><span :if={@routine && @routine.daily_budget_usd}> / ${@routine.daily_budget_usd}</span></span>
+        <span>today <b>${usd(@spend_today)}</b><span :if={@routine && @routine.daily_budget_usd}> / ${usd(@routine.daily_budget_usd)}</span></span>
         <span :if={@info}>turns <b>{@info.turns}</b></span>
         <span :if={@info && @info.session_id} class="font-mono text-xs">
           session {String.slice(@info.session_id, 0, 8)}

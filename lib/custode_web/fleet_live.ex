@@ -88,7 +88,7 @@ defmodule CustodeWeb.FleetLive do
 
         <div class="flex gap-4 text-xs text-base-content/60">
           <span :if={@tile.spend_today}>
-            today <b>${Float.round(@tile.spend_today, 2)}</b><span :if={@tile.budget}> / ${@tile.budget}</span>
+            today <b>${usd(@tile.spend_today)}</b><span :if={@tile.budget}> / ${usd(@tile.budget)}</span>
           </span>
           <span :if={@tile.open_todos > 0}>{@tile.open_todos} todo(s)</span>
           <span :if={@tile.state == :offline}>next beat starts it</span>
