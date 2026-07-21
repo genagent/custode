@@ -23,6 +23,15 @@ defmodule Custode.Routine.PromptsTest do
     end
   end
 
+  test "the meta-agent's fleet duty is explicit, including the never-approve line" do
+    caretaker = Prompts.caretaker()
+    assert caretaker =~ "feed_tail"
+    assert caretaker =~ "NEVER approve or reject a sibling's gate"
+    assert caretaker =~ "ONE beat"
+    assert caretaker =~ "silence is the one failure nothing else detects"
+    assert caretaker =~ "resume is the human's call"
+  end
+
   test "role bodies keep their loops without restating the charter" do
     assert Prompts.backlog_worker() =~ "PRIORITY: check CI on your own open PRs"
     assert Prompts.backlog_worker() =~ ".github/workflows"
