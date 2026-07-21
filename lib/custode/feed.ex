@@ -158,37 +158,37 @@ defmodule Custode.Feed do
       title = "custode: #{entry.agent} #{entry.event}"
       url = dashboard_url(entry)
 
-      Task.start(fn ->
-        case System.find_executable("terminal-notifier") do
-          nil ->
-            script =
-              "display notification #{inspect(String.slice(body, 0, 140))} " <>
-                "with title #{inspect(title)} sound name \"Glass\""
-
-            System.cmd("osascript", ["-e", script], stderr_to_stdout: true)
-
-          notifier ->
-            System.cmd(
-              notifier,
-              [
-                "-title",
-                title,
-                "-message",
-                String.slice(body, 0, 240),
-                "-open",
-                url,
-                "-sound",
-                "Glass",
-                "-group",
-                "custode-#{entry.agent}"
-              ],
-              stderr_to_stdout: true
-            )
-        end
-      end)
+      Task.start(fn -> deliver_notification(title, body, url, entry.agent) end)
     end
 
     :ok
+  end
+
+  defp deliver_notification(title, body, url, agent) do
+    case System.find_executable("terminal-notifier") do
+      nil ->
+        script =
+          "display notification #{inspect(String.slice(body, 0, 140))} " <>
+            "with title #{inspect(title)} sound name \"Glass\""
+
+        System.cmd("osascript", ["-e", script], stderr_to_stdout: true)
+
+      notifier ->
+        args = [
+          "-title",
+          title,
+          "-message",
+          String.slice(body, 0, 240),
+          "-open",
+          url,
+          "-sound",
+          "Glass",
+          "-group",
+          "custode-#{agent}"
+        ]
+
+        System.cmd(notifier, args, stderr_to_stdout: true)
+    end
   end
 
   defp dashboard_url(entry) do
