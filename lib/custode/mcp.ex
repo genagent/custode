@@ -14,11 +14,17 @@ defmodule Custode.MCP do
 
   def memory_url, do: url() <> "/memory"
 
-  def config_path, do: Path.expand("tmp/custode_mcp.json")
+  # Configurable so the TEST env writes (and deletes) its own copies: the
+  # suite runs from the same directory as a live server, and a shared path
+  # cost three separate command_failed incidents before the failure detail
+  # finally named it (a test on_exit was deleting the live external file).
+  def config_path, do: Path.expand(Path.join(config_dir(), "custode_mcp.json"))
 
-  def memory_config_path, do: Path.expand("tmp/custode_mcp_memory.json")
+  def memory_config_path, do: Path.expand(Path.join(config_dir(), "custode_mcp_memory.json"))
 
-  def external_config_path, do: Path.expand("tmp/custode_mcp_external.json")
+  def external_config_path, do: Path.expand(Path.join(config_dir(), "custode_mcp_external.json"))
+
+  defp config_dir, do: Application.get_env(:custode, :mcp_config_dir, "tmp")
 
   @doc """
   Fleet-wide external MCP servers (issue #46): configured once, written into
