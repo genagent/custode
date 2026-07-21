@@ -10,7 +10,9 @@ config :custode,
   # No network in tests: repo overviews come from the fake fetcher.
   github_fetcher: Custode.Test.FakeGitHubFetcher,
   feed_path: "tmp/test/feed.jsonl",
-  mcp_port: 6171
+  mcp_port: 6171,
+  # test-owned MCP config files: the suite must never touch a live server's
+  mcp_config_dir: "tmp/test/mcp"
 
 config :custode, CustodeWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4647],
