@@ -210,9 +210,24 @@ defmodule Custode.Repository.Ops do
     end
   end
 
+  # GitHub's REST update endpoint silently IGNORES the draft field (it
+  # returned 200 while #937 stayed draft); draft -> ready is GraphQL-only.
+  @ready_mutation """
+  mutation($id: ID!) {
+    markPullRequestReadyForReview(input: {pullRequestId: $id}) {
+      pullRequest { number isDraft }
+    }
+  }
+  """
+
   def ready_pr(owner, repo, number) do
-    with {:ok, client} <- client() do
-      unwrap(GhEx.PullRequests.update(client, owner, repo, number, %{draft: false}))
+    with {:ok, client} <- client(),
+         {:ok, pr} <- unwrap(GhEx.PullRequests.get(client, owner, repo, number)),
+         {:ok, data, _meta} <- GhEx.GraphQL.query(client, @ready_mutation, id: pr["node_id"]) do
+      case get_in(data, ["markPullRequestReadyForReview", "pullRequest"]) do
+        %{"isDraft" => false} = ready -> {:ok, ready}
+        other -> {:error, {:not_marked_ready, other}}
+      end
     end
   end
 
