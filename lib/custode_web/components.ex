@@ -33,7 +33,7 @@ defmodule CustodeWeb.Components do
         <div class="flex items-center gap-2">
           <span class={["badge badge-sm", feed_badge(@entry["event"])]}>{@entry["event"]}</span>
           <span class="font-mono text-xs text-base-content/60">
-            {String.slice(@entry["at"] || "", 11, 8)}
+            <.ago at={@entry["at"]} />
             <.link
               :if={@show_agent && agent_linkable?(@entry["agent"])}
               navigate={"/agents/#{@entry["agent"]}"}
@@ -85,6 +85,41 @@ defmodule CustodeWeb.Components do
 
   @doc "Dollar amounts render with two decimals everywhere (#31)."
   def usd(value) when is_number(value), do: :erlang.float_to_binary(value / 1, decimals: 2)
+
+  @doc """
+  Relative time for feed/journal stamps (#31): "4m ago" reads at a glance
+  where "20:15:01" (UTC, while the operator lives in local time) does not.
+  The absolute stamp stays available on hover via the title attribute.
+  """
+  attr(:at, :any, required: true)
+
+  def ago(assigns) do
+    ~H"""
+    <span title={@at}>{ago_text(@at)}</span>
+    """
+  end
+
+  @doc false
+  def ago_text(%DateTime{} = at) do
+    seconds = DateTime.diff(DateTime.utc_now(), at)
+
+    cond do
+      seconds < 0 -> "now"
+      seconds < 60 -> "#{seconds}s ago"
+      seconds < 3_600 -> "#{div(seconds, 60)}m ago"
+      seconds < 86_400 -> "#{div(seconds, 3_600)}h ago"
+      true -> "#{div(seconds, 86_400)}d ago"
+    end
+  end
+
+  def ago_text(at) when is_binary(at) do
+    case DateTime.from_iso8601(at) do
+      {:ok, parsed, _offset} -> ago_text(parsed)
+      {:error, _reason} -> at
+    end
+  end
+
+  def ago_text(_other), do: "?"
 
   @doc "Token counts render compact: 900, 45k, 2.4M (#30)."
   def tok(count) when count >= 1_000_000, do: "#{Float.round(count / 1_000_000, 1)}M tok"

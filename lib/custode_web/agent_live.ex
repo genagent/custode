@@ -233,11 +233,23 @@ defmodule CustodeWeb.AgentLive do
             <p :if={@journal == []} class="text-sm text-base-content/40">(no entries)</p>
             <div :for={entry <- @journal} class="mb-2 rounded-lg bg-base-100 p-3 text-sm shadow-sm">
               <p class="mb-1 text-xs text-base-content/50">
-                {Calendar.strftime(entry.inserted_at, "%m-%d %H:%M")}
+                <.ago at={entry.inserted_at} />
                 <b :if={entry.title}>{entry.title}</b>
                 <span class="text-base-content/40">({entry.source})</span>
               </p>
-              <p class="whitespace-pre-wrap text-base-content/80">{entry.body}</p>
+              <p
+                :if={String.length(entry.body) <= 400}
+                class="whitespace-pre-wrap text-base-content/80"
+              >
+                {entry.body}
+              </p>
+              <details :if={String.length(entry.body) > 400}>
+                <summary class="cursor-pointer text-base-content/80">
+                  {String.slice(entry.body, 0, 200)}&hellip;
+                  <span class="text-xs text-base-content/40">(expand)</span>
+                </summary>
+                <p class="mt-1 whitespace-pre-wrap text-base-content/80">{entry.body}</p>
+              </details>
             </div>
           </section>
 
@@ -250,12 +262,16 @@ defmodule CustodeWeb.AgentLive do
           </section>
 
           <section :if={@history != []}>
-            <h3 class="mb-2 text-lg font-semibold text-base-content/70">machine log</h3>
-            <div class="max-h-64 overflow-y-auto rounded-lg bg-base-100 p-3 font-mono text-xs shadow-sm">
-              <p :for={entry <- @history} class="truncate text-base-content/70">
-                {inspect(entry, printable_limit: 160)}
-              </p>
-            </div>
+            <details>
+              <summary class="mb-2 cursor-pointer text-lg font-semibold text-base-content/70">
+                machine log <span class="text-xs font-normal">({length(@history)} events)</span>
+              </summary>
+              <div class="max-h-64 overflow-y-auto rounded-lg bg-base-100 p-3 font-mono text-xs shadow-sm">
+                <p :for={entry <- @history} class="truncate text-base-content/70">
+                  {inspect(entry, printable_limit: 160)}
+                </p>
+              </div>
+            </details>
           </section>
         </div>
 

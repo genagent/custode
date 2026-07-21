@@ -89,15 +89,6 @@ defmodule CustodeWeb.FleetLive do
             {@id}
           </.link>
           <span class={["badge badge-sm", state_badge(@tile.state)]}>{@tile.state}</span>
-          <span :if={@tile.routine} class="font-mono text-xs text-base-content/40">
-            {@tile.routine.cron}
-          </span>
-          <span
-            :for={tag <- (@tile.routine && @tile.routine.tags) || []}
-            class="badge badge-ghost badge-xs"
-          >
-            {tag}
-          </span>
           <button
             :if={@tile.routine}
             class="btn btn-ghost btn-xs ml-auto"
@@ -106,6 +97,14 @@ defmodule CustodeWeb.FleetLive do
           >
             beat
           </button>
+        </div>
+
+        <div
+          :if={@tile.routine}
+          class="-mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-base-content/40"
+        >
+          <span class="font-mono">{@tile.routine.cron}</span>
+          <span :for={tag <- @tile.routine.tags} class="badge badge-ghost badge-xs">{tag}</span>
         </div>
 
         <div class="flex gap-4 text-xs text-base-content/60">
@@ -121,7 +120,7 @@ defmodule CustodeWeb.FleetLive do
             <span class={["badge badge-xs", feed_badge(@tile.last["event"])]}>
               {@tile.last["event"]}
             </span>
-            <span class="font-mono">{String.slice(@tile.last["at"] || "", 11, 8)}</span>
+            <span class="font-mono"><.ago at={@tile.last["at"]} /></span>
           </div>
           <p class="line-clamp-3 text-base-content/80">
             {@tile.last["summary"] || @tile.last["action"] || @tile.last["question"] ||
