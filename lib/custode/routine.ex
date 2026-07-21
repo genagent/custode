@@ -113,12 +113,16 @@ defmodule Custode.Routine do
       append_system_prompt: system_prompt(routine)
     ]
 
-    mcp_tools = if routine.mcp, do: mcp_allowlist(routine.role), else: []
+    mcp_tools =
+      if routine.mcp,
+        do: mcp_allowlist(routine.role) ++ Custode.MCP.external_allowed(),
+        else: []
+
     allowed = mcp_tools ++ routine.extra_allowed_tools
 
     extra =
       if routine.mcp,
-        do: [mcp_config: [Custode.MCP.config_path()]],
+        do: [mcp_config: Custode.MCP.config_paths()],
         else: []
 
     extra = if allowed == [], do: extra, else: Keyword.put(extra, :allowed_tools, allowed)
