@@ -164,7 +164,7 @@ defmodule Custode.Routine do
   shape as a routine agent, but no MCP tools (no recursive delegation) and a
   worker-bee default system prompt. `opts` are the tool's params.
   """
-  def sub_agent_args(workspace, opts \\ %{}) do
+  def sub_agent_args(workspace, opts) do
     ObanClaude.Args.defaults(
       model: opts[:model] || Application.fetch_env!(:custode, :model),
       working_dir: Path.expand(workspace),
@@ -173,8 +173,9 @@ defmodule Custode.Routine do
       max_budget_usd: Application.fetch_env!(:custode, :max_budget_usd),
       timeout: 200_000,
       json_schema: directive_schema(),
-      # the memory-only MCP server: persistence without delegation powers
-      mcp_config: [Custode.MCP.memory_config_path()],
+      # the memory-only MCP server: persistence without delegation powers;
+      # the per-sub-agent config carries its minted identity token
+      mcp_config: [Map.fetch!(opts, :mcp_config_path)],
       allowed_tools: ["mcp__memory"],
       append_system_prompt: opts[:system_prompt] || sub_agent_prompt()
     )
@@ -205,7 +206,7 @@ defmodule Custode.Routine do
 
     extra =
       if routine.mcp,
-        do: [mcp_config: Custode.MCP.config_paths()],
+        do: [mcp_config: Custode.MCP.config_paths(routine.id)],
         else: []
 
     extra = if allowed == [], do: extra, else: Keyword.put(extra, :allowed_tools, allowed)

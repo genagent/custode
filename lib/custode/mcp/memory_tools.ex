@@ -12,6 +12,13 @@ defmodule Custode.MCP.MemoryTools.Remember do
 
   @impl true
   def execute(%{agent_id: agent_id, key: key, value: value}, frame) do
+    case check_self(frame, agent_id) do
+      :ok -> put(agent_id, key, value, frame)
+      {:error, message} -> fail(frame, message)
+    end
+  end
+
+  defp put(agent_id, key, value, frame) do
     :ok = Custode.Memory.remember(agent_id, key, value)
     reply(frame, %{remembered: key})
   end
@@ -57,6 +64,13 @@ defmodule Custode.MCP.MemoryTools.Forget do
 
   @impl true
   def execute(%{agent_id: agent_id, key: key}, frame) do
+    case check_self(frame, agent_id) do
+      :ok -> drop(agent_id, key, frame)
+      {:error, message} -> fail(frame, message)
+    end
+  end
+
+  defp drop(agent_id, key, frame) do
     :ok = Custode.Memory.forget(agent_id, key)
     reply(frame, %{forgot: key})
   end

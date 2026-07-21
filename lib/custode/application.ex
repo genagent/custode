@@ -17,7 +17,6 @@ defmodule Custode.Application do
     Custode.PubSubBridge.attach()
     Custode.SpendLedger.attach()
     Custode.Gates.attach()
-    Custode.MCP.write_config!()
     Custode.Routine.ensure_workspaces!()
 
     children = [
@@ -26,6 +25,10 @@ defmodule Custode.Application do
       {Ecto.Migrator, repos: [Custode.Repo], log_migrations_sql: false},
       {Oban, oban_config()},
       ObanClaude.Agent.Supervisor,
+      # identity before configs: tokens are minted into the per-agent
+      # config files the boot task writes next (#1/#2)
+      Custode.MCP.Identity,
+      Supervisor.child_spec({Task, &Custode.MCP.write_config!/0}, id: :mcp_configs),
       # repo panels: cached GitHub issue/PR overviews for repo-tied routines
       Custode.GitHub.Cache,
       # served repos (#10): one process per repo-tied project; verbs are calls

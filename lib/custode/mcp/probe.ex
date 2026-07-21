@@ -17,6 +17,8 @@ defmodule Custode.MCP.Probe do
 
   require Logger
 
+  alias Custode.MCP.Identity
+
   @attempts 60
   @interval_ms 1_000
 
@@ -104,9 +106,21 @@ defmodule Custode.MCP.Probe do
       }
     }
 
+    headers =
+      case Identity.operator_token() do
+        {:ok, token} ->
+          [
+            {"accept", "application/json, text/event-stream"},
+            {"authorization", "Bearer " <> token}
+          ]
+
+        {:error, _reason} ->
+          [{"accept", "application/json, text/event-stream"}]
+      end
+
     case Req.post(Custode.MCP.url(),
            json: body,
-           headers: [{"accept", "application/json, text/event-stream"}],
+           headers: headers,
            retry: false,
            connect_options: [timeout: 1_000],
            receive_timeout: 2_000

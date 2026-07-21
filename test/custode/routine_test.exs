@@ -168,7 +168,7 @@ defmodule Custode.RoutineTest do
       routine = routine_fixture!("workspace", %{mcp: true})
       claude_args = Custode.Routine.tick_args(routine)["start"]["args"]
 
-      assert List.first(claude_args["mcp_config"]) == Custode.MCP.config_path()
+      assert List.first(claude_args["mcp_config"]) == Custode.MCP.config_path(routine.id)
       assert "mcp__custode__run_job" in claude_args["allowed_tools"]
       assert claude_args["append_system_prompt"] =~ "Delegation"
       assert claude_args["append_system_prompt"] =~ "run_job"
@@ -339,19 +339,23 @@ defmodule Custode.RoutineTest do
 
   describe "sub_agent_args/2" do
     test "defaults: worker-bee prompt, memory-only MCP, sandboxed to the workspace" do
-      args = Custode.Routine.sub_agent_args("/tmp")
+      args = Custode.Routine.sub_agent_args("/tmp", %{mcp_config_path: "/tmp/sub.json"})
 
       assert args["working_dir"] == "/tmp"
       assert args["append_system_prompt"] =~ "sub-agent"
       # persistence without delegation: the memory-only server, nothing else
-      assert args["mcp_config"] == [Custode.MCP.memory_config_path()]
+      assert args["mcp_config"] == ["/tmp/sub.json"]
       assert args["allowed_tools"] == ["mcp__memory"]
       assert args["permission_mode"] == "accept_edits"
     end
 
     test "model and system_prompt overrides from tool params" do
       args =
-        Custode.Routine.sub_agent_args("/tmp", %{model: "haiku", system_prompt: "review PRs"})
+        Custode.Routine.sub_agent_args("/tmp", %{
+          model: "haiku",
+          system_prompt: "review PRs",
+          mcp_config_path: "/tmp/sub.json"
+        })
 
       assert args["model"] == "haiku"
       assert args["append_system_prompt"] == "review PRs"
