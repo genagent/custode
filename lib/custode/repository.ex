@@ -137,15 +137,22 @@ defmodule Custode.Repository do
   end
 
   # The workflow's review stage (#86) is mechanical law regardless of who
-  # merges: no merge without a formal approving review OR a "review:"
-  # marker comment. Holds even while merge policy is :manual, so a future
-  # per-repo :auto inherits the floor for free.
+  # merges, latest-wins on the review timeline: an approving review or ok
+  # "review:" marker opens the door; a "review: needs-human" marker
+  # POSITIVELY blocks until a later review outranks it; nothing at all
+  # blocks too (review always happens, even just lgtm). Each workflow
+  # transition is one verb call -- this is the reviewed -> merged guard.
   defp review_floor(state, number) do
-    case ops().reviewed?(state.owner, state.repo, number) do
-      true ->
+    case ops().review_state(state.owner, state.repo, number) do
+      {:reviewed, _note} ->
         :ok
 
-      false ->
+      {:needs_human, note} ->
+        {:error,
+         "workflow review: a reviewer flagged PR ##{number} on #{state.name} " <>
+           "for a human (#{note}) -- only a later human review clears this"}
+
+      :unreviewed ->
         {:error,
          "workflow review: PR ##{number} on #{state.name} has no review yet -- " <>
            "every merge is preceded by a review (an approving review or a " <>
@@ -259,19 +266,43 @@ defmodule Custode.Repository.Ops do
     end
   end
 
-  @doc "Has this PR been reviewed? A formal APPROVED review or a review: comment counts."
-  def reviewed?(owner, repo, number) do
+  @doc """
+  The PR's review state, latest-wins across formal reviews and "review:"
+  marker comments: `{:reviewed, note}` | `{:needs_human, note}` |
+  `:unreviewed` | `{:error, reason}`.
+  """
+  def review_state(owner, repo, number) do
     with {:ok, client} <- client(),
          {:ok, reviews} <- unwrap(GhEx.PullRequests.list_reviews(client, owner, repo, number)),
          {:ok, comments} <- unwrap(GhEx.Issues.list_comments(client, owner, repo, number)) do
-      approved? = Enum.any?(reviews, &(&1["state"] == "APPROVED"))
+      review_events = Enum.flat_map(reviews, &review_event/1)
+      marker_events = Enum.flat_map(comments, &marker_event/1)
 
-      marked? =
-        Enum.any?(comments, fn comment ->
-          comment["body"] |> to_string() |> String.downcase() |> String.starts_with?("review:")
-        end)
+      case (review_events ++ marker_events) |> Enum.sort_by(&elem(&1, 0)) |> List.last() do
+        nil -> :unreviewed
+        {_at, verdict, note} -> {verdict, note}
+      end
+    end
+  end
 
-      approved? or marked?
+  defp review_event(%{"state" => "APPROVED"} = review),
+    do: [{to_string(review["submitted_at"]), :reviewed, "approving review"}]
+
+  defp review_event(_review), do: []
+
+  defp marker_event(comment) do
+    body = to_string(comment["body"])
+    at = to_string(comment["created_at"])
+
+    cond do
+      body |> String.downcase() |> String.starts_with?("review: needs-human") ->
+        [{at, :needs_human, String.slice(body, 0, 200)}]
+
+      body |> String.downcase() |> String.starts_with?("review:") ->
+        [{at, :reviewed, String.slice(body, 0, 120)}]
+
+      true ->
+        []
     end
   end
 
