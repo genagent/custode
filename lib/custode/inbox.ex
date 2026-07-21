@@ -17,6 +17,8 @@ defmodule Custode.Inbox do
   wait for the schedule.
   """
 
+  alias ObanClaude.Agent.Tick
+
   @debounce_seconds 20
   @unique_period 120
 
@@ -45,7 +47,7 @@ defmodule Custode.Inbox do
 
   def maybe_beat(routine) do
     changeset =
-      ObanClaude.Agent.Tick.new(
+      Tick.new(
         Custode.Routine.tick_args(routine),
         queue: :ticks,
         schedule_in: @debounce_seconds,
