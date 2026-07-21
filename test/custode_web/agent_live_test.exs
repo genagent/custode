@@ -63,7 +63,17 @@ defmodule CustodeWeb.AgentLiveTest do
 
     view |> form("form[phx-submit=prompt]", %{"text" => "from detail"}) |> render_submit()
     assert_receive {:enqueued, %{"prompt" => "from detail"}, _meta}
-    assert render(view) =~ "running"
+    html = render(view)
+    assert html =~ "running"
+    assert html =~ "sent -- turn starting"
+
+    # a prompt while running acknowledges the queueing instead of silence
+    view |> form("form[phx-submit=prompt]", %{"text" => "one more thing"}) |> render_submit()
+    assert render(view) =~ "queued -- delivers when the current turn ends"
+
+    # the queued prompt fires as its own turn once the first completes
+    :ok = Agent.job_finished(routine.id, {:ok, result("first done")})
+    assert_receive {:enqueued, %{"prompt" => "one more thing"}, _meta}
 
     :ok = Agent.job_finished(routine.id, {:ok, result("ok")})
     {:ok, :idle} = Agent.await(routine.id, :idle, 1_000)

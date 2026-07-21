@@ -14,7 +14,7 @@ defmodule CustodeWeb.AgentLive do
   @impl Phoenix.LiveView
   def mount(%{"id" => id}, _session, socket) do
     if connected?(socket), do: Custode.PubSubBridge.subscribe()
-    {:ok, socket |> assign(id: id) |> refresh()}
+    {:ok, socket |> assign(id: id, prompt_ack: nil, prompt_gen: 0) |> refresh()}
   end
 
   @impl Phoenix.LiveView
@@ -32,8 +32,18 @@ defmodule CustodeWeb.AgentLive do
 
   @impl Phoenix.LiveView
   def handle_event("prompt", %{"text" => text}, socket) do
-    if String.trim(text) != "", do: Agent.cast_prompt(socket.assigns.id, text)
-    {:noreply, refresh(socket)}
+    if String.trim(text) == "" do
+      {:noreply, socket}
+    else
+      # capture the state BEFORE casting: it decides what actually happens
+      ack = prompt_ack(socket.assigns.state)
+      Agent.cast_prompt(socket.assigns.id, text)
+
+      {:noreply,
+       socket
+       |> assign(prompt_ack: ack, prompt_gen: socket.assigns.prompt_gen + 1)
+       |> refresh()}
+    end
   end
 
   def handle_event("approve", %{"action" => action_id}, socket) do
@@ -136,7 +146,12 @@ defmodule CustodeWeb.AgentLive do
         </div>
       </div>
 
-      <form :if={@state not in [:offline, :paused]} phx-submit="prompt" class="mb-6 flex gap-2">
+      <form
+        :if={@state not in [:offline, :paused]}
+        phx-submit="prompt"
+        class="mb-1 flex gap-2"
+        id={"prompt-form-#{@prompt_gen}"}
+      >
         <input
           type="text"
           name="text"
@@ -144,8 +159,12 @@ defmodule CustodeWeb.AgentLive do
           class="input input-sm input-bordered flex-1 font-mono"
           autocomplete="off"
         />
-        <button class="btn btn-primary btn-sm">send</button>
+        <button class="btn btn-primary btn-sm">
+          {if @state == :running, do: "queue", else: "send"}
+        </button>
       </form>
+      <p :if={@prompt_ack} class="mb-4 text-xs text-base-content/50">{@prompt_ack}</p>
+      <div :if={!@prompt_ack} class="mb-5"></div>
 
       <section :if={@repo} class="mb-6">
         <h3 class="mb-2 text-lg font-semibold text-base-content/70">
@@ -251,6 +270,13 @@ defmodule CustodeWeb.AgentLive do
     </.page>
     """
   end
+
+  # cast_prompt's real semantics, surfaced (#31): invisible queueing read as
+  # "nothing happened" the first time the operator prompted a busy agent
+  defp prompt_ack(:running), do: "queued -- delivers when the current turn ends"
+  defp prompt_ack(:awaiting_permission), do: "queued behind the pending approval"
+  defp prompt_ack(:waiting_for_user), do: "answer delivered"
+  defp prompt_ack(_state), do: "sent -- turn starting"
 
   attr(:item, :map, required: true)
   attr(:closed, :boolean, default: false)
