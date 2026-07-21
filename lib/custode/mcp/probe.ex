@@ -29,10 +29,17 @@ defmodule Custode.MCP.Probe do
     queues = Application.get_env(:custode, :oban_queues, agents: 3, ticks: 1, sensors: 2)
 
     case Keyword.get(queues, :ticks) do
-      nil ->
-        :ok
+      nil -> :ok
+      limit -> gate_ticks(limit)
+    end
+  end
 
-      limit ->
+  # Doctor first (#15): with no claude binary or no auth, every sweep would
+  # fail identically -- withhold ticks entirely and say so loudly. The MCP
+  # probe stays fail-open (#4): a broken MCP surface only degrades sweeps.
+  defp gate_ticks(limit) do
+    case doctor() do
+      :ok ->
         case await_ready(@attempts) do
           :ok ->
             Logger.info("MCP surface answered; starting the ticks queue")
@@ -44,7 +51,44 @@ defmodule Custode.MCP.Probe do
         end
 
         :ok = Oban.start_queue(queue: :ticks, limit: limit)
+
+      {:error, report} ->
+        Logger.error("claude doctor failed; ticks withheld: #{report}")
+
+        Custode.Feed.record(
+          %{
+            event: "doctor_failed",
+            agent: "custode",
+            action: report <> " -- ticks withheld; fix and restart"
+          },
+          notify: true
+        )
+
+        :ok
     end
+  end
+
+  @doc """
+  The claude preflight (#15): binary present and usable, authenticated.
+  `:ok`, or `{:error, report}` naming every failed check.
+  """
+  def doctor do
+    checks = [
+      {"claude binary/version", doctor_fun().(:version)},
+      {"claude auth", doctor_fun().(:auth)}
+    ]
+
+    case for {label, {:error, reason}} <- checks, do: "#{label}: #{inspect(reason)}" do
+      [] -> :ok
+      failures -> {:error, Enum.join(failures, "; ")}
+    end
+  end
+
+  defp doctor_fun do
+    Application.get_env(:custode, :doctor_fun, fn
+      :version -> ClaudeWrapper.version()
+      :auth -> ClaudeWrapper.auth_status()
+    end)
   end
 
   @doc "One loopback initialize attempt against the running MCP server."

@@ -14,6 +14,25 @@ defmodule Custode.MCP.ProbeTest do
     assert Probe.run() == :ok
   end
 
+  test "doctor/0 passes when both probes answer, and names what failed (#15)" do
+    Application.put_env(:custode, :doctor_fun, fn
+      :version -> {:ok, "1.0.0"}
+      :auth -> {:ok, %{authenticated: true}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:custode, :doctor_fun) end)
+    assert Probe.doctor() == :ok
+
+    Application.put_env(:custode, :doctor_fun, fn
+      :version -> {:ok, "1.0.0"}
+      :auth -> {:error, :not_authenticated}
+    end)
+
+    assert {:error, report} = Probe.doctor()
+    assert report =~ "claude auth"
+    refute report =~ "binary"
+  end
+
   test "await_ready/1 times out when attempts run dry" do
     # point the probe at a dead port for one cycle
     original = Application.get_env(:custode, :mcp_port)
