@@ -55,6 +55,19 @@ defmodule Custode.Gates do
     Repo.all(from(g in Gate, where: g.agent_id == ^agent_id and g.status == "open"))
   end
 
+  @doc "Recent gates fleet-wide, newest first, optionally filtered by status."
+  def recent(limit \\ 20, status \\ nil) do
+    query = from(g in Gate, order_by: [desc: g.id], limit: ^limit)
+
+    query =
+      case status do
+        nil -> query
+        status -> from(g in query, where: g.status == ^status)
+      end
+
+    Repo.all(query)
+  end
+
   @doc """
   Boot-time reconciliation: unresolved routine gates become RESTART NOTICE
   inbox notes (then `requeued`); unresolved non-routine gates are `orphaned`.
