@@ -79,6 +79,12 @@ runs, 2026-07-20.
       report note, so sweeps can file results mechanically instead of
       re-reading prose.
 
+- [ ] **Config changes don't reach live state.** Crontab tick args are built
+      once at boot, and a running agent keeps the args it started with -- so
+      a routine prompt/model/budget edit silently doesn't apply until the
+      server restarts (and the agent cold-starts). Surface this (a dashboard
+      "config drift" hint) or rebuild tick args at beat time.
+
 ## Standing architectural notes
 
 - Extraction trigger for the agent layer (oban_claude spike -> its own hex

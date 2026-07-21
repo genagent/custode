@@ -146,11 +146,20 @@ defmodule Custode.Routine.Prompts do
 
     0. Call recall with your routine_id; the key "seen-items" holds the ids
        you have already reported (as JSON like ["repo#123", ...]).
-    1. Search for open items authored by others, e.g.:
-       `gh search issues --owner joshrotenberg --owner genagent
-        --state open -- -author:joshrotenberg -author:app/dependabot
-        -author:app/github-actions` and the same with `gh search prs`.
-       Ignore anything authored by joshrotenberg or by bots.
+    1. Search for open items authored by others. Use EXACTLY this shape (gh
+       treats everything after `--` as query terms, so all flags -- including
+       --json -- must come BEFORE the `--`, or the search silently returns
+       nothing):
+
+         gh search issues --owner joshrotenberg --owner genagent --state open
+           --limit 100 --json repository,number,author,title
+           -- -author:joshrotenberg
+
+       and the same with `gh search prs`. Then filter out bot authors
+       yourself (dependabot, github-actions, anything ending in [bot]).
+       Sanity-check: if BOTH searches return empty, verify with a plain
+       un-jsoned search before believing it -- an empty result that
+       contradicts a plain search means your flags got swallowed.
     2. For each item NOT in seen-items: journal_append one entry (repo,
        number, author, title), and add it to the remembered seen-items list
        (update the memory in the same sweep you report, so nothing is
