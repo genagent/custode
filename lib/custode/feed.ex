@@ -165,7 +165,11 @@ defmodule Custode.Feed do
   # bounded slice in the feed entry.
   defp error_facts(%ClaudeWrapper.Error{} = error) do
     detail =
-      [error.message, error.stderr && String.slice(error.stderr, 0, 300)]
+      [
+        error.message,
+        error.stderr && String.slice(error.stderr, 0, 300),
+        error.stdout && String.slice(error.stdout, 0, 300)
+      ]
       |> Enum.reject(&(&1 in [nil, ""]))
       |> Enum.join(" -- ")
 
