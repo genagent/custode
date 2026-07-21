@@ -52,6 +52,18 @@ runs, 2026-07-20.
 
 ## Tier 3: product "of course"s
 
+- [ ] **Prompt sources beyond code.** Role prompts live in
+      `Custode.Routine.Prompts` today; allow a routine to instead point at a
+      file (`prompt_file: "priv/agents/backlog_worker.md"`), or to lean on
+      the target repo's own ambient definitions. Notable: the plumbing for
+      ambient is mostly wired already -- runs are non-hermetic, so claude in
+      a repo's working_dir picks up that repo's CLAUDE.md, and oban_claude
+      passes through the `agent:` arg, so a routine could name a persona
+      from the repo's `.claude/agents/` and let the REPO own its worker's
+      definition. A per-routine `hermetic:` knob is the third leg (seal or
+      inherit deliberately). Think through precedence: config system_prompt
+      > prompt_file > role > ambient.
+
 - [ ] Dashboard: history drawer, memory viewer, full journal browser.
 - [ ] Desktop notification deep-links to the blocked card.
 - [ ] Mobile push: an ntfy.sh consumer of the same telemetry (~15 lines).
