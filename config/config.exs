@@ -207,6 +207,14 @@ config :custode,
       notify: "custode-dev",
       args: %{repo: "genagent/custode"}
     },
+    # The dead-man (#3): a sensor that watches the sensors; silence past
+    # 2x cadence notes the meta-agent, whose orders escalate to a human.
+    %{
+      id: "deadman",
+      cron: "*/30 * * * *",
+      module: Custode.Sensors.Deadman,
+      notify: "custode"
+    },
     # The USGS earthquake poll: every 20 minutes, M4.5+ over the past day.
     %{
       id: "usgs-quakes",

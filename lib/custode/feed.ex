@@ -72,6 +72,11 @@ defmodule Custode.Feed do
     )
   end
 
+  @doc "The timestamp of an agent's most recent feed entry (nil if none)."
+  def last_activity_at(agent_id) do
+    Repo.one(from(f in Entry, where: f.agent == ^agent_id, select: max(f.at)))
+  end
+
   @doc "The most recent feed entry for an agent (its \"last message\"), or nil."
   def last_for(agent_id), do: agent_id |> for_agent(1) |> List.last()
 

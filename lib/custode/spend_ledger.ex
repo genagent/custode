@@ -157,6 +157,52 @@ defmodule Custode.SpendLedger do
     ) || 0
   end
 
+  @doc """
+  Boot reconciliation (#6): the auto-pause used to live only in process
+  state, so a restart granted every over-budget routine one fresh turn
+  before its next spend re-triggered the rail. Now over-rail routines are
+  booted directly INTO :paused -- ticks skip them (if_busy: skip) and
+  resume stays the human override.
+  """
+  def reconcile_pauses! do
+    for routine <- Custode.Routine.all(), over_rail?(routine) do
+      boot_paused(routine)
+      routine.id
+    end
+
+    :ok
+  end
+
+  defp over_rail?(routine) do
+    (is_number(routine.daily_budget_usd) and today(routine.id) > routine.daily_budget_usd) or
+      (is_integer(routine.daily_budget_tokens) and
+         today_tokens(routine.id) > routine.daily_budget_tokens)
+  end
+
+  defp boot_paused(routine) do
+    start = Custode.Routine.tick_args(routine)["start"]
+
+    case ObanClaude.Agent.start_agent(routine.id,
+           args: start["args"],
+           approved_args: start["approved_args"],
+           job_timeout: start["job_timeout"]
+         ) do
+      {:ok, _pid} ->
+        ObanClaude.Agent.emergency_pause(routine.id)
+
+        Custode.Feed.record(%{
+          event: "budget_paused",
+          agent: routine.id,
+          action: "still over its daily rail after restart -- booted paused (no leak turn)"
+        })
+
+        :ok
+
+      {:error, _already_or_other} ->
+        :ok
+    end
+  end
+
   defp enforce(agent_id) do
     case Custode.Routine.get(agent_id) do
       nil -> :ok

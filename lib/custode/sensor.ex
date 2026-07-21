@@ -60,7 +60,7 @@ defmodule Custode.Sensor do
         diff(module, baseline, sensor_id, notify, items, args)
 
       {:error, reason} ->
-        feed(notify, "#{sensor_id}: fetch failed (#{inspect(reason)}), will retry")
+        feed(sensor_id, notify, "#{sensor_id}: fetch failed (#{inspect(reason)}), will retry")
     end
   end
 
@@ -71,7 +71,12 @@ defmodule Custode.Sensor do
     case Custode.Memory.recall(memory_key, "seen") do
       :error when baseline == :silent ->
         remember!(memory_key, current_keys)
-        feed(notify, "#{sensor_id}: baseline recorded (#{MapSet.size(current_keys)} known items)")
+
+        feed(
+          sensor_id,
+          notify,
+          "#{sensor_id}: baseline recorded (#{MapSet.size(current_keys)} known items)"
+        )
 
       recalled ->
         seen =
@@ -90,7 +95,7 @@ defmodule Custode.Sensor do
   end
 
   defp report(_module, sensor_id, notify, _args, current_keys, []) do
-    feed(notify, "#{sensor_id}: nothing new (#{MapSet.size(current_keys)} in window)")
+    feed(sensor_id, notify, "#{sensor_id}: nothing new (#{MapSet.size(current_keys)} in window)")
   end
 
   defp report(module, sensor_id, notify, args, _current_keys, new_items) do
@@ -101,15 +106,15 @@ defmodule Custode.Sensor do
         module.note(new_items, args)
       )
 
-    feed(notify, "#{sensor_id}: #{length(new_items)} new item(s), note dropped")
+    feed(sensor_id, notify, "#{sensor_id}: #{length(new_items)} new item(s), note dropped")
   end
 
   defp remember!(memory_key, current_keys) do
     :ok = Custode.Memory.remember(memory_key, "seen", Jason.encode!(MapSet.to_list(current_keys)))
   end
 
-  defp feed(notify, summary) do
-    Custode.Feed.record(%{event: "sensor", agent: notify, summary: summary})
+  defp feed(sensor_id, notify, summary) do
+    Custode.Feed.record(%{event: "sensor", agent: notify, sensor_id: sensor_id, summary: summary})
     :ok
   end
 end
