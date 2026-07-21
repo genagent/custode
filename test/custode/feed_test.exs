@@ -37,12 +37,19 @@ defmodule Custode.FeedTest do
     assert_in_delta entry["cost_usd"], 0.2, 0.001
   end
 
-  test "a failed run writes a turn_failed entry with the error kind" do
-    {{:cancel, :auth}, _} =
-      ObanClaude.run(%{"prompt" => "x"}, job: job_meta("feed-b"), query_fun: fail(:auth))
+  test "a failed run writes a turn_failed entry with the error kind AND its detail" do
+    {{:error, :command_failed}, _} =
+      ObanClaude.run(%{"prompt" => "x"},
+        job: job_meta("feed-b"),
+        query_fun:
+          fail(error(:command_failed, message: "spawn refused", exit_code: 127, stderr: "boom"))
+      )
 
-    assert [%{"event" => "turn_failed", "agent" => "feed-b", "kind" => "auth"}] =
-             Custode.Feed.for_agent("feed-b")
+    assert [entry] = Custode.Feed.for_agent("feed-b")
+    assert %{"event" => "turn_failed", "agent" => "feed-b", "kind" => "command_failed"} = entry
+    assert entry["detail"] =~ "exit 127"
+    assert entry["detail"] =~ "spawn refused"
+    assert entry["detail"] =~ "boom"
   end
 
   test "the gated states land with their payloads; pause and resume are recorded" do

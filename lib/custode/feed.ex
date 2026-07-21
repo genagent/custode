@@ -128,8 +128,11 @@ defmodule Custode.Feed do
   end
 
   def handle_event([:oban_claude, :run, :exception], _measurements, meta, _config) do
-    kind = if is_struct(meta.error), do: meta.error.kind, else: :unknown
-    write(%{event: "turn_failed", agent: agent_of(meta), kind: kind}, notify: true)
+    {kind, detail} = error_facts(meta.error)
+
+    write(%{event: "turn_failed", agent: agent_of(meta), kind: kind, detail: detail},
+      notify: true
+    )
   end
 
   def handle_event([:oban_claude, :agent, :transition], _measurements, meta, _config) do
@@ -156,6 +159,24 @@ defmodule Custode.Feed do
         :ok
     end
   end
+
+  # The Error struct carries the actual diagnosis (message/stderr/exit code);
+  # dropping it cost a debugging session (quakes' command_failed). Keep a
+  # bounded slice in the feed entry.
+  defp error_facts(%ClaudeWrapper.Error{} = error) do
+    detail =
+      [error.message, error.stderr && String.slice(error.stderr, 0, 300)]
+      |> Enum.reject(&(&1 in [nil, ""]))
+      |> Enum.join(" -- ")
+
+    detail = if error.exit_code, do: "exit #{error.exit_code}: #{detail}", else: detail
+    {error.kind, presence(detail)}
+  end
+
+  defp error_facts(other), do: {:unknown, presence(inspect(other))}
+
+  defp presence(""), do: nil
+  defp presence(string), do: string
 
   defp gated(agent_id) do
     case ObanClaude.Agent.status(agent_id) do
