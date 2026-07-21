@@ -58,7 +58,6 @@ defmodule Custode do
     end
   end
 
-  @doc "Reject whatever action the agent is blocked on."
   @doc """
   Reject an agent's pending action AND teach it (the learning loop on
   "no"): the rejection reason lands in the routine's inbox as a note, so
@@ -96,6 +95,7 @@ defmodule Custode do
     result
   end
 
+  @doc "Reject whatever action the agent is blocked on (console shorthand)."
   def reject(reason \\ "denied", id \\ nil) do
     agent_id = fetch!(id).id
 
