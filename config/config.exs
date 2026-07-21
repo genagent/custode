@@ -137,6 +137,20 @@ config :custode,
       daily_budget_usd: 5.0,
       extra_allowed_tools: ["Bash(gh repo list:*)"]
     },
+    # The earthquake watch: the first non-development routine. The
+    # usgs-quakes sensor (below) polls the USGS feed mechanically; this
+    # agent judges, journals, and escalates only what warrants a human.
+    %{
+      id: "quakes",
+      cron: :manual,
+      workspace: "workspaces/quakes",
+      tags: [:watch, :world],
+      prompt: "Do your earthquake sweep now.",
+      role: :quake_watch,
+      mcp: true,
+      max_budget_usd: 1.0,
+      daily_budget_usd: 5.0
+    },
     # The contributor watch, sensor-driven: the contributor-search sensor
     # (below) detects new items mechanically and drops an inbox note, whose
     # event kickoff wakes this agent to verify, journal, and alert. No
@@ -195,6 +209,14 @@ config :custode,
       module: Custode.Sensors.CiStatus,
       notify: "custode-dev",
       args: %{repo: "genagent/custode"}
+    },
+    # The USGS earthquake poll: every 20 minutes, M4.5+ over the past day.
+    %{
+      id: "usgs-quakes",
+      cron: "*/20 * * * *",
+      module: Custode.Sensors.UsgsQuakes,
+      notify: "quakes",
+      args: %{min_magnitude: 4.5}
     }
   ],
   # Defaults shared by every routine unless overridden per-entry.
