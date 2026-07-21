@@ -115,13 +115,15 @@ defmodule Custode.Feed do
 
   def handle_event([:oban_claude, :run, :stop], measurements, meta, _config) do
     out = ObanClaude.structured(meta.result) || %{}
+    usage = ClaudeWrapper.Result.usage(meta.result)
 
     write(%{
       event: "turn",
       agent: agent_of(meta),
       directive: out["directive"],
       summary: out["summary"] || String.slice(meta.result.result || "", 0, 160),
-      cost_usd: Float.round(measurements.cost_usd, 4)
+      cost_usd: Float.round(measurements.cost_usd, 4),
+      tokens: usage && usage.total
     })
   end
 
