@@ -34,7 +34,14 @@ defmodule CustodeWeb.Components do
           <span class={["badge badge-sm", feed_badge(@entry["event"])]}>{@entry["event"]}</span>
           <span class="font-mono text-xs text-base-content/60">
             {String.slice(@entry["at"] || "", 11, 8)}
-            <span :if={@show_agent}>{@entry["agent"]}</span>
+            <.link
+              :if={@show_agent && agent_linkable?(@entry["agent"])}
+              navigate={"/agents/#{@entry["agent"]}"}
+              class="link-hover hover:text-base-content"
+            >
+              {@entry["agent"]}
+            </.link>
+            <span :if={@show_agent && !agent_linkable?(@entry["agent"])}>{@entry["agent"]}</span>
           </span>
           <span :if={@entry["cost_usd"]} class="ml-auto font-mono text-xs">
             ${usd(@entry["cost_usd"])}<span :if={@entry["tokens"]} class="text-base-content/50"> &middot; {tok(@entry["tokens"])}</span>
@@ -73,6 +80,8 @@ defmodule CustodeWeb.Components do
     </div>
     """
   end
+
+  defp agent_linkable?(agent), do: is_binary(agent) and agent not in ["", "?"]
 
   @doc "Dollar amounts render with two decimals everywhere (#31)."
   def usd(value) when is_number(value), do: :erlang.float_to_binary(value / 1, decimals: 2)
