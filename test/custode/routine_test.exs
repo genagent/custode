@@ -166,7 +166,7 @@ defmodule Custode.RoutineTest do
       claude_args = Custode.Routine.tick_args(dev)["start"]["args"]
 
       assert claude_args["append_system_prompt"] =~ "repository caretaker"
-      assert claude_args["append_system_prompt"] =~ "isolated git worktree"
+      assert claude_args["append_system_prompt"] =~ "git worktree"
       assert claude_args["append_system_prompt"] =~ "one small, concrete improvement"
       # still gets no standing write permission
       refute Map.has_key?(claude_args, "permission_mode")
@@ -221,7 +221,7 @@ defmodule Custode.RoutineTest do
       assert prompt =~ ~s(routine_id "rt")
       assert prompt =~ "at most one item per sweep" |> String.downcase()
       assert prompt =~ "gh issue list"
-      assert prompt =~ "isolated git worktree"
+      assert prompt =~ "git worktree"
       assert prompt =~ "Never start without approval"
     end
 
