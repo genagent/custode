@@ -234,7 +234,16 @@ config :custode,
   feed_path: "feed.jsonl",
   # macOS desktop notifications for events that need a human
   # (needs_approval / needs_input / turn_failed).
-  desktop_notifications: true
+  desktop_notifications: true,
+  # Notification/click links; point at the ts.net address once #65 is on.
+  dashboard_base_url: "http://localhost:4646",
+  # Mobile feed via ntfy (#13): set topic: to enable, e.g.
+  #   ntfy: [topic: "custode-<long-random-suffix>", publish: :all]
+  # publish: :all mirrors the whole feed (attention rings, the rest lands
+  # silently); :attention sends alerts only. ntfy.sh topics are public to
+  # anyone who guesses the name -- use a long random suffix or self-host
+  # (url: defaults to https://ntfy.sh).
+  ntfy: [topic: nil]
 
 config :custode, Custode.Repo,
   database: "custode.db",
