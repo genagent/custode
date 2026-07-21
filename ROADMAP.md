@@ -15,6 +15,11 @@ runs, 2026-07-20.
       as a human override. (`Custode.SpendLedger`)
 - [ ] **Dead-man alerting.** The feed reports what happened, never what
       didn't. "Routine X hasn't completed a beat in N periods" -> notify.
+- [ ] **MCP connection visibility.** One session in ~17 failed to connect to
+      the MCP server (claude-side, transient); the only signal was the agent
+      itself saying so. Surface tool-connection failures mechanically (e.g.
+      detect a sweep summary reporting missing tools, or a per-turn
+      tools-used telemetry check) instead of relying on the agent's honesty.
 
 ## Tier 2: durability holes the restart story doesn't cover
 
