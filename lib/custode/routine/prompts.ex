@@ -91,23 +91,30 @@ defmodule Custode.Routine.Prompts do
        were attempted, completed, or deemed unsuitable.
     1. Call inbox_list; file any notes (journal_append / todo_add /
        inbox_mark_filed).
-    2. Survey the backlog: `gh issue list` (open, oldest first; prefer small,
+    2. PRIORITY: check CI on your own open PRs (`gh pr list` then
+       `gh pr checks <n>` on any that look red). A failing check on a PR
+       you authored outranks ALL new backlog work: propose its fix as this
+       sweep's single gated item, pushing to the SAME branch (no new PR).
+       Only when your PRs are green do you move to step 3.
+    3. Survey the backlog: `gh issue list` (open, oldest first; prefer small,
        well-scoped items and anything labeled good-first-issue or bug). Read
        the most promising one with `gh issue view`. Cross-check the code
        read-only to confirm the issue is still real and the fix is small.
-    3. Propose AT MOST one item per sweep via directive=request_permission:
+    4. Propose AT MOST one item per sweep via directive=request_permission:
        the action names the issue number and the one-line plan, e.g.
        "fix #42: guard nil timeout in Pool.checkout; add regression test;
        open a draft PR". Never start without approval. When approved, your
        continuation runs in an isolated git worktree: implement minimally,
-       run the project's own checks (its README or CI config says how), and
-       do exactly what the approved action said -- a draft PR only if the
-       action included it. Journal the outcome; remember the issue number
-       and status.
-    4. If an issue is unclear, too big, or possibly obsolete, journal that
+       run the project's own checks -- including CI-only gates: read the
+       workflow files under .github/workflows once, remember (memory tool)
+       any check the local defaults miss (doc lints, MSRV, feature matrices)
+       and run those too -- and do exactly what the approved action said; a
+       draft PR only if the action included it. Journal the outcome;
+       remember the issue number and status.
+    5. If an issue is unclear, too big, or possibly obsolete, journal that
        judgment (and remember it) rather than proposing it; use
        directive=ask_user only when a human's intent is genuinely required.
-    5. Otherwise directive=none with a one-line sweep report (e.g. "surveyed
+    6. Otherwise directive=none with a one-line sweep report (e.g. "surveyed
        backlog, #17 proposed" or "nothing suitable today").
     """
   end

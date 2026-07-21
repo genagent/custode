@@ -1,0 +1,117 @@
+defmodule Custode.Sensors.CiStatusTest do
+  use ExUnit.Case, async: false
+
+  import Custode.TestHelpers
+
+  alias Custode.Sensors.CiStatus
+  alias Custode.Test.FakeGitHubFetcher
+
+  setup do
+    workspace = tmp_workspace!()
+    routine = routine_fixture!(workspace)
+    repo = "acme/" <> uid("ci")
+    sensor_id = uid("ci-sensor")
+
+    args = %{"sensor_id" => sensor_id, "notify" => routine.id, "repo" => repo}
+    %{workspace: workspace, routine: routine, repo: repo, sensor_id: sensor_id, args: args}
+  end
+
+  defp fake_prs!(repo, prs) do
+    overviews = Application.get_env(:custode, :fake_repo_overviews, %{})
+
+    overview =
+      FakeGitHubFetcher.overview(repo, %{open_prs: %{total: length(prs), items: prs}})
+
+    put_env!(:fake_repo_overviews, Map.put(overviews, repo, {:ok, overview}))
+  end
+
+  defp pr(number, checks) do
+    %{
+      number: number,
+      title: "pr #{number}",
+      url: "https://x/#{number}",
+      draft: true,
+      checks: checks
+    }
+  end
+
+  defp perform!(args), do: CiStatus.perform(%Oban.Job{args: args})
+
+  defp inbox_notes(workspace) do
+    Path.wildcard(Path.join([workspace, "inbox", "sensor-*"]))
+  end
+
+  test "a newly failing PR drops a note and fires the kickoff",
+       %{workspace: workspace, routine: routine, repo: repo, args: args} do
+    fake_prs!(repo, [pr(7, "SUCCESS"), pr(9, "FAILURE")])
+
+    :ok = perform!(args)
+
+    assert [note] = inbox_notes(workspace)
+    content = File.read!(note)
+    assert content =~ "PR #9"
+    assert content =~ "FAILURE"
+    assert content =~ repo
+    refute content =~ "PR #7"
+
+    # the funnel scheduled the beat
+    assert Enum.any?(jobs_for("ObanClaude.Agent.Tick"), &(&1.args["agent_id"] == routine.id))
+  end
+
+  test "a persistently failing PR notes once; breaking again notes again",
+       %{workspace: workspace, repo: repo, args: args} do
+    fake_prs!(repo, [pr(9, "FAILURE")])
+    :ok = perform!(args)
+    assert [_note] = inbox_notes(workspace)
+
+    # still failing next poll: no new note
+    :ok = perform!(args)
+    assert [_note] = inbox_notes(workspace)
+
+    # recovers, then breaks again: a fresh note
+    fake_prs!(repo, [pr(9, "SUCCESS")])
+    :ok = perform!(args)
+    fake_prs!(repo, [pr(9, "ERROR")])
+    :ok = perform!(args)
+    assert [_first, _second] = inbox_notes(workspace)
+  end
+
+  test "a fetch error skips quietly and the next poll still works",
+       %{workspace: workspace, repo: repo, args: args} do
+    overviews = Application.get_env(:custode, :fake_repo_overviews, %{})
+    put_env!(:fake_repo_overviews, Map.put(overviews, repo, {:error, :rate_limited}))
+
+    :ok = perform!(args)
+    assert inbox_notes(workspace) == []
+
+    fake_prs!(repo, [pr(3, "FAILURE")])
+    :ok = perform!(args)
+    assert [_note] = inbox_notes(workspace)
+  end
+
+  test "all-green is a quiet feed entry, no note", %{workspace: workspace, repo: repo, args: args} do
+    fake_prs!(repo, [pr(1, "SUCCESS"), pr(2, nil)])
+    :ok = perform!(args)
+    assert inbox_notes(workspace) == []
+  end
+
+  test "the crontab carries the ci sensors alongside routine ticks" do
+    put_env!(:sensors, [
+      %{
+        id: "ci-x",
+        cron: "*/15 * * * *",
+        module: CiStatus,
+        notify: "x",
+        args: %{repo: "a/b"}
+      }
+    ])
+
+    assert {"*/15 * * * *", CiStatus, opts} =
+             Enum.find(Custode.Routine.crontab(), &(elem(&1, 1) == CiStatus))
+
+    assert opts[:queue] == :sensors
+    # atom-keyed here; Oban's JSON round trip stringifies it for perform/1
+    assert opts[:args][:repo] == "a/b"
+    assert opts[:args]["notify"] == "x"
+  end
+end

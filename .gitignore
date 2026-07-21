@@ -1,33 +1,24 @@
-# The directory Mix will write compiled artifacts to.
-/_build/
 
-# If you run "mix test --cover", coverage assets end up here.
-/cover/
-
-# The directory Mix downloads your dependencies sources to.
-/deps/
-
-# Where third-party dependencies like ExDoc output generated docs.
-/doc/
-
-# Temporary files, for example, from tests.
-/tmp/
-
-# If the VM crashes, it generates a dump, let's ignore it too.
-erl_crash.dump
-
-# Also ignore archive artifacts (built via "mix archive.build").
-*.ez
-
-# Ignore package tarball (built via "mix hex.build").
-custode-*.tar
-
-
-# The demo database is runtime state, not source.
-custode.db*
-
-# The activity feed is runtime state, not source.
-feed.jsonl
-
-# claude-managed worktrees for approved agent work
 .claude/
+*.ez
+/_build/
+/cover/
+/deps/
+/doc/
+/tmp/
+# Also ignore archive artifacts (built via "mix archive.build").
+# claude-managed worktrees for approved agent work
+# If the VM crashes, it generates a dump, let's ignore it too.
+# If you run "mix test --cover", coverage assets end up here.
+# Ignore package tarball (built via "mix hex.build").
+# Temporary files, for example, from tests.
+# The activity feed is runtime state, not source.
+# The demo database is runtime state, not source.
+# The directory Mix downloads your dependencies sources to.
+# The directory Mix will write compiled artifacts to.
+# Where third-party dependencies like ExDoc output generated docs.
+custode-*.tar
+custode.db*
+erl_crash.dump
+feed.jsonl
+workspaces/*/inbox/
