@@ -41,6 +41,8 @@ defmodule Custode.MCP.Tools.ListRoutines do
         %{
           id: routine.id,
           cron: routine.cron,
+          repo: routine.repo,
+          tags: routine.tags,
           workspace: Path.expand(routine.workspace),
           working_dir: Path.expand(routine.working_dir),
           status: inspect(status)
