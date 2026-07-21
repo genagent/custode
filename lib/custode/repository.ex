@@ -99,15 +99,15 @@ defmodule Custode.Repository do
 
   @impl GenServer
   def handle_call({:open_pr, attrs}, _from, state) do
-    title = to_string(attrs[:title] || attrs["title"] || "")
+    title = to_string(get(attrs, :title) || "")
 
     case check(state, :open_pr, title) do
       :ok ->
         pr_attrs = %{
           title: title,
-          head: attrs[:head] || attrs["head"],
-          base: attrs[:base] || attrs["base"] || "main",
-          body: attrs[:body] || attrs["body"] || "",
+          head: get(attrs, :head),
+          base: get(attrs, :base) || "main",
+          body: get(attrs, :body) || "",
           # draft_pr_first is policy for every served repo; force it
           draft: true
         }
@@ -135,6 +135,9 @@ defmodule Custode.Repository do
   end
 
   defp reply(result, state), do: {:reply, result, state}
+
+  # MCP params arrive atom-keyed, direct callers may pass strings
+  defp get(attrs, key), do: attrs[key] || attrs[to_string(key)]
 
   defp ops_result(state, verb, args) do
     case apply(ops(), verb, args) do

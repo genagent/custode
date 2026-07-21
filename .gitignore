@@ -19,7 +19,13 @@
 # Where third-party dependencies like ExDoc output generated docs.
 custode-*.tar
 custode.db*
+dev-workspace/journal.md
+dev-workspace/TODO.md
 erl_crash.dump
 feed.jsonl
 workspace/inbox/
+workspace/journal.md
+workspace/TODO.md
 workspaces/*/inbox/
+workspaces/*/journal.md
+workspaces/*/TODO.md
