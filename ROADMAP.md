@@ -85,6 +85,33 @@ runs, 2026-07-20.
       server restarts (and the agent cold-starts). Surface this (a dashboard
       "config drift" hint) or rebuild tick args at beat time.
 
+## The walk list (2026-07-21)
+
+- [ ] **Ephemeral agents on the grid.** Live sub-agents already get tiles
+      (they vanish the instant the process stops). Add ghost tiles: recently
+      ended ephemerals (known from the feed/spend trail) linger with their
+      last message and an "ended" badge, timing out after a window -- so
+      delegated work stays visible after it finishes.
+- [ ] **Verb tools over Bash incantations.** Wrap gh_ex + git_wrapper_ex
+      (both typed Elixir clients) as MCP tools -- file_issue, open_draft_pr,
+      check_ci, cut_release, notifications -- so agents get predefined,
+      validated ways to do tasks instead of error-prone CLI strings (the gh
+      flag-swallowing false negative is the motivating exhibit). Not
+      enforced workflow ORDER (that failed before); a library of reliable
+      verbs the prompts choose from. Also an auth win: tokens stay in the
+      BEAM instead of agents using ambient gh credentials.
+- [ ] **Mechanical ticks (sensors).** Plain Oban workers on cron -- no
+      claude -- that poll cheaply (gh notifications, search diffs, CI
+      status) and drop inbox notes when something actually changed. The
+      cheap-sensor / expensive-brain split: contributors' diffing is pure
+      code; the LLM only wakes to judge and summarize. Kills the
+      "$0.20 to discover nothing to do" idle burn.
+- [ ] **Kickoff types.** Today: schedule + manual. Add `:event` (an inbox
+      note landing triggers a debounced beat -- pairs with sensors, and
+      makes Custode.note/1 wake the agent promptly) and `:static`
+      (cron: :manual -- configured identity, tile, budgets, but only runs
+      when poked or beaten).
+
 ## Standing architectural notes
 
 - Extraction trigger for the agent layer (oban_claude spike -> its own hex
