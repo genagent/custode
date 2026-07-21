@@ -28,7 +28,7 @@ defmodule Custode.Routine.PromptsTest do
     assert caretaker =~ "feed_tail"
     assert caretaker =~ "NEVER approve or reject a sibling's gate"
     assert caretaker =~ "ONE beat"
-    assert caretaker =~ "silence is the one failure nothing else detects"
+    assert caretaker =~ "SILENT SENSORS"
     assert caretaker =~ "resume is the human's call"
   end
 
