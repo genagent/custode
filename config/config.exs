@@ -120,8 +120,10 @@ config :custode,
       prompt: "Do your contributor sweep now.",
       role: :contributor_watch,
       mcp: true,
-      max_budget_usd: 0.5,
-      daily_budget_usd: 2.5,
+      # a real sweep (search, filter, journal, remember a dozen items) costs
+      # more than the trivial nothing-new case; cap sized for the real one
+      max_budget_usd: 1.25,
+      daily_budget_usd: 4.0,
       extra_allowed_tools: [
         "Bash(gh search:*)",
         "Bash(gh issue list:*)",
