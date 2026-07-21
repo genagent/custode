@@ -5,9 +5,11 @@ defmodule Custode.CLI do
   humans (or raw with `--json`).
   """
 
+  alias Custode.CLI.Client
+
   @doc "Run one tool call and print it. Returns cheer's :ok / {:error, :run_failed}."
   def emit(tool, arguments, json?, render_fun) do
-    case Custode.CLI.Client.call(tool, arguments) do
+    case Client.call(tool, arguments) do
       {:ok, decoded} when json? ->
         Mix.shell().info(Jason.encode!(decoded, pretty: true))
         :ok
