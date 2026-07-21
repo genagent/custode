@@ -37,12 +37,12 @@ runs, 2026-07-20.
 - [ ] **Post-restart budget leak.** A restart clears an auto-pause, so an
       over-budget routine leaks one turn before re-pausing. A boot-time
       budget check (or a Tick-level guard) closes it.
-- [ ] **Worktree dev loop.** custode-dev cannot compile or test inside its
-      worktree: the `../oban_claude` path dep does not resolve from
-      `.claude/worktrees/`, so its changes are unverified-by-author (the
-      first merged diff shipped a function-in-guard error the author could
-      not have caught). Symlinked deps/_build or an absolute path dep would
-      let it run `mix test` before proposing done.
+- [x] **Worktree dev loop.** The `../oban_claude` path dep now honors an
+      `OBAN_CLAUDE_PATH` env override, so a worktree checkout can point at
+      the real sibling repo and run `mix compile`/`mix test` before
+      reporting done. Proposed by the custode-dev routine itself (its second
+      accepted change; the first shipped unverified for exactly this
+      reason).
 - [ ] **Elevation continuity across rail-stops.** An approved turn that
       rail-stops (per-turn budget) resumes its session on the next prompt
       WITHOUT the approved_args elevation -- the continuation cannot finish

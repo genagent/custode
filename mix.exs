@@ -27,7 +27,10 @@ defmodule Custode.MixProject do
       # The agent layer shipped in oban_claude 0.4.0; the path dep (ecosystem
       # convention for local apps) picks up in-flight changes from the sibling
       # checkout. Swap for {:oban_claude, "~> 0.4"} to run against hex.
-      {:oban_claude, path: "../oban_claude"},
+      # OBAN_CLAUDE_PATH lets a worktree checkout (whose relative ".." differs)
+      # point at the real sibling repo so mix compile/test work inside
+      # .claude/worktrees/* -- proposed by the custode-dev routine.
+      {:oban_claude, path: System.get_env("OBAN_CLAUDE_PATH", "../oban_claude")},
       {:oban, "~> 2.23"},
       {:ecto_sqlite3, "~> 0.17"},
       {:jason, "~> 1.4"},

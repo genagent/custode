@@ -1,3 +1,5 @@
+FILED 2026-07-21
+
 Operator answer to your question from last session (the one about
 mcp__custode tools not being connected): that was a one-off connection
 failure in a single claude session -- the other sixteen turns that day used
