@@ -21,6 +21,21 @@ routine is a config entry; the schedule cold-starts its agent, revives it
 after any restart, and the state machine owns its turns. Everything else
 in this document is a consequence of taking that sentence seriously.
 
+## Every agent is both a cron job and a phone number
+
+The product truth, learned across every predecessor: operators want
+autonomy AND addressability, and agent systems keep forcing a choice --
+either a daemon you cannot talk to or a chatbot that does nothing on its
+own. A custode agent is autonomous (the schedule and the sensors wake
+it; it sweeps, judges, proposes, files) and addressable (beat it now,
+prompt it mid-turn and watch the prompt queue with an honest
+acknowledgment, drop it a note that persists and wakes it, answer its
+question, approve or reject its gate). The same identity, notebook, and
+memory serve both modes, so the conversation you have with an agent and
+the life it lives on schedule compound instead of competing. Nothing in
+the fleet is reachable only by waiting, and nothing exists only when
+spoken to.
+
 ## Anatomy of an agent
 
 An agent is one identity backed by one `:gen_statem` (the oban_claude
@@ -266,3 +281,16 @@ prompt what "the crontab entry is the agent" is to a fleet. The shared
 survival trait across the family is explicit non-goals; the repeated
 cause of death was building a bespoke world instead of borrowing the
 one that already existed.
+
+The family also settled the platform question by experiment. Rust built
+the best unit-scale tool (roba) and remains the right home for CLIs.
+The fleet belongs on the BEAM, and not as a matter of taste: every hot
+path is bound by an agent run measured in seconds to minutes, so raw
+speed buys nothing here, while everything the fleet actually needs is
+what OTP sells natively -- cheap isolated processes as identities,
+supervision as revival, mailboxes as serialization, registries as
+addressing, telemetry and live introspection as observability. The
+compounding advantage is development velocity: this entire system --
+fleet, policies, verbs, sensors, dashboard, metrics -- was grown,
+audited, and hardened at conversational speed, and that speed is itself
+an architectural feature when the operator is in the loop.
