@@ -198,3 +198,59 @@ defmodule CustodeWeb.FleetLiveTagsTest do
     assert html =~ "tile-#{plain}"
   end
 end
+
+defmodule CustodeWeb.FleetLiveBrakeTest do
+  use ExUnit.Case, async: false
+
+  import Custode.TestHelpers
+  import Phoenix.ConnTest
+  import Phoenix.LiveViewTest
+
+  alias ObanClaude.Agent
+
+  @endpoint CustodeWeb.Endpoint
+
+  test "pause all / resume all round-trip the whole fleet (#14)" do
+    first = start_stub_agent!()
+    second = start_stub_agent!()
+    conn = build_conn()
+
+    {:ok, view, _html} = live(conn, "/")
+    view |> element("button", "pause all") |> render_click()
+
+    {:ok, :paused} = Agent.await(first, :paused, 1_000)
+    {:ok, :paused} = Agent.await(second, :paused, 1_000)
+
+    view |> element("button", "resume all") |> render_click()
+    {:ok, :idle} = Agent.await(first, :idle, 1_000)
+    {:ok, :idle} = Agent.await(second, :idle, 1_000)
+  end
+
+  test "a recently ended ephemeral gets a dimmed ended ghost tile (#11)" do
+    id = uid("ephemeral")
+    test_pid = self()
+
+    {:ok, _pid} =
+      Agent.start_agent(id,
+        enqueue_fun: fn _args, _meta ->
+          send(test_pid, :enqueued)
+          {:ok, :queued}
+        end
+      )
+
+    Custode.Feed.record(%{event: "turn", agent: id, summary: "did one thing"})
+    :ok = Agent.stop_agent(id)
+
+    # registry cleanup is async; wait until the fleet no longer sees it live
+    Enum.find(1..50, fn _attempt ->
+      Process.sleep(20)
+      not Enum.any?(ObanClaude.Agent.list(), fn {agent_id, _s} -> agent_id == id end)
+    end) || flunk("agent never left the registry")
+
+    {:ok, _view, html} = live(build_conn(), "/")
+    assert html =~ "tile-#{id}"
+    assert html =~ "ended"
+    assert html =~ "did one thing"
+    assert html =~ "opacity-60"
+  end
+end

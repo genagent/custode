@@ -44,6 +44,16 @@ defmodule CustodeWeb.FleetLive do
     {:noreply, refresh(socket)}
   end
 
+  def handle_event("pause_all", _params, socket) do
+    {:ok, _ids} = Custode.pause_all()
+    {:noreply, refresh(socket)}
+  end
+
+  def handle_event("resume_all", _params, socket) do
+    {:ok, _ids} = Custode.resume_all()
+    {:noreply, refresh(socket)}
+  end
+
   def handle_event("filter", %{"tag" => tag}, socket) do
     # clicking the active tag clears the filter
     filter = if socket.assigns.tag_filter == tag, do: nil, else: tag
@@ -54,7 +64,7 @@ defmodule CustodeWeb.FleetLive do
   def render(assigns) do
     ~H"""
     <.page fleet_today={@fleet_today} active={:fleet}>
-      <div :if={@all_tags != []} class="mb-4 flex flex-wrap gap-2">
+      <div class="mb-4 flex flex-wrap items-center gap-2">
         <button
           :for={tag <- @all_tags}
           class={["badge cursor-pointer", (@tag_filter == tag && "badge-primary") || "badge-ghost"]}
@@ -63,6 +73,23 @@ defmodule CustodeWeb.FleetLive do
         >
           {tag}
         </button>
+        <span class="ml-auto flex gap-2">
+          <button
+            :if={@any_pausable}
+            class="btn btn-outline btn-error btn-xs"
+            phx-click="pause_all"
+            data-confirm="Pause every running agent?"
+          >
+            pause all
+          </button>
+          <button
+            :if={@any_paused}
+            class="btn btn-outline btn-success btn-xs"
+            phx-click="resume_all"
+          >
+            resume all
+          </button>
+        </span>
       </div>
       <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         <.tile :for={{id, tile} <- @tiles} id={id} tile={tile} />
@@ -189,22 +216,48 @@ defmodule CustodeWeb.FleetLive do
          }}
       end
 
-    # anything needing a human sorts first; then config order, then the rest
+    # ghost tiles (#11): recently-ended ephemerals whose trail persists --
+    # seen in the feed within the window, not running, not a routine
+    ghost_ids =
+      Custode.Feed.recent_agents(Application.get_env(:custode, :ghost_window_s, 3_600)) --
+        (all_ids ++ routine_ids)
+
+    ghosts =
+      for id <- ghost_ids do
+        {id,
+         %{
+           status: :ended,
+           state: :ended,
+           routine: nil,
+           budget: nil,
+           spend_today: Custode.SpendLedger.today(id),
+           open_todos: 0,
+           last: Custode.Feed.last_for(id)
+         }}
+      end
+
+    # anything needing a human sorts first; then config order, then the
+    # living rest; ended ghosts always last
     order = Map.new(Enum.with_index(routine_ids))
 
     tiles =
-      tiles
+      (tiles ++ ghosts)
       |> filter_tiles(socket.assigns[:tag_filter])
       |> Enum.sort_by(fn {id, tile} ->
-        {if(needs_attention?(tile.status), do: 0, else: 1), Map.get(order, id, 999), id}
+        {if(needs_attention?(tile.status), do: 0, else: 1),
+         if(tile.state == :ended, do: 1, else: 0), Map.get(order, id, 999), id}
       end)
 
     all_tags =
       routines |> Enum.flat_map(& &1.tags) |> Enum.uniq() |> Enum.map(&to_string/1) |> Enum.sort()
 
+    states = Enum.map(running, fn {_id, status} -> state_of(status) end)
+
     assign(socket,
       tiles: tiles,
       all_tags: all_tags,
+      any_pausable: Enum.any?(states, &(&1 not in [:paused, :offline])),
+      any_paused: :paused in states,
       fleet_today: Custode.SpendLedger.fleet_today()
     )
   end
@@ -218,6 +271,7 @@ defmodule CustodeWeb.FleetLive do
     end)
   end
 
+  defp tile_ring(:ended), do: "opacity-60"
   defp tile_ring(:awaiting_permission), do: "ring-2 ring-warning"
   defp tile_ring(:waiting_for_user), do: "ring-2 ring-accent"
   defp tile_ring(:paused), do: "ring-2 ring-error"
