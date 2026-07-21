@@ -81,9 +81,31 @@ defmodule Custode.RoutineTest do
       claude_args = Custode.Routine.tick_args(routine)["start"]["args"]
 
       assert claude_args["mcp_config"] == [Custode.MCP.config_path()]
-      assert claude_args["allowed_tools"] == ["mcp__custode"]
+      assert "mcp__custode__run_job" in claude_args["allowed_tools"]
       assert claude_args["append_system_prompt"] =~ "Delegation"
       assert claude_args["append_system_prompt"] =~ "run_job"
+    end
+
+    test "tool tiers: operator verbs go to the caretaker role only (#40)" do
+      caretaker = routine_fixture!("workspace", %{mcp: true})
+      caretaker_tools = Custode.Routine.tick_args(caretaker)["start"]["args"]["allowed_tools"]
+
+      worker = routine_fixture!("workspace", %{mcp: true, role: :backlog_worker})
+      worker_tools = Custode.Routine.tick_args(worker)["start"]["args"]["allowed_tools"]
+
+      for operator_verb <- ~w(pause_agent resume_agent beat drop_note spend_today) do
+        assert "mcp__custode__#{operator_verb}" in caretaker_tools
+        refute "mcp__custode__#{operator_verb}" in worker_tools
+      end
+
+      # workers keep delegation over their own sub-agents and their notebook
+      for tool <- ~w(run_job start_agent approve_action journal_append recall) do
+        assert "mcp__custode__#{tool}" in worker_tools
+      end
+
+      # nobody gets the bare whole-server grant anymore
+      refute "mcp__custode" in caretaker_tools
+      refute "mcp__custode" in worker_tools
     end
 
     test "mcp: false gets neither tools nor delegation orders" do
@@ -135,7 +157,8 @@ defmodule Custode.RoutineTest do
       dev = dev_fixture!()
       claude_args = Custode.Routine.tick_args(dev)["start"]["args"]
 
-      assert claude_args["allowed_tools"] == ["mcp__custode", "Bash(git log:*)"]
+      assert List.last(claude_args["allowed_tools"]) == "Bash(git log:*)"
+      assert "mcp__custode__run_job" in claude_args["allowed_tools"]
     end
 
     test "the repo caretaker role gets its own standing orders" do

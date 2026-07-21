@@ -113,7 +113,7 @@ defmodule Custode.Routine do
       append_system_prompt: system_prompt(routine)
     ]
 
-    mcp_tools = if routine.mcp, do: ["mcp__custode"], else: []
+    mcp_tools = if routine.mcp, do: mcp_allowlist(routine.role), else: []
     allowed = mcp_tools ++ routine.extra_allowed_tools
 
     extra =
@@ -128,6 +128,27 @@ defmodule Custode.Routine do
 
   defp system_prompt(%{mcp: true} = routine), do: routine.system_prompt <> delegation_prompt()
   defp system_prompt(routine), do: routine.system_prompt
+
+  # Tool tiers (issue #40): the operator verbs (pause a sibling, beat a
+  # routine, read the fleet) belong to the meta-agent only. Every other
+  # mcp: true routine gets delegation over its OWN sub-agents plus its
+  # notebook and memory. Allowlist-deep, not identity-deep (that is #2) --
+  # but it removes the casual path to a backlog worker pausing the fleet.
+  @worker_mcp_tools ~w(
+    list_routines agent_status start_agent prompt_agent await_agent
+    agent_history approve_action reject_action run_job
+    journal_append todo_add todo_list todo_complete inbox_list inbox_mark_filed
+    remember recall forget
+  )
+
+  @operator_mcp_tools ~w(
+    beat drop_note list_gates feed_tail pause_agent resume_agent spend_today
+  )
+
+  defp mcp_allowlist(:caretaker),
+    do: Enum.map(@worker_mcp_tools ++ @operator_mcp_tools, &("mcp__custode__" <> &1))
+
+  defp mcp_allowlist(_role), do: Enum.map(@worker_mcp_tools, &("mcp__custode__" <> &1))
 
   defp normalize(routine) do
     id = Map.fetch!(routine, :id)
