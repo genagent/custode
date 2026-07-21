@@ -87,8 +87,14 @@ defmodule CustodeWeb.Components do
   a bare rail kind ("max_turns_exceeded") tells the operator what broke but
   not whether anyone has to do anything (#31).
   """
-  def feed_text(%{"event" => "turn_failed"} = entry),
-    do: "#{entry["kind"]} -- #{failure_hint(entry["kind"])}"
+  def feed_text(%{"event" => "turn_failed"} = entry) do
+    base = "#{entry["kind"]} -- #{failure_hint(entry["kind"])}"
+
+    case entry["detail"] do
+      detail when is_binary(detail) and detail != "" -> base <> "\n" <> detail
+      _absent -> base
+    end
+  end
 
   def feed_text(%{"event" => "budget_paused"}),
     do: "daily budget rail crossed; auto-paused until a human resumes"
