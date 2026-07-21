@@ -27,6 +27,9 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.RepoTools.Comment, name: "repo_comment")
   component(Custode.MCP.RepoTools.ReadyPr, name: "repo_ready_pr")
   component(Custode.MCP.RepoTools.MergePr, name: "repo_merge_pr")
+  component(Custode.MCP.RepoTools.MarkIssueReady, name: "repo_mark_issue_ready")
+  component(Custode.MCP.RepoTools.MarkIssueBlocked, name: "repo_mark_issue_blocked")
+  component(Custode.MCP.RepoTools.ReviewPr, name: "repo_review_pr")
 
   # the operator tier (issue #33): run the fleet, not just delegate into it
   component(Custode.MCP.OperatorTools.Beat, name: "beat")

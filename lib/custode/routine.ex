@@ -231,6 +231,7 @@ defmodule Custode.Routine do
     journal_append todo_add todo_list todo_complete inbox_list inbox_mark_filed
     remember recall forget
     repo_open_pr repo_comment repo_ready_pr repo_merge_pr
+    repo_mark_issue_ready repo_mark_issue_blocked repo_review_pr
   )
 
   @operator_mcp_tools ~w(
