@@ -331,4 +331,9 @@ config :custode, CustodeWeb.Endpoint,
 
 config :phoenix, :json_library, Jason
 
+# Cron schedules run in THIS timezone (#17): "@daily" means local midnight,
+# not 5pm-the-previous-day. Sensors on */N cadences are unaffected.
+config :custode, timezone: "America/Los_Angeles"
+config :elixir, :time_zone_database, Tzdata.TimeZoneDatabase
+
 import_config "#{config_env()}.exs"

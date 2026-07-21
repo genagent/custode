@@ -40,6 +40,8 @@ defmodule Custode.MixProject do
       {:gh_ex, "~> 0.3"},
       # HTTP client (also a gh_ex dep): the boot MCP probe and CLI transport.
       {:req, "~> 0.5"},
+      # Real timezones for the cron schedule (#17).
+      {:tzdata, "~> 1.1"},
       {:bandit, "~> 1.5"},
       # The dashboard: LiveView over the facade + PubSub, daisyUI via CDN
       # (no node/asset pipeline; see CustodeWeb.Layouts).

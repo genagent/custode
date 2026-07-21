@@ -210,6 +210,11 @@ defmodule Custode.Routine do
 
     extra = if allowed == [], do: extra, else: Keyword.put(extra, :allowed_tools, allowed)
 
+    extra =
+      if routine.hermetic != nil,
+        do: Keyword.put(extra, :hermetic, routine.hermetic),
+        else: extra
+
     ObanClaude.Args.defaults(base ++ extra)
   end
 
@@ -279,7 +284,10 @@ defmodule Custode.Routine do
       # agentic turns inside one claude run; an approved implementation
       # (edit + build + test loops) needs far more than a sweep
       max_turns: Map.get(routine, :max_turns, 20),
-      system_prompt: Map.get(routine, :system_prompt, default_prompt(role, id)),
+      system_prompt: resolve_prompt(routine, role, id),
+      # non-hermetic runs inherit the repo's own CLAUDE.md/persona (#19);
+      # set hermetic: true to shut ambient context out for a routine
+      hermetic: Map.get(routine, :hermetic),
       # merged over the args on approve continuations only; a repo caretaker
       # adds "worktree" so approved edits land in an isolated branch
       approved_args:
@@ -303,6 +311,20 @@ defmodule Custode.Routine do
   end
 
   defp default_prompt(role, id), do: Prompts.for_role(role, id)
+
+  # #19: a routine may own its standing orders as a FILE (versioned prose,
+  # editable without recompiling) -- charter still composes in front so
+  # fleet law rides along.
+  defp resolve_prompt(routine, role, id) do
+    case Map.get(routine, :system_prompt_file) do
+      nil ->
+        Map.get(routine, :system_prompt, default_prompt(role, id))
+
+      path ->
+        Prompts.charter(id, role) <> "
+" <> File.read!(path)
+    end
+  end
 
   defp directive_schema do
     Jason.encode!(%{
