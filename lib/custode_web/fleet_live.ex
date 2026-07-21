@@ -134,9 +134,16 @@ defmodule CustodeWeb.FleetLive do
           <span :for={tag <- @tile.routine.tags} class="badge badge-ghost badge-xs">{tag}</span>
         </div>
 
-        <div class="flex gap-4 text-xs text-base-content/60">
+        <div class="flex items-center gap-4 text-xs text-base-content/60">
           <span :if={@tile.spend_today}>
             today <b>${usd(@tile.spend_today)}</b><span :if={@tile.budget}> / ${usd(@tile.budget)}</span>
+          </span>
+          <span
+            :if={@tile.series && Enum.sum(@tile.series) > 0}
+            class="text-base-content/30"
+            title="spend, last 7 days"
+          >
+            <CustodeWeb.Charts.sparkline values={@tile.series} class="h-5 w-16" />
           </span>
           <span :if={@tile.open_todos > 0}>{@tile.open_todos} todo(s)</span>
           <span :if={@tile.state == :offline}>next beat starts it</span>
@@ -199,6 +206,8 @@ defmodule CustodeWeb.FleetLive do
     all_ids = Enum.uniq(routine_ids ++ Map.keys(running))
     routines_by_id = Map.new(routines, &{&1.id, &1})
 
+    series_by_agent = Custode.Metrics.spend_series_by_agent(7)
+
     tiles =
       for id <- all_ids do
         status = Map.get(running, id, :offline)
@@ -212,6 +221,7 @@ defmodule CustodeWeb.FleetLive do
            budget: routine && routine.daily_budget_usd,
            spend_today: Custode.SpendLedger.today(id),
            open_todos: length(Custode.Notebook.todos(id)),
+           series: Map.get(series_by_agent, id),
            last: Custode.Feed.last_message(id, needs_attention?(status))
          }}
       end
@@ -232,6 +242,7 @@ defmodule CustodeWeb.FleetLive do
            budget: nil,
            spend_today: Custode.SpendLedger.today(id),
            open_todos: 0,
+           series: nil,
            last: Custode.Feed.last_for(id)
          }}
       end

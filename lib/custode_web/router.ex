@@ -16,5 +16,6 @@ defmodule CustodeWeb.Router do
     live("/", CustodeWeb.FleetLive)
     live("/agents/:id", CustodeWeb.AgentLive)
     live("/feed", CustodeWeb.FeedLive)
+    live("/metrics", CustodeWeb.MetricsLive)
   end
 end
