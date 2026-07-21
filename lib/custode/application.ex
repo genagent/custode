@@ -63,7 +63,8 @@ defmodule Custode.Application do
       notifier: Oban.Notifiers.PG,
       peer: Oban.Peers.Isolated,
       plugins: [
-        {Oban.Plugins.Cron, crontab: crontab},
+        {Oban.Plugins.Cron,
+         crontab: crontab, timezone: Application.get_env(:custode, :timezone, "Etc/UTC")},
         # a crash mid-turn leaves the job row stuck executing; Lifeline
         # rescinds it so the durable-restart story holds for turns too.
         # MUST exceed the longest legitimate turn (backlog workers run

@@ -98,6 +98,26 @@ defmodule Custode.RoutineTest do
                Enum.find(Custode.Routine.sensors(), &(&1.id == "ci-prof-a"))
     end
 
+    test "system_prompt_file composes charter + file body; hermetic passes through (#19/#17)" do
+      dir = Path.join(System.tmp_dir!(), uid("pfile"))
+      File.mkdir_p!(dir)
+      path = Path.join(dir, "orders.md")
+      File.write!(path, "## Your role: file-grown\nDo the file thing.")
+      on_exit(fn -> File.rm_rf!(dir) end)
+
+      routine =
+        routine_fixture!(tmp_workspace!(), %{system_prompt_file: path, hermetic: true})
+
+      assert routine.system_prompt =~ "## Charter"
+      assert routine.system_prompt =~ "Do the file thing."
+
+      claude_args = Custode.Routine.tick_args(routine)["start"]["args"]
+      assert claude_args["hermetic"] == true
+
+      plain = routine_fixture!(tmp_workspace!())
+      refute Map.has_key?(Custode.Routine.tick_args(plain)["start"]["args"], "hermetic")
+    end
+
     test "workspace defaults to workspaces/<id> when omitted" do
       put_env!(:routines, [%{id: "ws-less", cron: :manual, prompt: "x"}])
       assert Custode.Routine.get("ws-less").workspace == "workspaces/ws-less"

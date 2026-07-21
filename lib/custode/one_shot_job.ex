@@ -15,21 +15,37 @@ defmodule Custode.OneShotJob do
 
   @impl ObanClaude.Worker
   def handle_result(result, %Oban.Job{} = job) do
-    body =
-      (ObanClaude.structured(result) || %{})["summary"] || result.result ||
-        "(job produced no text)"
+    structured = ObanClaude.structured(result)
+    body = (structured || %{})["summary"] || result.result || "(job produced no text)"
 
     report(job, """
+    #{front_matter(job, "ok", result.cost_usd, structured)}
     One-shot job ##{job.id} (#{tag(job)}) finished.
 
     Task: #{String.slice(job.args["prompt"], 0, 200)}
 
     Result: #{body}
-
-    (cost $#{result.cost_usd || 0.0})
     """)
 
     :ok
+  end
+
+  # #18: a machine-readable header so the receiving sweep can file the
+  # outcome (and any structured payload) mechanically instead of
+  # re-judging prose. Fenced JSON: trivially parseable, safely ignorable.
+  defp front_matter(job, status, cost_usd, structured) do
+    header = %{
+      "job" => job.id,
+      "tag" => tag(job),
+      "status" => status,
+      "cost_usd" => cost_usd || 0.0,
+      "structured" => structured
+    }
+
+    "```json custode-report
+" <> Jason.encode!(header) <> "
+```
+"
   end
 
   @impl ObanClaude.Worker
@@ -37,6 +53,7 @@ defmodule Custode.OneShotJob do
     kind = if is_struct(payload), do: inspect(payload.kind), else: inspect(oban_return)
 
     report(job, """
+    #{front_matter(job, "failed: " <> kind, failed_cost(payload), nil)}
     One-shot job ##{job.id} (#{tag(job)}) FAILED: #{kind}.
 
     Task: #{String.slice(job.args["prompt"], 0, 200)}
@@ -56,4 +73,7 @@ defmodule Custode.OneShotJob do
   defp report(_job, _text), do: :ok
 
   defp tag(%Oban.Job{args: args}), do: args["tag"] || "job"
+
+  defp failed_cost(payload) when is_struct(payload), do: ObanClaude.cost_usd(payload)
+  defp failed_cost(_payload), do: 0.0
 end
