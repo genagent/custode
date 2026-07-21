@@ -12,6 +12,19 @@ defmodule CustodeWeb.ComponentsTest do
     end
   end
 
+  describe "ago_text/1" do
+    test "buckets seconds/minutes/hours/days and tolerates junk" do
+      now = DateTime.utc_now()
+      assert ago_text(DateTime.add(now, -5)) == "5s ago"
+      assert ago_text(DateTime.add(now, -300)) == "5m ago"
+      assert ago_text(DateTime.add(now, -7200)) == "2h ago"
+      assert ago_text(DateTime.add(now, -172_800)) == "2d ago"
+      assert ago_text(DateTime.add(now, -90) |> DateTime.to_iso8601()) == "1m ago"
+      assert ago_text("not a time") == "not a time"
+      assert ago_text(nil) == "?"
+    end
+  end
+
   describe "feed_text/1" do
     test "failure events carry a what-happens-next hint" do
       assert feed_text(%{"event" => "turn_failed", "kind" => "max_turns_exceeded"}) =~
