@@ -56,6 +56,46 @@ defmodule Custode.DurabilityTest do
     end
   end
 
+  describe "rejection learning" do
+    test "a rejected proposal lands in the routine's inbox with the reason" do
+      import ObanClaude.Testing
+
+      workspace = tmp_workspace!()
+      routine = routine_fixture!(workspace)
+      test_pid = self()
+
+      {:ok, _pid} =
+        Agent.start_agent(routine.id,
+          enqueue_fun: fn _a, _m ->
+            send(test_pid, :enqueued)
+            {:ok, :queued}
+          end
+        )
+
+      on_exit(fn -> Agent.stop_agent(routine.id) end)
+
+      :processing = Agent.submit_prompt(routine.id, "go")
+
+      :ok =
+        Agent.job_finished(
+          routine.id,
+          {:ok,
+           structured_result(%{"directive" => "request_permission", "action" => "delete it all"})}
+        )
+
+      {:ok, {:awaiting_permission, action}} = Agent.await(routine.id, :awaiting_permission, 1_000)
+
+      :rejected = Custode.reject_with_note(routine.id, action.id, "too destructive, never this")
+
+      assert [note] = Path.wildcard(Path.join([workspace, "inbox", "rejection-*"]))
+      content = File.read!(note)
+      assert content =~ "REJECTED"
+      assert content =~ "delete it all"
+      assert content =~ "too destructive, never this"
+      assert content =~ "REMEMBER"
+    end
+  end
+
   describe "deadman (#3)" do
     test "a silent sensor notes the meta-agent; fresh and never-seen sensors do not" do
       workspace = tmp_workspace!()

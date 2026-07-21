@@ -59,6 +59,43 @@ defmodule Custode do
   end
 
   @doc "Reject whatever action the agent is blocked on."
+  @doc """
+  Reject an agent's pending action AND teach it (the learning loop on
+  "no"): the rejection reason lands in the routine's inbox as a note, so
+  the next sweep files it and can remember a standing exception. Without
+  this, a reject was silence -- the reason died in the machine log and
+  the agent re-proposed variations forever.
+  """
+  def reject_with_note(agent_id, action_id, reason) do
+    detail =
+      case Custode.Gates.open_gates(agent_id) do
+        [gate | _rest] -> gate.detail
+        [] -> nil
+      end
+
+    result = Agent.reject_action(agent_id, action_id, reason)
+
+    if result == :rejected and Custode.Routine.get(agent_id) do
+      {:ok, _path} =
+        Custode.Inbox.drop(
+          agent_id,
+          "rejection-#{action_id}.md",
+          """
+          Your proposal was REJECTED by the operator.
+
+          Proposal: #{detail || action_id}
+          Reason: #{reason}
+
+          File this. If the rejection implies a standing exception (a
+          class of work not to propose again), REMEMBER it so future
+          sweeps do not re-propose variations of the same thing.
+          """
+        )
+    end
+
+    result
+  end
+
   def reject(reason \\ "denied", id \\ nil) do
     agent_id = fetch!(id).id
 

@@ -256,7 +256,7 @@ defmodule Custode.MCP.Tools.RejectAction do
 
   @impl true
   def execute(%{agent_id: agent_id, action_id: action_id} = params, frame) do
-    case ObanClaude.Agent.reject_action(agent_id, action_id, Map.get(params, :reason, "denied")) do
+    case Custode.reject_with_note(agent_id, action_id, Map.get(params, :reason, "denied")) do
       :rejected -> reply(frame, %{agent_id: agent_id, rejected: action_id})
       other -> fail(frame, "reject failed: #{inspect(other)}")
     end
