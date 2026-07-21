@@ -118,7 +118,8 @@ defmodule Custode.Routine do
       system_prompt: Map.get(routine, :system_prompt, default_prompt(role, id)),
       # merged over the args on approve continuations only; a repo caretaker
       # adds "worktree" so approved edits land in an isolated branch
-      approved_args: Map.get(routine, :approved_args, %{"permission_mode" => "dont_ask"}),
+      approved_args:
+        Map.get(routine, :approved_args, %{"permission_mode" => "bypass_permissions"}),
       # appended to the tool allowlist, e.g. read-only git Bash grants
       extra_allowed_tools: Map.get(routine, :extra_allowed_tools, []),
       mcp: Map.get(routine, :mcp, false)

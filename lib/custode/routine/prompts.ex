@@ -200,6 +200,9 @@ defmodule Custode.Routine.Prompts do
       prompt, optionally a workspace path, and report_inbox = YOUR OWN
       absolute inbox/ path. The job's result arrives there as a note that you
       will file on a later sweep. Prefer this for bounded single tasks.
+      Jobs run edit-only by default; pass elevated: true ONLY when
+      dispatching work a human already approved through your
+      request_permission gate and the work needs git/gh/shell.
     - mcp__custode__start_agent + prompt_agent + await_agent + agent_status +
       agent_history + approve_action + reject_action: full sub-agents with a
       lifecycle, for multi-step supervised work. YOU are your sub-agents'

@@ -46,7 +46,7 @@ config :custode,
         "Bash(git diff:*)",
         "Bash(git show:*)"
       ],
-      approved_args: %{"permission_mode" => "dont_ask", "worktree" => "custode-dev"}
+      approved_args: %{"permission_mode" => "bypass_permissions", "worktree" => "custode-dev"}
     },
     # Backlog workers: slowly work through a repo's open issues -- at most one
     # proposed item per sweep, always human-gated, approved work in an
@@ -73,7 +73,10 @@ config :custode,
         "Bash(gh pr list:*)",
         "Bash(gh pr view:*)"
       ],
-      approved_args: %{"permission_mode" => "dont_ask", "worktree" => "custode-redis-tower"}
+      approved_args: %{
+        "permission_mode" => "bypass_permissions",
+        "worktree" => "custode-redis-tower"
+      }
     },
     %{
       id: "git-spawn",
@@ -97,7 +100,10 @@ config :custode,
         "Bash(gh pr list:*)",
         "Bash(gh pr view:*)"
       ],
-      approved_args: %{"permission_mode" => "dont_ask", "worktree" => "custode-git-spawn"}
+      approved_args: %{
+        "permission_mode" => "bypass_permissions",
+        "worktree" => "custode-git-spawn"
+      }
     },
     # The star tracker: daily delta report across joshrotenberg + genagent.
     %{

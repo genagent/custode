@@ -46,7 +46,7 @@ defmodule Custode.RoutineTest do
       assert args["session"] == "fresh"
       assert args["if_busy"] == "skip"
       assert args["if_offline"] == "start"
-      assert args["start"]["approved_args"] == %{"permission_mode" => "dont_ask"}
+      assert args["start"]["approved_args"] == %{"permission_mode" => "bypass_permissions"}
       assert is_integer(args["start"]["job_timeout"])
 
       # the whole thing must survive the crontab -> oban_jobs JSON round trip
@@ -96,7 +96,7 @@ defmodule Custode.RoutineTest do
         working_dir: ".",
         mcp: true,
         extra_allowed_tools: ["Bash(git log:*)"],
-        approved_args: %{"permission_mode" => "dont_ask", "worktree" => "dev-wt"}
+        approved_args: %{"permission_mode" => "bypass_permissions", "worktree" => "dev-wt"}
       })
     end
 
@@ -116,12 +116,12 @@ defmodule Custode.RoutineTest do
       dev = dev_fixture!()
 
       assert Custode.Routine.tick_args(dev)["start"]["approved_args"] ==
-               %{"permission_mode" => "dont_ask", "worktree" => "dev-wt"}
+               %{"permission_mode" => "bypass_permissions", "worktree" => "dev-wt"}
 
       plain = routine_fixture!("workspace")
 
       assert Custode.Routine.tick_args(plain)["start"]["approved_args"] ==
-               %{"permission_mode" => "dont_ask"}
+               %{"permission_mode" => "bypass_permissions"}
     end
 
     test "extra_allowed_tools append to the MCP allowlist" do
