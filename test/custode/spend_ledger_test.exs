@@ -58,7 +58,10 @@ defmodule Custode.SpendLedgerTest do
     run!(routine.id, 0.3)
     assert {:ok, :paused} = Agent.await(routine.id, :paused, 1_000)
 
-    assert [entry] = Custode.Feed.tail() |> Enum.filter(&(&1["event"] == "budget_paused"))
+    assert [entry] =
+             Custode.Feed.for_agent(routine.id)
+             |> Enum.filter(&(&1["event"] == "budget_paused"))
+
     assert entry["agent"] == routine.id
     assert entry["action"] =~ "daily budget hit"
 
