@@ -106,7 +106,7 @@ defmodule Custode.Routine do
     base = [
       model: routine.model,
       working_dir: Path.expand(routine.working_dir),
-      max_turns: 20,
+      max_turns: routine.max_turns,
       max_budget_usd: routine.max_budget_usd,
       timeout: routine.timeout_ms,
       json_schema: directive_schema(),
@@ -153,6 +153,9 @@ defmodule Custode.Routine do
       # the claude subprocess cap per turn; long implementation turns (opus +
       # a test suite) need more than the chatty default
       timeout_ms: Map.get(routine, :timeout_ms, 200_000),
+      # agentic turns inside one claude run; an approved implementation
+      # (edit + build + test loops) needs far more than a sweep
+      max_turns: Map.get(routine, :max_turns, 20),
       system_prompt: Map.get(routine, :system_prompt, default_prompt(role, id)),
       # merged over the args on approve continuations only; a repo caretaker
       # adds "worktree" so approved edits land in an isolated branch

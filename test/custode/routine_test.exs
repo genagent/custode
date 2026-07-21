@@ -28,6 +28,13 @@ defmodule Custode.RoutineTest do
       assert routine.mcp == true
     end
 
+    test "max_turns defaults to 20 and flows into the claude args when overridden" do
+      assert routine_fixture!("workspace").max_turns == 20
+
+      worker = routine_fixture!("workspace", %{max_turns: 75})
+      assert Custode.Routine.tick_args(worker)["start"]["args"]["max_turns"] == 75
+    end
+
     test "get/1 finds by id; default/0 is the first entry" do
       routine = routine_fixture!("workspace")
       assert Custode.Routine.get(routine.id).id == routine.id

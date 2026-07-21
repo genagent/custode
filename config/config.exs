@@ -40,6 +40,8 @@ config :custode,
       # repo-context turns are pricier than workspace sweeps: a bigger
       # per-turn cap so an approved implementation can finish in one turn
       max_budget_usd: 1.5,
+      # approved implementations compile and test; more room than a sweep
+      max_turns: 40,
       daily_budget_usd: 5.0,
       extra_allowed_tools: [
         "Bash(git log:*)",
@@ -67,6 +69,9 @@ config :custode,
       daily_budget_usd: 10.0,
       # implementation turns run cargo/mix suites; 15 minutes, not 200s
       timeout_ms: 900_000,
+      # an approved implementation iterates edit/build/test well past the
+      # default 20 agentic turns (redis-tower #465 railed on it)
+      max_turns: 75,
       extra_allowed_tools: [
         "Bash(git log:*)",
         "Bash(git status:*)",
@@ -97,6 +102,9 @@ config :custode,
       daily_budget_usd: 10.0,
       # implementation turns run cargo/mix suites; 15 minutes, not 200s
       timeout_ms: 900_000,
+      # an approved implementation iterates edit/build/test well past the
+      # default 20 agentic turns (redis-tower #465 railed on it)
+      max_turns: 75,
       extra_allowed_tools: [
         "Bash(git log:*)",
         "Bash(git status:*)",

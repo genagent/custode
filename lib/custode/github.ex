@@ -15,11 +15,13 @@ defmodule Custode.GitHub do
   as the sensors' gh runner.
   """
 
+  alias Custode.GitHub.Cache
+
   @doc """
   The cached overview for `"owner/name"`: `{:ok, overview}` (possibly stale,
   with a refresh in flight), or `:loading` before the first fetch lands.
   """
-  def overview(repo) when is_binary(repo), do: Custode.GitHub.Cache.get(repo)
+  def overview(repo) when is_binary(repo), do: Cache.get(repo)
 
   @doc "The configured fetcher module (the test seam)."
   def fetcher, do: Application.get_env(:custode, :github_fetcher, Custode.GitHub.Fetcher)

@@ -6,6 +6,7 @@ defmodule CustodeWeb.AgentLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
+  alias Custode.Test.FakeGitHubFetcher
   alias ObanClaude.Agent
 
   @endpoint CustodeWeb.Endpoint
@@ -103,7 +104,7 @@ defmodule CustodeWeb.AgentLiveTest do
     repo = "acme/" <> uid("panel")
 
     overview =
-      Custode.Test.FakeGitHubFetcher.overview(repo, %{
+      FakeGitHubFetcher.overview(repo, %{
         open_issues: %{
           total: 42,
           items: [%{number: 465, title: "doctest all the things", url: "https://x", at: nil}]
