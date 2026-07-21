@@ -36,6 +36,8 @@ defmodule Custode.MixProject do
       {:jason, "~> 1.4"},
       # The MCP server: agents running here can drive sibling agents/jobs.
       {:anubis_mcp, "~> 1.10"},
+      # Typed GitHub client: repo panels on agent pages (reads); verb tools later.
+      {:gh_ex, "~> 0.3"},
       {:bandit, "~> 1.5"},
       # The dashboard: LiveView over the facade + PubSub, daisyUI via CDN
       # (no node/asset pipeline; see CustodeWeb.Layouts).

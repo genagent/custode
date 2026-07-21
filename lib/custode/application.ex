@@ -25,6 +25,8 @@ defmodule Custode.Application do
       {Ecto.Migrator, repos: [Custode.Repo], log_migrations_sql: false},
       {Oban, oban_config()},
       ObanClaude.Agent.Supervisor,
+      # repo panels: cached GitHub issue/PR overviews for repo-tied routines
+      Custode.GitHub.Cache,
       # boot reconciliation: unresolved gates from before the restart become
       # RESTART NOTICE inbox notes the next sweep re-evaluates
       Supervisor.child_spec({Task, &Custode.Gates.reconcile!/0}, id: :gates_reconcile),

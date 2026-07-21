@@ -99,6 +99,64 @@ defmodule CustodeWeb.AgentLiveTest do
     assert_receive {:enqueued, %{"prompt" => "staging"}, _meta}
   end
 
+  test "a repo-tied routine grows repository panels that fill in live", %{conn: conn} do
+    repo = "acme/" <> uid("panel")
+
+    overview =
+      Custode.Test.FakeGitHubFetcher.overview(repo, %{
+        open_issues: %{
+          total: 42,
+          items: [%{number: 465, title: "doctest all the things", url: "https://x", at: nil}]
+        },
+        open_prs: %{
+          total: 2,
+          items: [
+            %{
+              number: 589,
+              title: "convert ignore to no_run",
+              url: "https://x",
+              at: nil,
+              draft: true,
+              checks: "PENDING"
+            }
+          ]
+        },
+        merged_prs: %{
+          total: 7,
+          items: [%{number: 583, title: "flat slot table", url: "https://x", at: nil}]
+        }
+      })
+
+    overviews = Application.get_env(:custode, :fake_repo_overviews, %{})
+    put_env!(:fake_repo_overviews, Map.put(overviews, repo, {:ok, overview}))
+
+    workspace = tmp_workspace!()
+    routine = routine_fixture!(workspace, %{repo: repo})
+    stub_routine_agent!(routine)
+
+    # subscribe before mount: mounting kicks the async fetch whose broadcast
+    # settles the race below
+    Custode.PubSubBridge.subscribe()
+    {:ok, view, html} = live(conn, "/agents/#{routine.id}")
+    assert html =~ repo
+
+    # the first render races the async fetch; the broadcast settles it
+    html =
+      if html =~ "doctest all the things" do
+        html
+      else
+        assert_receive {:repo_overview, _repo}, 1_000
+        render(view)
+      end
+
+    assert html =~ "42 open"
+    assert html =~ "doctest all the things"
+    assert html =~ "convert ignore to no_run"
+    assert html =~ "draft"
+    assert html =~ "recently merged"
+    assert html =~ "flat slot table"
+  end
+
   test "an unknown agent renders gracefully as offline", %{conn: conn} do
     {:ok, _view, html} = live(conn, "/agents/never-started")
     assert html =~ "offline"
