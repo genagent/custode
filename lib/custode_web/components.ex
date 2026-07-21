@@ -68,6 +68,7 @@ defmodule CustodeWeb.Components do
         <nav class="flex gap-3 text-sm">
           <.link navigate="/" class={nav_class(@active == :fleet)}>fleet</.link>
           <.link navigate="/feed" class={nav_class(@active == :feed)}>feed</.link>
+          <.link navigate="/metrics" class={nav_class(@active == :metrics)}>metrics</.link>
         </nav>
         <.link :if={@attention != []} navigate="/" class="badge badge-warning gap-1">
           {attention_text(@attention)}
