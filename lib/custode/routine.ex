@@ -10,6 +10,8 @@ defmodule Custode.Routine do
   workspace files, not the conversation.
   """
 
+  alias Custode.Routine.Prompts
+
   @doc "All configured routines, with defaults applied."
   def all do
     for routine <- Application.fetch_env!(:custode, :routines), do: normalize(routine)
@@ -123,7 +125,7 @@ defmodule Custode.Routine do
     }
   end
 
-  defp default_prompt(role, id), do: Custode.Routine.Prompts.for_role(role, id)
+  defp default_prompt(role, id), do: Prompts.for_role(role, id)
 
   defp directive_schema do
     Jason.encode!(%{
@@ -139,7 +141,7 @@ defmodule Custode.Routine do
     })
   end
 
-  defp sub_agent_prompt, do: Custode.Routine.Prompts.sub_agent()
+  defp sub_agent_prompt, do: Prompts.sub_agent()
 
-  defp delegation_prompt, do: Custode.Routine.Prompts.delegation()
+  defp delegation_prompt, do: Prompts.delegation()
 end
