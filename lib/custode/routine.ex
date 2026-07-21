@@ -41,7 +41,9 @@ defmodule Custode.Routine do
         {sensor.cron, sensor.module, args: args, queue: :sensors}
       end
 
-    routine_entries ++ sensor_entries
+    janitor_entries = [{"@daily", Custode.Janitor, args: %{}, queue: :sensors}]
+
+    routine_entries ++ sensor_entries ++ janitor_entries
   end
 
   @doc "Configured sensors, normalized."

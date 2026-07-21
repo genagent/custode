@@ -193,7 +193,8 @@ defmodule Custode.RoutineTest do
       ])
 
       crontab = Custode.Routine.crontab()
-      assert length(crontab) == 2
+      # one scheduled routine + one sensor + the always-on janitor
+      assert length(crontab) == 3
 
       assert [{_cron, ObanClaude.Agent.Tick, _opts}] =
                Enum.filter(crontab, &(elem(&1, 1) == ObanClaude.Agent.Tick))
