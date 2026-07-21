@@ -80,7 +80,7 @@ defmodule Custode.RoutineTest do
       routine = routine_fixture!("workspace", %{mcp: true})
       claude_args = Custode.Routine.tick_args(routine)["start"]["args"]
 
-      assert claude_args["mcp_config"] == [Custode.MCP.config_path()]
+      assert List.first(claude_args["mcp_config"]) == Custode.MCP.config_path()
       assert "mcp__custode__run_job" in claude_args["allowed_tools"]
       assert claude_args["append_system_prompt"] =~ "Delegation"
       assert claude_args["append_system_prompt"] =~ "run_job"

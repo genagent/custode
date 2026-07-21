@@ -217,6 +217,15 @@ config :custode, Custode.Repo,
 # The MCP endpoint (localhost only) agents use to drive sibling agents/jobs.
 config :custode, mcp_port: 6161
 
+# Fleet-wide external MCP servers (#46): written into one shared config file
+# every mcp: true routine references, tool grants appended to every
+# allowlist. hexpm for the Elixir repos, cratesio for the Rust ones.
+config :custode,
+  external_mcp_servers: [
+    %{name: "hexpm", type: :http, url: "https://hexpm-mcp.fly.dev/mcp"},
+    %{name: "cratesio", type: :http, url: "https://cratesio-mcp.fly.dev/"}
+  ]
+
 # The dashboard (localhost only, no auth -- same caveat as the MCP endpoint).
 config :custode, CustodeWeb.Endpoint,
   adapter: Bandit.PhoenixAdapter,

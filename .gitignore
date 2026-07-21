@@ -21,4 +21,5 @@ custode-*.tar
 custode.db*
 erl_crash.dump
 feed.jsonl
+workspace/inbox/
 workspaces/*/inbox/
