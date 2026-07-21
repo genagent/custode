@@ -28,6 +28,8 @@ defmodule Custode.Application do
       ObanClaude.Agent.Supervisor,
       # repo panels: cached GitHub issue/PR overviews for repo-tied routines
       Custode.GitHub.Cache,
+      # served repos (#10): one process per repo-tied project; verbs are calls
+      Custode.Repository.Supervisor,
       # boot reconciliation: unresolved gates from before the restart become
       # RESTART NOTICE inbox notes the next sweep re-evaluates
       Supervisor.child_spec({Task, &Custode.Gates.reconcile!/0}, id: :gates_reconcile),
