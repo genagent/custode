@@ -39,10 +39,10 @@ config :custode,
       mcp: true,
       # repo-context turns are pricier than workspace sweeps: a bigger
       # per-turn cap so an approved implementation can finish in one turn
-      max_budget_usd: 1.5,
+      max_budget_usd: 5.0,
       # approved implementations compile and test; more room than a sweep
       max_turns: 40,
-      daily_budget_usd: 5.0,
+      daily_budget_usd: 25.0,
       extra_allowed_tools: [
         "Bash(git log:*)",
         "Bash(git status:*)",
@@ -65,8 +65,8 @@ config :custode,
       mcp: true,
       # opus: the operator wants backlog work done well; budgets sized to match
       model: "opus",
-      max_budget_usd: 3.0,
-      daily_budget_usd: 10.0,
+      max_budget_usd: 10.0,
+      daily_budget_usd: 50.0,
       # implementation turns run cargo/mix suites; 15 minutes, not 200s
       timeout_ms: 900_000,
       # an approved implementation iterates edit/build/test well past the
@@ -98,8 +98,8 @@ config :custode,
       mcp: true,
       # opus: the operator wants backlog work done well; budgets sized to match
       model: "opus",
-      max_budget_usd: 3.0,
-      daily_budget_usd: 10.0,
+      max_budget_usd: 10.0,
+      daily_budget_usd: 50.0,
       # implementation turns run cargo/mix suites; 15 minutes, not 200s
       timeout_ms: 900_000,
       # an approved implementation iterates edit/build/test well past the
@@ -128,8 +128,8 @@ config :custode,
       prompt: "Do your star sweep now.",
       role: :star_tracker,
       mcp: true,
-      max_budget_usd: 0.5,
-      daily_budget_usd: 1.5,
+      max_budget_usd: 1.0,
+      daily_budget_usd: 5.0,
       extra_allowed_tools: ["Bash(gh repo list:*)"]
     },
     # The contributor watch, sensor-driven: the contributor-search sensor
@@ -145,8 +145,8 @@ config :custode,
       mcp: true,
       # a real sweep (search, filter, journal, remember a dozen items) costs
       # more than the trivial nothing-new case; cap sized for the real one
-      max_budget_usd: 1.25,
-      daily_budget_usd: 4.0,
+      max_budget_usd: 3.0,
+      daily_budget_usd: 15.0,
       extra_allowed_tools: [
         "Bash(gh search:*)",
         "Bash(gh issue list:*)",
@@ -170,11 +170,15 @@ config :custode,
   ],
   # Defaults shared by every routine unless overridden per-entry.
   model: "sonnet",
-  max_budget_usd: 0.75,
-  # Daily (UTC) spend cap per routine: crossing it auto-pauses the routine
+  # The budget rails guard against runaway loops, NOT dollar cost: on a
+  # subscription (claude Max) the CLI-reported cost_usd is notional, so
+  # every cap here is sized as an "obviously wrong" threshold rather than
+  # a spend target. Token-based accounting is the truer measure long-term.
+  max_budget_usd: 2.0,
+  # Daily (UTC) cap per routine: crossing it auto-pauses the routine
   # (resume is a human override; a restart leaks at most one turn). nil
   # disables. Per-routine override: daily_budget_usd in the routine map.
-  daily_budget_usd: 5.0,
+  daily_budget_usd: 25.0,
   # The activity feed (one JSON line per noteworthy event; see Custode.Feed).
   feed_path: "feed.jsonl",
   # macOS desktop notifications for events that need a human
