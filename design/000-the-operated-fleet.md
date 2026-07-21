@@ -194,14 +194,19 @@ promoted to tools the same afternoon. The meta-agent (the caretaker
 routine) holds the operator tier too, with orders that keep the division
 honest: it operates the machine -- escalating stale gates, beating stuck
 siblings once, raising sensor silence -- and never judges the work.
-Approving a sibling's gate is the one thing it must never do -- and by
-this document's own taxonomy that rule is currently **a prompt-ask, not
-a verb-guarantee**: with a shared operator token there is no caller
-identity to check, so the prohibition is orders backed by audit (every
-approval is feed-recorded), not architecture. Removing approve from the
-meta-agent's allowlist would make it mechanical at the cost of its
-sub-agent operator duties; the real fix is per-agent identity, and until
-then this is the most important rule in the fleet that is only words.
+Approving a sibling's gate is the one thing it must never do -- and as
+of the identity layer, that rule is **a verb-guarantee at the MCP
+surface**: every caller carries a per-boot bearer token, the router
+verifies it and rides the identity into every tool, and a routine
+caller's approve or reject on another routine's gate is refused
+mechanically with the doctrine quoted. (An earlier revision of this
+document called this "the most important rule in the fleet that is only
+words"; the review that said so is why it stopped being true.) The same
+identity self-scopes notebook and memory writes: agents own their
+records, and cross-agent communication stays inbox-shaped. The honest
+residue: direct BEAM calls and the console bypass the MCP surface (they
+are the operator's own hands), and agents still share the operator's
+GitHub identity externally.
 
 ## Principles
 
