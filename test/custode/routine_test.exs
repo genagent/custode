@@ -58,6 +58,51 @@ defmodule Custode.RoutineTest do
       refute File.dir?(Path.join(base, "missing-checkout"))
     end
 
+    test "profiles: envelope inherited, routine overrides win, tags union, args template (#75)" do
+      put_env!(:profiles, %{
+        tester: %{
+          cron: "@daily",
+          role: :backlog_worker,
+          model: "opus",
+          max_turns: 75,
+          tags: [:repo, :backlog],
+          sensors: [:ci],
+          prompt: "Do your backlog sweep now.",
+          approved_args: %{"permission_mode" => "bypass_permissions", "worktree" => "c-{id}"}
+        }
+      })
+
+      workspace = tmp_workspace!()
+
+      put_env!(:routines, [
+        %{
+          id: "prof-a",
+          profile: :tester,
+          repo: "acme/a",
+          workspace: workspace,
+          tags: [:rust],
+          # the assignment tunes the envelope
+          max_turns: 40
+        }
+      ])
+
+      routine = Custode.Routine.get("prof-a")
+      assert routine.model == "opus"
+      assert routine.max_turns == 40
+      assert routine.role == :backlog_worker
+      assert routine.tags == [:repo, :backlog, :rust]
+      assert routine.approved_args["worktree"] == "c-prof-a"
+
+      # the profile's sensors: [:ci] derives the poll for the repo
+      assert %{id: "ci-prof-a", notify: "prof-a", args: %{repo: "acme/a"}} =
+               Enum.find(Custode.Routine.sensors(), &(&1.id == "ci-prof-a"))
+    end
+
+    test "workspace defaults to workspaces/<id> when omitted" do
+      put_env!(:routines, [%{id: "ws-less", cron: :manual, prompt: "x"}])
+      assert Custode.Routine.get("ws-less").workspace == "workspaces/ws-less"
+    end
+
     test "get/1 finds by id; default/0 is the first entry" do
       routine = routine_fixture!("workspace")
       assert Custode.Routine.get(routine.id).id == routine.id

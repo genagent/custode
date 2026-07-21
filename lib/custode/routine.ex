@@ -12,10 +12,46 @@ defmodule Custode.Routine do
 
   alias Custode.Routine.Prompts
 
-  @doc "All configured routines, with defaults applied."
+  @doc "All configured routines, with profile and defaults applied."
   def all do
     for routine <- Application.fetch_env!(:custode, :routines), do: normalize(routine)
   end
+
+  @doc """
+  Named profiles (the operational envelope layer of the #38 vocabulary):
+  a routine says `profile: :backlog_worker` and inherits the whole envelope
+  -- cadence, model, budgets, grants, approved_args, tags, implied sensors
+  -- then overrides whatever it likes (the routine entry always wins; tags
+  union). "Set up an agent to watch repo X as a backlog worker" is exactly
+  a profile name plus an assignment (#75).
+  """
+  def profiles, do: Application.get_env(:custode, :profiles, %{})
+
+  defp apply_profile(routine) do
+    profile = Map.get(profiles(), routine[:profile], %{})
+    tags = Enum.uniq(Map.get(profile, :tags, []) ++ Map.get(routine, :tags, []))
+
+    profile
+    |> Map.merge(routine)
+    |> Map.put(:tags, tags)
+    |> Map.delete(:profile)
+    |> template_approved_args()
+  end
+
+  # "custode-{id}" in a profile's approved_args becomes "custode-<routine id>"
+  defp template_approved_args(%{approved_args: args} = routine) when is_map(args) do
+    id = Map.fetch!(routine, :id)
+
+    templated =
+      Map.new(args, fn
+        {key, value} when is_binary(value) -> {key, String.replace(value, "{id}", id)}
+        pair -> pair
+      end)
+
+    %{routine | approved_args: templated}
+  end
+
+  defp template_approved_args(routine), do: routine
 
   @doc "The routine with this id, or nil."
   def get(id), do: Enum.find(all(), &(&1.id == id))
@@ -74,15 +110,32 @@ defmodule Custode.Routine do
     :ok
   end
 
-  @doc "Configured sensors, normalized."
+  @doc "Configured sensors plus the ones derived from routine profiles."
   def sensors do
-    for sensor <- Application.get_env(:custode, :sensors, []) do
+    configured =
+      for sensor <- Application.get_env(:custode, :sensors, []) do
+        %{
+          id: Map.fetch!(sensor, :id),
+          cron: Map.fetch!(sensor, :cron),
+          module: Map.fetch!(sensor, :module),
+          notify: Map.fetch!(sensor, :notify),
+          args: Map.get(sensor, :args, %{})
+        }
+      end
+
+    configured ++ derived_sensors()
+  end
+
+  # a profile saying sensors: [:ci] gives every repo-tied routine wearing it
+  # a CI poll -- the sensor entry is derivation, not configuration
+  defp derived_sensors do
+    for routine <- all(), :ci in routine.sensors, is_binary(routine.repo) do
       %{
-        id: Map.fetch!(sensor, :id),
-        cron: Map.fetch!(sensor, :cron),
-        module: Map.fetch!(sensor, :module),
-        notify: Map.fetch!(sensor, :notify),
-        args: Map.get(sensor, :args, %{})
+        id: "ci-" <> routine.id,
+        cron: "*/15 * * * *",
+        module: Custode.Sensors.CiStatus,
+        notify: routine.id,
+        args: %{repo: routine.repo}
       }
     end
   end
@@ -190,8 +243,9 @@ defmodule Custode.Routine do
   defp mcp_allowlist(_role), do: Enum.map(@worker_mcp_tools, &("mcp__custode__" <> &1))
 
   defp normalize(routine) do
+    routine = apply_profile(routine)
     id = Map.fetch!(routine, :id)
-    workspace = Map.fetch!(routine, :workspace)
+    workspace = Map.get(routine, :workspace, "workspaces/" <> id)
     role = Map.get(routine, :role, :caretaker)
 
     %{
@@ -240,6 +294,9 @@ defmodule Custode.Routine do
       # classification (#51): fleet-page filtering now, policy scoping (#50)
       # next. Atoms in config; strings would survive a JSON trip identically.
       tags: Map.get(routine, :tags, []),
+      # implied sensors from the profile (e.g. [:ci] derives a ci-<id>
+      # CiStatus poll for the routine's repo -- see derived_sensors/0)
+      sensors: Map.get(routine, :sensors, []),
       mcp: Map.get(routine, :mcp, false)
     }
   end

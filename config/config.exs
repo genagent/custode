@@ -7,6 +7,43 @@ config :custode,
   # spec (ObanClaude.Agent.Tick with if_offline: "start"), so agents cold-start
   # from the schedule after any restart. Add more maps to run a fleet -- e.g.
   # point a second one's :workspace at a repo checkout with its own :prompt.
+  # Profiles (#38's envelope layer, enabling #75's one-liner setup): a
+  # routine names a profile and inherits the whole operational envelope,
+  # then overrides freely (the routine entry wins; tags union; "{id}" in
+  # approved_args templates to the routine id). sensors: [:ci] derives a
+  # 15-minute CiStatus poll per repo-tied wearer.
+  profiles: %{
+    backlog_worker: %{
+      cron: "@daily",
+      prompt: "Do your backlog sweep now.",
+      role: :backlog_worker,
+      mcp: true,
+      # opus: the operator wants backlog work done well; budgets sized to match
+      model: "opus",
+      max_budget_usd: 10.0,
+      daily_budget_usd: 50.0,
+      # implementation turns run cargo/mix suites; 15 minutes, not 200s
+      timeout_ms: 900_000,
+      # approved implementations iterate edit/build/test well past 20 turns
+      max_turns: 75,
+      tags: [:repo, :backlog],
+      sensors: [:ci],
+      extra_allowed_tools: [
+        "Bash(git log:*)",
+        "Bash(git status:*)",
+        "Bash(git diff:*)",
+        "Bash(git show:*)",
+        "Bash(gh issue list:*)",
+        "Bash(gh issue view:*)",
+        "Bash(gh pr list:*)",
+        "Bash(gh pr view:*)"
+      ],
+      approved_args: %{
+        "permission_mode" => "bypass_permissions",
+        "worktree" => "custode-{id}"
+      }
+    }
+  },
   routines: [
     %{
       id: "custode",
@@ -58,173 +95,38 @@ config :custode,
     # isolated worktree.
     %{
       id: "redis-tower",
-      cron: "@daily",
-      workspace: "workspaces/redis-tower",
+      profile: :backlog_worker,
       repo: "joshrotenberg/redis-tower",
-      tags: [:repo, :backlog, :rust, :external],
       working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/redis-tower",
-      prompt: "Do your backlog sweep now.",
-      role: :backlog_worker,
-      mcp: true,
-      # opus: the operator wants backlog work done well; budgets sized to match
-      model: "opus",
-      max_budget_usd: 10.0,
-      daily_budget_usd: 50.0,
-      # implementation turns run cargo/mix suites; 15 minutes, not 200s
-      timeout_ms: 900_000,
-      # an approved implementation iterates edit/build/test well past the
-      # default 20 agentic turns (redis-tower #465 railed on it)
-      max_turns: 75,
-      extra_allowed_tools: [
-        "Bash(git log:*)",
-        "Bash(git status:*)",
-        "Bash(git diff:*)",
-        "Bash(git show:*)",
-        "Bash(gh issue list:*)",
-        "Bash(gh issue view:*)",
-        "Bash(gh pr list:*)",
-        "Bash(gh pr view:*)"
-      ],
-      approved_args: %{
-        "permission_mode" => "bypass_permissions",
-        "worktree" => "custode-redis-tower"
-      }
+      tags: [:rust, :external]
     },
     %{
       id: "git-spawn",
-      cron: "@daily",
-      workspace: "workspaces/git-spawn",
+      profile: :backlog_worker,
       repo: "joshrotenberg/git-spawn",
-      tags: [:repo, :backlog, :rust, :external],
       working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/git-spawn",
-      prompt: "Do your backlog sweep now.",
-      role: :backlog_worker,
-      mcp: true,
-      # opus: the operator wants backlog work done well; budgets sized to match
-      model: "opus",
-      max_budget_usd: 10.0,
-      daily_budget_usd: 50.0,
-      # implementation turns run cargo/mix suites; 15 minutes, not 200s
-      timeout_ms: 900_000,
-      # an approved implementation iterates edit/build/test well past the
-      # default 20 agentic turns (redis-tower #465 railed on it)
-      max_turns: 75,
-      extra_allowed_tools: [
-        "Bash(git log:*)",
-        "Bash(git status:*)",
-        "Bash(git diff:*)",
-        "Bash(git show:*)",
-        "Bash(gh issue list:*)",
-        "Bash(gh issue view:*)",
-        "Bash(gh pr list:*)",
-        "Bash(gh pr view:*)"
-      ],
-      approved_args: %{
-        "permission_mode" => "bypass_permissions",
-        "worktree" => "custode-git-spawn"
-      }
+      tags: [:rust, :external]
     },
     %{
       id: "mcp-proxy",
-      cron: "@daily",
-      workspace: "workspaces/mcp-proxy",
+      profile: :backlog_worker,
       repo: "joshrotenberg/mcp-proxy",
-      tags: [:repo, :backlog, :rust, :external],
       working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/mcp-proxy",
-      prompt: "Do your backlog sweep now.",
-      role: :backlog_worker,
-      mcp: true,
-      # opus: the operator wants backlog work done well; budgets sized to match
-      model: "opus",
-      max_budget_usd: 10.0,
-      daily_budget_usd: 50.0,
-      # implementation turns run cargo/mix suites; 15 minutes, not 200s
-      timeout_ms: 900_000,
-      # an approved implementation iterates edit/build/test well past the
-      # default 20 agentic turns (redis-tower #465 railed on it)
-      max_turns: 75,
-      extra_allowed_tools: [
-        "Bash(git log:*)",
-        "Bash(git status:*)",
-        "Bash(git diff:*)",
-        "Bash(git show:*)",
-        "Bash(gh issue list:*)",
-        "Bash(gh issue view:*)",
-        "Bash(gh pr list:*)",
-        "Bash(gh pr view:*)"
-      ],
-      approved_args: %{
-        "permission_mode" => "bypass_permissions",
-        "worktree" => "custode-mcp-proxy"
-      }
+      tags: [:rust, :external]
     },
     %{
       id: "tower-mcp",
-      cron: "@daily",
-      workspace: "workspaces/tower-mcp",
+      profile: :backlog_worker,
       repo: "joshrotenberg/tower-mcp",
-      tags: [:repo, :backlog, :rust, :external],
       working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/tower-mcp",
-      prompt: "Do your backlog sweep now.",
-      role: :backlog_worker,
-      mcp: true,
-      # opus: the operator wants backlog work done well; budgets sized to match
-      model: "opus",
-      max_budget_usd: 10.0,
-      daily_budget_usd: 50.0,
-      # implementation turns run cargo/mix suites; 15 minutes, not 200s
-      timeout_ms: 900_000,
-      # an approved implementation iterates edit/build/test well past the
-      # default 20 agentic turns (redis-tower #465 railed on it)
-      max_turns: 75,
-      extra_allowed_tools: [
-        "Bash(git log:*)",
-        "Bash(git status:*)",
-        "Bash(git diff:*)",
-        "Bash(git show:*)",
-        "Bash(gh issue list:*)",
-        "Bash(gh issue view:*)",
-        "Bash(gh pr list:*)",
-        "Bash(gh pr view:*)"
-      ],
-      approved_args: %{
-        "permission_mode" => "bypass_permissions",
-        "worktree" => "custode-tower-mcp"
-      }
+      tags: [:rust, :external]
     },
     %{
       id: "tower-resilience",
-      cron: "@daily",
-      workspace: "workspaces/tower-resilience",
+      profile: :backlog_worker,
       repo: "joshrotenberg/tower-resilience",
-      tags: [:repo, :backlog, :rust, :external],
       working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/tower-resilience",
-      prompt: "Do your backlog sweep now.",
-      role: :backlog_worker,
-      mcp: true,
-      # opus: the operator wants backlog work done well; budgets sized to match
-      model: "opus",
-      max_budget_usd: 10.0,
-      daily_budget_usd: 50.0,
-      # implementation turns run cargo/mix suites; 15 minutes, not 200s
-      timeout_ms: 900_000,
-      # an approved implementation iterates edit/build/test well past the
-      # default 20 agentic turns (redis-tower #465 railed on it)
-      max_turns: 75,
-      extra_allowed_tools: [
-        "Bash(git log:*)",
-        "Bash(git status:*)",
-        "Bash(git diff:*)",
-        "Bash(git show:*)",
-        "Bash(gh issue list:*)",
-        "Bash(gh issue view:*)",
-        "Bash(gh pr list:*)",
-        "Bash(gh pr view:*)"
-      ],
-      approved_args: %{
-        "permission_mode" => "bypass_permissions",
-        "worktree" => "custode-tower-resilience"
-      }
+      tags: [:rust, :external]
     },
     # The star tracker: daily delta report across joshrotenberg + genagent.
     %{
@@ -292,46 +194,11 @@ config :custode,
     # CI watch (one per repo-tied routine): a PR turning red wakes its
     # routine within the poll interval instead of at the next @daily sweep.
     %{
-      id: "ci-redis-tower",
-      cron: "*/15 * * * *",
-      module: Custode.Sensors.CiStatus,
-      notify: "redis-tower",
-      args: %{repo: "joshrotenberg/redis-tower"}
-    },
-    %{
-      id: "ci-git-spawn",
-      cron: "*/15 * * * *",
-      module: Custode.Sensors.CiStatus,
-      notify: "git-spawn",
-      args: %{repo: "joshrotenberg/git-spawn"}
-    },
-    %{
       id: "ci-custode-dev",
       cron: "*/15 * * * *",
       module: Custode.Sensors.CiStatus,
       notify: "custode-dev",
       args: %{repo: "genagent/custode"}
-    },
-    %{
-      id: "ci-mcp-proxy",
-      cron: "*/15 * * * *",
-      module: Custode.Sensors.CiStatus,
-      notify: "mcp-proxy",
-      args: %{repo: "joshrotenberg/mcp-proxy"}
-    },
-    %{
-      id: "ci-tower-mcp",
-      cron: "*/15 * * * *",
-      module: Custode.Sensors.CiStatus,
-      notify: "tower-mcp",
-      args: %{repo: "joshrotenberg/tower-mcp"}
-    },
-    %{
-      id: "ci-tower-resilience",
-      cron: "*/15 * * * *",
-      module: Custode.Sensors.CiStatus,
-      notify: "tower-resilience",
-      args: %{repo: "joshrotenberg/tower-resilience"}
     },
     # The USGS earthquake poll: every 20 minutes, M4.5+ over the past day.
     %{
