@@ -85,7 +85,7 @@ defmodule Custode.Application do
       # children need their own). :ticks is withheld here and started by
       # Custode.MCP.Probe once the MCP surface answers (#4).
       queues:
-        Application.get_env(:custode, :oban_queues, agents: 3, ticks: 1, sensors: 2)
+        Application.get_env(:custode, :oban_queues, agents: 5, ticks: 1, sensors: 2)
         |> Keyword.delete(:ticks)
     ]
   end
