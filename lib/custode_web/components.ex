@@ -19,6 +19,7 @@ defmodule CustodeWeb.Components do
   def feed_badge("needs_approval"), do: "badge-warning"
   def feed_badge("needs_input"), do: "badge-accent"
   def feed_badge("budget_paused"), do: "badge-error"
+  def feed_badge("doctor_failed"), do: "badge-error"
   def feed_badge(_event), do: "badge-ghost"
 
   attr(:entry, :map, required: true)
