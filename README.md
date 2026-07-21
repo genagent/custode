@@ -1,8 +1,9 @@
 # custode
 
 A demo of an always-on, scheduled, observable, pokable autonomous agent, built
-on the `ObanClaude.Agent` layer (the `spike/agent-lifecycle` branch of
-[oban_claude](https://github.com/genagent/oban_claude)).
+on the `ObanClaude.Agent` layer of
+[oban_claude](https://github.com/genagent/oban_claude) (shipped in 0.4.0; this
+app tracks the sibling checkout via a path dep).
 
 One agent ("custode", the caretaker) tends the `workspace/` directory on a cron
 schedule: it files notes from `workspace/inbox/` into a dated journal,
@@ -27,8 +28,8 @@ mostly fine for filing. Each turn is capped by `max_budget_usd`.
 ## Prerequisites
 
 - the `claude` CLI on PATH and authenticated
-- a sibling checkout of oban_claude at `../oban_claude` **on the
-  `spike/agent-lifecycle` branch** (the agent layer does not exist on hex yet)
+- a sibling checkout of oban_claude at `../oban_claude` (main; the agent
+  layer shipped in 0.4.0, so `{:oban_claude, "~> 0.4"}` works too)
 
 ## Run it
 

@@ -24,8 +24,9 @@ defmodule Custode.MixProject do
 
   defp deps do
     [
-      # The agent layer lives on oban_claude's spike/agent-lifecycle branch,
-      # so this must be a path dep to a sibling checkout ON THAT BRANCH.
+      # The agent layer shipped in oban_claude 0.4.0; the path dep (ecosystem
+      # convention for local apps) picks up in-flight changes from the sibling
+      # checkout. Swap for {:oban_claude, "~> 0.4"} to run against hex.
       {:oban_claude, path: "../oban_claude"},
       {:oban, "~> 2.23"},
       {:ecto_sqlite3, "~> 0.17"},
