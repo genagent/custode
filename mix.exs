@@ -48,7 +48,9 @@ defmodule Custode.MixProject do
       {:phoenix_live_view, "~> 1.1"},
       {:phoenix_pubsub, "~> 2.1"},
       {:lazy_html, ">= 0.1.0", only: :test},
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      # The mix custode CLI command tree (#45).
+      {:cheer, "~> 0.2"}
     ]
   end
 end
