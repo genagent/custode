@@ -20,6 +20,10 @@ the schedule durable.
 ![The fleet dashboard: one tile per agent with live state, spend, and last
 message](docs/fleet.png)
 
+The design behind the fleet -- the operated-agent model, the permission
+architecture, the item workflow, and the principles -- is written up in
+[design/000-the-operated-fleet.md](design/000-the-operated-fleet.md).
+
 ## Cost warning
 
 Every sweep is a real, paid claude call: a sonnet sweep runs about **$0.40**.
