@@ -7,6 +7,8 @@ config :custode,
   # NEVER make a paid claude call by accident.
   oban_queues: [],
   desktop_notifications: false,
+  # No network in tests: repo overviews come from the fake fetcher.
+  github_fetcher: Custode.Test.FakeGitHubFetcher,
   feed_path: "tmp/test/feed.jsonl",
   mcp_port: 6171
 

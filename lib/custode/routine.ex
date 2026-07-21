@@ -163,6 +163,9 @@ defmodule Custode.Routine do
       # the event kickoff: a dropped inbox note schedules a debounced beat
       # (:beat, default) or does nothing (:ignore)
       on_note: Map.get(routine, :on_note, :beat),
+      # "owner/name" ties the routine to one GitHub repo: its agent page
+      # grows issue/PR panels (Custode.GitHub). nil for multi-repo routines.
+      repo: Map.get(routine, :repo),
       mcp: Map.get(routine, :mcp, false)
     }
   end

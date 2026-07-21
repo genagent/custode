@@ -21,6 +21,13 @@ defmodule CustodeWeb.AgentLive do
   def handle_info({:status_changed, _agent_id}, socket), do: {:noreply, refresh(socket)}
   def handle_info({:feed_entry, _entry}, socket), do: {:noreply, refresh(socket)}
   def handle_info({:notebook_changed, _routine_id}, socket), do: {:noreply, refresh(socket)}
+
+  def handle_info({:repo_overview, repo}, socket) do
+    if socket.assigns.repo == repo,
+      do: {:noreply, refresh(socket)},
+      else: {:noreply, socket}
+  end
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl Phoenix.LiveView
@@ -137,6 +144,48 @@ defmodule CustodeWeb.AgentLive do
         <button class="btn btn-primary btn-sm">send</button>
       </form>
 
+      <section :if={@repo} class="mb-6">
+        <h3 class="mb-2 text-lg font-semibold text-base-content/70">
+          repository
+          <a href={"https://github.com/#{@repo}"} target="_blank" class="link link-hover font-mono text-sm">
+            {@repo}
+          </a>
+          <span :if={@repo_overview == :loading} class="loading loading-dots loading-xs ml-1"></span>
+        </h3>
+        <div :if={is_map(@repo_overview)} class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <div class="rounded-lg bg-base-100 p-3 shadow-sm">
+            <p class="mb-2 text-sm font-semibold">
+              issues <span class="badge badge-ghost badge-sm">{@repo_overview.open_issues.total} open</span>
+            </p>
+            <.repo_item :for={item <- @repo_overview.open_issues.items} item={item} />
+            <p
+              :if={@repo_overview.closed_issues.items != []}
+              class="mb-1 mt-3 text-xs font-semibold text-base-content/50"
+            >
+              recently closed
+            </p>
+            <.repo_item :for={item <- @repo_overview.closed_issues.items} item={item} closed />
+          </div>
+          <div class="rounded-lg bg-base-100 p-3 shadow-sm">
+            <p class="mb-2 text-sm font-semibold">
+              pull requests
+              <span class="badge badge-ghost badge-sm">{@repo_overview.open_prs.total} open</span>
+            </p>
+            <p :if={@repo_overview.open_prs.items == []} class="text-xs text-base-content/40">
+              (none open)
+            </p>
+            <.repo_item :for={item <- @repo_overview.open_prs.items} item={item} />
+            <p
+              :if={@repo_overview.merged_prs.items != []}
+              class="mb-1 mt-3 text-xs font-semibold text-base-content/50"
+            >
+              recently merged
+            </p>
+            <.repo_item :for={item <- @repo_overview.merged_prs.items} item={item} closed />
+          </div>
+        </div>
+      </section>
+
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div class="space-y-6">
           <section :if={@routine}>
@@ -200,9 +249,35 @@ defmodule CustodeWeb.AgentLive do
     """
   end
 
+  attr(:item, :map, required: true)
+  attr(:closed, :boolean, default: false)
+
+  defp repo_item(assigns) do
+    ~H"""
+    <p class="flex items-center gap-2 truncate py-0.5 text-sm">
+      <span :if={Map.has_key?(@item, :checks)} class={["inline-block h-2 w-2 shrink-0 rounded-full", check_dot(@item.checks)]} title={"checks: #{@item.checks || "none"}"}>
+      </span>
+      <a href={@item.url} target="_blank" class="link link-hover truncate">
+        <span class={["font-mono text-xs", (@closed && "text-base-content/40") || "text-base-content/60"]}>
+          #{@item.number}
+        </span>
+        <span class={@closed && "text-base-content/50"}>{@item.title}</span>
+      </a>
+      <span :if={@item[:draft]} class="badge badge-ghost badge-xs shrink-0">draft</span>
+    </p>
+    """
+  end
+
+  defp check_dot("SUCCESS"), do: "bg-success"
+  defp check_dot("FAILURE"), do: "bg-error"
+  defp check_dot("ERROR"), do: "bg-error"
+  defp check_dot(state) when state in ["PENDING", "EXPECTED"], do: "bg-warning"
+  defp check_dot(_none), do: "bg-base-content/20"
+
   defp refresh(socket) do
     id = socket.assigns.id
     routine = Custode.Routine.get(id)
+    repo = routine && routine.repo
     {:ok, status} = Agent.status(id)
 
     info =
@@ -219,6 +294,8 @@ defmodule CustodeWeb.AgentLive do
 
     assign(socket,
       routine: routine,
+      repo: repo,
+      repo_overview: repo && repo_overview(repo),
       status: status,
       state: state_of(status),
       info: info,
@@ -234,4 +311,11 @@ defmodule CustodeWeb.AgentLive do
 
   defp state_of({state, _payload}), do: state
   defp state_of(state) when is_atom(state), do: state
+
+  defp repo_overview(repo) do
+    case Custode.GitHub.overview(repo) do
+      {:ok, overview} -> overview
+      :loading -> :loading
+    end
+  end
 end
