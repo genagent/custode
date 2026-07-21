@@ -160,3 +160,41 @@ defmodule CustodeWeb.FleetLiveTest do
     assert html =~ "answer"
   end
 end
+
+defmodule CustodeWeb.FleetLiveTagsTest do
+  use ExUnit.Case, async: false
+
+  import Custode.TestHelpers
+  import Phoenix.ConnTest
+  import Phoenix.LiveViewTest
+
+  @endpoint CustodeWeb.Endpoint
+
+  test "tag chips render and filter the grid (#51)" do
+    conn = build_conn()
+    workspace = tmp_workspace!()
+    tagged = uid("tagged")
+    plain = uid("plain")
+
+    put_env!(:routines, [
+      %{id: tagged, cron: "@daily", workspace: workspace, prompt: "sweep", tags: [:rust, :repo]},
+      %{id: plain, cron: "@daily", workspace: workspace, prompt: "sweep"}
+    ])
+
+    {:ok, view, html} = live(conn, "/")
+
+    # chips from the union of tags; both tiles visible unfiltered
+    assert has_element?(view, "button[phx-value-tag=rust]")
+    assert has_element?(view, "button[phx-value-tag=repo]")
+    assert html =~ "tile-#{tagged}"
+    assert html =~ "tile-#{plain}"
+
+    html = view |> element("button[phx-value-tag=rust]") |> render_click()
+    assert html =~ "tile-#{tagged}"
+    refute html =~ "tile-#{plain}"
+
+    # clicking the active tag clears the filter
+    html = view |> element("button[phx-value-tag=rust]") |> render_click()
+    assert html =~ "tile-#{plain}"
+  end
+end

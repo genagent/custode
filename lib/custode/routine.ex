@@ -204,6 +204,9 @@ defmodule Custode.Routine do
       # "owner/name" ties the routine to one GitHub repo: its agent page
       # grows issue/PR panels (Custode.GitHub). nil for multi-repo routines.
       repo: Map.get(routine, :repo),
+      # classification (#51): fleet-page filtering now, policy scoping (#50)
+      # next. Atoms in config; strings would survive a JSON trip identically.
+      tags: Map.get(routine, :tags, []),
       mcp: Map.get(routine, :mcp, false)
     }
   end
