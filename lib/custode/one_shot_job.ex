@@ -47,7 +47,9 @@ defmodule Custode.OneShotJob do
 
   defp report(%Oban.Job{args: %{"report_inbox" => inbox}} = job, text) when is_binary(inbox) do
     if File.dir?(inbox) do
-      File.write!(Path.join(inbox, "job-#{job.id}-#{tag(job)}.md"), text)
+      # through the funnel: a report note wakes the dispatching agent
+      # promptly (event kickoff) instead of at its next cron boundary
+      {:ok, _path} = Custode.Inbox.drop_path(inbox, "job-#{job.id}-#{tag(job)}.md", text)
     end
   end
 

@@ -93,6 +93,24 @@ No node or asset pipeline: daisyUI 5 + Tailwind come from CDN (internet
 needed on first page load) and the LiveView client JS is served from the hex
 packages. Localhost only, no auth -- same caveat as the MCP endpoint.
 
+## Sensors and event kickoffs
+
+Cheap sensor, expensive brain: **sensors** are plain Oban workers (never
+claude) on their own crontab entries and `:sensors` queue that poll cheaply
+and drop an inbox note only when something actually changed -- the first is
+`Custode.Sensors.ContributorSearch`, which diffs contributor-authored
+issues/PRs against its own memory (first run baselines silently). Dropping a
+note fires the **event kickoff**: routines default to `on_note: :beat`, so a
+debounced Tick (~20s, deduplicated per agent) wakes the agent shortly after
+the last note lands. One-shot job reports and gate restart-notices ride the
+same funnel (`Custode.Inbox`), so agents wake when there is material instead
+of discovering "nothing to do" on a schedule.
+
+Kickoff types per routine: a cron string (scheduled), `cron: :manual`
+(static: identity, tile, budgets, memory -- runs only when poked or beaten),
+and the event kickoff above. The contributors routine is the full
+conversion: `:manual` + its sensor; the agent never polls.
+
 ## The notebook and memory
 
 The journal and TODO list are database-backed (same SQLite file as the queue)

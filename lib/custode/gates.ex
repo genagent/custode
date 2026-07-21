@@ -99,18 +99,17 @@ defmodule Custode.Gates do
 
   defp requeue!(gate) do
     routine = Custode.Routine.get(gate.agent_id)
-    inbox = routine.workspace |> Path.expand() |> Path.join("inbox")
-    File.mkdir_p!(inbox)
 
-    File.write!(Path.join(inbox, "restart-gate-#{gate.id}.md"), """
-    RESTART NOTICE: before the last restart you had a pending #{gate.kind}:
+    {:ok, _path} =
+      Custode.Inbox.drop(routine, "restart-gate-#{gate.id}.md", """
+      RESTART NOTICE: before the last restart you had a pending #{gate.kind}:
 
-    #{gate.detail || "(no detail recorded)"}
+      #{gate.detail || "(no detail recorded)"}
 
-    If it is still relevant, re-raise it on this sweep
-    (directive=request_permission or directive=ask_user). If it is moot,
-    just journal that and move on.
-    """)
+      If it is still relevant, re-raise it on this sweep
+      (directive=request_permission or directive=ask_user). If it is moot,
+      just journal that and move on.
+      """)
 
     update_status!(gate, "requeued")
   end

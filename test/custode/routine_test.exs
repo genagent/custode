@@ -143,6 +143,45 @@ defmodule Custode.RoutineTest do
     end
   end
 
+  describe "kickoff types" do
+    test "cron: :manual routines are excluded from the crontab; scheduled ones remain" do
+      workspace = tmp_workspace!()
+
+      put_env!(:routines, [
+        %{id: uid("sched"), cron: "@daily", workspace: workspace, prompt: "sweep"},
+        %{id: uid("static"), cron: :manual, workspace: workspace, prompt: "on demand"}
+      ])
+
+      put_env!(:sensors, [
+        %{
+          id: "s1",
+          cron: "*/30 * * * *",
+          module: Custode.Sensors.ContributorSearch,
+          notify: "whoever",
+          args: %{owners: ["o"]}
+        }
+      ])
+
+      crontab = Custode.Routine.crontab()
+      assert length(crontab) == 2
+
+      assert [{_cron, ObanClaude.Agent.Tick, _opts}] =
+               Enum.filter(crontab, &(elem(&1, 1) == ObanClaude.Agent.Tick))
+
+      assert [{"*/30 * * * *", Custode.Sensors.ContributorSearch, sensor_opts}] =
+               Enum.filter(crontab, &(elem(&1, 1) == Custode.Sensors.ContributorSearch))
+
+      assert sensor_opts[:queue] == :sensors
+      assert sensor_opts[:args]["sensor_id"] == "s1"
+      assert sensor_opts[:args]["notify"] == "whoever"
+    end
+
+    test "on_note defaults to :beat and accepts :ignore" do
+      assert routine_fixture!("workspace").on_note == :beat
+      assert routine_fixture!("workspace", %{on_note: :ignore}).on_note == :ignore
+    end
+  end
+
   describe "the role library" do
     alias Custode.Routine.Prompts
 
@@ -162,11 +201,12 @@ defmodule Custode.RoutineTest do
       assert prompt =~ "delta"
     end
 
-    test "contributor_watch: seen-items memory and ask_user as the alert channel" do
+    test "contributor_watch: sensor-driven judgment, ask_user as the alert channel" do
       prompt = Prompts.for_role(:contributor_watch, "cw")
       assert prompt =~ "seen-items"
       assert prompt =~ "directive=ask_user"
-      assert prompt =~ "-author:joshrotenberg"
+      assert prompt =~ "SENSOR"
+      assert prompt =~ "never run your own searches"
     end
 
     test "roles wire through routine normalization" do
