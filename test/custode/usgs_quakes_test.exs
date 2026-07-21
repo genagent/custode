@@ -77,8 +77,10 @@ defmodule Custode.Sensors.UsgsQuakesTest do
 
     fake!([feature("q1", 5.0), feature("q4", 4.9)])
     :ok = perform!(args)
-    assert [_first, second] = Enum.sort(notes(workspace))
-    assert File.read!(second) =~ "q4"
+    # filename suffixes are unique_integers, so order is not lexicographic;
+    # find the fresh note by content
+    assert [_first, _second] = notes(workspace)
+    assert Enum.any?(notes(workspace), &(File.read!(&1) =~ "q4"))
   end
 
   test "a fetch error skips quietly", %{workspace: workspace, args: args} do
