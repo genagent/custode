@@ -22,6 +22,15 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.Tools.RejectAction, name: "reject_action")
   component(Custode.MCP.Tools.RunJob, name: "run_job")
 
+  # the operator tier (issue #33): run the fleet, not just delegate into it
+  component(Custode.MCP.OperatorTools.Beat, name: "beat")
+  component(Custode.MCP.OperatorTools.DropNote, name: "drop_note")
+  component(Custode.MCP.OperatorTools.ListGates, name: "list_gates")
+  component(Custode.MCP.OperatorTools.FeedTail, name: "feed_tail")
+  component(Custode.MCP.OperatorTools.PauseAgent, name: "pause_agent")
+  component(Custode.MCP.OperatorTools.ResumeAgent, name: "resume_agent")
+  component(Custode.MCP.OperatorTools.SpendToday, name: "spend_today")
+
   component(Custode.MCP.NotebookTools.JournalAppend, name: "journal_append")
   component(Custode.MCP.NotebookTools.TodoAdd, name: "todo_add")
   component(Custode.MCP.NotebookTools.TodoList, name: "todo_list")
