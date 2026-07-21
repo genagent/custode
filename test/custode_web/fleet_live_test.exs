@@ -91,6 +91,55 @@ defmodule CustodeWeb.FleetLiveTest do
     assert render(view) =~ "running"
   end
 
+  test "attention sorts first: a gated agent's tile precedes idle tiles, ringed and counted",
+       %{conn: conn, routine: routine} do
+    # a second routine, configured after the first, which will be the gated one
+    second = %{
+      id: uid("routine"),
+      cron: "@daily",
+      workspace: tmp_workspace!(),
+      prompt: "sweep"
+    }
+
+    put_env!(:routines, [
+      %{id: routine.id, cron: routine.cron, workspace: routine.workspace, prompt: routine.prompt},
+      second
+    ])
+
+    test_pid = self()
+
+    {:ok, _pid} =
+      Agent.start_agent(second.id,
+        enqueue_fun: fn args, meta ->
+          send(test_pid, {:enqueued, args, meta})
+          {:ok, :queued}
+        end
+      )
+
+    on_exit(fn -> Agent.stop_agent(second.id) end)
+
+    :processing = Agent.submit_prompt(second.id, "gated")
+    assert_receive {:enqueued, _args, _meta}
+
+    :ok =
+      Agent.job_finished(
+        second.id,
+        {:ok, structured_result(%{"directive" => "request_permission", "action" => "act"})}
+      )
+
+    {:ok, {:awaiting_permission, _action}} = Agent.await(second.id, :awaiting_permission, 1_000)
+
+    {:ok, _view, html} = live(conn, "/")
+
+    # the gated second routine sorts before the offline first routine
+    {gated_at, _} = :binary.match(html, "tile-#{second.id}")
+    {idle_at, _} = :binary.match(html, "tile-#{routine.id}")
+    assert gated_at < idle_at
+
+    assert html =~ "ring-warning"
+    assert html =~ "1 needs attention"
+  end
+
   test "a pending question points through to the detail page for the answer",
        %{conn: conn, routine: routine} do
     stub_routine_agent!(routine)

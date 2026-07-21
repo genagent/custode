@@ -51,8 +51,10 @@ defmodule CustodeWeb.Components do
   attr(:fleet_today, :float, required: true)
   attr(:active, :atom, default: :fleet)
 
-  @doc "The shared page chrome: header with nav and the fleet spend."
+  @doc "The shared page chrome: header with nav, the attention chip, the fleet spend."
   def page(assigns) do
+    assigns = assign(assigns, :attention, attention_count())
+
     ~H"""
     <div class="mx-auto max-w-7xl p-6">
       <header class="mb-6 flex items-baseline gap-4">
@@ -61,6 +63,9 @@ defmodule CustodeWeb.Components do
           <.link navigate="/" class={nav_class(@active == :fleet)}>fleet</.link>
           <.link navigate="/feed" class={nav_class(@active == :feed)}>feed</.link>
         </nav>
+        <.link :if={@attention > 0} navigate="/" class="badge badge-warning gap-1">
+          {@attention} need{if @attention == 1, do: "s"} attention
+        </.link>
         <span class="ml-auto font-mono text-sm text-base-content/70">
           fleet today ${Float.round(@fleet_today, 4)}
         </span>
@@ -68,6 +73,16 @@ defmodule CustodeWeb.Components do
       {render_slot(@inner_block)}
     </div>
     """
+  end
+
+  @attention_states [:awaiting_permission, :waiting_for_user, :paused]
+
+  @doc "Does this status (atom or gated tuple) need a human?"
+  def needs_attention?({state, _payload}), do: state in @attention_states
+  def needs_attention?(state), do: state in @attention_states
+
+  defp attention_count do
+    Enum.count(ObanClaude.Agent.list(), fn {_id, status} -> needs_attention?(status) end)
   end
 
   defp nav_class(true), do: "font-semibold underline underline-offset-4"

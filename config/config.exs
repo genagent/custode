@@ -47,6 +47,88 @@ config :custode,
         "Bash(git show:*)"
       ],
       approved_args: %{"permission_mode" => "dont_ask", "worktree" => "custode-dev"}
+    },
+    # Backlog workers: slowly work through a repo's open issues -- at most one
+    # proposed item per sweep, always human-gated, approved work in an
+    # isolated worktree.
+    %{
+      id: "redis-tower",
+      cron: "@daily",
+      workspace: "workspaces/redis-tower",
+      working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/redis-tower",
+      prompt: "Do your backlog sweep now.",
+      role: :backlog_worker,
+      mcp: true,
+      # opus: the operator wants backlog work done well; budgets sized to match
+      model: "opus",
+      max_budget_usd: 3.0,
+      daily_budget_usd: 10.0,
+      extra_allowed_tools: [
+        "Bash(git log:*)",
+        "Bash(git status:*)",
+        "Bash(git diff:*)",
+        "Bash(git show:*)",
+        "Bash(gh issue list:*)",
+        "Bash(gh issue view:*)",
+        "Bash(gh pr list:*)",
+        "Bash(gh pr view:*)"
+      ],
+      approved_args: %{"permission_mode" => "dont_ask", "worktree" => "custode-redis-tower"}
+    },
+    %{
+      id: "git-spawn",
+      cron: "@daily",
+      workspace: "workspaces/git-spawn",
+      working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/git-spawn",
+      prompt: "Do your backlog sweep now.",
+      role: :backlog_worker,
+      mcp: true,
+      # opus: the operator wants backlog work done well; budgets sized to match
+      model: "opus",
+      max_budget_usd: 3.0,
+      daily_budget_usd: 10.0,
+      extra_allowed_tools: [
+        "Bash(git log:*)",
+        "Bash(git status:*)",
+        "Bash(git diff:*)",
+        "Bash(git show:*)",
+        "Bash(gh issue list:*)",
+        "Bash(gh issue view:*)",
+        "Bash(gh pr list:*)",
+        "Bash(gh pr view:*)"
+      ],
+      approved_args: %{"permission_mode" => "dont_ask", "worktree" => "custode-git-spawn"}
+    },
+    # The star tracker: daily delta report across joshrotenberg + genagent.
+    %{
+      id: "stars",
+      cron: "@daily",
+      workspace: "workspaces/stars",
+      prompt: "Do your star sweep now.",
+      role: :star_tracker,
+      mcp: true,
+      max_budget_usd: 0.5,
+      daily_budget_usd: 1.5,
+      extra_allowed_tools: ["Bash(gh repo list:*)"]
+    },
+    # The contributor watch: every 6 hours, alert on issues/PRs opened by
+    # anyone who is not the owner or a bot.
+    %{
+      id: "contributors",
+      cron: "0 */6 * * *",
+      workspace: "workspaces/contributors",
+      prompt: "Do your contributor sweep now.",
+      role: :contributor_watch,
+      mcp: true,
+      max_budget_usd: 0.5,
+      daily_budget_usd: 2.5,
+      extra_allowed_tools: [
+        "Bash(gh search:*)",
+        "Bash(gh issue list:*)",
+        "Bash(gh issue view:*)",
+        "Bash(gh pr list:*)",
+        "Bash(gh pr view:*)"
+      ]
     }
   ],
   # Defaults shared by every routine unless overridden per-entry.

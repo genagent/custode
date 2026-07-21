@@ -143,6 +143,41 @@ defmodule Custode.RoutineTest do
     end
   end
 
+  describe "the role library" do
+    alias Custode.Routine.Prompts
+
+    test "backlog_worker: gated single-item pace, worktree implementation, gh reads" do
+      prompt = Prompts.for_role(:backlog_worker, "rt")
+      assert prompt =~ ~s(routine_id "rt")
+      assert prompt =~ "at most one item per sweep" |> String.downcase()
+      assert prompt =~ "gh issue list"
+      assert prompt =~ "isolated git worktree"
+      assert prompt =~ "Never start without approval"
+    end
+
+    test "star_tracker: snapshot memory and delta reporting" do
+      prompt = Prompts.for_role(:star_tracker, "st")
+      assert prompt =~ "star-snapshot"
+      assert prompt =~ "gh repo list"
+      assert prompt =~ "delta"
+    end
+
+    test "contributor_watch: seen-items memory and ask_user as the alert channel" do
+      prompt = Prompts.for_role(:contributor_watch, "cw")
+      assert prompt =~ "seen-items"
+      assert prompt =~ "directive=ask_user"
+      assert prompt =~ "-author:joshrotenberg"
+    end
+
+    test "roles wire through routine normalization" do
+      routine = routine_fixture!("workspace", %{role: :backlog_worker})
+      assert routine.system_prompt =~ "backlog"
+
+      claude_args = Custode.Routine.tick_args(routine)["start"]["args"]
+      assert claude_args["append_system_prompt"] =~ "backlog worker"
+    end
+  end
+
   describe "sub_agent_args/2" do
     test "defaults: worker-bee prompt, memory-only MCP, sandboxed to the workspace" do
       args = Custode.Routine.sub_agent_args("/tmp")

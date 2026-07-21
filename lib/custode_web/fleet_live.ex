@@ -60,7 +60,13 @@ defmodule CustodeWeb.FleetLive do
 
   defp tile(assigns) do
     ~H"""
-    <div class="card bg-base-100 shadow transition hover:shadow-lg" id={"tile-#{@id}"}>
+    <div
+      class={[
+        "card bg-base-100 shadow transition hover:shadow-lg",
+        tile_ring(@tile.state)
+      ]}
+      id={"tile-#{@id}"}
+    >
       <div class="card-body gap-2 p-4">
         <div class="flex items-center gap-2">
           <.link navigate={"/agents/#{@id}"} class="font-mono font-bold hover:underline">
@@ -162,12 +168,21 @@ defmodule CustodeWeb.FleetLive do
          }}
       end
 
-    # routines in config order first, then the rest
+    # anything needing a human sorts first; then config order, then the rest
     order = Map.new(Enum.with_index(routine_ids))
-    tiles = Enum.sort_by(tiles, fn {id, _tile} -> {Map.get(order, id, 999), id} end)
+
+    tiles =
+      Enum.sort_by(tiles, fn {id, tile} ->
+        {if(needs_attention?(tile.status), do: 0, else: 1), Map.get(order, id, 999), id}
+      end)
 
     assign(socket, tiles: tiles, fleet_today: Custode.SpendLedger.fleet_today())
   end
+
+  defp tile_ring(:awaiting_permission), do: "ring-2 ring-warning"
+  defp tile_ring(:waiting_for_user), do: "ring-2 ring-accent"
+  defp tile_ring(:paused), do: "ring-2 ring-error"
+  defp tile_ring(_state), do: nil
 
   defp state_of({state, _payload}), do: state
   defp state_of(state) when is_atom(state), do: state
