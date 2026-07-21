@@ -19,7 +19,7 @@ defmodule CustodeWeb.FleetLive do
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
     if connected?(socket), do: Custode.PubSubBridge.subscribe()
-    {:ok, refresh(socket)}
+    {:ok, socket |> assign(tag_filter: nil) |> refresh()}
   end
 
   @impl Phoenix.LiveView
@@ -44,10 +44,26 @@ defmodule CustodeWeb.FleetLive do
     {:noreply, refresh(socket)}
   end
 
+  def handle_event("filter", %{"tag" => tag}, socket) do
+    # clicking the active tag clears the filter
+    filter = if socket.assigns.tag_filter == tag, do: nil, else: tag
+    {:noreply, socket |> assign(tag_filter: filter) |> refresh()}
+  end
+
   @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
     <.page fleet_today={@fleet_today} active={:fleet}>
+      <div :if={@all_tags != []} class="mb-4 flex flex-wrap gap-2">
+        <button
+          :for={tag <- @all_tags}
+          class={["badge cursor-pointer", (@tag_filter == tag && "badge-primary") || "badge-ghost"]}
+          phx-click="filter"
+          phx-value-tag={tag}
+        >
+          {tag}
+        </button>
+      </div>
       <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         <.tile :for={{id, tile} <- @tiles} id={id} tile={tile} />
       </div>
@@ -75,6 +91,12 @@ defmodule CustodeWeb.FleetLive do
           <span class={["badge badge-sm", state_badge(@tile.state)]}>{@tile.state}</span>
           <span :if={@tile.routine} class="font-mono text-xs text-base-content/40">
             {@tile.routine.cron}
+          </span>
+          <span
+            :for={tag <- (@tile.routine && @tile.routine.tags) || []}
+            class="badge badge-ghost badge-xs"
+          >
+            {tag}
           </span>
           <button
             :if={@tile.routine}
@@ -172,11 +194,29 @@ defmodule CustodeWeb.FleetLive do
     order = Map.new(Enum.with_index(routine_ids))
 
     tiles =
-      Enum.sort_by(tiles, fn {id, tile} ->
+      tiles
+      |> filter_tiles(socket.assigns[:tag_filter])
+      |> Enum.sort_by(fn {id, tile} ->
         {if(needs_attention?(tile.status), do: 0, else: 1), Map.get(order, id, 999), id}
       end)
 
-    assign(socket, tiles: tiles, fleet_today: Custode.SpendLedger.fleet_today())
+    all_tags =
+      routines |> Enum.flat_map(& &1.tags) |> Enum.uniq() |> Enum.map(&to_string/1) |> Enum.sort()
+
+    assign(socket,
+      tiles: tiles,
+      all_tags: all_tags,
+      fleet_today: Custode.SpendLedger.fleet_today()
+    )
+  end
+
+  # non-routine agents (sub-agents) have no tags and hide under any filter
+  defp filter_tiles(tiles, nil), do: tiles
+
+  defp filter_tiles(tiles, tag) do
+    Enum.filter(tiles, fn {_id, tile} ->
+      tile.routine != nil and tag in Enum.map(tile.routine.tags, &to_string/1)
+    end)
   end
 
   defp tile_ring(:awaiting_permission), do: "ring-2 ring-warning"
