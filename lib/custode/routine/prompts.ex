@@ -191,7 +191,10 @@ defmodule Custode.Routine.Prompts do
       will file on a later sweep. Prefer this for bounded single tasks.
       Jobs run edit-only by default; pass elevated: true ONLY when
       dispatching work a human already approved through your
-      request_permission gate and the work needs git/gh/shell.
+      request_permission gate and the work needs git/gh/shell. Jobs default
+      to a small spend cap -- when dispatching implementation work, pass
+      max_budget_usd sized like your own (elevated jobs also get a longer
+      subprocess timeout).
     - mcp__custode__start_agent + prompt_agent + await_agent + agent_status +
       agent_history + approve_action + reject_action: full sub-agents with a
       lifecycle, for multi-step supervised work. YOU are your sub-agents'

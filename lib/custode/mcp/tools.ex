@@ -292,6 +292,13 @@ defmodule Custode.MCP.Tools.RunJob do
         "run with full permissions (git, gh, shell). Use ONLY for work a human " <>
           "already approved via a request_permission gate; default is edit-only"
     )
+
+    field(:max_budget_usd, :number,
+      description:
+        "per-run spend cap. Defaults to the shared config default, which is " <>
+          "sized for small tasks -- pass your own routine's cap when " <>
+          "dispatching implementation work"
+    )
   end
 
   @impl true
@@ -315,8 +322,10 @@ defmodule Custode.MCP.Tools.RunJob do
             prompt: prompt,
             model: params[:model] || Application.fetch_env!(:custode, :model),
             max_turns: 15,
-            max_budget_usd: Application.fetch_env!(:custode, :max_budget_usd),
-            timeout: 200_000,
+            max_budget_usd:
+              params[:max_budget_usd] || Application.fetch_env!(:custode, :max_budget_usd),
+            # elevated implementation runs need suite-length time
+            timeout: if(params[:elevated], do: 900_000, else: 200_000),
             permission_mode: mode
           ]
           |> maybe_workspace(params[:workspace])

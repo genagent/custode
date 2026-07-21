@@ -300,6 +300,7 @@ defmodule Custode.MCPToolsTest do
 
       [job] = jobs_for("Custode.OneShotJob") |> Enum.filter(&(&1.id == json["job_id"]))
       assert job.args["permission_mode"] == "accept_edits"
+      assert job.args["timeout"] == 200_000
 
       json =
         tool_json(
@@ -308,6 +309,22 @@ defmodule Custode.MCPToolsTest do
 
       [job] = jobs_for("Custode.OneShotJob") |> Enum.filter(&(&1.id == json["job_id"]))
       assert job.args["permission_mode"] == "bypass_permissions"
+      assert job.args["timeout"] == 900_000
+    end
+
+    test "the dispatcher can size the job's spend cap" do
+      inbox = Path.join(tmp_workspace!(), "inbox")
+
+      json =
+        tool_json(
+          Tools.RunJob.execute(
+            %{prompt: "x", report_inbox: inbox, elevated: true, max_budget_usd: 3.0},
+            @frame
+          )
+        )
+
+      [job] = jobs_for("Custode.OneShotJob") |> Enum.filter(&(&1.id == json["job_id"]))
+      assert job.args["max_budget_usd"] == 3.0
     end
 
     test "a missing report_inbox directory is a tool error" do
