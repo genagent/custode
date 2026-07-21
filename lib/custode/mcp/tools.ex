@@ -311,32 +311,32 @@ defmodule Custode.MCP.Tools.RunJob do
         fail(frame, "workspace is not an existing directory: #{params[:workspace]}")
 
       true ->
-        # :accept_edits covers file edits only; an elevated job (dispatching
-        # human-approved work that needs git/gh) runs bypass_permissions --
-        # otherwise the first `git fetch` dies asking a question nobody can
-        # answer non-interactively
-        mode = if params[:elevated], do: :bypass_permissions, else: :accept_edits
-
-        args =
-          [
-            prompt: prompt,
-            model: params[:model] || Application.fetch_env!(:custode, :model),
-            max_turns: 15,
-            max_budget_usd:
-              params[:max_budget_usd] || Application.fetch_env!(:custode, :max_budget_usd),
-            # elevated implementation runs need suite-length time
-            timeout: if(params[:elevated], do: 900_000, else: 200_000),
-            permission_mode: mode
-          ]
-          |> maybe_workspace(params[:workspace])
-          |> ObanClaude.Args.new()
-          |> Map.put("report_inbox", Path.expand(report_inbox))
-          |> Map.put("tag", params[:tag] || "job")
-
-        {:ok, job} = Oban.insert(Custode.OneShotJob.new(args))
+        {:ok, job} = params |> job_args(prompt, report_inbox) |> enqueue()
         reply(frame, %{job_id: job.id, reports_to: Path.expand(report_inbox)})
     end
   end
+
+  # :accept_edits covers file edits only; an elevated job (dispatching
+  # human-approved work that needs git/gh) runs bypass_permissions with a
+  # suite-length timeout -- otherwise the first `git fetch` dies asking a
+  # question nobody can answer non-interactively
+  defp job_args(params, prompt, report_inbox) do
+    [
+      prompt: prompt,
+      model: params[:model] || Application.fetch_env!(:custode, :model),
+      max_turns: 15,
+      max_budget_usd:
+        params[:max_budget_usd] || Application.fetch_env!(:custode, :max_budget_usd),
+      timeout: if(params[:elevated], do: 900_000, else: 200_000),
+      permission_mode: if(params[:elevated], do: :bypass_permissions, else: :accept_edits)
+    ]
+    |> maybe_workspace(params[:workspace])
+    |> ObanClaude.Args.new()
+    |> Map.put("report_inbox", Path.expand(report_inbox))
+    |> Map.put("tag", params[:tag] || "job")
+  end
+
+  defp enqueue(args), do: Oban.insert(Custode.OneShotJob.new(args))
 
   defp maybe_workspace(args, nil), do: args
 
