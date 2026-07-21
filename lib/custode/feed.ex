@@ -54,6 +54,24 @@ defmodule Custode.Feed do
   @doc "The most recent feed entry for an agent (its \"last message\"), or nil."
   def last_for(agent_id), do: agent_id |> for_agent(1) |> List.last()
 
+  @gate_events ~w(needs_approval needs_input)
+
+  @doc """
+  The agent's last message for display. Gate events (`needs_approval`,
+  `needs_input`) only count while the agent is actually still gated --
+  otherwise a long-resolved alert masquerades as current state, and the last
+  substantive report is the honest answer.
+  """
+  def last_message(agent_id, currently_gated?) do
+    entries = for_agent(agent_id, 10)
+
+    if currently_gated? do
+      List.last(entries)
+    else
+      entries |> Enum.reject(&(&1["event"] in @gate_events)) |> List.last()
+    end
+  end
+
   @doc """
   Record an app-level event (e.g. `budget_paused`) into the feed, same shape
   and delivery as the telemetry-driven entries. `notify: true` raises the

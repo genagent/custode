@@ -99,6 +99,16 @@ defmodule Custode.FeedTest do
     assert [%{"event" => "second"}] = Custode.Feed.tail()
   end
 
+  test "last_message/2 hides resolved gate events, shows live ones" do
+    Custode.Feed.record(%{event: "turn", agent: "lm", summary: "did work"})
+    Custode.Feed.record(%{event: "needs_approval", agent: "lm", action: "old gate"})
+
+    # gate resolved: the stale alert must not masquerade as current state
+    assert %{"summary" => "did work"} = Custode.Feed.last_message("lm", false)
+    # gate still open: the alert IS the last message
+    assert %{"action" => "old gate"} = Custode.Feed.last_message("lm", true)
+  end
+
   test "tail/1 bounds and orders; missing file reads as empty" do
     assert Custode.Feed.tail() == []
 

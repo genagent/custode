@@ -164,7 +164,7 @@ defmodule CustodeWeb.FleetLive do
            budget: routine && routine.daily_budget_usd,
            spend_today: Custode.SpendLedger.today(id),
            open_todos: length(Custode.Notebook.todos(id)),
-           last: Custode.Feed.last_for(id)
+           last: Custode.Feed.last_message(id, needs_attention?(status))
          }}
       end
 
