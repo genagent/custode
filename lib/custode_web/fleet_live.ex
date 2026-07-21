@@ -40,7 +40,7 @@ defmodule CustodeWeb.FleetLive do
   end
 
   def handle_event("reject", %{"id" => id, "action" => action_id}, socket) do
-    Agent.reject_action(id, action_id, "rejected from dashboard")
+    Custode.reject_with_note(id, action_id, "rejected from dashboard")
     {:noreply, refresh(socket)}
   end
 

@@ -52,7 +52,7 @@ defmodule CustodeWeb.AgentLive do
   end
 
   def handle_event("reject", %{"action" => action_id}, socket) do
-    Agent.reject_action(socket.assigns.id, action_id, "rejected from dashboard")
+    Custode.reject_with_note(socket.assigns.id, action_id, "rejected from dashboard")
     {:noreply, refresh(socket)}
   end
 
