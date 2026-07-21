@@ -135,8 +135,15 @@ defmodule CustodeWeb.FleetLive do
         </div>
 
         <div class="flex items-center gap-4 text-xs text-base-content/60">
-          <span :if={@tile.spend_today}>
+          <span :if={@tile.spend_today} class="flex items-center gap-2">
             today <b>${usd(@tile.spend_today)}</b><span :if={@tile.budget}> / ${usd(@tile.budget)}</span>
+            <progress
+              :if={@tile.budget}
+              class={["progress w-14", budget_progress_class(@tile.spend_today, @tile.budget)]}
+              value={@tile.spend_today}
+              max={@tile.budget}
+            >
+            </progress>
           </span>
           <span
             :if={@tile.series && Enum.sum(@tile.series) > 0}

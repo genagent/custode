@@ -84,6 +84,65 @@ defmodule CustodeWeb.Components do
 
   defp agent_linkable?(agent), do: is_binary(agent) and agent not in ["", "?"]
 
+  @doc "Budget progress color: calm until 60%, warning to 90%, error past."
+  def budget_progress_class(spend, budget) when is_number(spend) and is_number(budget) do
+    cond do
+      budget <= 0 -> "progress-success"
+      spend / budget >= 0.9 -> "progress-error"
+      spend / budget >= 0.6 -> "progress-warning"
+      true -> "progress-success"
+    end
+  end
+
+  @doc "The feed event dot color for timeline middles."
+  def event_dot("turn"), do: "text-info"
+  def event_dot("turn_failed"), do: "text-error"
+  def event_dot("needs_approval"), do: "text-warning"
+  def event_dot("needs_input"), do: "text-accent"
+  def event_dot("budget_paused"), do: "text-error"
+  def event_dot("doctor_failed"), do: "text-error"
+  def event_dot("repo_verb"), do: "text-success"
+  def event_dot(_event), do: "text-base-content/30"
+
+  attr(:entry, :map, required: true)
+  attr(:id, :string, default: nil)
+
+  @doc "One daisyUI timeline item for the feed page (#31: right component)."
+  def timeline_item(assigns) do
+    ~H"""
+    <li id={@id}>
+      <hr />
+      <div class="timeline-start pr-2 text-right font-mono text-xs text-base-content/50">
+        <.ago at={@entry["at"]} />
+        <div>
+          <.link
+            :if={agent_linkable?(@entry["agent"])}
+            navigate={"/agents/#{@entry["agent"]}"}
+            class="link-hover"
+          >
+            {@entry["agent"]}
+          </.link>
+        </div>
+      </div>
+      <div class="timeline-middle">
+        <svg viewBox="0 0 16 16" class={["h-3 w-3", event_dot(@entry["event"])]}>
+          <circle cx="8" cy="8" r="6" fill="currentColor" />
+        </svg>
+      </div>
+      <div class="timeline-end timeline-box mb-2 w-full bg-base-100 text-sm">
+        <div class="mb-1 flex items-center gap-2">
+          <span class={["badge badge-xs", feed_badge(@entry["event"])]}>{@entry["event"]}</span>
+          <span :if={@entry["cost_usd"]} class="ml-auto font-mono text-xs text-base-content/50">
+            ${usd(@entry["cost_usd"])}<span :if={@entry["tokens"]}> &middot; {tok(@entry["tokens"])}</span>
+          </span>
+        </div>
+        <p class="whitespace-pre-wrap text-base-content/80">{feed_text(@entry)}</p>
+      </div>
+      <hr />
+    </li>
+    """
+  end
+
   @doc "Dollar amounts render with two decimals everywhere (#31)."
   def usd(value) when is_number(value), do: :erlang.float_to_binary(value / 1, decimals: 2)
 

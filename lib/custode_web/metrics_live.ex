@@ -37,6 +37,32 @@ defmodule CustodeWeb.MetricsLive do
   def render(assigns) do
     ~H"""
     <.page fleet_today={@fleet_today} active={:metrics}>
+      <div class="stats stats-horizontal mb-6 w-full bg-base-100 shadow-sm">
+        <div class="stat">
+          <div class="stat-title">fleet today</div>
+          <div class="stat-value text-2xl">${CustodeWeb.Components.usd(@fleet_today)}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-title">tokens today</div>
+          <div class="stat-value text-2xl">{CustodeWeb.Components.tok(@tokens_today)}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-title">turns today</div>
+          <div class="stat-value text-2xl">{@turns_today.ok}</div>
+          <div class="stat-desc">
+            <span :if={@turns_today.failed > 0} class="text-error">
+              {@turns_today.failed} failed
+            </span>
+            <span :if={@turns_today.failed == 0}>none failed</span>
+          </div>
+        </div>
+        <div class="stat">
+          <div class="stat-title">median gate wait</div>
+          <div class="stat-value text-2xl">{@gate_median}m</div>
+          <div class="stat-desc">last {length(@gates)} gates</div>
+        </div>
+      </div>
+
       <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <section class="rounded-lg bg-base-100 p-4 shadow-sm">
           <h3 class="mb-3 font-semibold text-base-content/70">
@@ -104,7 +130,11 @@ defmodule CustodeWeb.MetricsLive do
       |> Enum.map(fn {_date, counts} -> counts.ok + counts.failed end)
       |> Enum.max(fn -> 1 end)
 
+    today = Date.utc_today() |> Date.to_iso8601()
+
     assign(socket,
+      tokens_today: Custode.SpendLedger.fleet_today_tokens(),
+      turns_today: Map.get(turns, today, %{ok: 0, failed: 0}),
       days_shown: @days,
       daily: daily,
       turns: turns,
