@@ -132,8 +132,12 @@ defmodule Custode.Routine do
     ObanClaude.Args.defaults(base ++ extra)
   end
 
-  defp system_prompt(%{mcp: true} = routine), do: routine.system_prompt <> delegation_prompt()
-  defp system_prompt(routine), do: routine.system_prompt
+  # Policies (#50) append to EVERY prompt, including operator-supplied
+  # system_prompt: overrides -- fleet law rides along regardless of role.
+  defp system_prompt(%{mcp: true} = routine),
+    do: routine.system_prompt <> delegation_prompt() <> Custode.Policy.render(routine)
+
+  defp system_prompt(routine), do: routine.system_prompt <> Custode.Policy.render(routine)
 
   # Tool tiers (issue #40): the operator verbs (pause a sibling, beat a
   # routine, read the fleet) belong to the meta-agent only. Every other

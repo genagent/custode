@@ -223,6 +223,49 @@ config :custode, Custode.Repo,
 # The MCP endpoint (localhost only) agents use to drive sibling agents/jobs.
 config :custode, mcp_port: 6161
 
+# The policy layer (#50): fleet rules declared once, rendered into every
+# binding agent's prompt AND shown on gate cards at review time. When verb
+# tools (#10) exist, the same declarations back mechanical checks.
+config :custode,
+  policies: [
+    %{
+      id: :external_repo_writes,
+      applies: [tag: :external],
+      text:
+        "This repository is the operator's public surface: never open or modify " <>
+          "issues or PRs (beyond pushing to your OWN agent-authored PR branches) " <>
+          "without an approved gate naming the exact action. Never open anything " <>
+          "on a repository owned by a third party, ever."
+    },
+    %{
+      id: :contributor_contact,
+      applies: :all,
+      text:
+        "Never respond to, comment on, or start work against a third-party " <>
+          "contributor's issue or PR without explicit human permission through a gate."
+    },
+    %{
+      id: :conventional_commits,
+      applies: [tag: :repo],
+      text:
+        "Conventional-commit style everywhere: commit messages, PR titles, and " <>
+          "branch names (feat:/fix:/docs:/test:/chore:; branch prefixes to match)."
+    },
+    %{
+      id: :draft_pr_first,
+      applies: [tag: :repo],
+      text:
+        "Open a DRAFT PR as soon as branch work starts; mark it ready only when " <>
+          "checks are green AND the approved action said to. Default: leave draft."
+    },
+    %{
+      id: :merge,
+      applies: [tag: :repo],
+      value: :manual,
+      text: "You never merge PRs. A human merges. No exceptions."
+    }
+  ]
+
 # Fleet-wide external MCP servers (#46): written into one shared config file
 # every mcp: true routine references, tool grants appended to every
 # allowlist. hexpm for the Elixir repos, cratesio for the Rust ones.

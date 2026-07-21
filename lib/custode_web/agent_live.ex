@@ -106,6 +106,9 @@ defmodule CustodeWeb.AgentLive do
         <div class="flex-1">
           <p class="font-semibold">wants permission:</p>
           <p class="text-sm">{elem(@status, 1).description}</p>
+          <p :if={@policies != []} class="mt-1 text-xs opacity-70">
+            review against: {Enum.join(@policies, ", ")}
+          </p>
         </div>
         <div class="flex gap-2">
           <button class="btn btn-success btn-sm" phx-click="approve" phx-value-action={elem(@status, 1).id}>
@@ -294,6 +297,7 @@ defmodule CustodeWeb.AgentLive do
 
     assign(socket,
       routine: routine,
+      policies: (routine && Custode.Policy.ids_for(routine)) || [],
       repo: repo,
       repo_overview: repo && repo_overview(repo),
       status: status,
