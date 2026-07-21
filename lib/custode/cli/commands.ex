@@ -67,15 +67,15 @@ defmodule Custode.CLI.Gates do
       |> then(&if args[:status], do: Map.put(&1, :status, args[:status]), else: &1)
       |> then(&if args[:limit], do: Map.put(&1, :limit, args[:limit]), else: &1)
 
-    Custode.CLI.emit("list_gates", arguments, args[:json] == true, fn %{"gates" => gates} ->
-      if gates == [] do
-        "(no gates)"
-      else
-        Enum.map_join(gates, "\n", fn gate ->
-          "#{String.pad_trailing(gate["status"], 9)} #{String.pad_trailing(gate["agent_id"], 14)} " <>
-            "#{String.pad_trailing(gate["action_id"] || "-", 10)} #{String.slice(gate["detail"] || "", 0, 90)}"
-        end)
-      end
+    Custode.CLI.emit("list_gates", arguments, args[:json] == true, &render/1)
+  end
+
+  defp render(%{"gates" => []}), do: "(no gates)"
+
+  defp render(%{"gates" => gates}) do
+    Enum.map_join(gates, "\n", fn gate ->
+      "#{String.pad_trailing(gate["status"], 9)} #{String.pad_trailing(gate["agent_id"], 14)} " <>
+        "#{String.pad_trailing(gate["action_id"] || "-", 10)} #{String.slice(gate["detail"] || "", 0, 90)}"
     end)
   end
 end
@@ -199,15 +199,17 @@ defmodule Custode.CLI.Spend do
 
   @impl Cheer.Command
   def run(args, _raw) do
-    Custode.CLI.emit("spend_today", %{}, args[:json] == true, fn reply ->
-      rows =
-        Enum.map_join(reply["routines"], "\n", fn row ->
-          rail = if row["daily_budget_usd"], do: " / $#{row["daily_budget_usd"]}", else: ""
-          "#{String.pad_trailing(row["agent_id"], 16)} $#{row["today_usd"]}#{rail}"
-        end)
+    Custode.CLI.emit("spend_today", %{}, args[:json] == true, &render/1)
+  end
 
-      rows <> "\n\nfleet today $#{reply["fleet_today_usd"]}"
-    end)
+  defp render(reply) do
+    rows = Enum.map_join(reply["routines"], "\n", &row/1)
+    rows <> "\n\nfleet today $#{reply["fleet_today_usd"]}"
+  end
+
+  defp row(row) do
+    rail = if row["daily_budget_usd"], do: " / $#{row["daily_budget_usd"]}", else: ""
+    "#{String.pad_trailing(row["agent_id"], 16)} $#{row["today_usd"]}#{rail}"
   end
 end
 
