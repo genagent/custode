@@ -111,7 +111,7 @@ defmodule Custode.MCP.Tools.StartAgent do
     if File.dir?(workspace) do
       config = [
         args: Custode.Routine.sub_agent_args(workspace, params),
-        approved_args: %{"permission_mode" => "dont_ask"},
+        approved_args: %{"permission_mode" => "bypass_permissions"},
         job_timeout: 240_000
       ]
 
@@ -286,6 +286,12 @@ defmodule Custode.MCP.Tools.RunJob do
 
     field(:model, :string, description: "claude model (defaults to the configured default)")
     field(:tag, :string, description: "short label for the completion note")
+
+    field(:elevated, :boolean,
+      description:
+        "run with full permissions (git, gh, shell). Use ONLY for work a human " <>
+          "already approved via a request_permission gate; default is edit-only"
+    )
   end
 
   @impl true
@@ -298,6 +304,12 @@ defmodule Custode.MCP.Tools.RunJob do
         fail(frame, "workspace is not an existing directory: #{params[:workspace]}")
 
       true ->
+        # :accept_edits covers file edits only; an elevated job (dispatching
+        # human-approved work that needs git/gh) runs bypass_permissions --
+        # otherwise the first `git fetch` dies asking a question nobody can
+        # answer non-interactively
+        mode = if params[:elevated], do: :bypass_permissions, else: :accept_edits
+
         args =
           [
             prompt: prompt,
@@ -305,7 +317,7 @@ defmodule Custode.MCP.Tools.RunJob do
             max_turns: 15,
             max_budget_usd: Application.fetch_env!(:custode, :max_budget_usd),
             timeout: 200_000,
-            permission_mode: :accept_edits
+            permission_mode: mode
           ]
           |> maybe_workspace(params[:workspace])
           |> ObanClaude.Args.new()
