@@ -37,6 +37,10 @@ defmodule Custode.Application do
       {Custode.MCP.Server, transport: {:streamable_http, start: true}},
       {Custode.MCP.MemoryServer, transport: {:streamable_http, start: true}},
       {Bandit, plug: Custode.MCP.Router, port: Custode.MCP.port(), ip: {127, 0, 0, 1}},
+      # the ticks queue starts only after this loopback probe confirms the
+      # MCP surface answers -- the first-sweep-after-restart tool blackout
+      # (#4) was the claude CLI racing the session layer at boot
+      Custode.MCP.Probe,
       CustodeWeb.Endpoint
     ]
 
@@ -64,8 +68,11 @@ defmodule Custode.Application do
       # env can run with no executing queues at all (no paid calls, ever).
       # agents: 3 so a routine turn, a one-shot job, and a sub-agent turn can
       # all run concurrently (a delegating parent occupies a slot while its
-      # children need their own)
-      queues: Application.get_env(:custode, :oban_queues, agents: 3, ticks: 1, sensors: 2)
+      # children need their own). :ticks is withheld here and started by
+      # Custode.MCP.Probe once the MCP surface answers (#4).
+      queues:
+        Application.get_env(:custode, :oban_queues, agents: 3, ticks: 1, sensors: 2)
+        |> Keyword.delete(:ticks)
     ]
   end
 end

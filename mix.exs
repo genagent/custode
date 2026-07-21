@@ -38,6 +38,8 @@ defmodule Custode.MixProject do
       {:anubis_mcp, "~> 1.10"},
       # Typed GitHub client: repo panels on agent pages (reads); verb tools later.
       {:gh_ex, "~> 0.3"},
+      # HTTP client (also a gh_ex dep): the boot MCP probe and CLI transport.
+      {:req, "~> 0.5"},
       {:bandit, "~> 1.5"},
       # The dashboard: LiveView over the facade + PubSub, daisyUI via CDN
       # (no node/asset pipeline; see CustodeWeb.Layouts).
