@@ -19,13 +19,15 @@ defmodule Custode do
   @doc "Lifecycle status, straight off the registry."
   def status(id \\ nil), do: Agent.status(fetch!(id).id)
 
-  @doc "Drop a note in the routine's inbox; the next sweep files it."
+  @doc """
+  Drop a note in the routine's inbox. The event kickoff (`on_note: :beat`)
+  schedules a debounced beat, so the agent files it shortly -- no waiting
+  for cron.
+  """
   def note(text, id \\ nil) do
     routine = fetch!(id)
     stamp = DateTime.utc_now() |> Calendar.strftime("%Y%m%d-%H%M%S")
-    path = Path.join([Path.expand(routine.workspace), "inbox", "note-#{stamp}.md"])
-    File.write!(path, text <> "\n")
-    {:ok, path}
+    Custode.Inbox.drop(routine, "note-#{stamp}.md", text <> "\n")
   end
 
   @doc "Fire one sweep right now (an out-of-schedule tick through the same policy)."

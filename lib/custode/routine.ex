@@ -23,6 +23,40 @@ defmodule Custode.Routine do
   @doc "The first configured routine (the default target for the console)."
   def default, do: hd(all())
 
+  @doc """
+  The full Cron crontab: one Tick entry per scheduled routine (`cron:
+  :manual` routines are skipped -- identity, tile, and budgets without a
+  schedule) plus one entry per configured sensor (plain workers on the
+  `:sensors` queue; see `Custode.Sensors.ContributorSearch`).
+  """
+  def crontab do
+    routine_entries =
+      for routine <- all(), routine.cron != :manual do
+        {routine.cron, ObanClaude.Agent.Tick, args: tick_args(routine), queue: :ticks}
+      end
+
+    sensor_entries =
+      for sensor <- sensors() do
+        args = Map.merge(%{"sensor_id" => sensor.id, "notify" => sensor.notify}, sensor.args)
+        {sensor.cron, sensor.module, args: args, queue: :sensors}
+      end
+
+    routine_entries ++ sensor_entries
+  end
+
+  @doc "Configured sensors, normalized."
+  def sensors do
+    for sensor <- Application.get_env(:custode, :sensors, []) do
+      %{
+        id: Map.fetch!(sensor, :id),
+        cron: Map.fetch!(sensor, :cron),
+        module: Map.fetch!(sensor, :module),
+        notify: Map.fetch!(sensor, :notify),
+        args: Map.get(sensor, :args, %{})
+      }
+    end
+  end
+
   @doc "The crontab / Tick args for a routine: the complete agent spec."
   def tick_args(routine) do
     %{
@@ -36,7 +70,8 @@ defmodule Custode.Routine do
         # approvals may need more than reads (a gated delete runs rm; a repo
         # caretaker's approved edit runs in an isolated worktree)
         "approved_args" => routine.approved_args,
-        "job_timeout" => 240_000
+        # the machine watchdog must outlast the subprocess cap
+        "job_timeout" => routine.timeout_ms + 60_000
       }
     }
   end
@@ -73,7 +108,7 @@ defmodule Custode.Routine do
       working_dir: Path.expand(routine.working_dir),
       max_turns: 20,
       max_budget_usd: routine.max_budget_usd,
-      timeout: 200_000,
+      timeout: routine.timeout_ms,
       json_schema: directive_schema(),
       append_system_prompt: system_prompt(routine)
     ]
@@ -115,6 +150,9 @@ defmodule Custode.Routine do
         Map.get(routine, :max_budget_usd, Application.fetch_env!(:custode, :max_budget_usd)),
       daily_budget_usd:
         Map.get(routine, :daily_budget_usd, Application.get_env(:custode, :daily_budget_usd)),
+      # the claude subprocess cap per turn; long implementation turns (opus +
+      # a test suite) need more than the chatty default
+      timeout_ms: Map.get(routine, :timeout_ms, 200_000),
       system_prompt: Map.get(routine, :system_prompt, default_prompt(role, id)),
       # merged over the args on approve continuations only; a repo caretaker
       # adds "worktree" so approved edits land in an isolated branch
@@ -122,6 +160,9 @@ defmodule Custode.Routine do
         Map.get(routine, :approved_args, %{"permission_mode" => "bypass_permissions"}),
       # appended to the tool allowlist, e.g. read-only git Bash grants
       extra_allowed_tools: Map.get(routine, :extra_allowed_tools, []),
+      # the event kickoff: a dropped inbox note schedules a debounced beat
+      # (:beat, default) or does nothing (:ignore)
+      on_note: Map.get(routine, :on_note, :beat),
       mcp: Map.get(routine, :mcp, false)
     }
   end

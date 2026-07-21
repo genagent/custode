@@ -42,11 +42,7 @@ defmodule Custode.Application do
   end
 
   defp oban_config do
-    crontab =
-      for routine <- Custode.Routine.all() do
-        {routine.cron, ObanClaude.Agent.Tick,
-         args: Custode.Routine.tick_args(routine), queue: :ticks}
-      end
+    crontab = Custode.Routine.crontab()
 
     [
       repo: Custode.Repo,
@@ -67,7 +63,7 @@ defmodule Custode.Application do
       # agents: 3 so a routine turn, a one-shot job, and a sub-agent turn can
       # all run concurrently (a delegating parent occupies a slot while its
       # children need their own)
-      queues: Application.get_env(:custode, :oban_queues, agents: 3, ticks: 1)
+      queues: Application.get_env(:custode, :oban_queues, agents: 3, ticks: 1, sensors: 2)
     ]
   end
 end

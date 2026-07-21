@@ -1,3 +1,5 @@
+FILED 2026-07-21
+
 One-shot job #94 (issue-465-lib-rs-no-run) finished.
 
 Task: You are implementing an approved, scoped documentation fix in the redis-tower repo (working dir: /Users/joshrotenberg/Code/github.com/joshrotenberg/redis-tower). Follow the repo's CLAUDE.md and the us

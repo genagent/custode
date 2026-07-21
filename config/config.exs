@@ -63,6 +63,8 @@ config :custode,
       model: "opus",
       max_budget_usd: 3.0,
       daily_budget_usd: 10.0,
+      # implementation turns run cargo/mix suites; 15 minutes, not 200s
+      timeout_ms: 900_000,
       extra_allowed_tools: [
         "Bash(git log:*)",
         "Bash(git status:*)",
@@ -90,6 +92,8 @@ config :custode,
       model: "opus",
       max_budget_usd: 3.0,
       daily_budget_usd: 10.0,
+      # implementation turns run cargo/mix suites; 15 minutes, not 200s
+      timeout_ms: 900_000,
       extra_allowed_tools: [
         "Bash(git log:*)",
         "Bash(git status:*)",
@@ -117,11 +121,13 @@ config :custode,
       daily_budget_usd: 1.5,
       extra_allowed_tools: ["Bash(gh repo list:*)"]
     },
-    # The contributor watch: every 6 hours, alert on issues/PRs opened by
-    # anyone who is not the owner or a bot.
+    # The contributor watch, sensor-driven: the contributor-search sensor
+    # (below) detects new items mechanically and drops an inbox note, whose
+    # event kickoff wakes this agent to verify, journal, and alert. No
+    # schedule of its own.
     %{
       id: "contributors",
-      cron: "0 */6 * * *",
+      cron: :manual,
       workspace: "workspaces/contributors",
       prompt: "Do your contributor sweep now.",
       role: :contributor_watch,
@@ -137,6 +143,18 @@ config :custode,
         "Bash(gh pr list:*)",
         "Bash(gh pr view:*)"
       ]
+    }
+  ],
+  # Sensors: mechanical Oban workers (never claude) on their own schedule
+  # and queue; they detect change and drop inbox notes, whose event kickoff
+  # wakes the routine that judges. Cheap sensor, expensive brain.
+  sensors: [
+    %{
+      id: "contributor-search",
+      cron: "*/30 * * * *",
+      module: Custode.Sensors.ContributorSearch,
+      notify: "contributors",
+      args: %{owners: ["joshrotenberg", "genagent"], exclude_authors: ["joshrotenberg"]}
     }
   ],
   # Defaults shared by every routine unless overridden per-entry.
