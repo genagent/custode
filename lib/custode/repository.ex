@@ -128,9 +128,31 @@ defmodule Custode.Repository do
   end
 
   def handle_call({:merge_pr, number}, _from, state) do
-    case check(state, :merge_pr, number) do
-      :ok -> state |> ops_result(:merge_pr, [state.owner, state.repo, number]) |> reply(state)
+    with :ok <- check(state, :merge_pr, number),
+         :ok <- review_floor(state, number) do
+      state |> ops_result(:merge_pr, [state.owner, state.repo, number]) |> reply(state)
+    else
       refusal -> reply(refusal, state)
+    end
+  end
+
+  # The workflow's review stage (#86) is mechanical law regardless of who
+  # merges: no merge without a formal approving review OR a "review:"
+  # marker comment. Holds even while merge policy is :manual, so a future
+  # per-repo :auto inherits the floor for free.
+  defp review_floor(state, number) do
+    case ops().reviewed?(state.owner, state.repo, number) do
+      true ->
+        :ok
+
+      false ->
+        {:error,
+         "workflow review: PR ##{number} on #{state.name} has no review yet -- " <>
+           "every merge is preceded by a review (an approving review or a " <>
+           "\"review:\" comment), even just lgtm"}
+
+      {:error, reason} ->
+        {:error, "github: #{inspect(reason)}"}
     end
   end
 
@@ -234,6 +256,22 @@ defmodule Custode.Repository.Ops do
   def merge_pr(owner, repo, number) do
     with {:ok, client} <- client() do
       unwrap(GhEx.PullRequests.merge(client, owner, repo, number))
+    end
+  end
+
+  @doc "Has this PR been reviewed? A formal APPROVED review or a review: comment counts."
+  def reviewed?(owner, repo, number) do
+    with {:ok, client} <- client(),
+         {:ok, reviews} <- unwrap(GhEx.PullRequests.list_reviews(client, owner, repo, number)),
+         {:ok, comments} <- unwrap(GhEx.Issues.list_comments(client, owner, repo, number)) do
+      approved? = Enum.any?(reviews, &(&1["state"] == "APPROVED"))
+
+      marked? =
+        Enum.any?(comments, fn comment ->
+          comment["body"] |> to_string() |> String.downcase() |> String.starts_with?("review:")
+        end)
+
+      approved? or marked?
     end
   end
 

@@ -26,6 +26,10 @@ defmodule Custode.RepositoryTest do
       {:ok, %{"merged" => true}}
     end
 
+    def reviewed?(_owner, _repo, _number) do
+      Application.get_env(:custode, :fake_reviewed, false)
+    end
+
     defp pid, do: Application.fetch_env!(:custode, :repo_ops_test_pid)
   end
 
@@ -85,6 +89,23 @@ defmodule Custode.RepositoryTest do
     assert {:error, message} = Repository.merge_pr(repo, 7)
     assert message =~ "policy merge: humans merge"
     refute_receive {:merge_pr, _owner, _repo, _number}, 50
+  end
+
+  test "the review floor (#86): even without a merge policy, unreviewed PRs cannot merge",
+       %{repo: repo} do
+    # drop the merge: :manual rule so only the workflow floor stands
+    put_env!(:policies, [])
+    put_env!(:fake_reviewed, false)
+
+    assert {:error, message} = Repository.merge_pr(repo, 7)
+    assert message =~ "workflow review"
+    assert message =~ "even just lgtm"
+    refute_receive {:merge_pr, _owner, _repo, _number}, 50
+
+    # one review (formal or a review: comment) opens the door
+    put_env!(:fake_reviewed, true)
+    assert {:ok, %{"merged" => true}} = Repository.merge_pr(repo, 7)
+    assert_receive {:merge_pr, "acme", _bare, 7}
   end
 
   test "comment and ready_pr pass through", %{repo: repo} do
