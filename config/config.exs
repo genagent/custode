@@ -96,6 +96,9 @@ config :custode,
     %{
       id: "adrs",
       profile: :backlog_worker,
+      # TEMPORARY crank (2026-07-21 evening): work the backlog hard while
+      # the operator supervises; restore @daily when the sprint ends
+      cron: "*/10 * * * *",
       repo: "joshrotenberg/adrs",
       working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/adrs",
       tags: [:rust, :external]
@@ -103,6 +106,9 @@ config :custode,
     %{
       id: "redis-tower",
       profile: :backlog_worker,
+      # TEMPORARY crank (2026-07-21 evening): work the backlog hard while
+      # the operator supervises; restore @daily when the sprint ends
+      cron: "*/10 * * * *",
       repo: "joshrotenberg/redis-tower",
       working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/redis-tower",
       tags: [:rust, :external]
@@ -110,6 +116,9 @@ config :custode,
     %{
       id: "git-spawn",
       profile: :backlog_worker,
+      # TEMPORARY crank (2026-07-21 evening): work the backlog hard while
+      # the operator supervises; restore @daily when the sprint ends
+      cron: "*/10 * * * *",
       repo: "joshrotenberg/git-spawn",
       working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/git-spawn",
       tags: [:rust, :external]
@@ -124,6 +133,9 @@ config :custode,
     %{
       id: "tower-mcp",
       profile: :backlog_worker,
+      # TEMPORARY crank (2026-07-21 evening): work the backlog hard while
+      # the operator supervises; restore @daily when the sprint ends
+      cron: "*/10 * * * *",
       repo: "joshrotenberg/tower-mcp",
       working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/tower-mcp",
       tags: [:rust, :external]
@@ -131,6 +143,9 @@ config :custode,
     %{
       id: "tower-resilience",
       profile: :backlog_worker,
+      # TEMPORARY crank (2026-07-21 evening): work the backlog hard while
+      # the operator supervises; restore @daily when the sprint ends
+      cron: "*/10 * * * *",
       repo: "joshrotenberg/tower-resilience",
       working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/tower-resilience",
       tags: [:rust, :external]
