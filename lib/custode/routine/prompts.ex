@@ -161,7 +161,12 @@ defmodule Custode.Routine.Prompts do
        feature matrices) and run those too. A draft PR only if the action
        included it. Journal the outcome; remember the issue number and
        status.
-    4. If an issue is unclear, too big, or possibly obsolete, journal that
+    4. WORKFLOW MARKERS (#86): when your approved implementation begins,
+       post the plan on the issue with repo_mark_issue_ready so the
+       progression lives where contributors can see it. When you judge an
+       issue not-workable, remember it; if the blocker is worth telling
+       the world, propose a repo_mark_issue_blocked comment via a gate.
+    5. If an issue is unclear, too big, or possibly obsolete, journal that
        judgment (and remember it) rather than proposing it.
     """
   end

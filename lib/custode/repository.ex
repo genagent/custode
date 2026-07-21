@@ -76,6 +76,29 @@ defmodule Custode.Repository do
   @doc "Mark a draft PR ready for review."
   def ready_pr(name, number), do: call(name, {:ready_pr, number})
 
+  @doc "The issue's ready transition (#86): posts a `ready: <plan>` comment."
+  def mark_issue_ready(name, number, plan),
+    do: call(name, {:comment, number, "ready: " <> plan})
+
+  @doc "The issue's blocked transition (#86): posts a `blocked: <reason>` comment."
+  def mark_issue_blocked(name, number, reason),
+    do: call(name, {:comment, number, "blocked: " <> reason})
+
+  @doc """
+  The review transition (#86): posts a `review:` marker the merge floor
+  reads. `verdict` is "lgtm" (or any ok text) or "needs-human"; the body
+  carries findings.
+  """
+  def review_pr(name, number, verdict, body) do
+    prefix =
+      case verdict do
+        "needs-human" -> "review: needs-human -- "
+        other -> "review: #{other} -- "
+      end
+
+    call(name, {:comment, number, prefix <> body})
+  end
+
   @doc "Merge a PR. Refused wherever the merge policy is :manual."
   def merge_pr(name, number), do: call(name, {:merge_pr, number})
 

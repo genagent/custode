@@ -97,3 +97,74 @@ defmodule Custode.MCP.RepoTools.MergePr do
     end
   end
 end
+
+defmodule Custode.MCP.RepoTools.MarkIssueReady do
+  @moduledoc "The issue's ready transition (#86): posts a `ready: <plan>` comment."
+  use Anubis.Server.Component, type: :tool
+
+  import Custode.MCP.Tools
+
+  schema do
+    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
+    field(:number, :integer, required: true, description: "the issue number")
+    field(:plan, :string, required: true, description: "the one-line plan")
+  end
+
+  @impl true
+  def execute(%{repo: repo, number: number, plan: plan}, frame) do
+    case Custode.Repository.mark_issue_ready(repo, number, plan) do
+      {:ok, comment} -> reply(frame, %{repo: repo, number: number, url: comment["html_url"]})
+      {:error, message} -> fail(frame, to_string(message))
+    end
+  end
+end
+
+defmodule Custode.MCP.RepoTools.MarkIssueBlocked do
+  @moduledoc "The issue's blocked transition (#86): posts a `blocked: <reason>` comment."
+  use Anubis.Server.Component, type: :tool
+
+  import Custode.MCP.Tools
+
+  schema do
+    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
+    field(:number, :integer, required: true, description: "the issue number")
+    field(:reason, :string, required: true, description: "why it is not workable (x y z)")
+  end
+
+  @impl true
+  def execute(%{repo: repo, number: number, reason: reason}, frame) do
+    case Custode.Repository.mark_issue_blocked(repo, number, reason) do
+      {:ok, comment} -> reply(frame, %{repo: repo, number: number, url: comment["html_url"]})
+      {:error, message} -> fail(frame, to_string(message))
+    end
+  end
+end
+
+defmodule Custode.MCP.RepoTools.ReviewPr do
+  @moduledoc """
+  The review transition (#86): posts the `review:` marker the merge floor
+  reads. verdict "needs-human" POSITIVELY blocks merging until a later
+  human review; anything else (e.g. "lgtm") satisfies the review stage.
+  """
+  use Anubis.Server.Component, type: :tool
+
+  import Custode.MCP.Tools
+
+  schema do
+    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
+    field(:number, :integer, required: true, description: "the PR number")
+    field(:verdict, :string, required: true, description: "\"lgtm\" or \"needs-human\"")
+    field(:body, :string, required: true, description: "findings / reasoning")
+  end
+
+  @impl true
+  def execute(%{repo: repo, number: number, verdict: verdict, body: body}, frame) do
+    case Custode.Repository.review_pr(repo, number, verdict, body) do
+      {:ok, comment} ->
+        reply(frame, %{repo: repo, number: number, verdict: verdict, url: comment["html_url"]})
+
+      {:error, message} ->
+        fail(frame, to_string(message))
+    end
+  end
+end

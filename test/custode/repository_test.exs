@@ -127,6 +127,20 @@ defmodule Custode.RepositoryTest do
     assert_receive {:ready_pr, "acme", _bare, 9}
   end
 
+  test "workflow markers format the conventions mechanically (#86)", %{repo: repo} do
+    {:ok, _c} = Repository.mark_issue_ready(repo, 12, "drop the vestigial bound")
+    assert_receive {:comment, "acme", _bare, 12, "ready: drop the vestigial bound"}
+
+    {:ok, _c} = Repository.mark_issue_blocked(repo, 13, "needs maintainer design input")
+    assert_receive {:comment, "acme", _bare, 13, "blocked: needs maintainer design input"}
+
+    {:ok, _c} = Repository.review_pr(repo, 14, "lgtm", "small and clean")
+    assert_receive {:comment, "acme", _bare, 14, "review: lgtm -- small and clean"}
+
+    {:ok, _c} = Repository.review_pr(repo, 15, "needs-human", "auth surface")
+    assert_receive {:comment, "acme", _bare, 15, "review: needs-human -- auth surface"}
+  end
+
   test "verbs feed the record", %{repo: repo} do
     {:ok, _comment} = Repository.comment(repo, 5, "note")
 
