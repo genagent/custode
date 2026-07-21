@@ -20,7 +20,6 @@ defmodule CustodeWeb.FleetLiveTest do
     %{conn: build_conn(), routine: routine}
   end
 
-  # Replace the offline routine agent with a same-id observable stub.
   defp stub_routine_agent!(routine) do
     test_pid = self()
 
@@ -34,32 +33,41 @@ defmodule CustodeWeb.FleetLiveTest do
     :ok
   end
 
-  test "renders the routine card, offline until its first beat", %{conn: conn, routine: routine} do
+  test "renders one tile per routine with a detail link, offline until its first beat",
+       %{conn: conn, routine: routine} do
     {:ok, _view, html} = live(conn, "/")
 
-    assert html =~ routine.id
-    assert html =~ "offline"
+    assert html =~ "tile-#{routine.id}"
+    assert html =~ ~s(href="/agents/#{routine.id}")
+    assert html =~ "next beat starts it"
     assert html =~ "beat"
   end
 
-  test "a running agent shows its badge and ledger; a prompt submits through the form",
+  test "the tile shows the agent's last message and live status",
        %{conn: conn, routine: routine} do
     stub_routine_agent!(routine)
-    {:ok, view, html} = live(conn, "/")
 
+    {:ok, _} =
+      ObanClaude.run(%{"prompt" => "x"},
+        job: %Oban.Job{meta: %{"agent_id" => routine.id}},
+        query_fun:
+          respond(
+            structured_result(%{"directive" => "none", "summary" => "swept the yard"},
+              cost_usd: 0.1
+            )
+          )
+      )
+
+    {:ok, view, html} = live(conn, "/")
+    assert html =~ "swept the yard"
     assert html =~ "idle"
 
-    view
-    |> form("#agent-#{routine.id} form", %{"text" => "from the dashboard"})
-    |> render_submit()
-
-    assert_receive {:enqueued, %{"prompt" => "from the dashboard"}, _meta}
-
-    # the transition broadcast pushes the badge to running without a reload
+    # a transition pushes the badge live
+    :processing = Agent.submit_prompt(routine.id, "turn")
     assert render(view) =~ "running"
   end
 
-  test "a permission gate renders inline and approve releases it",
+  test "a permission gate renders inline on the tile and approve releases it",
        %{conn: conn, routine: routine} do
     stub_routine_agent!(routine)
     :processing = Agent.submit_prompt(routine.id, "gated work")
@@ -75,18 +83,18 @@ defmodule CustodeWeb.FleetLiveTest do
     {:ok, {:awaiting_permission, _action}} = Agent.await(routine.id, :awaiting_permission, 1_000)
 
     {:ok, view, html} = live(conn, "/")
-    assert html =~ "wants permission"
     assert html =~ "prune notes"
 
-    view |> element("#agent-#{routine.id} button", "approve") |> render_click()
+    view |> element("#tile-#{routine.id} button", "approve") |> render_click()
 
     assert_receive {:enqueued, %{"prompt" => "Approved: " <> _rest}, _meta}
     assert render(view) =~ "running"
   end
 
-  test "a pending question renders with an inline answer form", %{conn: conn, routine: routine} do
+  test "a pending question points through to the detail page for the answer",
+       %{conn: conn, routine: routine} do
     stub_routine_agent!(routine)
-    :processing = Agent.submit_prompt(routine.id, "curious work")
+    :processing = Agent.submit_prompt(routine.id, "curious")
     assert_receive {:enqueued, _args, _meta}
 
     :ok =
@@ -97,54 +105,8 @@ defmodule CustodeWeb.FleetLiveTest do
 
     {:ok, {:waiting_for_user, _q}} = Agent.await(routine.id, :waiting_for_user, 1_000)
 
-    {:ok, view, html} = live(conn, "/")
+    {:ok, _view, html} = live(conn, "/")
     assert html =~ "which env?"
-
-    view
-    |> element("#agent-#{routine.id} .alert form")
-    |> render_submit(%{"text" => "staging"})
-
-    assert_receive {:enqueued, %{"prompt" => "staging"}, _meta}
-  end
-
-  test "pause and resume from the card", %{conn: conn, routine: routine} do
-    stub_routine_agent!(routine)
-    {:ok, view, _html} = live(conn, "/")
-
-    view |> element("#agent-#{routine.id} button", "pause") |> render_click()
-    assert render(view) =~ "paused"
-
-    view |> element("#agent-#{routine.id} button", "resume") |> render_click()
-    assert render(view) =~ "idle"
-  end
-
-  test "todos render on the card and can be checked off; the panel updates live",
-       %{conn: conn, routine: routine} do
-    {:ok, todo} = Custode.Notebook.todo_add(routine.id, "water the plants", source: "human")
-
-    {:ok, view, html} = live(conn, "/")
-    assert html =~ "water the plants"
-
-    view |> element("button[phx-value-todo='#{todo.id}']") |> render_click()
-    refute render(view) =~ "water the plants"
-
-    # a mutation from elsewhere pushes into the panel without a reload
-    {:ok, _todo} = Custode.Notebook.todo_add(routine.id, "sharpen the shears", source: "human")
-    assert render(view) =~ "sharpen the shears"
-  end
-
-  test "feed entries stream in live", %{conn: conn} do
-    {:ok, view, _html} = live(conn, "/")
-
-    {:ok, _} =
-      ObanClaude.run(%{"prompt" => "x"},
-        job: %Oban.Job{meta: %{"agent_id" => "streamer"}},
-        query_fun:
-          respond(
-            structured_result(%{"directive" => "none", "summary" => "live wire"}, cost_usd: 0.1)
-          )
-      )
-
-    assert render(view) =~ "live wire"
+    assert html =~ "answer"
   end
 end

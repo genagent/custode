@@ -44,6 +44,16 @@ defmodule Custode.Feed do
     end
   end
 
+  @doc "The last `n` feed entries for one agent, oldest first."
+  def for_agent(agent_id, n \\ 30) do
+    tail(500)
+    |> Enum.filter(&(&1["agent"] == agent_id))
+    |> Enum.take(-n)
+  end
+
+  @doc "The most recent feed entry for an agent (its \"last message\"), or nil."
+  def last_for(agent_id), do: agent_id |> for_agent(1) |> List.last()
+
   @doc """
   Record an app-level event (e.g. `budget_paused`) into the feed, same shape
   and delivery as the telemetry-driven entries. `notify: true` raises the
