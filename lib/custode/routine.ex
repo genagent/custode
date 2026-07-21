@@ -46,6 +46,34 @@ defmodule Custode.Routine do
     routine_entries ++ sensor_entries ++ janitor_entries
   end
 
+  @doc """
+  Boot-time guarantee: every routine's workspace (and its inbox/) exists
+  before any turn can run. The quakes routine failed its first beats with
+  command_failed because claude's working_dir did not exist yet -- every
+  earlier workspace predated the config, so the assumption was invisible.
+  A missing working_dir that is NOT the workspace (a repo checkout) is only
+  warned about: creating an empty directory where a checkout should be
+  would send an agent into a void.
+  """
+  def ensure_workspaces! do
+    for routine <- all() do
+      routine.workspace |> Path.expand() |> Path.join("inbox") |> File.mkdir_p!()
+
+      working_dir = Path.expand(routine.working_dir)
+
+      unless File.dir?(working_dir) do
+        require Logger
+
+        Logger.warning(
+          "routine #{routine.id}: working_dir #{working_dir} does not exist; " <>
+            "its turns will fail with command_failed until it does"
+        )
+      end
+    end
+
+    :ok
+  end
+
   @doc "Configured sensors, normalized."
   def sensors do
     for sensor <- Application.get_env(:custode, :sensors, []) do
