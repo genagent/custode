@@ -18,6 +18,7 @@ defmodule Custode.Application do
     Custode.SpendLedger.attach()
     Custode.Gates.attach()
     Custode.MCP.write_config!()
+    Custode.Routine.ensure_workspaces!()
 
     children = [
       {Phoenix.PubSub, name: Custode.PubSub},

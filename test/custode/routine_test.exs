@@ -35,6 +35,29 @@ defmodule Custode.RoutineTest do
       assert Custode.Routine.tick_args(worker)["start"]["args"]["max_turns"] == 75
     end
 
+    test "ensure_workspaces! creates workspace inboxes; missing working_dirs only warn" do
+      base = Path.join(System.tmp_dir!(), uid("ws-ensure"))
+      on_exit(fn -> File.rm_rf!(base) end)
+
+      put_env!(:routines, [
+        %{id: uid("fresh"), cron: :manual, workspace: Path.join(base, "fresh"), prompt: "x"},
+        %{
+          id: uid("checkout"),
+          cron: :manual,
+          workspace: Path.join(base, "nb"),
+          working_dir: Path.join(base, "missing-checkout"),
+          prompt: "x"
+        }
+      ])
+
+      assert :ok = Custode.Routine.ensure_workspaces!()
+
+      # workspaces + inboxes exist; the absent checkout was NOT conjured
+      assert File.dir?(Path.join([base, "fresh", "inbox"]))
+      assert File.dir?(Path.join([base, "nb", "inbox"]))
+      refute File.dir?(Path.join(base, "missing-checkout"))
+    end
+
     test "get/1 finds by id; default/0 is the first entry" do
       routine = routine_fixture!("workspace")
       assert Custode.Routine.get(routine.id).id == routine.id
