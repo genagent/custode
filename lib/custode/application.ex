@@ -61,8 +61,11 @@ defmodule Custode.Application do
       plugins: [
         {Oban.Plugins.Cron, crontab: crontab},
         # a crash mid-turn leaves the job row stuck executing; Lifeline
-        # rescinds it so the durable-restart story holds for turns too
-        {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(10)},
+        # rescinds it so the durable-restart story holds for turns too.
+        # MUST exceed the longest legitimate turn (backlog workers run
+        # 900s + 60s watchdog): a shorter rescue_after re-runs a LIVE
+        # turn's job -- double claude, double spend (audit 2026-07-21).
+        {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(20)},
         # the jobs table is the audit trail: keep a week, not forever
         {Oban.Plugins.Pruner, max_age: 7 * 24 * 60 * 60}
       ],
