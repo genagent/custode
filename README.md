@@ -17,6 +17,9 @@ configured routine becomes an `ObanClaude.Agent.Tick` cron entry with
 revives) its agent; the state machine owns the turns; SQLite-backed Oban makes
 the schedule durable.
 
+![The fleet dashboard: one tile per agent with live state, spend, and last
+message](docs/fleet.png)
+
 ## Cost warning
 
 Every sweep is a real, paid claude call: a sonnet sweep runs about **$0.40**.
@@ -92,6 +95,12 @@ over PubSub from the same telemetry the feed uses.
 No node or asset pipeline: daisyUI 5 + Tailwind come from CDN (internet
 needed on first page load) and the LiveView client JS is served from the hex
 packages. Localhost only, no auth -- same caveat as the MCP endpoint.
+
+Clicking through a tile gives the agent's full page -- repository panels
+(issues and PRs with CI status), notebook, journal, memory, and its slice of
+the feed:
+
+![An agent page: repository panels, todo, journal, and activity](docs/agent.png)
 
 ## Sensors and event kickoffs
 
