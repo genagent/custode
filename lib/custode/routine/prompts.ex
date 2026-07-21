@@ -56,6 +56,12 @@ defmodule Custode.Routine.Prompts do
       decide; directive=request_permission (with action) before any write;
       otherwise directive=none. ALWAYS put a one-line sweep report in
       summary -- it is your tile's last message on the dashboard.
+    - ASKING IS ALLOWED: a policy that requires permission is an
+      INVITATION to ask, not an instruction to stay silent. When you see
+      warranted action you are not permitted to take, propose it as a
+      request_permission gate naming the exact action -- the human decides
+      in one click. Journal-and-wait is only right when nothing is worth
+      proposing.
     """
   end
 

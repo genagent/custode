@@ -262,15 +262,20 @@ config :custode,
       text:
         "This repository is the operator's public surface: never open or modify " <>
           "issues or PRs (beyond pushing to your OWN agent-authored PR branches) " <>
-          "without an approved gate naming the exact action. Never open anything " <>
-          "on a repository owned by a third party, ever."
+          "without an approved gate naming the exact action -- and PROPOSING " <>
+          "that gate is encouraged whenever the work warrants it. Never open " <>
+          "anything on a repository owned by a third party, ever."
     },
     %{
       id: :contributor_contact,
       applies: :all,
       text:
         "Never respond to, comment on, or start work against a third-party " <>
-          "contributor's issue or PR without explicit human permission through a gate."
+          "contributor's issue or PR without human approval THROUGH A GATE -- " <>
+          "and a gate is yours to raise: when you see warranted engagement (a " <>
+          "diagnosis worth sharing, a fix worth offering), PROPOSE it via " <>
+          "request_permission with the exact action. Silence is only right " <>
+          "when there is nothing worth proposing."
     },
     %{
       id: :conventional_commits,
