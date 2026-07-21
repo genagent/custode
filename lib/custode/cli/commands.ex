@@ -246,3 +246,21 @@ defmodule Custode.CLI.Resume do
     end)
   end
 end
+
+defmodule Custode.CLI.Prompt do
+  @moduledoc false
+  use Cheer.Command
+
+  command "prompt" do
+    about("Send a prompt to an agent (also the answer path for a waiting question).")
+    argument(:agent_id, required: true, help: "The agent to prompt.")
+    argument(:text, required: true, help: "The prompt or answer text.")
+  end
+
+  @impl Cheer.Command
+  def run(args, _raw) do
+    arguments = %{agent_id: args[:agent_id], prompt: args[:text]}
+
+    Custode.CLI.emit("prompt_agent", arguments, false, fn _reply -> "delivered" end)
+  end
+end
