@@ -177,6 +177,7 @@ defmodule Custode.Routine do
     agent_history approve_action reject_action run_job
     journal_append todo_add todo_list todo_complete inbox_list inbox_mark_filed
     remember recall forget
+    repo_open_pr repo_comment repo_ready_pr repo_merge_pr
   )
 
   @operator_mcp_tools ~w(

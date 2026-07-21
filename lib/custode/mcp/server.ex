@@ -22,6 +22,12 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.Tools.RejectAction, name: "reject_action")
   component(Custode.MCP.Tools.RunJob, name: "run_job")
 
+  # the repo verbs (issue #10): typed, policy-checked GitHub writes
+  component(Custode.MCP.RepoTools.OpenPr, name: "repo_open_pr")
+  component(Custode.MCP.RepoTools.Comment, name: "repo_comment")
+  component(Custode.MCP.RepoTools.ReadyPr, name: "repo_ready_pr")
+  component(Custode.MCP.RepoTools.MergePr, name: "repo_merge_pr")
+
   # the operator tier (issue #33): run the fleet, not just delegate into it
   component(Custode.MCP.OperatorTools.Beat, name: "beat")
   component(Custode.MCP.OperatorTools.DropNote, name: "drop_note")

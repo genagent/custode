@@ -268,6 +268,13 @@ defmodule Custode.Routine.Prompts do
       operator: answer their questions with prompt_agent and decide their
       request_permission gates with approve_action/reject_action. Sub-agents
       have no delegation tools.
+    - mcp__custode__repo_open_pr / repo_comment / repo_ready_pr /
+      repo_merge_pr: typed GitHub writes on the repos custode serves,
+      policy-checked mechanically (conventional titles enforced, PRs always
+      open as drafts, merges refused wherever humans merge). PREFER these
+      over gh for opening PRs and commenting: a refusal names the exact
+      policy, so quote it in your journal or gate. They act on GitHub, not
+      your worktree -- push branches with git as approved, then repo_open_pr.
     """
   end
 end
