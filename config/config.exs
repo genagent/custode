@@ -244,7 +244,9 @@ config :custode,
 
 config :custode, Custode.Repo,
   database: "custode.db",
-  pool_size: 1,
+  # WAL lets readers run concurrently; a single connection made every
+  # LiveView read queue behind telemetry writes (audit 2026-07-21)
+  pool_size: 5,
   busy_timeout: 5_000,
   log: false
 

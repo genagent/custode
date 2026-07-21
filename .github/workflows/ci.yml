@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+
+      # the app path-deps on the sibling oban_claude checkout
+      - uses: actions/checkout@v4
+        with:
+          repository: genagent/oban_claude
+          path: .oban_claude
+      - name: Point the path dep at the CI checkout
+        run: echo "OBAN_CLAUDE_PATH=$GITHUB_WORKSPACE/.oban_claude" >> "$GITHUB_ENV"
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.20"
+          otp-version: "29"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ runner.os }}-${{ hashFiles('mix.lock') }}
+          restore-keys: mix-${{ runner.os }}-
+
+      - run: mix deps.get
+      - run: mix format --check-formatted
+      - run: mix compile --warnings-as-errors
+      - run: mix credo --strict
+      - run: mix test

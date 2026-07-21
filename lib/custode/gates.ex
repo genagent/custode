@@ -44,7 +44,23 @@ defmodule Custode.Gates do
 
   # Opens run after resolves so an approval that chains straight into a new
   # gate (possible via directives) never resolves its own fresh row.
-  def handle_event([:oban_claude, :agent, :transition], _measurements, meta, _config) do
+  # :telemetry DETACHES a handler that raises -- one transient Repo/file
+  # error would silently kill this pipeline until restart (audit
+  # 2026-07-21). Never raise out of a handler.
+  def handle_event(event, measurements, meta, config) do
+    do_handle_event(event, measurements, meta, config)
+  rescue
+    exception ->
+      require Logger
+
+      Logger.error(
+        "Custode.Gates handler error (kept attached): " <> Exception.message(exception)
+      )
+
+      :ok
+  end
+
+  defp do_handle_event([:oban_claude, :agent, :transition], _measurements, meta, _config) do
     if meta.from in @gated, do: resolve_open(meta.agent_id)
     if meta.to in @gated, do: open(meta.agent_id, meta.to)
     :ok

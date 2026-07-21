@@ -48,7 +48,23 @@ defmodule Custode.SpendLedger do
     :telemetry.attach_many("custode-spend-ledger", @events, &__MODULE__.handle_event/4, nil)
   end
 
-  def handle_event([:oban_claude, :run, outcome], measurements, meta, _config) do
+  # :telemetry DETACHES a handler that raises -- one transient Repo/file
+  # error would silently kill this pipeline until restart (audit
+  # 2026-07-21). Never raise out of a handler.
+  def handle_event(event, measurements, meta, config) do
+    do_handle_event(event, measurements, meta, config)
+  rescue
+    exception ->
+      require Logger
+
+      Logger.error(
+        "Custode.SpendLedger handler error (kept attached): " <> Exception.message(exception)
+      )
+
+      :ok
+  end
+
+  defp do_handle_event([:oban_claude, :run, outcome], measurements, meta, _config) do
     case meta do
       %{job: %{meta: %{"agent_id" => agent_id}}} ->
         record(

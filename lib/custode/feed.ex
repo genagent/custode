@@ -113,7 +113,21 @@ defmodule Custode.Feed do
   """
   def record(entry, opts \\ []) when is_map(entry), do: write(entry, opts)
 
-  def handle_event([:oban_claude, :run, :stop], measurements, meta, _config) do
+  # :telemetry DETACHES a handler that raises -- one transient Repo/file
+  # error would silently kill this pipeline until restart (audit
+  # 2026-07-21). Never raise out of a handler.
+  def handle_event(event, measurements, meta, config) do
+    do_handle_event(event, measurements, meta, config)
+  rescue
+    exception ->
+      require Logger
+
+      Logger.error("Custode.Feed handler error (kept attached): " <> Exception.message(exception))
+
+      :ok
+  end
+
+  defp do_handle_event([:oban_claude, :run, :stop], measurements, meta, _config) do
     out = ObanClaude.structured(meta.result) || %{}
     usage = ClaudeWrapper.Result.usage(meta.result)
 
@@ -127,7 +141,7 @@ defmodule Custode.Feed do
     })
   end
 
-  def handle_event([:oban_claude, :run, :exception], _measurements, meta, _config) do
+  defp do_handle_event([:oban_claude, :run, :exception], _measurements, meta, _config) do
     {kind, detail} = error_facts(meta.error)
 
     write(%{event: "turn_failed", agent: agent_of(meta), kind: kind, detail: detail},
@@ -135,7 +149,7 @@ defmodule Custode.Feed do
     )
   end
 
-  def handle_event([:oban_claude, :agent, :transition], _measurements, meta, _config) do
+  defp do_handle_event([:oban_claude, :agent, :transition], _measurements, meta, _config) do
     # The registry is already synced when transition telemetry fires, so the
     # gated payload is atomically readable here.
     case {meta.from, meta.to} do
