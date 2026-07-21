@@ -32,7 +32,7 @@ defmodule Custode.FeedTest do
           )
       )
 
-    assert [entry] = Custode.Feed.tail()
+    assert [entry] = Custode.Feed.for_agent("feed-a")
     assert %{"event" => "turn", "agent" => "feed-a", "summary" => "swept"} = entry
     assert_in_delta entry["cost_usd"], 0.2, 0.001
   end
@@ -42,7 +42,7 @@ defmodule Custode.FeedTest do
       ObanClaude.run(%{"prompt" => "x"}, job: job_meta("feed-b"), query_fun: fail(:auth))
 
     assert [%{"event" => "turn_failed", "agent" => "feed-b", "kind" => "auth"}] =
-             Custode.Feed.tail()
+             Custode.Feed.for_agent("feed-b")
   end
 
   test "the gated states land with their payloads; pause and resume are recorded" do
@@ -76,7 +76,8 @@ defmodule Custode.FeedTest do
     {:ok, :paused} = Agent.await(id, :paused, 1_000)
     :resumed = Agent.resume_agent(id)
 
-    events = Custode.Feed.tail() |> Enum.map(&{&1["event"], &1["action"] || &1["question"]})
+    events =
+      Custode.Feed.for_agent(id) |> Enum.map(&{&1["event"], &1["action"] || &1["question"]})
 
     assert {"needs_approval", "prune old notes"} in events
     assert {"needs_input", "which one?"} in events
@@ -84,11 +85,12 @@ defmodule Custode.FeedTest do
     assert {"resumed", nil} in events
   end
 
-  test "the feed rotates to .1 once it crosses feed_max_bytes", %{path: path} do
+  test "the jsonl MIRROR rotates on size; the db keeps everything", %{path: path} do
     put_env!(:feed_max_bytes, 10)
+    agent = uid("rotor")
 
-    Custode.Feed.record(%{event: "first"})
-    Custode.Feed.record(%{event: "second"})
+    Custode.Feed.record(%{event: "first", agent: agent})
+    Custode.Feed.record(%{event: "second", agent: agent})
 
     assert [%{"event" => "first"}] =
              (path <> ".1")
@@ -96,7 +98,16 @@ defmodule Custode.FeedTest do
              |> String.split("\n", trim: true)
              |> Enum.map(&Jason.decode!/1)
 
-    assert [%{"event" => "second"}] = Custode.Feed.tail()
+    # rotation is a mirror concern only: the table retains both entries
+    assert ["first", "second"] = Custode.Feed.for_agent(agent) |> Enum.map(& &1["event"])
+  end
+
+  test "a nil mirror path disables the file without touching the record" do
+    put_env!(:feed_path, nil)
+    agent = uid("nomirror")
+
+    Custode.Feed.record(%{event: "quiet", agent: agent})
+    assert [%{"event" => "quiet"}] = Custode.Feed.for_agent(agent)
   end
 
   test "last_message/2 hides resolved gate events, shows live ones" do
@@ -109,9 +120,7 @@ defmodule Custode.FeedTest do
     assert %{"action" => "old gate"} = Custode.Feed.last_message("lm", true)
   end
 
-  test "tail/1 bounds and orders; missing file reads as empty" do
-    assert Custode.Feed.tail() == []
-
+  test "queries bound and order per agent, newest last" do
     for n <- 1..5 do
       {:ok, _} =
         ObanClaude.run(%{"prompt" => "x"},
@@ -120,8 +129,30 @@ defmodule Custode.FeedTest do
         )
     end
 
-    tail = Custode.Feed.tail(2)
+    tail = Custode.Feed.for_agent("feed-c", 2)
     assert length(tail) == 2
-    assert List.last(tail)["summary"] == "r5"
+    assert Enum.map(tail, & &1["summary"]) == ["r4", "r5"]
+  end
+
+  test "import_jsonl!/1 backfills a legacy feed once, timestamps preserved" do
+    legacy = Path.join(System.tmp_dir!(), uid("legacy") <> ".jsonl")
+    agent = uid("hist")
+
+    File.write!(legacy, """
+    {"at":"2026-07-20T10:00:00.000000Z","agent":"#{agent}","event":"turn","summary":"old glory"}
+    """)
+
+    on_exit(fn -> File.rm(legacy) end)
+
+    # the import only runs against an empty table (the guard); clear it
+    Custode.Repo.query!("DELETE FROM feed_entries")
+
+    assert {:ok, 1} = Custode.Feed.import_jsonl!(legacy)
+
+    assert [%{"summary" => "old glory", "at" => "2026-07-20" <> _rest}] =
+             Custode.Feed.for_agent(agent)
+
+    # a second import refuses: the table is no longer empty
+    assert_raise MatchError, fn -> Custode.Feed.import_jsonl!(legacy) end
   end
 end

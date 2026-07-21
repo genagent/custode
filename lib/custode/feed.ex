@@ -1,19 +1,37 @@
 defmodule Custode.Feed do
   @moduledoc """
-  The activity feed: a telemetry sink appending one JSON line per noteworthy
-  event to `feed.jsonl`. Noteworthy means signal, not spam: finished turns
-  (with the sweep report and spend), failed turns, the two gated states
-  (with the action/question the agent is blocked on), and pause/resume.
+  The activity feed: a telemetry sink recording one entry per noteworthy
+  event. Noteworthy means signal, not spam: finished turns (with the sweep
+  report and spend), failed turns, the two gated states (with the
+  action/question the agent is blocked on), and pause/resume.
 
-  Monitor it however you like -- `Custode.feed()` pretty-prints the tail,
-  `tail -f feed.jsonl | jq .` streams it, and anything downstream (a Phoenix
-  UI over PubSub, an ntfy.sh push for mobile) is one more consumer of the
-  same telemetry.
+  Entries are RECORDS, so they live in the database (storage doctrine, #43):
+  queried per agent, paginated, pruned by retention (#39) instead of file
+  rotation. A jsonl mirror is still appended to `:feed_path` for `tail -f`
+  ergonomics -- set the path to nil to disable it. `Custode.feed()`
+  pretty-prints the tail, and anything downstream (the LiveView over PubSub,
+  an ntfy.sh push for mobile) is one more consumer of the same telemetry.
 
   Events that need a human -- `needs_approval`, `needs_input`, `turn_failed`
-  -- also raise a macOS desktop notification (`osascript`), controlled by
+  -- also raise a macOS desktop notification, controlled by
   `config :custode, desktop_notifications: true`.
   """
+
+  import Ecto.Query, only: [from: 2]
+
+  alias Custode.Repo
+
+  defmodule Entry do
+    @moduledoc false
+    use Ecto.Schema
+
+    schema "feed_entries" do
+      field(:agent, :string)
+      field(:event, :string)
+      field(:entry, :string)
+      field(:at, :utc_datetime_usec)
+    end
+  end
 
   @events [
     [:oban_claude, :agent, :transition],
@@ -25,30 +43,20 @@ defmodule Custode.Feed do
     :telemetry.attach_many("custode-feed", @events, &__MODULE__.handle_event/4, nil)
   end
 
+  @doc "The jsonl mirror path (nil disables the mirror)."
   def path, do: Application.get_env(:custode, :feed_path, "feed.jsonl")
 
-  @doc "The size, in bytes, past which `path/0` rotates to `path/0 <> \".1\"`."
+  @doc "The size, in bytes, past which the mirror rotates to `path/0 <> \".1\"`."
   def max_bytes, do: Application.get_env(:custode, :feed_max_bytes, 10 * 1024 * 1024)
 
   @doc "The last `n` feed entries as maps, oldest first."
   def tail(n \\ 20) do
-    case File.read(path()) do
-      {:ok, content} ->
-        content
-        |> String.split("\n", trim: true)
-        |> Enum.take(-n)
-        |> Enum.map(&Jason.decode!/1)
-
-      {:error, :enoent} ->
-        []
-    end
+    from(f in Entry, order_by: [desc: f.id], limit: ^n) |> load()
   end
 
   @doc "The last `n` feed entries for one agent, oldest first."
   def for_agent(agent_id, n \\ 30) do
-    tail(500)
-    |> Enum.filter(&(&1["agent"] == agent_id))
-    |> Enum.take(-n)
+    from(f in Entry, where: f.agent == ^agent_id, order_by: [desc: f.id], limit: ^n) |> load()
   end
 
   @doc "The most recent feed entry for an agent (its \"last message\"), or nil."
@@ -63,13 +71,39 @@ defmodule Custode.Feed do
   substantive report is the honest answer.
   """
   def last_message(agent_id, currently_gated?) do
-    entries = for_agent(agent_id, 10)
-
     if currently_gated? do
-      List.last(entries)
+      last_for(agent_id)
     else
-      entries |> Enum.reject(&(&1["event"] in @gate_events)) |> List.last()
+      from(f in Entry,
+        where: f.agent == ^agent_id and f.event not in @gate_events,
+        order_by: [desc: f.id],
+        limit: 1
+      )
+      |> load()
+      |> List.last()
     end
+  end
+
+  @doc """
+  One-time import of a legacy `feed.jsonl` into the table, original
+  timestamps preserved. Idempotent enough for its purpose: refuses to run
+  unless the table is empty.
+  """
+  def import_jsonl!(jsonl_path) do
+    0 = Repo.aggregate(Entry, :count)
+
+    imported =
+      jsonl_path
+      |> File.stream!()
+      |> Stream.map(&String.trim/1)
+      |> Stream.reject(&(&1 == ""))
+      |> Enum.count(fn line ->
+        decoded = Jason.decode!(line)
+        {:ok, _entry} = insert(decoded, line)
+        true
+      end)
+
+    {:ok, imported}
   end
 
   @doc """
@@ -132,19 +166,53 @@ defmodule Custode.Feed do
   defp write(entry, opts \\ []) do
     entry = Map.put(entry, :at, DateTime.to_iso8601(DateTime.utc_now()))
     encoded = Jason.encode!(entry)
+    # the canonical shape consumers see: string keys, JSON-clean
+    decoded = Jason.decode!(encoded)
 
-    max = max_bytes()
-
-    case File.stat(path()) do
-      {:ok, %{size: size}} when size >= max -> File.rename(path(), path() <> ".1")
-      _other -> :ok
-    end
-
-    File.write!(path(), encoded <> "\n", [:append])
-    # the dashboard's live stream: same shape as tail/1 (string keys)
-    Custode.PubSubBridge.broadcast({:feed_entry, Jason.decode!(encoded)})
+    {:ok, _row} = insert(decoded, encoded)
+    mirror(encoded)
+    Custode.PubSubBridge.broadcast({:feed_entry, decoded})
     if opts[:notify], do: notify(entry)
     :ok
+  end
+
+  defp insert(decoded, encoded) do
+    at =
+      case DateTime.from_iso8601(decoded["at"] || "") do
+        {:ok, at, _offset} -> at
+        {:error, _reason} -> DateTime.utc_now()
+      end
+
+    Repo.insert(%Entry{
+      agent: decoded["agent"],
+      event: decoded["event"] || "?",
+      entry: encoded,
+      at: at
+    })
+  end
+
+  defp load(query) do
+    query |> Repo.all() |> Enum.reverse() |> Enum.map(&Jason.decode!(&1.entry))
+  end
+
+  defp mirror(encoded) do
+    case path() do
+      nil ->
+        :ok
+
+      mirror_path ->
+        max = max_bytes()
+
+        case File.stat(mirror_path) do
+          {:ok, %{size: size}} when size >= max ->
+            File.rename(mirror_path, mirror_path <> ".1")
+
+          _other ->
+            :ok
+        end
+
+        File.write!(mirror_path, encoded <> "\n", [:append])
+    end
   end
 
   # Fire-and-forget so a slow notifier never blocks the agent process the
