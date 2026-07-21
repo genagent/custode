@@ -94,6 +94,13 @@ config :custode,
     # proposed item per sweep, always human-gated, approved work in an
     # isolated worktree.
     %{
+      id: "adrs",
+      profile: :backlog_worker,
+      repo: "joshrotenberg/adrs",
+      working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/adrs",
+      tags: [:rust, :external]
+    },
+    %{
       id: "redis-tower",
       profile: :backlog_worker,
       repo: "joshrotenberg/redis-tower",
