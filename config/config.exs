@@ -166,6 +166,29 @@ config :custode,
       module: Custode.Sensors.ContributorSearch,
       notify: "contributors",
       args: %{owners: ["joshrotenberg", "genagent"], exclude_authors: ["joshrotenberg"]}
+    },
+    # CI watch (one per repo-tied routine): a PR turning red wakes its
+    # routine within the poll interval instead of at the next @daily sweep.
+    %{
+      id: "ci-redis-tower",
+      cron: "*/15 * * * *",
+      module: Custode.Sensors.CiStatus,
+      notify: "redis-tower",
+      args: %{repo: "joshrotenberg/redis-tower"}
+    },
+    %{
+      id: "ci-git-spawn",
+      cron: "*/15 * * * *",
+      module: Custode.Sensors.CiStatus,
+      notify: "git-spawn",
+      args: %{repo: "joshrotenberg/git-spawn"}
+    },
+    %{
+      id: "ci-custode-dev",
+      cron: "*/15 * * * *",
+      module: Custode.Sensors.CiStatus,
+      notify: "custode-dev",
+      args: %{repo: "genagent/custode"}
     }
   ],
   # Defaults shared by every routine unless overridden per-entry.

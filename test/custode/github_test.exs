@@ -49,10 +49,23 @@ defmodule Custode.GitHubTest do
     refute_receive {:repo_overview, ^repo}, 200
     assert Custode.GitHub.overview(repo) == :loading
 
-    # recovery: once GitHub answers, the same read path fills in
+    # recovery: once GitHub answers, the same read path fills in. A prior
+    # error fetch may still be in flight and dedup a single re-cast, so
+    # keep knocking until the success fetch lands and broadcasts.
     fake!(repo, {:ok, FakeGitHubFetcher.overview(repo)})
-    :loading = Custode.GitHub.overview(repo)
-    assert_receive {:repo_overview, ^repo}, 1_000
+
+    landed? =
+      Enum.any?(1..50, fn _attempt ->
+        Custode.GitHub.overview(repo)
+
+        receive do
+          {:repo_overview, ^repo} -> true
+        after
+          50 -> false
+        end
+      end)
+
+    assert landed?, "success fetch never landed"
     assert {:ok, %{repo: ^repo}} = Custode.GitHub.overview(repo)
   end
 
