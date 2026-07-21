@@ -8,6 +8,8 @@ defmodule Custode.MCP do
   spend money" endpoint must not leave the machine.
   """
 
+  alias Custode.MCP.Identity
+
   def port, do: Application.get_env(:custode, :mcp_port, 6161)
 
   def url, do: "http://127.0.0.1:#{port()}/mcp"
@@ -19,6 +21,14 @@ defmodule Custode.MCP do
   # cost three separate command_failed incidents before the failure detail
   # finally named it (a test on_exit was deleting the live external file).
   def config_path, do: Path.expand(Path.join(config_dir(), "custode_mcp.json"))
+
+  @doc "Per-routine full-tier config (carries the routine's bearer token, #2)."
+  def config_path(routine_id),
+    do: Path.expand(Path.join(config_dir(), "agent_#{routine_id}.json"))
+
+  @doc "Per-sub-agent memory-tier config, written at spawn."
+  def sub_agent_config_path(agent_id),
+    do: Path.expand(Path.join(config_dir(), "sub_#{agent_id}.json"))
 
   def memory_config_path, do: Path.expand(Path.join(config_dir(), "custode_mcp_memory.json"))
 
@@ -49,28 +59,32 @@ defmodule Custode.MCP do
   def external_allowed, do: Enum.flat_map(external_servers(), & &1.allowed)
 
   @doc "The mcp_config file list a routine's claude args should carry."
-  def config_paths do
+  def config_paths(routine_id) do
     case external_servers() do
-      [] -> [config_path()]
-      _some -> [config_path(), external_config_path()]
+      [] -> [config_path(routine_id)]
+      _some -> [config_path(routine_id), external_config_path()]
     end
   end
 
   @doc """
   Write the `.mcp.json` files agents reference via their `mcp_config` arg:
-  the full toolbox for routines, the memory-only server for sub-agents, and
-  the shared external servers (when configured).
+  one PER ROUTINE carrying that routine's bearer token (#2 -- the token IS
+  the caller identity the router verifies), plus the shared external
+  servers file. Requires `Custode.MCP.Identity` to be running; invoked
+  from a boot task after it, and before the ticks queue opens.
   """
   def write_config! do
     File.mkdir_p!(Path.dirname(config_path()))
 
-    ClaudeWrapper.McpConfig.new()
-    |> ClaudeWrapper.McpConfig.add_http("custode", url())
-    |> ClaudeWrapper.McpConfig.write!(config_path())
+    for routine <- Custode.Routine.all() do
+      token = Identity.mint(:routine, routine.id)
 
-    ClaudeWrapper.McpConfig.new()
-    |> ClaudeWrapper.McpConfig.add_http("memory", memory_url())
-    |> ClaudeWrapper.McpConfig.write!(memory_config_path())
+      ClaudeWrapper.McpConfig.new()
+      |> ClaudeWrapper.McpConfig.add_http("custode", url(),
+        headers: %{"Authorization" => "Bearer " <> token}
+      )
+      |> ClaudeWrapper.McpConfig.write!(config_path(routine.id))
+    end
 
     case external_servers() do
       [] ->
@@ -82,8 +96,25 @@ defmodule Custode.MCP do
         |> ClaudeWrapper.McpConfig.write!(external_config_path())
     end
 
-    config_path()
+    :ok
   end
+
+  @doc "Mint an identity and write the memory-tier config for one sub-agent."
+  def write_sub_agent_config!(agent_id) do
+    token = Identity.mint(:sub_agent, agent_id)
+
+    ClaudeWrapper.McpConfig.new()
+    |> ClaudeWrapper.McpConfig.add_http("memory", memory_url(),
+      headers: %{"Authorization" => "Bearer " <> token}
+    )
+    |> ClaudeWrapper.McpConfig.write!(sub_agent_config_path(agent_id))
+
+    sub_agent_config_path(agent_id)
+  end
+
+  @doc "The caller identity a tool sees: `%{kind:, id:}` or :operator context."
+  def caller(%{assigns: %{custode_identity: identity}}), do: identity
+  def caller(_frame), do: %{kind: :operator, id: "operator"}
 
   defp add_external(%{type: :http, name: name, url: url}, config) when is_binary(url),
     do: ClaudeWrapper.McpConfig.add_http(config, name, url)

@@ -7,6 +7,8 @@ defmodule Custode.CLI.Client do
   invocation a live integration test of the MCP surface.
   """
 
+  alias Custode.MCP.Identity
+
   @headers [{"accept", "application/json, text/event-stream"}]
 
   @doc "Call one tool on the running server: `{:ok, decoded}` | `{:error, text}`."
@@ -83,8 +85,8 @@ defmodule Custode.CLI.Client do
   defp post(url, body, session_id) do
     headers =
       case session_id do
-        id when is_binary(id) -> [{"mcp-session-id", id} | @headers]
-        _none -> @headers
+        id when is_binary(id) -> [{"mcp-session-id", id} | auth_headers()]
+        _none -> auth_headers()
       end
 
     Req.post(url,
@@ -94,6 +96,15 @@ defmodule Custode.CLI.Client do
       connect_options: [timeout: 2_000],
       receive_timeout: 30_000
     )
+  end
+
+  # #1: the CLI is an OPERATOR -- its token comes from the boot-written
+  # 0600 file (or CUSTODE_OPERATOR_TOKEN); without it the server 401s.
+  defp auth_headers do
+    case Identity.operator_token() do
+      {:ok, token} -> [{"authorization", "Bearer " <> token} | @headers]
+      {:error, _reason} -> @headers
+    end
   end
 
   # the reply is either plain JSON or an SSE frame ("data: {...}")

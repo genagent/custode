@@ -33,10 +33,19 @@ defmodule Custode.MCP.NotebookTools.JournalAppend do
 
   @impl true
   def execute(%{routine_id: routine_id, body: body} = params, frame) do
-    {:ok, entry} =
-      Custode.Notebook.journal_append(routine_id, body, title: params[:title], source: "sweep")
+    case check_self(frame, routine_id) do
+      :ok ->
+        {:ok, entry} =
+          Custode.Notebook.journal_append(routine_id, body,
+            title: params[:title],
+            source: "sweep"
+          )
 
-    reply(frame, %{entry_id: entry.id})
+        reply(frame, %{entry_id: entry.id})
+
+      {:error, message} ->
+        fail(frame, message)
+    end
   end
 end
 
@@ -53,6 +62,13 @@ defmodule Custode.MCP.NotebookTools.TodoAdd do
 
   @impl true
   def execute(%{routine_id: routine_id, text: text}, frame) do
+    case check_self(frame, routine_id) do
+      :ok -> add(routine_id, text, frame)
+      {:error, message} -> fail(frame, message)
+    end
+  end
+
+  defp add(routine_id, text, frame) do
     {:ok, todo} = Custode.Notebook.todo_add(routine_id, text, source: "sweep")
     reply(frame, %{todo_id: todo.id})
   end
@@ -141,6 +157,13 @@ defmodule Custode.MCP.NotebookTools.InboxMarkFiled do
 
   @impl true
   def execute(%{routine_id: routine_id, name: name}, frame) do
+    case check_self(frame, routine_id) do
+      :ok -> mark(routine_id, name, frame)
+      {:error, message} -> fail(frame, message)
+    end
+  end
+
+  defp mark(routine_id, name, frame) do
     with {:ok, routine} <- NotebookTools.fetch_routine(routine_id),
          :ok <- safe_mark(routine, name) do
       reply(frame, %{filed: name})

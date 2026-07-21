@@ -21,6 +21,45 @@ defmodule Custode.MCP.Tools do
 
   @doc false
   def fail(frame, message), do: {:reply, Response.error(Response.tool(), message), frame}
+
+  @doc """
+  The sibling-gate ban as a verb-guarantee (#2): a ROUTINE caller may
+  operate gates of its own sub-agents, but never of another routine.
+  Operators (the human, the CLI) pass. Returns :ok or {:error, reason}.
+  """
+  def check_gate_target(frame, target_agent_id) do
+    case Custode.MCP.caller(frame) do
+      %{kind: :routine, id: caller_id} ->
+        target_is_routine? = Custode.Routine.get(target_agent_id) != nil
+
+        if target_is_routine? do
+          {:error,
+           "identity: routine #{caller_id} may not decide routine #{target_agent_id}'s " <>
+             "gate -- agents operate the machine; humans judge the work"}
+        else
+          :ok
+        end
+
+      _operator_or_sub ->
+        :ok
+    end
+  end
+
+  @doc """
+  Notebook/memory self-scope (#2): a routine writes only its OWN records.
+  Operators pass; reads are not scoped (transparency is a feature).
+  """
+  def check_self(frame, target_id) do
+    case Custode.MCP.caller(frame) do
+      %{kind: :routine, id: caller_id} when caller_id != target_id ->
+        {:error,
+         "identity: #{caller_id} may not write #{target_id}'s records; " <>
+           "drop a note in its inbox instead"}
+
+      _self_or_operator ->
+        :ok
+    end
+  end
 end
 
 defmodule Custode.MCP.Tools.ListRoutines do
@@ -111,8 +150,14 @@ defmodule Custode.MCP.Tools.StartAgent do
     workspace = Path.expand(workspace)
 
     if File.dir?(workspace) do
+      mcp_config_path = Custode.MCP.write_sub_agent_config!(agent_id)
+
       config = [
-        args: Custode.Routine.sub_agent_args(workspace, params),
+        args:
+          Custode.Routine.sub_agent_args(
+            workspace,
+            Map.put(params, :mcp_config_path, mcp_config_path)
+          ),
         approved_args: %{"permission_mode" => "bypass_permissions"},
         job_timeout: 240_000
       ]
@@ -235,6 +280,13 @@ defmodule Custode.MCP.Tools.ApproveAction do
 
   @impl true
   def execute(%{agent_id: agent_id, action_id: action_id}, frame) do
+    case check_gate_target(frame, agent_id) do
+      :ok -> do_approve(agent_id, action_id, frame)
+      {:error, message} -> fail(frame, message)
+    end
+  end
+
+  defp do_approve(agent_id, action_id, frame) do
     case ObanClaude.Agent.approve_action(agent_id, action_id) do
       :processing -> reply(frame, %{agent_id: agent_id, approved: action_id})
       other -> fail(frame, "approve failed: #{inspect(other)}")
@@ -256,6 +308,13 @@ defmodule Custode.MCP.Tools.RejectAction do
 
   @impl true
   def execute(%{agent_id: agent_id, action_id: action_id} = params, frame) do
+    case check_gate_target(frame, agent_id) do
+      :ok -> do_reject(agent_id, action_id, params, frame)
+      {:error, message} -> fail(frame, message)
+    end
+  end
+
+  defp do_reject(agent_id, action_id, params, frame) do
     case Custode.reject_with_note(agent_id, action_id, Map.get(params, :reason, "denied")) do
       :rejected -> reply(frame, %{agent_id: agent_id, rejected: action_id})
       other -> fail(frame, "reject failed: #{inspect(other)}")

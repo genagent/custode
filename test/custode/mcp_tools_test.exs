@@ -68,8 +68,8 @@ defmodule Custode.MCPToolsTest do
       assert job.args["prompt"] == "hello"
       assert job.args["model"] == "haiku"
       assert job.args["working_dir"] == workspace
-      # the memory-only endpoint, never the full delegation toolbox
-      assert job.args["mcp_config"] == [Custode.MCP.memory_config_path()]
+      # the memory-only endpoint (per-sub identity config), never the full toolbox
+      assert job.args["mcp_config"] == [Custode.MCP.sub_agent_config_path(id)]
       assert job.args["allowed_tools"] == ["mcp__memory"]
     end
 

@@ -6,7 +6,7 @@ defmodule Custode.ExternalMCPTest do
   test "no external servers: single config path, no extra grants" do
     put_env!(:external_mcp_servers, [])
 
-    assert Custode.MCP.config_paths() == [Custode.MCP.config_path()]
+    assert Custode.MCP.config_paths("x") == [Custode.MCP.config_path("x")]
     assert Custode.MCP.external_allowed() == []
   end
 
@@ -16,8 +16,8 @@ defmodule Custode.ExternalMCPTest do
       %{name: "cratesio", type: :http, url: "https://cratesio-mcp.fly.dev/"}
     ])
 
-    assert Custode.MCP.config_paths() == [
-             Custode.MCP.config_path(),
+    assert Custode.MCP.config_paths("x") == [
+             Custode.MCP.config_path("x"),
              Custode.MCP.external_config_path()
            ]
 
