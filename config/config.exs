@@ -18,8 +18,12 @@ config :custode,
       prompt: "Do your backlog sweep now.",
       role: :backlog_worker,
       mcp: true,
-      # opus: the operator wants backlog work done well; budgets sized to match
-      model: "opus",
+      # Phase-split models: SURVEYS are cheap (sonnet, low effort -- find
+      # one candidate and judge it), APPROVED IMPLEMENTATIONS are where
+      # opus earns its tokens (via approved_args below). The ledger
+      # records model per turn so the split's effect is measurable.
+      model: "sonnet",
+      effort: "low",
       max_budget_usd: 10.0,
       daily_budget_usd: 50.0,
       # implementation turns run cargo/mix suites; 15 minutes, not 200s
@@ -40,7 +44,9 @@ config :custode,
       ],
       approved_args: %{
         "permission_mode" => "bypass_permissions",
-        "worktree" => "custode-{id}"
+        "worktree" => "custode-{id}",
+        "model" => "opus",
+        "effort" => "high"
       }
     }
   },
