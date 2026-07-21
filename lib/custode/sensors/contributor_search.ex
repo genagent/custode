@@ -2,88 +2,41 @@ defmodule Custode.Sensors.ContributorSearch do
   @moduledoc """
   The first sensor: mechanical detection of contributor-authored issues and
   PRs, no claude involved. Runs the exact gh searches as argv lists (no
-  shell-string composition, no flag-swallowing), filters bot authors, diffs
-  against its own memory (`sensor:<id>` / `"seen"`), and -- only when
-  genuinely new items exist -- drops one inbox note for the watch routine,
-  which the event kickoff turns into a beat.
+  shell-string composition, no flag-swallowing) and filters bot authors.
 
-  First run baselines silently (everything pre-existing is remembered, no
-  note). The seen-set is replaced wholesale each run, so closed items age
-  out on their own.
+  `baseline: :silent`: the first run remembers everything pre-existing
+  without a note -- old contributor items are not news the way a failing
+  check or a fresh earthquake is.
   """
 
-  use Oban.Worker, queue: :sensors, max_attempts: 1
+  use Custode.Sensor, baseline: :silent
 
   @bots ~w(dependabot github-actions release-please renovate copilot)
 
-  @impl Oban.Worker
-  def perform(%Oban.Job{args: args}) do
-    sensor_id = Map.fetch!(args, "sensor_id")
-    notify = Map.fetch!(args, "notify")
+  @impl Custode.Sensor
+  def fetch(args) do
     owners = Map.get(args, "owners", ["joshrotenberg", "genagent"])
     exclude = Map.get(args, "exclude_authors", ["joshrotenberg"])
-
-    current = fetch_items(owners, exclude)
-    current_keys = MapSet.new(current, & &1.key)
-
-    memory_key = "sensor:" <> sensor_id
-
-    case Custode.Memory.recall(memory_key, "seen") do
-      :error ->
-        # first run: baseline silently
-        remember!(memory_key, current_keys)
-
-        Custode.Feed.record(%{
-          event: "sensor",
-          agent: notify,
-          summary: "#{sensor_id}: baseline recorded (#{MapSet.size(current_keys)} known items)"
-        })
-
-        :ok
-
-      {:ok, seen_json} ->
-        seen = seen_json |> Jason.decode!() |> MapSet.new()
-        new_items = Enum.filter(current, &(not MapSet.member?(seen, &1.key)))
-        remember!(memory_key, current_keys)
-        report(sensor_id, notify, new_items)
-    end
+    {:ok, fetch_items(owners, exclude)}
   end
 
-  defp report(sensor_id, _notify, []) do
-    Custode.Feed.record(%{event: "sensor", agent: "?", summary: "#{sensor_id}: nothing new"})
-    :ok
-  end
+  @impl Custode.Sensor
+  def key(item), do: item.key
 
-  defp report(sensor_id, notify, new_items) do
+  @impl Custode.Sensor
+  def note(new_items, _args) do
     lines =
       for item <- new_items do
         "- #{item.key} by #{item.author}: #{item.title}"
       end
 
-    {:ok, _path} =
-      Custode.Inbox.drop(
-        notify,
-        "sensor-#{sensor_id}-#{System.unique_integer([:positive])}.md",
-        """
-        Sensor #{sensor_id}: #{length(new_items)} new contributor item(s) detected.
+    """
+    Sensor: #{length(new_items)} new contributor item(s) detected.
 
-        #{Enum.join(lines, "\n")}
+    #{Enum.join(lines, "\n")}
 
-        Verify, journal each, and raise your alert per standing orders.
-        """
-      )
-
-    Custode.Feed.record(%{
-      event: "sensor",
-      agent: notify,
-      summary: "#{sensor_id}: #{length(new_items)} new item(s), note dropped"
-    })
-
-    :ok
-  end
-
-  defp remember!(memory_key, current_keys) do
-    :ok = Custode.Memory.remember(memory_key, "seen", Jason.encode!(MapSet.to_list(current_keys)))
+    Verify, journal each, and raise your alert per standing orders.
+    """
   end
 
   @doc "Fetch current open contributor-authored items across owners, bots excluded."
