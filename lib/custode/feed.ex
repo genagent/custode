@@ -174,6 +174,7 @@ defmodule Custode.Feed do
     {:ok, _row} = insert(decoded, encoded)
     mirror(encoded)
     Custode.PubSubBridge.broadcast({:feed_entry, decoded})
+    Custode.Ntfy.publish(decoded)
     if opts[:notify], do: notify(entry)
     :ok
   end
@@ -261,14 +262,7 @@ defmodule Custode.Feed do
     end
   end
 
-  defp dashboard_url(entry) do
-    port = Application.get_env(:custode, CustodeWeb.Endpoint, [])[:http][:port] || 4646
-
-    case entry[:agent] do
-      agent when is_binary(agent) and agent != "?" -> "http://localhost:#{port}/agents/#{agent}"
-      _unknown -> "http://localhost:#{port}/"
-    end
-  end
+  defp dashboard_url(entry), do: Custode.Ntfy.dashboard_url(entry[:agent])
 
   defp agent_of(%{job: %{meta: %{"agent_id" => id}}}), do: id
   defp agent_of(_meta), do: "?"
