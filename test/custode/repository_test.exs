@@ -26,8 +26,8 @@ defmodule Custode.RepositoryTest do
       {:ok, %{"merged" => true}}
     end
 
-    def reviewed?(_owner, _repo, _number) do
-      Application.get_env(:custode, :fake_reviewed, false)
+    def review_state(_owner, _repo, _number) do
+      Application.get_env(:custode, :fake_review_state, :unreviewed)
     end
 
     defp pid, do: Application.fetch_env!(:custode, :repo_ops_test_pid)
@@ -95,15 +95,26 @@ defmodule Custode.RepositoryTest do
        %{repo: repo} do
     # drop the merge: :manual rule so only the workflow floor stands
     put_env!(:policies, [])
-    put_env!(:fake_reviewed, false)
+    put_env!(:fake_review_state, :unreviewed)
 
     assert {:error, message} = Repository.merge_pr(repo, 7)
     assert message =~ "workflow review"
     assert message =~ "even just lgtm"
     refute_receive {:merge_pr, _owner, _repo, _number}, 50
 
-    # one review (formal or a review: comment) opens the door
-    put_env!(:fake_reviewed, true)
+    # a needs-human verdict POSITIVELY blocks, quoting the reviewer
+    put_env!(
+      :fake_review_state,
+      {:needs_human, "review: needs-human -- auth surface, human eyes please"}
+    )
+
+    assert {:error, blocked} = Repository.merge_pr(repo, 7)
+    assert blocked =~ "flagged PR #7"
+    assert blocked =~ "auth surface, human eyes please"
+    refute_receive {:merge_pr, _owner, _repo, _number}, 50
+
+    # a later ok review opens the door
+    put_env!(:fake_review_state, {:reviewed, "review: lgtm"})
     assert {:ok, %{"merged" => true}} = Repository.merge_pr(repo, 7)
     assert_receive {:merge_pr, "acme", _bare, 7}
   end
