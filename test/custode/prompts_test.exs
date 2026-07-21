@@ -3,7 +3,16 @@ defmodule Custode.Routine.PromptsTest do
 
   alias Custode.Routine.Prompts
 
-  @roles [:caretaker, :repo_caretaker, :backlog_worker, :star_tracker, :contributor_watch]
+  @roles [
+    :caretaker,
+    :repo_caretaker,
+    :backlog_worker,
+    :star_tracker,
+    :contributor_watch,
+    :quake_watch,
+    :reviewer,
+    :consistency_auditor
+  ]
 
   test "every role composes the charter exactly once, with its assignment injected" do
     for role <- @roles do
@@ -40,6 +49,10 @@ defmodule Custode.Routine.PromptsTest do
     assert Prompts.repo_caretaker() =~ "git worktree"
     assert Prompts.star_tracker() =~ "star-snapshot"
     assert Prompts.contributor_watch() =~ "SENSOR does the detection"
+    assert Prompts.reviewer() =~ "NEVER merge"
+    assert Prompts.reviewer() =~ "needs-human"
+    assert Prompts.consistency_auditor() =~ "cohort"
+    assert Prompts.consistency_auditor() =~ "AT MOST ONE alignment"
 
     # charter phrases must not leak into role bodies (drift guard)
     for body <- [
@@ -47,7 +60,9 @@ defmodule Custode.Routine.PromptsTest do
           Prompts.repo_caretaker(),
           Prompts.backlog_worker(),
           Prompts.star_tracker(),
-          Prompts.contributor_watch()
+          Prompts.contributor_watch(),
+          Prompts.reviewer(),
+          Prompts.consistency_auditor()
         ] do
       refute body =~ "## Charter"
       refute body =~ "generated views"

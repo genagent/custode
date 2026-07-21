@@ -135,6 +135,51 @@ config :custode,
       working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/tower-resilience",
       tags: [:rust, :external]
     },
+    # The reviewer (#86 rung 3): reads siblings' ready PRs and posts gated
+    # review: verdicts; a needs-human verdict mechanically blocks merging.
+    %{
+      id: "reviewer",
+      cron: "@daily",
+      workspace: "workspaces/reviewer",
+      tags: [:repo, :watch],
+      prompt: "Do your review sweep now.",
+      role: :reviewer,
+      mcp: true,
+      model: "opus",
+      max_budget_usd: 5.0,
+      daily_budget_usd: 15.0,
+      # verdicts post through repo_review_pr (MCP): no shell elevation
+      approved_args: %{},
+      extra_allowed_tools: [
+        "Bash(gh pr list:*)",
+        "Bash(gh pr view:*)",
+        "Bash(gh pr diff:*)",
+        "Bash(gh pr checks:*)",
+        "Bash(gh issue view:*)"
+      ]
+    },
+    # The consistency auditor (#12): weekly cross-repo drift comparison,
+    # one cohort per sweep, one gated alignment proposal at most.
+    %{
+      id: "consistency",
+      cron: "@weekly",
+      workspace: "workspaces/consistency",
+      tags: [:watch],
+      prompt: "Do your consistency sweep now.",
+      role: :consistency_auditor,
+      mcp: true,
+      model: "opus",
+      max_budget_usd: 5.0,
+      daily_budget_usd: 10.0,
+      extra_allowed_tools: [
+        "Bash(gh repo view:*)",
+        "Bash(gh workflow list:*)",
+        "Bash(gh workflow view:*)",
+        "Bash(gh release list:*)",
+        "Bash(gh pr list:*)",
+        "Bash(gh issue list:*)"
+      ]
+    },
     # The star tracker: daily delta report across joshrotenberg + genagent.
     %{
       id: "stars",
