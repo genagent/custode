@@ -36,6 +36,7 @@ defmodule Mix.Tasks.Custode do
     subcommand(Custode.CLI.Approve)
     subcommand(Custode.CLI.Reject)
     subcommand(Custode.CLI.Beat)
+    subcommand(Custode.CLI.Prompt)
     subcommand(Custode.CLI.Note)
     subcommand(Custode.CLI.Feed)
     subcommand(Custode.CLI.Spend)
