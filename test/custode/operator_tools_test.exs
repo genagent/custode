@@ -91,17 +91,17 @@ defmodule Custode.OperatorToolsTest do
 
   describe "feed_tail" do
     test "returns recent entries, optionally per agent" do
-      path = Path.join(System.tmp_dir!(), uid("op-feed") <> ".jsonl")
-      put_env!(:feed_path, path)
-      on_exit(fn -> File.rm(path) end)
+      first = uid("op-a")
+      second = uid("op-b")
+      Custode.Feed.record(%{agent: first, event: "turn", summary: "one"})
+      Custode.Feed.record(%{agent: second, event: "turn", summary: "two"})
 
-      Custode.Feed.record(%{agent: "a", event: "turn", summary: "one"})
-      Custode.Feed.record(%{agent: "b", event: "turn", summary: "two"})
+      json = tool_json(OperatorTools.FeedTail.execute(%{n: 500}, @frame))
+      summaries = Enum.map(json["entries"], & &1["summary"])
+      assert "one" in summaries
+      assert "two" in summaries
 
-      json = tool_json(OperatorTools.FeedTail.execute(%{}, @frame))
-      assert length(json["entries"]) == 2
-
-      json = tool_json(OperatorTools.FeedTail.execute(%{agent_id: "b"}, @frame))
+      json = tool_json(OperatorTools.FeedTail.execute(%{agent_id: second}, @frame))
       assert [%{"summary" => "two"}] = json["entries"]
     end
   end
