@@ -53,7 +53,7 @@ defmodule CustodeWeb.Components do
 
   @doc "The shared page chrome: header with nav, the attention chip, the fleet spend."
   def page(assigns) do
-    assigns = assign(assigns, :attention, attention_count())
+    assigns = assign(assigns, :attention, attention())
 
     ~H"""
     <div class="mx-auto max-w-7xl p-6">
@@ -63,8 +63,8 @@ defmodule CustodeWeb.Components do
           <.link navigate="/" class={nav_class(@active == :fleet)}>fleet</.link>
           <.link navigate="/feed" class={nav_class(@active == :feed)}>feed</.link>
         </nav>
-        <.link :if={@attention > 0} navigate="/" class="badge badge-warning gap-1">
-          {@attention} need{if @attention == 1, do: "s"} attention
+        <.link :if={@attention != []} navigate="/" class="badge badge-warning gap-1">
+          {attention_text(@attention)}
         </.link>
         <span class="ml-auto font-mono text-sm text-base-content/70">
           fleet today ${Float.round(@fleet_today, 4)}
@@ -81,9 +81,26 @@ defmodule CustodeWeb.Components do
   def needs_attention?({state, _payload}), do: state in @attention_states
   def needs_attention?(state), do: state in @attention_states
 
-  defp attention_count do
-    Enum.count(ObanClaude.Agent.list(), fn {_id, status} -> needs_attention?(status) end)
+  defp attention do
+    for {id, status} <- ObanClaude.Agent.list(), needs_attention?(status) do
+      {id, status |> state_of() |> attention_word()}
+    end
   end
+
+  # "custode paused" reads as the actual situation; a bare count reads as
+  # "something somewhere" and goes stale in the operator's head the moment
+  # they resolve any one thing. Name the subjects while the list is short.
+  defp attention_text(attention) when length(attention) <= 2,
+    do: Enum.map_join(attention, ", ", fn {id, word} -> "#{id} #{word}" end)
+
+  defp attention_text(attention), do: "#{length(attention)} need attention"
+
+  defp attention_word(:awaiting_permission), do: "wants approval"
+  defp attention_word(:waiting_for_user), do: "asks"
+  defp attention_word(:paused), do: "paused"
+
+  defp state_of({state, _payload}), do: state
+  defp state_of(state) when is_atom(state), do: state
 
   defp nav_class(true), do: "font-semibold underline underline-offset-4"
   defp nav_class(false), do: "text-base-content/60 hover:text-base-content"
