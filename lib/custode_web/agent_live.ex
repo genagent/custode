@@ -99,13 +99,40 @@ defmodule CustodeWeb.AgentLive do
         </div>
       </div>
 
-      <div class="mb-4 flex flex-wrap gap-6 text-sm text-base-content/70">
-        <span>today <b>${usd(@spend_today)}</b><span :if={@routine && @routine.daily_budget_usd}> / ${usd(@routine.daily_budget_usd)}</span><span :if={@tokens_today > 0} class="text-base-content/50"> &middot; {tok(@tokens_today)}</span></span>
-        <span :if={@info}>turns <b>{@info.turns}</b></span>
-        <span :if={@info && @info.session_id} class="font-mono text-xs">
-          session {String.slice(@info.session_id, 0, 8)}
-        </span>
-        <span :if={@routine} class="text-xs">workspace {@routine.workspace}</span>
+      <div class="stats stats-horizontal mb-4 bg-base-100 shadow-sm">
+        <div class="stat px-4 py-2">
+          <div class="stat-title text-xs">today</div>
+          <div class="stat-value text-lg">${usd(@spend_today)}</div>
+          <div :if={@routine && @routine.daily_budget_usd} class="stat-desc">
+            of ${usd(@routine.daily_budget_usd)}
+            <progress
+              class={[
+                "progress w-16",
+                budget_progress_class(@spend_today, @routine.daily_budget_usd)
+              ]}
+              value={@spend_today}
+              max={@routine.daily_budget_usd}
+            >
+            </progress>
+          </div>
+        </div>
+        <div :if={@tokens_today > 0} class="stat px-4 py-2">
+          <div class="stat-title text-xs">tokens</div>
+          <div class="stat-value text-lg">{tok(@tokens_today)}</div>
+          <div class="stat-desc">throughput today</div>
+        </div>
+        <div :if={@info} class="stat px-4 py-2">
+          <div class="stat-title text-xs">turns</div>
+          <div class="stat-value text-lg">{@info.turns}</div>
+          <div :if={@info.session_id} class="stat-desc font-mono">
+            session {String.slice(@info.session_id, 0, 8)}
+          </div>
+        </div>
+        <div :if={@routine} class="stat px-4 py-2">
+          <div class="stat-title text-xs">workspace</div>
+          <div class="stat-value truncate text-sm font-normal">{@routine.workspace}</div>
+          <div :if={@repo} class="stat-desc font-mono">{@repo}</div>
+        </div>
       </div>
 
       <p :if={@state == :offline} class="mb-4 text-sm text-base-content/50">
@@ -243,12 +270,16 @@ defmodule CustodeWeb.AgentLive do
               >
                 {entry.body}
               </p>
-              <details :if={String.length(entry.body) > 400}>
-                <summary class="cursor-pointer text-base-content/80">
+              <details
+                :if={String.length(entry.body) > 400}
+                class="collapse collapse-arrow rounded-none"
+              >
+                <summary class="collapse-title min-h-0 p-0 pr-8 text-sm text-base-content/80">
                   {String.slice(entry.body, 0, 200)}&hellip;
-                  <span class="text-xs text-base-content/40">(expand)</span>
                 </summary>
-                <p class="mt-1 whitespace-pre-wrap text-base-content/80">{entry.body}</p>
+                <div class="collapse-content p-0">
+                  <p class="mt-1 whitespace-pre-wrap text-base-content/80">{entry.body}</p>
+                </div>
               </details>
             </div>
           </section>
@@ -262,8 +293,8 @@ defmodule CustodeWeb.AgentLive do
           </section>
 
           <section :if={@history != []}>
-            <details>
-              <summary class="mb-2 cursor-pointer text-lg font-semibold text-base-content/70">
+            <details class="collapse collapse-arrow bg-base-100 shadow-sm">
+              <summary class="collapse-title text-lg font-semibold text-base-content/70">
                 machine log <span class="text-xs font-normal">({length(@history)} events)</span>
               </summary>
               <div class="max-h-64 overflow-y-auto rounded-lg bg-base-100 p-3 font-mono text-xs shadow-sm">

@@ -36,11 +36,13 @@ defmodule CustodeWeb.FeedLive do
   def render(assigns) do
     ~H"""
     <.page fleet_today={@fleet_today} active={:feed}>
-      <div id="feed" phx-update="stream" class="mx-auto max-w-3xl space-y-2">
-        <div :for={{dom_id, entry} <- @streams.feed} id={dom_id}>
-          <.feed_entry entry={entry} />
-        </div>
-      </div>
+      <ul
+        id="feed"
+        phx-update="stream"
+        class="timeline timeline-vertical timeline-compact mx-auto max-w-3xl [--timeline-col-start:9rem]"
+      >
+        <.timeline_item :for={{dom_id, entry} <- @streams.feed} id={dom_id} entry={entry} />
+      </ul>
     </.page>
     """
   end
