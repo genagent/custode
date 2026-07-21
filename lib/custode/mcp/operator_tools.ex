@@ -187,10 +187,16 @@ defmodule Custode.MCP.OperatorTools.SpendToday do
         %{
           agent_id: routine.id,
           today_usd: Custode.SpendLedger.today(routine.id),
-          daily_budget_usd: routine.daily_budget_usd
+          daily_budget_usd: routine.daily_budget_usd,
+          today_tokens: Custode.SpendLedger.today_tokens(routine.id),
+          daily_budget_tokens: routine.daily_budget_tokens
         }
       end
 
-    reply(frame, %{routines: routines, fleet_today_usd: Custode.SpendLedger.fleet_today()})
+    reply(frame, %{
+      routines: routines,
+      fleet_today_usd: Custode.SpendLedger.fleet_today(),
+      fleet_today_tokens: Custode.SpendLedger.fleet_today_tokens()
+    })
   end
 end

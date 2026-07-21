@@ -204,13 +204,21 @@ defmodule Custode.CLI.Spend do
 
   defp render(reply) do
     rows = Enum.map_join(reply["routines"], "\n", &row/1)
-    rows <> "\n\nfleet today $#{reply["fleet_today_usd"]}"
+
+    rows <>
+      "\n\nfleet today $#{reply["fleet_today_usd"]}" <>
+      tokens_suffix(reply["fleet_today_tokens"])
   end
 
   defp row(row) do
     rail = if row["daily_budget_usd"], do: " / $#{row["daily_budget_usd"]}", else: ""
-    "#{String.pad_trailing(row["agent_id"], 16)} $#{row["today_usd"]}#{rail}"
+
+    "#{String.pad_trailing(row["agent_id"], 16)} $#{row["today_usd"]}#{rail}" <>
+      tokens_suffix(row["today_tokens"])
   end
+
+  defp tokens_suffix(tokens) when is_integer(tokens) and tokens > 0, do: "  (#{tokens} tok)"
+  defp tokens_suffix(_none), do: ""
 end
 
 defmodule Custode.CLI.Pause do

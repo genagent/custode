@@ -90,7 +90,7 @@ defmodule CustodeWeb.AgentLive do
       </div>
 
       <div class="mb-4 flex flex-wrap gap-6 text-sm text-base-content/70">
-        <span>today <b>${usd(@spend_today)}</b><span :if={@routine && @routine.daily_budget_usd}> / ${usd(@routine.daily_budget_usd)}</span></span>
+        <span>today <b>${usd(@spend_today)}</b><span :if={@routine && @routine.daily_budget_usd}> / ${usd(@routine.daily_budget_usd)}</span><span :if={@tokens_today > 0} class="text-base-content/50"> &middot; {tok(@tokens_today)}</span></span>
         <span :if={@info}>turns <b>{@info.turns}</b></span>
         <span :if={@info && @info.session_id} class="font-mono text-xs">
           session {String.slice(@info.session_id, 0, 8)}
@@ -301,6 +301,7 @@ defmodule CustodeWeb.AgentLive do
       info: info,
       history: history,
       spend_today: Custode.SpendLedger.today(id),
+      tokens_today: Custode.SpendLedger.today_tokens(id),
       todos: Custode.Notebook.todos(id),
       journal: Custode.Notebook.journal(id, 10),
       memories: Custode.Memory.recall(id),

@@ -177,6 +177,14 @@ defmodule Custode.Routine do
         Map.get(routine, :max_budget_usd, Application.fetch_env!(:custode, :max_budget_usd)),
       daily_budget_usd:
         Map.get(routine, :daily_budget_usd, Application.get_env(:custode, :daily_budget_usd)),
+      # the token rail (#30): same auto-pause as the dollar rail, denominated
+      # in throughput tokens; nil (the default) disables
+      daily_budget_tokens:
+        Map.get(
+          routine,
+          :daily_budget_tokens,
+          Application.get_env(:custode, :daily_budget_tokens)
+        ),
       # the claude subprocess cap per turn; long implementation turns (opus +
       # a test suite) need more than the chatty default
       timeout_ms: Map.get(routine, :timeout_ms, 200_000),

@@ -36,7 +36,7 @@ defmodule CustodeWeb.Components do
             <span :if={@show_agent}>{@entry["agent"]}</span>
           </span>
           <span :if={@entry["cost_usd"]} class="ml-auto font-mono text-xs">
-            ${usd(@entry["cost_usd"])}
+            ${usd(@entry["cost_usd"])}<span :if={@entry["tokens"]} class="text-base-content/50"> &middot; {tok(@entry["tokens"])}</span>
           </span>
         </div>
         <p class="text-base-content/80">{feed_text(@entry)}</p>
@@ -75,6 +75,11 @@ defmodule CustodeWeb.Components do
 
   @doc "Dollar amounts render with two decimals everywhere (#31)."
   def usd(value) when is_number(value), do: :erlang.float_to_binary(value / 1, decimals: 2)
+
+  @doc "Token counts render compact: 900, 45k, 2.4M (#30)."
+  def tok(count) when count >= 1_000_000, do: "#{Float.round(count / 1_000_000, 1)}M tok"
+  def tok(count) when count >= 1_000, do: "#{round(count / 1_000)}k tok"
+  def tok(count) when is_integer(count), do: "#{count} tok"
 
   @doc """
   The text of a feed card. Failure events carry a what-happens-next hint --
