@@ -31,7 +31,8 @@ defmodule Custode.Janitor do
         {"done todos", prune_todos()},
         {"resolved gates", prune_gates()},
         {"feed entries", prune_feed()},
-        {"filed notes", prune_filed_notes()}
+        {"filed notes", prune_filed_notes()},
+        {"idle sub-agents", reap_subagents()}
       ]
       |> Enum.reject(fn {_what, count} -> count == 0 end)
 
@@ -108,8 +109,38 @@ defmodule Custode.Janitor do
     end
   end
 
+  # #16: an ephemeral sub-agent idle past the TTL (by its last feed
+  # activity) is holding a session and a registry slot nobody will use;
+  # stop it. Its journal/memory/ghost tile (#11) all persist. Gated,
+  # waiting, running, and paused ephemerals are never touched.
+  defp reap_subagents do
+    case Keyword.get(janitor_config(), :subagent_ttl_s, 7_200) do
+      nil ->
+        0
+
+      ttl ->
+        routine_ids = Enum.map(Custode.Routine.all(), & &1.id)
+        cutoff = DateTime.add(DateTime.utc_now(), -ttl)
+
+        ObanClaude.Agent.list()
+        |> Enum.filter(fn {id, status} -> id not in routine_ids and status == :idle end)
+        |> Enum.count(fn {id, _status} -> maybe_stop(id, cutoff) end)
+    end
+  end
+
+  defp maybe_stop(id, cutoff) do
+    with %DateTime{} = last <- Custode.Feed.last_activity_at(id),
+         :lt <- DateTime.compare(last, cutoff) do
+      :ok = ObanClaude.Agent.stop_agent(id)
+      true
+    else
+      _fresh_or_unknown -> false
+    end
+  end
+
+  defp janitor_config, do: Application.get_env(:custode, :janitor, [])
+
   defp retention(key) do
-    Application.get_env(:custode, :janitor, [])
-    |> Keyword.get(key, @defaults[key])
+    Keyword.get(janitor_config(), key, @defaults[key])
   end
 end

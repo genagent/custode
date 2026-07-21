@@ -33,6 +33,10 @@ defmodule Custode.Application do
       # boot reconciliation: unresolved gates from before the restart become
       # RESTART NOTICE inbox notes the next sweep re-evaluates
       Supervisor.child_spec({Task, &Custode.Gates.reconcile!/0}, id: :gates_reconcile),
+      # over-budget routines boot paused instead of leaking one turn (#6)
+      Supervisor.child_spec({Task, &Custode.SpendLedger.reconcile_pauses!/0},
+        id: :budget_reconcile
+      ),
       # start: true is load-bearing: anubis otherwise guesses whether to boot
       # its session machinery by sniffing for Phoenix config, and the
       # dashboard's endpoint config flips that guess to "no" -- which
