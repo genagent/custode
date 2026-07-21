@@ -124,6 +124,108 @@ config :custode,
         "worktree" => "custode-git-spawn"
       }
     },
+    %{
+      id: "mcp-proxy",
+      cron: "@daily",
+      workspace: "workspaces/mcp-proxy",
+      repo: "joshrotenberg/mcp-proxy",
+      tags: [:repo, :backlog, :rust, :external],
+      working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/mcp-proxy",
+      prompt: "Do your backlog sweep now.",
+      role: :backlog_worker,
+      mcp: true,
+      # opus: the operator wants backlog work done well; budgets sized to match
+      model: "opus",
+      max_budget_usd: 10.0,
+      daily_budget_usd: 50.0,
+      # implementation turns run cargo/mix suites; 15 minutes, not 200s
+      timeout_ms: 900_000,
+      # an approved implementation iterates edit/build/test well past the
+      # default 20 agentic turns (redis-tower #465 railed on it)
+      max_turns: 75,
+      extra_allowed_tools: [
+        "Bash(git log:*)",
+        "Bash(git status:*)",
+        "Bash(git diff:*)",
+        "Bash(git show:*)",
+        "Bash(gh issue list:*)",
+        "Bash(gh issue view:*)",
+        "Bash(gh pr list:*)",
+        "Bash(gh pr view:*)"
+      ],
+      approved_args: %{
+        "permission_mode" => "bypass_permissions",
+        "worktree" => "custode-mcp-proxy"
+      }
+    },
+    %{
+      id: "tower-mcp",
+      cron: "@daily",
+      workspace: "workspaces/tower-mcp",
+      repo: "joshrotenberg/tower-mcp",
+      tags: [:repo, :backlog, :rust, :external],
+      working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/tower-mcp",
+      prompt: "Do your backlog sweep now.",
+      role: :backlog_worker,
+      mcp: true,
+      # opus: the operator wants backlog work done well; budgets sized to match
+      model: "opus",
+      max_budget_usd: 10.0,
+      daily_budget_usd: 50.0,
+      # implementation turns run cargo/mix suites; 15 minutes, not 200s
+      timeout_ms: 900_000,
+      # an approved implementation iterates edit/build/test well past the
+      # default 20 agentic turns (redis-tower #465 railed on it)
+      max_turns: 75,
+      extra_allowed_tools: [
+        "Bash(git log:*)",
+        "Bash(git status:*)",
+        "Bash(git diff:*)",
+        "Bash(git show:*)",
+        "Bash(gh issue list:*)",
+        "Bash(gh issue view:*)",
+        "Bash(gh pr list:*)",
+        "Bash(gh pr view:*)"
+      ],
+      approved_args: %{
+        "permission_mode" => "bypass_permissions",
+        "worktree" => "custode-tower-mcp"
+      }
+    },
+    %{
+      id: "tower-resilience",
+      cron: "@daily",
+      workspace: "workspaces/tower-resilience",
+      repo: "joshrotenberg/tower-resilience",
+      tags: [:repo, :backlog, :rust, :external],
+      working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/tower-resilience",
+      prompt: "Do your backlog sweep now.",
+      role: :backlog_worker,
+      mcp: true,
+      # opus: the operator wants backlog work done well; budgets sized to match
+      model: "opus",
+      max_budget_usd: 10.0,
+      daily_budget_usd: 50.0,
+      # implementation turns run cargo/mix suites; 15 minutes, not 200s
+      timeout_ms: 900_000,
+      # an approved implementation iterates edit/build/test well past the
+      # default 20 agentic turns (redis-tower #465 railed on it)
+      max_turns: 75,
+      extra_allowed_tools: [
+        "Bash(git log:*)",
+        "Bash(git status:*)",
+        "Bash(git diff:*)",
+        "Bash(git show:*)",
+        "Bash(gh issue list:*)",
+        "Bash(gh issue view:*)",
+        "Bash(gh pr list:*)",
+        "Bash(gh pr view:*)"
+      ],
+      approved_args: %{
+        "permission_mode" => "bypass_permissions",
+        "worktree" => "custode-tower-resilience"
+      }
+    },
     # The star tracker: daily delta report across joshrotenberg + genagent.
     %{
       id: "stars",
@@ -209,6 +311,27 @@ config :custode,
       module: Custode.Sensors.CiStatus,
       notify: "custode-dev",
       args: %{repo: "genagent/custode"}
+    },
+    %{
+      id: "ci-mcp-proxy",
+      cron: "*/15 * * * *",
+      module: Custode.Sensors.CiStatus,
+      notify: "mcp-proxy",
+      args: %{repo: "joshrotenberg/mcp-proxy"}
+    },
+    %{
+      id: "ci-tower-mcp",
+      cron: "*/15 * * * *",
+      module: Custode.Sensors.CiStatus,
+      notify: "tower-mcp",
+      args: %{repo: "joshrotenberg/tower-mcp"}
+    },
+    %{
+      id: "ci-tower-resilience",
+      cron: "*/15 * * * *",
+      module: Custode.Sensors.CiStatus,
+      notify: "tower-resilience",
+      args: %{repo: "joshrotenberg/tower-resilience"}
     },
     # The USGS earthquake poll: every 20 minutes, M4.5+ over the past day.
     %{
