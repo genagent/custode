@@ -147,22 +147,57 @@ defmodule Custode.Feed do
     :ok
   end
 
-  # Fire-and-forget so a slow osascript never blocks the agent process the
-  # telemetry handler runs in.
+  # Fire-and-forget so a slow notifier never blocks the agent process the
+  # telemetry handler runs in. terminal-notifier (brew) is preferred: clicking
+  # the notification deep-links to the agent's dashboard page, where
+  # osascript's display notification can only focus Script Editor.
   defp notify(entry) do
     if Application.get_env(:custode, :desktop_notifications, true) and
          match?({:unix, :darwin}, :os.type()) do
       body = entry[:action] || entry[:question] || to_string(entry[:kind] || entry.event)
       title = "custode: #{entry.agent} #{entry.event}"
+      url = dashboard_url(entry)
 
-      script =
-        "display notification #{inspect(String.slice(body, 0, 140))} " <>
-          "with title #{inspect(title)} sound name \"Glass\""
+      Task.start(fn ->
+        case System.find_executable("terminal-notifier") do
+          nil ->
+            script =
+              "display notification #{inspect(String.slice(body, 0, 140))} " <>
+                "with title #{inspect(title)} sound name \"Glass\""
 
-      Task.start(fn -> System.cmd("osascript", ["-e", script], stderr_to_stdout: true) end)
+            System.cmd("osascript", ["-e", script], stderr_to_stdout: true)
+
+          notifier ->
+            System.cmd(
+              notifier,
+              [
+                "-title",
+                title,
+                "-message",
+                String.slice(body, 0, 240),
+                "-open",
+                url,
+                "-sound",
+                "Glass",
+                "-group",
+                "custode-#{entry.agent}"
+              ],
+              stderr_to_stdout: true
+            )
+        end
+      end)
     end
 
     :ok
+  end
+
+  defp dashboard_url(entry) do
+    port = Application.get_env(:custode, CustodeWeb.Endpoint, [])[:http][:port] || 4646
+
+    case entry[:agent] do
+      agent when is_binary(agent) and agent != "?" -> "http://localhost:#{port}/agents/#{agent}"
+      _unknown -> "http://localhost:#{port}/"
+    end
   end
 
   defp agent_of(%{job: %{meta: %{"agent_id" => id}}}), do: id
