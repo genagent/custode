@@ -77,6 +77,40 @@ defmodule Custode do
   @doc "Release a paused agent."
   def resume(id \\ nil), do: Agent.resume_agent(fetch!(id).id)
 
+  @doc "The emergency brake (#14): pause every agent not already paused/offline."
+  def pause_all do
+    ids =
+      for {id, status} <- Agent.list(), pausable?(status) do
+        Agent.emergency_pause(id)
+        id
+      end
+
+    Custode.Feed.record(%{
+      event: "paused",
+      agent: "custode",
+      action: "fleet pause-all: #{length(ids)} agent(s) paused (#{Enum.join(ids, ", ")})"
+    })
+
+    {:ok, ids}
+  end
+
+  @doc "Release the brake: resume every paused agent."
+  def resume_all do
+    ids =
+      for {id, status} <- Agent.list(), paused?(status) do
+        Agent.resume_agent(id)
+        id
+      end
+
+    {:ok, ids}
+  end
+
+  defp pausable?({state, _payload}), do: state not in [:paused]
+  defp pausable?(state), do: state not in [:paused, :offline]
+
+  defp paused?(:paused), do: true
+  defp paused?(_status), do: false
+
   @doc "Print the routine's open todos (ids for `done/1`)."
   def todos(id \\ nil) do
     for todo <- Custode.Notebook.todos(fetch!(id).id) do
