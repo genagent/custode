@@ -148,6 +148,101 @@ defmodule Custode do
   defp paused?(:paused), do: true
   defp paused?(_status), do: false
 
+  @drain_queues [:ticks, :agents, :sensors]
+
+  @doc """
+  Graceful drain for a restart (#132): pause every executing queue, wait out
+  the turns already running, then stop the VM.
+
+  Pausing FIRST is the whole point. The external restart runbook was
+  check-then-kill -- it observed zero executing jobs, then sent `SIGTERM` --
+  and a cron boundary firing between the observation and the signal could
+  start a fresh turn that Oban's 15s shutdown grace then killed mid-flight,
+  orphaning the claude subprocess and leaving Lifeline to re-run the row 20
+  minutes later (double claude, double spend). Paused queues cannot start new
+  work, so the wait converges and the stop is safe. The #77/#128 instance
+  heartbeat guards the other half (a successor cannot boot behind us) and
+  `Custode.Instance.terminate/2` releases the row on this graceful path, so
+  `drain` + start is a complete restart with no operator polling.
+
+  Returns `:ok` once the VM is stopping. With a finite `:timeout` it gives up
+  rather than waiting forever, returning `{:error, {:timeout, jobs}}` with the
+  still-executing jobs (so the operator can choose between waiting longer and
+  `CUSTODE_TAKEOVER`) and it does NOT stop.
+
+  Options (the seams default to production and are injected in tests, where a
+  real `System.stop/0` would take down the test VM):
+
+    * `:timeout` -- ms to wait for executing to reach zero (default `:infinity`)
+    * `:poll` -- ms between checks (default 250)
+    * `:queues` / `:pause` / `:executing` / `:stop` -- injectable seams
+  """
+  def drain(opts \\ []) do
+    queues = Keyword.get(opts, :queues, @drain_queues)
+    pause = Keyword.get(opts, :pause, &Oban.pause_queue(queue: &1))
+    executing = Keyword.get(opts, :executing, &executing_jobs/0)
+    stop = Keyword.get(opts, :stop, &System.stop/0)
+    poll = Keyword.get(opts, :poll, 250)
+    deadline = drain_deadline(Keyword.get(opts, :timeout, :infinity))
+
+    Enum.each(queues, pause)
+
+    Custode.Feed.record(%{
+      event: "paused",
+      agent: "custode",
+      action: "drain: paused #{Enum.join(queues, ", ")}; waiting out executing turns"
+    })
+
+    case await_drained(executing, poll, deadline) do
+      :ok ->
+        stop.()
+        :ok
+
+      {:timeout, jobs} ->
+        Custode.Feed.record(%{
+          event: "turn_failed",
+          agent: "custode",
+          kind: "drain_timeout",
+          detail: "#{length(jobs)} turn(s) still executing at the drain deadline; not stopping"
+        })
+
+        {:error, {:timeout, jobs}}
+    end
+  end
+
+  # the still-executing turns Oban has not yet finished; [] means safe to stop
+  defp executing_jobs do
+    import Ecto.Query, only: [from: 2]
+
+    Custode.Repo.all(
+      from(j in Oban.Job,
+        where: j.state == "executing",
+        select: %{id: j.id, queue: j.queue, worker: j.worker}
+      )
+    )
+  end
+
+  defp await_drained(executing, poll, deadline) do
+    case executing.() do
+      [] ->
+        :ok
+
+      jobs ->
+        if drain_past?(deadline) do
+          {:timeout, jobs}
+        else
+          Process.sleep(poll)
+          await_drained(executing, poll, deadline)
+        end
+    end
+  end
+
+  defp drain_deadline(:infinity), do: :infinity
+  defp drain_deadline(ms) when is_integer(ms), do: System.monotonic_time(:millisecond) + ms
+
+  defp drain_past?(:infinity), do: false
+  defp drain_past?(deadline), do: System.monotonic_time(:millisecond) >= deadline
+
   @doc "Print the routine's open todos (ids for `done/1`)."
   def todos(id \\ nil) do
     for todo <- Custode.Notebook.todos(fetch!(id).id) do
