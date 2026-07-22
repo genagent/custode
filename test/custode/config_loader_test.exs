@@ -67,6 +67,45 @@ defmodule Custode.Config.LoaderTest do
     end
   end
 
+  test "system_prompt_file rides through the file as a PATH, resolved downstream (#19)" do
+    # design 001 D2: the roster file carries assignments, never prompt bodies.
+    # A file entry references orders by path and Routine.normalize/1 -- the one
+    # choke point both roster sources funnel through -- composes charter + body.
+    dir = Path.join(System.tmp_dir!(), "orders-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    orders = Path.join(dir, "orders.md")
+    File.write!(orders, "## Your role: toml-grown\nDo the referenced thing.")
+    on_exit(fn -> File.rm_rf!(dir) end)
+
+    toml = """
+    [[routines]]
+    id = "by-reference"
+    profile = "backlog_worker"
+    repo = "acme/a"
+    working_dir = "/tmp/by-reference"
+    system_prompt_file = "#{orders}"
+    """
+
+    {[worker], []} = Loader.parse!(toml)
+
+    # the loader keeps it a string path -- no read, no body in the roster
+    assert worker.system_prompt_file == orders
+
+    previous = Application.get_env(:custode, :routines)
+
+    try do
+      Application.put_env(:custode, :routines, [worker])
+      normalized = Custode.Routine.get("by-reference")
+
+      assert normalized.system_prompt =~ "## Charter"
+      assert normalized.system_prompt =~ "Do the referenced thing."
+      # the file body replaces the role's default orders, it does not append
+      refute normalized.system_prompt =~ "## Your role: backlog worker"
+    after
+      Application.put_env(:custode, :routines, previous)
+    end
+  end
+
   test "an unknown key is a boot error, not a silent drop" do
     bad = """
     [[routines]]
