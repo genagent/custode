@@ -389,12 +389,40 @@ defmodule Custode.MCP.Tools.RunJob do
       max_budget_usd:
         params[:max_budget_usd] || Application.fetch_env!(:custode, :max_budget_usd),
       timeout: if(params[:elevated], do: 900_000, else: 200_000),
-      permission_mode: if(params[:elevated], do: :bypass_permissions, else: :accept_edits)
+      permission_mode: if(params[:elevated], do: :bypass_permissions, else: :accept_edits),
+      # force the job's final turn into the report contract (#120): the model
+      # MUST return {status, summary, artifacts, cost_note}, so OneShotJob reads
+      # typed fields instead of hoping the prose is shaped right.
+      json_schema: report_schema()
     ]
     |> maybe_workspace(params[:workspace])
     |> ObanClaude.Args.new()
     |> Map.put("report_inbox", Path.expand(report_inbox))
     |> Map.put("tag", params[:tag] || "job")
+  end
+
+  # The one-shot report contract. Kept lenient on which fields are required
+  # (status + summary) so a terse job still validates, but strict on shape so
+  # the receiving sweep can consume typed fields.
+  defp report_schema do
+    Jason.encode!(%{
+      type: "object",
+      additionalProperties: false,
+      required: ["status", "summary"],
+      properties: %{
+        status: %{
+          type: "string",
+          description: "\"ok\" on success, or a short failure reason"
+        },
+        summary: %{type: "string", description: "one-line outcome of the job"},
+        artifacts: %{
+          type: "array",
+          items: %{type: "string"},
+          description: "paths, PR/issue numbers, or ids the job produced"
+        },
+        cost_note: %{type: "string", description: "optional note on cost or budget"}
+      }
+    })
   end
 
   defp enqueue(args), do: Oban.insert(Custode.OneShotJob.new(args))

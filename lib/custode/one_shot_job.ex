@@ -16,10 +16,14 @@ defmodule Custode.OneShotJob do
   @impl ObanClaude.Worker
   def handle_result(result, %Oban.Job{} = job) do
     structured = ObanClaude.structured(result)
+    # #120: with a report schema in force, structured carries typed
+    # {status, summary, ...} -- prefer those over freeform text, falling back
+    # to prose only when the schema was not honored.
+    status = (structured || %{})["status"] || "ok"
     body = (structured || %{})["summary"] || result.result || "(job produced no text)"
 
     report(job, """
-    #{front_matter(job, "ok", result.cost_usd, structured)}
+    #{front_matter(job, status, result.cost_usd, structured)}
     One-shot job ##{job.id} (#{tag(job)}) finished.
 
     Task: #{String.slice(job.args["prompt"], 0, 200)}
