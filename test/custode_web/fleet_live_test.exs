@@ -138,7 +138,7 @@ defmodule CustodeWeb.FleetLiveTest do
 
     assert html =~ "ring-warning"
     # a short attention list names its subjects instead of a bare count
-    assert html =~ "#{second.id} wants approval"
+    assert html =~ "#{second.id} needs approval"
   end
 
   test "a pending question points through to the detail page for the answer",

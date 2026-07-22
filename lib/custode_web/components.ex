@@ -5,13 +5,81 @@ defmodule CustodeWeb.Components do
 
   use Phoenix.Component
 
-  @doc "The lifecycle state badge class."
-  def state_badge(:idle), do: "badge-ghost"
-  def state_badge(:running), do: "badge-info"
-  def state_badge(:awaiting_permission), do: "badge-warning"
-  def state_badge(:waiting_for_user), do: "badge-accent"
-  def state_badge(:paused), do: "badge-error"
-  def state_badge(_state), do: "badge-outline"
+  # The one status vocabulary (#31 slice 1). Every surface that shows what an
+  # agent is doing -- fleet tile, agent page header, feed card -- reads its word
+  # and its color from here, so "awaiting_permission" cannot read as one thing
+  # on one page and another elsewhere.
+  @status_labels %{
+    running: "running",
+    idle: "idle",
+    awaiting_permission: "needs approval",
+    waiting_for_user: "needs answer",
+    paused: "paused",
+    offline: "offline",
+    ended: "ended"
+  }
+
+  @status_classes %{
+    running: "badge-info",
+    idle: "badge-ghost",
+    awaiting_permission: "badge-warning",
+    waiting_for_user: "badge-accent",
+    paused: "badge-error",
+    offline: "badge-outline",
+    ended: "badge-outline"
+  }
+
+  @doc "Every status this dashboard has a word for."
+  def statuses, do: Map.keys(@status_labels)
+
+  @doc "The operator-facing word for a status (atom or gated `{state, payload}`)."
+  def status_label(status) do
+    state = status_state(status)
+    Map.get(@status_labels, state, to_string(state))
+  end
+
+  @doc "The badge class for a status (atom or gated `{state, payload}`)."
+  def status_class(status), do: Map.get(@status_classes, status_state(status), "badge-outline")
+
+  @doc "The status an agent is in, whether it arrives bare or gated."
+  def status_state({state, _payload}), do: state
+  def status_state(state) when is_atom(state), do: state
+
+  attr(:status, :any, required: true)
+  attr(:size, :string, default: nil)
+
+  @doc "The one status badge. Fleet tile, agent header and feed all render through it."
+  def status_badge(assigns) do
+    ~H"""
+    <span class={["badge", @size, status_class(@status)]}>{status_label(@status)}</span>
+    """
+  end
+
+  # Feed events that report a status rather than an activity: they render the
+  # status vocabulary so the card and the tile that produced it agree.
+  @event_statuses %{
+    "needs_approval" => :awaiting_permission,
+    "needs_input" => :waiting_for_user,
+    "budget_paused" => :paused
+  }
+
+  @doc "The status a feed event reports, or nil for activity events."
+  def status_for_event(event), do: Map.get(@event_statuses, event)
+
+  attr(:entry, :map, required: true)
+  attr(:size, :string, default: "badge-xs")
+
+  @doc "A feed card's leading badge: the status vocabulary where the event carries one."
+  def event_badge(assigns) do
+    assigns = assign(assigns, :status, status_for_event(assigns.entry["event"]))
+
+    ~H"""
+    <.status_badge :if={@status} status={@status} size={@size} />
+    <span :if={!@status} class={["badge", @size, feed_badge(@entry["event"])]}>
+      {@entry["event"]}
+    </span>
+    """
+  end
 
   @doc "The feed event badge class."
   def feed_badge("turn"), do: "badge-info"
@@ -32,7 +100,7 @@ defmodule CustodeWeb.Components do
     <div class="card bg-base-100 shadow-sm">
       <div class="card-body p-3 text-sm">
         <div class="flex items-center gap-2">
-          <span class={["badge badge-sm", feed_badge(@entry["event"])]}>{@entry["event"]}</span>
+          <.event_badge entry={@entry} size="badge-sm" />
           <.resolved_chip entry={@entry} />
           <span class="font-mono text-xs text-base-content/60">
             <.ago at={@entry["at"]} />
@@ -189,7 +257,7 @@ defmodule CustodeWeb.Components do
       </div>
       <div class="timeline-end timeline-box mb-2 w-full bg-base-100 text-sm">
         <div class="mb-1 flex items-center gap-2">
-          <span class={["badge badge-xs", feed_badge(@entry["event"])]}>{@entry["event"]}</span>
+          <.event_badge entry={@entry} />
           <.resolved_chip entry={@entry} />
           <span :if={@entry["cost_usd"]} class="ml-auto font-mono text-xs text-base-content/50">
             ${usd(@entry["cost_usd"])}<span :if={@entry["tokens"]}> &middot; {tok(@entry["tokens"])}</span>
@@ -305,7 +373,7 @@ defmodule CustodeWeb.Components do
 
   defp attention do
     for {id, status} <- ObanClaude.Agent.list(), needs_attention?(status) do
-      {id, status |> state_of() |> attention_word()}
+      {id, status_label(status)}
     end
   end
 
@@ -316,13 +384,6 @@ defmodule CustodeWeb.Components do
     do: Enum.map_join(attention, ", ", fn {id, word} -> "#{id} #{word}" end)
 
   defp attention_text(attention), do: "#{length(attention)} need attention"
-
-  defp attention_word(:awaiting_permission), do: "wants approval"
-  defp attention_word(:waiting_for_user), do: "asks"
-  defp attention_word(:paused), do: "paused"
-
-  defp state_of({state, _payload}), do: state
-  defp state_of(state) when is_atom(state), do: state
 
   defp nav_class(true), do: "font-semibold underline underline-offset-4"
   defp nav_class(false), do: "text-base-content/60 hover:text-base-content"
