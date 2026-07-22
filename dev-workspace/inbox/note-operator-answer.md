@@ -1,3 +1,5 @@
+FILED 2026-07-22
+
 Operator correction (supersedes the earlier note if you saw it): your open
 proposal -- the OBAN_CLAUDE_PATH env override on the path dep so your
 worktree checkout can compile and test -- is ACCEPTED and has been merged by

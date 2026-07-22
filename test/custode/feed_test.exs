@@ -35,6 +35,35 @@ defmodule Custode.FeedTest do
     assert [entry] = Custode.Feed.for_agent("feed-a")
     assert %{"event" => "turn", "agent" => "feed-a", "summary" => "swept"} = entry
     assert_in_delta entry["cost_usd"], 0.2, 0.001
+    # a scheduled sweep stays summary-only (#138)
+    assert entry["response"] == nil
+  end
+
+  test "an operator-origin turn persists the full answer on the entry (#138)" do
+    answer = "Pros:\n- it fixes the bug\n\nCons:\n- semver surface"
+
+    {:ok, _} =
+      ObanClaude.run(%{"prompt" => "tradeoffs of #937?"},
+        job: %Oban.Job{meta: %{"agent_id" => "feed-q", "origin" => "operator"}},
+        query_fun: respond(result(result: answer, cost_usd: 0.05))
+      )
+
+    assert [entry] = Custode.Feed.for_agent("feed-q")
+    assert entry["event"] == "turn"
+    # the answer survives on the durable entry -- a restart cannot strand it
+    assert entry["response"] == answer
+
+    # tick-origin explicitly marked also stays summary-only
+    {:ok, _} =
+      ObanClaude.run(%{"prompt" => "sweep"},
+        job: %Oban.Job{meta: %{"agent_id" => "feed-q", "origin" => "tick"}},
+        query_fun: respond(result(result: "did the sweep", cost_usd: 0.01))
+      )
+
+    entries = Custode.Feed.for_agent("feed-q")
+    assert length(entries) == 2
+    # exactly the operator-origin turn carries a response, whatever the order
+    assert [%{"response" => ^answer}] = Enum.filter(entries, & &1["response"])
   end
 
   test "a failed run writes a turn_failed entry with the error kind AND its detail" do

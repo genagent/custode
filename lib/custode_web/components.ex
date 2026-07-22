@@ -49,6 +49,7 @@ defmodule CustodeWeb.Components do
           </span>
         </div>
         <p class="text-base-content/80">{feed_text(@entry)}</p>
+        <.prompt_answer entry={@entry} />
       </div>
     </div>
     """
@@ -194,9 +195,28 @@ defmodule CustodeWeb.Components do
           </span>
         </div>
         <p class="whitespace-pre-wrap text-base-content/80">{feed_text(@entry)}</p>
+        <.prompt_answer entry={@entry} />
       </div>
       <hr />
     </li>
+    """
+  end
+
+  attr(:entry, :map, required: true)
+
+  @doc """
+  The durable answer to an operator prompt (#138). Operator-origin turns
+  carry the full response on the feed entry; sweeps stay summary-only.
+  Rendered expanded -- the operator asked, so the answer leads.
+  """
+  def prompt_answer(assigns) do
+    ~H"""
+    <div
+      :if={@entry["response"]}
+      class="agent-md mt-2 rounded border-l-2 border-primary/40 bg-base-200/60 p-2 text-sm"
+    >
+      <.markdown text={@entry["response"]} />
+    </div>
     """
   end
 
