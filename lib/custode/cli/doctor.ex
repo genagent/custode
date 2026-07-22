@@ -24,6 +24,10 @@ defmodule Custode.CLI.Doctor do
 
   use Cheer.Command
 
+  alias Custode.Config.Loader
+  alias Custode.Home
+  alias ObanClaude.CLI.Doctor, as: SharedDoctor
+
   command "doctor" do
     about("Install preflight: claude, gh, timezone, home dir, and roster checks.")
 
@@ -43,7 +47,7 @@ defmodule Custode.CLI.Doctor do
     {:ok, _} = Application.ensure_all_started(:tzdata)
 
     checks = checks()
-    {text, ok?} = ObanClaude.CLI.Doctor.report(checks)
+    {text, ok?} = SharedDoctor.report(checks)
 
     cond do
       args[:json] == true -> Mix.shell().info(json(checks, ok?))
@@ -62,7 +66,7 @@ defmodule Custode.CLI.Doctor do
       {"claude authentication", ClaudeWrapper.auth_status()},
       {"gh binary + auth", gh_check()},
       {"timezone #{configured_tz()}", tz_check()},
-      {"home #{Custode.Home.root()} writable", home_check()},
+      {"home #{Home.root()} writable", home_check()},
       {"roster", roster_check()}
     ]
   end
@@ -91,9 +95,9 @@ defmodule Custode.CLI.Doctor do
   end
 
   defp home_check do
-    probe = Path.join(Custode.Home.root(), ".doctor-probe-#{System.unique_integer([:positive])}")
+    probe = Path.join(Home.root(), ".doctor-probe-#{System.unique_integer([:positive])}")
 
-    with :ok <- File.mkdir_p(Custode.Home.root()),
+    with :ok <- File.mkdir_p(Home.root()),
          :ok <- File.write(probe, "ok"),
          :ok <- File.rm(probe) do
       {:ok, "writable"}
@@ -103,7 +107,7 @@ defmodule Custode.CLI.Doctor do
   end
 
   defp roster_check do
-    case Custode.Config.Loader.load() do
+    case Loader.load() do
       {:ok, path, routines, sensors} ->
         {:ok, "#{path}: #{length(routines)} routine(s), #{length(sensors)} sensor(s)"}
 
