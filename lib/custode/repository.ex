@@ -496,10 +496,11 @@ defmodule Custode.Repository.Ops do
     end
   end
 
+  # gh_ex returns {:ok, data, meta} | {:error, exception} for every call site
+  # above; the {:ok, data} / {:error, reason, meta} clauses this used to carry
+  # were unreachable, which is what dialyzer surfaced (#92).
   defp unwrap({:ok, data, _meta}), do: {:ok, data}
-  defp unwrap({:ok, data}), do: {:ok, data}
   defp unwrap({:error, reason}), do: {:error, reason}
-  defp unwrap({:error, reason, _meta}), do: {:error, reason}
 
   defp client do
     case token() do
