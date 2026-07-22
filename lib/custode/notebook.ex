@@ -63,16 +63,35 @@ defmodule Custode.Notebook do
     {:ok, entry}
   end
 
-  @doc "The newest `n` journal entries, newest first."
-  def journal(routine_id, n \\ 20) do
-    Repo.all(
+  @doc """
+  The newest `n` journal entries, newest first. `search: "text"` narrows to
+  entries whose title or body contains it (case-insensitive) -- the
+  dashboard's journal search (#21).
+  """
+  def journal(routine_id, n \\ 20, opts \\ []) do
+    base =
       from(e in JournalEntry,
         where: e.routine_id == ^routine_id,
         order_by: [desc: e.inserted_at, desc: e.id],
         limit: ^n
       )
+
+    base
+    |> journal_search(opts[:search])
+    |> Repo.all()
+  end
+
+  defp journal_search(query, term) when is_binary(term) and term != "" do
+    like = "%" <> String.replace(term, ["%", "_"], &"\\#{&1}") <> "%"
+
+    from(e in query,
+      where:
+        like(fragment("lower(?)", e.body), ^String.downcase(like)) or
+          like(fragment("lower(?)", e.title), ^String.downcase(like))
     )
   end
+
+  defp journal_search(query, _absent), do: query
 
   # ---------------------------------------------------------------------------
   # todos

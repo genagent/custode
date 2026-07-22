@@ -168,6 +168,92 @@ defmodule CustodeWeb.AgentLiveTest do
     assert html =~ "flat slot table"
   end
 
+  describe "deeper browsing (#21)" do
+    test "journal search narrows; clearing restores; older entries grow the list",
+         %{conn: conn, routine: routine} do
+      stub_routine_agent!(routine)
+
+      for n <- 1..12 do
+        {:ok, _} = Custode.Notebook.journal_append(routine.id, "routine sweep #{n}")
+      end
+
+      {:ok, _} = Custode.Notebook.journal_append(routine.id, "the heron landed on the dock")
+
+      {:ok, view, html} = live(conn, "/agents/#{routine.id}")
+      # newest 10 of 13: the heron plus the last sweeps; sweep 1 is beyond
+      assert html =~ "heron"
+      refute html =~ "routine sweep 1<"
+
+      html =
+        view
+        |> form("form[phx-change=journal_search]", %{"search" => "heron"})
+        |> render_change()
+
+      assert html =~ "the heron landed"
+      refute html =~ "routine sweep 12"
+
+      # no matches says so
+      html =
+        view
+        |> form("form[phx-change=journal_search]", %{"search" => "walrus"})
+        |> render_change()
+
+      assert html =~ "(no matches)"
+
+      # clear, then grow past the first page
+      view
+      |> form("form[phx-change=journal_search]", %{"search" => ""})
+      |> render_change()
+
+      html = view |> element("button", "older entries") |> render_click()
+      assert html =~ "routine sweep 1"
+    end
+
+    test "done todos hide behind a toggle", %{conn: conn, routine: routine} do
+      stub_routine_agent!(routine)
+      {:ok, todo} = Custode.Notebook.todo_add(routine.id, "finished chore", source: "test")
+      {:ok, _} = Custode.Notebook.todo_complete(todo.id)
+      {:ok, _} = Custode.Notebook.todo_add(routine.id, "open chore", source: "test")
+
+      {:ok, view, html} = live(conn, "/agents/#{routine.id}")
+      assert html =~ "open chore"
+      refute html =~ "finished chore"
+
+      html = view |> element("button", "show done") |> render_click()
+      assert html =~ "finished chore"
+    end
+
+    test "forgetting a memory removes it", %{conn: conn, routine: routine} do
+      stub_routine_agent!(routine)
+      :ok = Custode.Memory.remember(routine.id, "stale-fact", "the old world")
+
+      {:ok, view, html} = live(conn, "/agents/#{routine.id}")
+      assert html =~ "the old world"
+
+      view
+      |> element("button[phx-value-key=stale-fact]")
+      |> render_click()
+
+      refute render(view) =~ "the old world"
+      assert Custode.Memory.recall(routine.id, "stale-fact") == :error
+    end
+
+    test "older activity grows the feed window", %{conn: conn, routine: routine} do
+      stub_routine_agent!(routine)
+
+      for n <- 1..35 do
+        Custode.Feed.record(%{event: "turn", agent: routine.id, summary: "wave #{n} rolled in"})
+      end
+
+      {:ok, view, html} = live(conn, "/agents/#{routine.id}")
+      assert html =~ "wave 35"
+      refute html =~ "wave 2 rolled"
+
+      html = view |> element("button", "older activity") |> render_click()
+      assert html =~ "wave 2 rolled"
+    end
+  end
+
   describe "the edit form (#174 slice 2)" do
     setup %{routine: routine} do
       roster = Path.join(System.tmp_dir!(), uid("edit-roster") <> ".toml")
