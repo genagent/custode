@@ -30,6 +30,36 @@ defmodule Custode.RepositoryTest do
       Application.get_env(:custode, :fake_review_state, :unreviewed)
     end
 
+    def list_issues(owner, repo, opts) do
+      send(pid(), {:list_issues, owner, repo, opts})
+      {:ok, [%{number: 1, title: "an issue", state: "open"}]}
+    end
+
+    def view_issue(owner, repo, number) do
+      send(pid(), {:view_issue, owner, repo, number})
+      {:ok, %{number: number, title: "an issue", body: "body", comments: []}}
+    end
+
+    def list_prs(owner, repo, opts) do
+      send(pid(), {:list_prs, owner, repo, opts})
+      {:ok, [%{number: 9, title: "a pr", state: "open", draft: true}]}
+    end
+
+    def view_pr(owner, repo, number) do
+      send(pid(), {:view_pr, owner, repo, number})
+      {:ok, %{number: number, title: "a pr", draft: true, body: "body"}}
+    end
+
+    def pr_checks(owner, repo, number) do
+      send(pid(), {:pr_checks, owner, repo, number})
+      {:ok, %{sha: "abc", checks: [%{name: "test", status: "completed", conclusion: "success"}]}}
+    end
+
+    def pr_diff(owner, repo, number) do
+      send(pid(), {:pr_diff, owner, repo, number})
+      {:ok, %{files: [%{filename: "lib/x.ex", status: "modified", patch: "@@ -1 +1 @@"}]}}
+    end
+
     defp pid, do: Application.fetch_env!(:custode, :repo_ops_test_pid)
   end
 
@@ -150,9 +180,47 @@ defmodule Custode.RepositoryTest do
            )
   end
 
+  test "read verbs pass through, scoped to the bound repo (#129)", %{repo: repo} do
+    assert {:ok, [%{number: 1}]} = Repository.list_issues(repo)
+    assert_receive {:list_issues, "acme", _bare, %{}}
+
+    # state carries through to the ops layer
+    assert {:ok, _} = Repository.list_issues(repo, %{state: "closed"})
+    assert_receive {:list_issues, "acme", _bare, %{state: "closed"}}
+
+    assert {:ok, %{number: 12, comments: []}} = Repository.view_issue(repo, 12)
+    assert_receive {:view_issue, "acme", _bare, 12}
+
+    assert {:ok, [%{number: 9, draft: true}]} = Repository.list_prs(repo)
+    assert_receive {:list_prs, "acme", _bare, %{}}
+
+    assert {:ok, %{number: 9, draft: true}} = Repository.view_pr(repo, 9)
+    assert_receive {:view_pr, "acme", _bare, 9}
+
+    assert {:ok, %{checks: [%{conclusion: "success"}]}} = Repository.pr_checks(repo, 9)
+    assert_receive {:pr_checks, "acme", _bare, 9}
+
+    assert {:ok, %{files: [%{filename: "lib/x.ex"}]}} = Repository.pr_diff(repo, 9)
+    assert_receive {:pr_diff, "acme", _bare, 9}
+  end
+
+  test "reads do NOT record a feed entry (only writes do)", %{repo: repo} do
+    {:ok, _} = Repository.list_issues(repo)
+    {:ok, _} = Repository.view_pr(repo, 9)
+
+    refute Enum.any?(
+             Custode.Feed.tail(200),
+             &(&1["event"] == "repo_verb" and &1["summary"] =~ ~r/list_issues|view_pr/)
+           )
+  end
+
   test "an unserved repo is refused outright" do
     assert {:error, message} = Repository.merge_pr("evil/other", 1)
     assert message =~ "not served"
+
+    # reads are scoped the same way -- an unserved repo cannot be read
+    assert {:error, unread} = Repository.list_issues("evil/other")
+    assert unread =~ "not served"
   end
 
   test "served_repos derives uniquely from the routine config" do

@@ -324,11 +324,13 @@ defmodule Custode.RoutineTest do
   describe "the role library" do
     alias Custode.Routine.Prompts
 
-    test "backlog_worker: gated single-item pace, worktree implementation, gh reads" do
+    test "backlog_worker: gated single-item pace, worktree implementation, scoped repo reads" do
       prompt = Prompts.for_role(:backlog_worker, "rt")
       assert prompt =~ ~s(routine_id "rt")
       assert prompt =~ "at most one item per sweep" |> String.downcase()
-      assert prompt =~ "gh issue list"
+      # backlog reads are the scoped repo_* verbs now (#129), not gh Bash grants
+      assert prompt =~ "repo_list_issues"
+      assert prompt =~ "repo_view_issue"
       assert prompt =~ "git worktree"
       assert prompt =~ "Never start without approval"
     end

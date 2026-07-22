@@ -168,3 +168,127 @@ defmodule Custode.MCP.RepoTools.ReviewPr do
     end
   end
 end
+
+# ---------------------------------------------------------------------------
+# read verbs (issue #129): scoped GitHub reads, one per gh grant they replace
+# ---------------------------------------------------------------------------
+
+defmodule Custode.MCP.RepoTools.ListIssues do
+  @moduledoc "List a served repo's issues (open by default). Scoped read verb (#129)."
+  use Anubis.Server.Component, type: :tool
+
+  import Custode.MCP.Tools
+
+  schema do
+    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
+    field(:state, :string, description: "open (default), closed, or all")
+  end
+
+  @impl true
+  def execute(%{repo: repo} = params, frame) do
+    case Custode.Repository.list_issues(repo, Map.take(params, [:state])) do
+      {:ok, issues} -> reply(frame, %{repo: repo, issues: issues})
+      {:error, message} -> fail(frame, to_string(message))
+    end
+  end
+end
+
+defmodule Custode.MCP.RepoTools.ViewIssue do
+  @moduledoc "View one issue on a served repo: fields, body, and comments. Scoped read verb (#129)."
+  use Anubis.Server.Component, type: :tool
+
+  import Custode.MCP.Tools
+
+  schema do
+    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
+    field(:number, :integer, required: true, description: "the issue number")
+  end
+
+  @impl true
+  def execute(%{repo: repo, number: number}, frame) do
+    case Custode.Repository.view_issue(repo, number) do
+      {:ok, issue} -> reply(frame, Map.put(issue, :repo, repo))
+      {:error, message} -> fail(frame, to_string(message))
+    end
+  end
+end
+
+defmodule Custode.MCP.RepoTools.ListPrs do
+  @moduledoc "List a served repo's pull requests (open by default). Scoped read verb (#129)."
+  use Anubis.Server.Component, type: :tool
+
+  import Custode.MCP.Tools
+
+  schema do
+    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
+    field(:state, :string, description: "open (default), closed, or all")
+  end
+
+  @impl true
+  def execute(%{repo: repo} = params, frame) do
+    case Custode.Repository.list_prs(repo, Map.take(params, [:state])) do
+      {:ok, prs} -> reply(frame, %{repo: repo, prs: prs})
+      {:error, message} -> fail(frame, to_string(message))
+    end
+  end
+end
+
+defmodule Custode.MCP.RepoTools.ViewPr do
+  @moduledoc "View one PR on a served repo: fields and body. Scoped read verb (#129)."
+  use Anubis.Server.Component, type: :tool
+
+  import Custode.MCP.Tools
+
+  schema do
+    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
+    field(:number, :integer, required: true, description: "the PR number")
+  end
+
+  @impl true
+  def execute(%{repo: repo, number: number}, frame) do
+    case Custode.Repository.view_pr(repo, number) do
+      {:ok, pr} -> reply(frame, Map.put(pr, :repo, repo))
+      {:error, message} -> fail(frame, to_string(message))
+    end
+  end
+end
+
+defmodule Custode.MCP.RepoTools.PrChecks do
+  @moduledoc "The check runs on a PR's head commit. Scoped read verb (#129)."
+  use Anubis.Server.Component, type: :tool
+
+  import Custode.MCP.Tools
+
+  schema do
+    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
+    field(:number, :integer, required: true, description: "the PR number")
+  end
+
+  @impl true
+  def execute(%{repo: repo, number: number}, frame) do
+    case Custode.Repository.pr_checks(repo, number) do
+      {:ok, result} -> reply(frame, Map.put(result, :repo, repo))
+      {:error, message} -> fail(frame, to_string(message))
+    end
+  end
+end
+
+defmodule Custode.MCP.RepoTools.PrDiff do
+  @moduledoc "The changed files of a PR, each with its patch. Scoped read verb (#129)."
+  use Anubis.Server.Component, type: :tool
+
+  import Custode.MCP.Tools
+
+  schema do
+    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
+    field(:number, :integer, required: true, description: "the PR number")
+  end
+
+  @impl true
+  def execute(%{repo: repo, number: number}, frame) do
+    case Custode.Repository.pr_diff(repo, number) do
+      {:ok, result} -> reply(frame, Map.put(result, :repo, repo))
+      {:error, message} -> fail(frame, to_string(message))
+    end
+  end
+end
