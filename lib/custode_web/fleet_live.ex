@@ -236,6 +236,7 @@ defmodule CustodeWeb.FleetLive do
           fleet_today={@fleet_today}
           suggestions={@suggestions}
           presence={@presence}
+          rail_warnings={@rail_warnings}
         />
         <div class="min-w-0 flex-1">
           <p class="mb-2 text-xs text-base-content/40">sorted by recent activity</p>
@@ -252,6 +253,7 @@ defmodule CustodeWeb.FleetLive do
   attr(:fleet_today, :float, required: true)
   attr(:suggestions, :list, required: true)
   attr(:presence, :any, required: true)
+  attr(:rail_warnings, :list, required: true)
 
   # The caretaker's rail (#178). The meta agent is not a peer of the workers,
   # so activity sorting hid it exactly when it was quiet -- backwards for the
@@ -283,6 +285,15 @@ defmodule CustodeWeb.FleetLive do
         </span>
       </div>
       <.attention_chip wrap />
+      <div
+        :for={warning <- @rail_warnings}
+        class="rounded-lg bg-warning/10 px-2 py-1 text-xs text-base-content/70"
+      >
+        <.link navigate={"/agents/#{warning.id}"} class="font-mono hover:underline">
+          {warning.id}
+        </.link>
+        at <b>{warning.pct}%</b> of its daily rail -- resets at midnight {warning.tz}
+      </div>
       <.caretaker_card :for={{id, tile} <- @tiles} id={id} tile={tile} />
       <p :if={@tiles == []} class="text-xs text-base-content/40">
         no :meta agent configured
@@ -689,6 +700,7 @@ defmodule CustodeWeb.FleetLive do
       meta_tiles: Enum.sort_by(meta_tiles, fn {id, _tile} -> id end),
       suggestions: advisor_suggestions(),
       presence: Custode.Presence.status(),
+      rail_warnings: rail_warnings(tiles ++ meta_tiles),
       all_tags: all_tags,
       any_pausable: Enum.any?(states, &(&1 not in [:paused, :offline])),
       any_paused: :paused in states,
@@ -753,6 +765,27 @@ defmodule CustodeWeb.FleetLive do
   end
 
   defp failing_checks(_routine), do: 0
+
+  # Threshold banners (#211, the desktop-app cue): say an agent is
+  # APPROACHING its rail before the rail says it out loud by pausing.
+  # 80% and rising, not yet paused (a paused tile already reads 'daily
+  # rail'); the reset time names the configured timezone because that is
+  # the day the rails roll on (#164).
+  @rail_warning_pct 0.8
+
+  defp rail_warnings(tiles) do
+    tz = Application.get_env(:custode, :timezone, "Etc/UTC")
+
+    tiles
+    |> Enum.filter(fn {_id, tile} ->
+      is_number(tile.budget) and tile.budget > 0 and is_number(tile.spend_today) and
+        tile.spend_today / tile.budget >= @rail_warning_pct and tile.state != :paused
+    end)
+    |> Enum.map(fn {id, tile} ->
+      %{id: id, pct: round(tile.spend_today / tile.budget * 100), tz: tz}
+    end)
+    |> Enum.sort_by(& &1.pct, :desc)
+  end
 
   # sub-agents and ghosts carry no routine, so they are never meta
   defp meta?(%{routine: nil}), do: false
