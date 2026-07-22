@@ -34,13 +34,19 @@ defmodule Custode.Scheduler do
 
   Sensors and the janitor stay in the static Oban crontab (they change rarely).
 
-  Evaluation is in UTC, matching the `:timezone` default (`Etc/UTC`); a
-  non-UTC timezone would need a tz database, which the app does not carry.
+  Evaluation is in the configured `:timezone` (#17: the app carries `tzdata`
+  and defaults to `America/Los_Angeles`, so `@daily` means local midnight and
+  hour-anchored expressions fire on the local hour). The default clock reads
+  `Application.get_env(:custode, :timezone, "Etc/UTC")` on EVERY tick, not once
+  at boot, so the timezone is live-editable like everything else since #121 --
+  and routines stay in lockstep with the sensors, which Oban Cron already
+  evaluates in the same configured zone.
 
   Seams (default to production, injected in tests so no timer or real
   `Oban.insert` is needed):
 
-    * `:clock` -- a 0-arity fun returning the current `DateTime` (UTC)
+    * `:clock` -- a 0-arity fun returning the current `DateTime` (in the
+      configured timezone by default)
     * `:insert` -- a 1-arity fun given a routine id, enqueues its tick
     * `:interval` -- ms between ticks; `nil` (default) aligns to the next
       minute boundary the way Oban Cron does
@@ -96,7 +102,7 @@ defmodule Custode.Scheduler do
   @impl GenServer
   def init(opts) do
     state = %{
-      clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
+      clock: Keyword.get(opts, :clock, &now_in_configured_tz/0),
       insert: Keyword.get(opts, :insert, &insert_tick/1),
       interval: Keyword.get(opts, :interval),
       last_fired: %{}
@@ -138,6 +144,13 @@ defmodule Custode.Scheduler do
     for r <- scheduled_routines(), Expression.parse!(r.cron).reboot? do
       state.insert.(r.id)
     end
+  end
+
+  # Read the timezone per call so a live edit (design 001 put_env) takes effect
+  # at the next tick, and so routines evaluate in the same zone as the sensors
+  # (still on Oban Cron, which uses this same configured timezone -- #17).
+  defp now_in_configured_tz do
+    DateTime.now!(Application.get_env(:custode, :timezone, "Etc/UTC"))
   end
 
   defp insert_tick(routine_id) do

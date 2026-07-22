@@ -151,6 +151,30 @@ defmodule Custode.SchedulerTest do
       assert_received {:fired, "r"}
     end
 
+    test "hour-anchored routines fire on the local hour, not the UTC one" do
+      # 09:00 America/Los_Angeles is 16:00 UTC in July (PDT, UTC-7). The clock
+      # hands the scheduler a PT-zoned DateTime, the way the default clock does
+      # (config :timezone is America/Los_Angeles, #17). An expression anchored
+      # to the LOCAL 9am must fire; one anchored to the UTC 16:00 -- the same
+      # instant -- must NOT, proving evaluation reads the local wall clock.
+      pt_9am = DateTime.new!(~D[2026-07-21], ~T[09:00:00], "America/Los_Angeles")
+      assert pt_9am.hour == 9
+      assert DateTime.to_iso8601(DateTime.shift_zone!(pt_9am, "Etc/UTC")) =~ "T16:00:00"
+
+      now_ref = start_clock!(pt_9am)
+
+      put_env!(:routines, [
+        routine("local-9am", "0 9 * * *"),
+        routine("utc-hour", "0 16 * * *")
+      ])
+
+      pid = start_scheduler!(now_ref)
+
+      assert Scheduler.tick(pid) == ["local-9am"]
+      assert_received {:fired, "local-9am"}
+      refute_received {:fired, "utc-hour"}
+    end
+
     test "@reboot routines fire once at boot, then never on a minute tick" do
       now_ref = start_clock!(at(0, 0, 0))
 
