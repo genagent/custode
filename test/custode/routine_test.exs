@@ -282,12 +282,11 @@ defmodule Custode.RoutineTest do
   end
 
   describe "kickoff types" do
-    test "cron: :manual routines are excluded from the crontab; scheduled ones remain" do
+    test "routines are no longer in the crontab; sensors and the janitor remain" do
       workspace = tmp_workspace!()
-      sched_id = uid("sched")
 
       put_env!(:routines, [
-        %{id: sched_id, cron: "@daily", workspace: workspace, prompt: "sweep"},
+        %{id: uid("sched"), cron: "@daily", workspace: workspace, prompt: "sweep"},
         %{id: uid("static"), cron: :manual, workspace: workspace, prompt: "on demand"}
       ])
 
@@ -302,17 +301,10 @@ defmodule Custode.RoutineTest do
       ])
 
       crontab = Custode.Routine.crontab()
-      # one scheduled routine + one sensor + the always-on janitor
-      assert length(crontab) == 3
-
-      # the routine entry schedules the RoutineTick resolver (#7), carrying
-      # only the routine id -- args are rebuilt fresh at each fire, not baked
-      # in at boot
-      assert [{_cron, Custode.RoutineTick, routine_opts}] =
-               Enum.filter(crontab, &(elem(&1, 1) == Custode.RoutineTick))
-
-      assert routine_opts[:queue] == :ticks
-      assert routine_opts[:args] == %{"routine_id" => sched_id}
+      # one sensor + the always-on janitor -- routine firing moved to
+      # Custode.Scheduler (#142), so no routine ticks ride the static crontab
+      assert length(crontab) == 2
+      refute Enum.any?(crontab, &(elem(&1, 1) == Custode.RoutineTick))
       refute Enum.any?(crontab, &(elem(&1, 1) == ObanClaude.Agent.Tick))
 
       assert [{"*/30 * * * *", Custode.Sensors.ContributorSearch, sensor_opts}] =
