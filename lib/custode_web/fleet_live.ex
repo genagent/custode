@@ -184,7 +184,11 @@ defmodule CustodeWeb.FleetLive do
       </div>
       <.new_agent_modal new_agent={@new_agent} profiles={profile_names()} />
       <div class="flex flex-col gap-4 xl:flex-row-reverse xl:items-start">
-        <.meta_rail tiles={@meta_tiles} fleet_today={@fleet_today} />
+        <.meta_rail
+          tiles={@meta_tiles}
+          fleet_today={@fleet_today}
+          suggestions={@suggestions}
+        />
         <div class="min-w-0 flex-1">
           <p class="mb-2 text-xs text-base-content/40">sorted by recent activity</p>
           <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3">
@@ -198,6 +202,7 @@ defmodule CustodeWeb.FleetLive do
 
   attr(:tiles, :list, required: true)
   attr(:fleet_today, :float, required: true)
+  attr(:suggestions, :list, required: true)
 
   # The caretaker's rail (#178). The meta agent is not a peer of the workers,
   # so activity sorting hid it exactly when it was quiet -- backwards for the
@@ -223,7 +228,39 @@ defmodule CustodeWeb.FleetLive do
       <p :if={@tiles == []} class="text-xs text-base-content/40">
         no :meta agent configured
       </p>
+      <div :if={@suggestions != []} id="advisor-suggestions" class="flex flex-col gap-2">
+        <span class="text-xs uppercase tracking-wide text-base-content/40">suggestions</span>
+        <.suggestion_card :for={suggestion <- @suggestions} suggestion={suggestion} />
+      </div>
     </aside>
+    """
+  end
+
+  attr(:suggestion, :map, required: true)
+
+  # An advisor's standing proposal (#124/#125) as a card in the rail: the
+  # change it wants, the evidence behind it, and how sure it is. Read-only on
+  # purpose -- advisors suggest and the operator is the actuator, so there is
+  # no accept button here until a gated write-back exists to sit behind it.
+  defp suggestion_card(assigns) do
+    ~H"""
+    <div class="rounded-lg bg-base-100 p-2 text-xs shadow">
+      <div class="mb-1 flex items-center gap-2 text-base-content/50">
+        <span class="badge badge-secondary badge-xs">suggestion</span>
+        <span class="font-mono"><.ago at={@suggestion["at"]} /></span>
+        <span class="ml-auto">{@suggestion["confidence"]}</span>
+      </div>
+      <p class="text-base-content/80">
+        <.link navigate={"/agents/#{@suggestion["agent"]}"} class="font-mono hover:underline">
+          {@suggestion["agent"]}
+        </.link>
+        <span class="font-mono">{@suggestion["field"]}</span>
+        {@suggestion["current"]} &rarr; <b>{@suggestion["proposed"]}</b>
+      </p>
+      <p :if={@suggestion["evidence"]} class="mt-1 line-clamp-3 text-base-content/50">
+        {@suggestion["evidence"]}
+      </p>
+    </div>
     """
   end
 
@@ -517,11 +554,29 @@ defmodule CustodeWeb.FleetLive do
     assign(socket,
       tiles: tiles,
       meta_tiles: Enum.sort_by(meta_tiles, fn {id, _tile} -> id end),
+      suggestions: advisor_suggestions(),
       all_tags: all_tags,
       any_pausable: Enum.any?(states, &(&1 not in [:paused, :offline])),
       any_paused: :paused in states,
       fleet_today: Custode.SpendLedger.fleet_today()
     )
+  end
+
+  # The rail's suggestion cards (#178). Advisors record one feed entry per
+  # fresh suggestion and hold a seen-set so a standing one does not re-nag, so
+  # the feed already holds the honest list -- this only bounds it. The window
+  # is the stand-in for a dismiss button: with no accept/dismiss yet, an old
+  # suggestion has to age out of the rail on its own rather than sit there
+  # forever. Deduped by what a suggestion IS (advisor, target, field) so a
+  # repeat after the cooldown replaces its predecessor instead of stacking.
+  @suggestion_window_s 7 * 24 * 60 * 60
+  @suggestion_limit 3
+
+  defp advisor_suggestions do
+    "advisor_suggestion"
+    |> Custode.Feed.recent_by_event(limit: 20, since: @suggestion_window_s)
+    |> Enum.uniq_by(&{&1["advisor"], &1["agent"], &1["field"]})
+    |> Enum.take(@suggestion_limit)
   end
 
   # sub-agents and ghosts carry no routine, so they are never meta

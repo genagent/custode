@@ -402,6 +402,88 @@ defmodule CustodeWeb.FleetMetaRailTest do
     assert has_element?(view, "#meta-rail .badge-warning", "#{gated} needs approval")
     refute has_element?(view, "header .badge-warning")
   end
+
+  describe "advisor suggestion cards" do
+    defp suggest!(agent, field, opts \\ []) do
+      Custode.Feed.record(%{
+        event: "advisor_suggestion",
+        agent: agent,
+        advisor: opts[:advisor] || "advisor-cadence",
+        field: field,
+        current: opts[:current] || "@hourly",
+        proposed: opts[:proposed] || "@daily",
+        confidence: "medium",
+        evidence: opts[:evidence] || "swept 12 times, changed nothing 11 of them",
+        summary: "suggests #{agent}: #{field}"
+      })
+    end
+
+    defp backdate_last!(days) do
+      [[id]] = Custode.Repo.query!("SELECT id FROM feed_entries ORDER BY id DESC LIMIT 1").rows
+      at = DateTime.utc_now() |> DateTime.add(-days, :day) |> DateTime.to_iso8601()
+      Custode.Repo.query!("UPDATE feed_entries SET at = ? WHERE id = ?", [at, id])
+    end
+
+    test "a suggestion renders in the rail with its evidence, not in the grid" do
+      workspace = tmp_workspace!()
+      worker = uid("worker")
+      put_env!(:routines, [%{id: worker, cron: "@daily", workspace: workspace, prompt: "s"}])
+
+      suggest!(worker, "cron", evidence: "swept 12 times, changed nothing 11 of them")
+
+      {:ok, view, _html} = live(build_conn(), "/")
+
+      card = "#meta-rail #advisor-suggestions"
+      assert has_element?(view, card, "cron")
+      assert has_element?(view, card, "@daily")
+      # the reasoning rides its own field, so the card shows it without
+      # taking a summary sentence apart
+      assert has_element?(view, card, "changed nothing 11 of them")
+
+      # a suggestion is fleet-level information: it belongs to the rail, and
+      # the worker's tile down in the grid is not where the operator reads it
+      refute has_element?(view, ".grid", "changed nothing 11 of them")
+    end
+
+    test "the newest suggestion per field wins and stale ones age out of the rail" do
+      workspace = tmp_workspace!()
+      worker = uid("worker")
+      put_env!(:routines, [%{id: worker, cron: "@daily", workspace: workspace, prompt: "s"}])
+
+      suggest!(worker, "cron", proposed: "@weekly", evidence: "the old read")
+      suggest!(worker, "cron", proposed: "@daily", evidence: "the current read")
+
+      suggest!(worker, "daily_budget_usd", proposed: "9.99", evidence: "long forgotten")
+      backdate_last!(30)
+
+      {:ok, view, _html} = live(build_conn(), "/")
+
+      card = "#meta-rail #advisor-suggestions"
+      # one card per (advisor, agent, field), carrying the freshest read
+      assert has_element?(view, card, "the current read")
+      refute has_element?(view, card, "the old read")
+
+      # with no accept/dismiss yet, the window is what keeps the rail honest
+      refute has_element?(view, card, "long forgotten")
+    end
+
+    test "no suggestions means no section at all" do
+      workspace = tmp_workspace!()
+
+      put_env!(:routines, [
+        %{id: uid("worker"), cron: "@daily", workspace: workspace, prompt: "s"}
+      ])
+
+      # the feed table outlives a single test, so an empty rail has to be
+      # asked for explicitly rather than assumed
+      Custode.Repo.query!("DELETE FROM feed_entries WHERE event = 'advisor_suggestion'")
+
+      {:ok, view, _html} = live(build_conn(), "/")
+
+      assert has_element?(view, "#meta-rail")
+      refute has_element?(view, "#advisor-suggestions")
+    end
+  end
 end
 
 defmodule CustodeWeb.FleetLiveNewAgentTest do

@@ -107,6 +107,55 @@ defmodule Custode.FeedTest do
     end
   end
 
+  defp backdate_last!(days) do
+    [[id]] = Custode.Repo.query!("SELECT id FROM feed_entries ORDER BY id DESC LIMIT 1").rows
+    at = DateTime.utc_now() |> DateTime.add(-days, :day) |> DateTime.to_iso8601()
+    Custode.Repo.query!("UPDATE feed_entries SET at = ? WHERE id = ?", [at, id])
+  end
+
+  describe "recent_by_event/2 (#178)" do
+    test "returns only that event, newest first, capped by :limit" do
+      agent = uid("rbe")
+
+      Custode.Feed.record(%{event: "advisor_suggestion", agent: agent, field: "cron"})
+      Custode.Feed.record(%{event: "turn", agent: agent, summary: "unrelated"})
+      Custode.Feed.record(%{event: "advisor_suggestion", agent: agent, field: "budget"})
+
+      # cards, not a timeline: the freshest suggestion comes back first
+      assert [%{"field" => "budget"}, %{"field" => "cron"}] =
+               Custode.Feed.recent_by_event("advisor_suggestion", agent: agent)
+
+      assert [%{"field" => "budget"}] =
+               Custode.Feed.recent_by_event("advisor_suggestion", agent: agent, limit: 1)
+    end
+
+    test ":agent scopes to one agent and :since drops anything older" do
+      mine = uid("rbe-mine")
+      theirs = uid("rbe-theirs")
+
+      Custode.Feed.record(%{event: "advisor_suggestion", agent: mine, field: "stale"})
+      backdate_last!(30)
+      Custode.Feed.record(%{event: "advisor_suggestion", agent: mine, field: "fresh"})
+      Custode.Feed.record(%{event: "advisor_suggestion", agent: theirs, field: "elsewhere"})
+
+      fleet = Custode.Feed.recent_by_event("advisor_suggestion", since: 7 * 24 * 60 * 60)
+      fields = Enum.map(fleet, & &1["field"])
+      assert "fresh" in fields
+      assert "elsewhere" in fields
+      refute "stale" in fields
+
+      assert [%{"field" => "fresh"}] =
+               Custode.Feed.recent_by_event("advisor_suggestion",
+                 agent: mine,
+                 since: 7 * 24 * 60 * 60
+               )
+    end
+
+    test "an event nobody has recorded is an empty list, not a crash" do
+      assert Custode.Feed.recent_by_event("no_such_event") == []
+    end
+  end
+
   test "an operator-origin turn persists the full answer on the entry (#138)" do
     answer = "Pros:\n- it fixes the bug\n\nCons:\n- semver surface"
 
