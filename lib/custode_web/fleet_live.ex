@@ -463,8 +463,8 @@ defmodule CustodeWeb.FleetLive do
           <span :for={tag <- @tile.routine.tags} class="badge badge-ghost badge-xs">{tag}</span>
         </div>
 
-        <div class="flex items-center gap-4 text-xs text-base-content/60">
-          <span :if={@tile.spend_today} class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-base-content/60">
+          <span :if={@tile.spend_today} class="flex items-center gap-2 whitespace-nowrap">
             today <b>${usd(@tile.spend_today)}</b><span :if={@tile.budget}> / ${usd(@tile.budget)}</span>
             <progress
               :if={@tile.budget}
@@ -481,8 +481,8 @@ defmodule CustodeWeb.FleetLive do
           >
             <CustodeWeb.Charts.sparkline values={@tile.series} class="h-5 w-16" />
           </span>
-          <span :if={@tile.open_todos > 0}>{@tile.open_todos} todo(s)</span>
-          <span :if={@tile.state == :offline}>next beat starts it</span>
+          <span :if={@tile.open_todos > 0} class="whitespace-nowrap">{@tile.open_todos} todo(s)</span>
+          <span :if={@tile.state == :offline} class="whitespace-nowrap">next beat starts it</span>
         </div>
 
         <div :if={@tile.last} class="rounded-lg bg-base-200/60 p-2 text-sm">
