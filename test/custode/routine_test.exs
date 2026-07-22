@@ -150,6 +150,16 @@ defmodule Custode.RoutineTest do
       assert args == args |> Jason.encode!() |> Jason.decode!()
     end
 
+    test "a routine may run as a repo-owned persona (#19: agent passthrough)" do
+      routine = routine_fixture!("workspace", %{agent: "backlog-slicer"})
+      claude_args = Custode.Routine.tick_args(routine)["start"]["args"]
+      assert claude_args["agent"] == "backlog-slicer"
+
+      # and absent stays absent: claude runs as itself by default
+      plain = routine_fixture!("workspace")
+      refute Map.has_key?(Custode.Routine.tick_args(plain)["start"]["args"], "agent")
+    end
+
     test "the embedded claude args pin the sandbox" do
       routine = routine_fixture!("workspace")
       claude_args = Custode.Routine.tick_args(routine)["start"]["args"]

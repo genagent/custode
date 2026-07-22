@@ -228,6 +228,11 @@ defmodule Custode.Routine do
         do: Keyword.put(extra, :effort, String.to_existing_atom(routine.effort)),
         else: extra
 
+    extra =
+      if routine.agent != nil,
+        do: Keyword.put(extra, :agent, routine.agent),
+        else: extra
+
     ObanClaude.Args.defaults(base ++ extra)
   end
 
@@ -330,6 +335,9 @@ defmodule Custode.Routine do
       # non-hermetic runs inherit the repo's own CLAUDE.md/persona (#19);
       # set hermetic: true to shut ambient context out for a routine
       hermetic: Map.get(routine, :hermetic),
+      # persona-by-name from the repo's own .claude/agents/ (#19): the repo
+      # owns its worker's voice; nil runs claude as itself
+      agent: Map.get(routine, :agent),
       # merged over the args on approve continuations only; a repo caretaker
       # adds "worktree" so approved edits land in an isolated branch
       approved_args:

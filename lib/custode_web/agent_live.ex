@@ -617,7 +617,7 @@ defmodule CustodeWeb.AgentLive do
     """
   end
 
-  @edit_fields ~w(cron model effort max_budget_usd daily_budget_usd timeout_ms max_turns prompt tags)
+  @edit_fields ~w(agent cron model effort max_budget_usd daily_budget_usd timeout_ms max_turns prompt tags)
 
   # the raw entry's editable fields as form strings ("" = no override)
   defp edit_strings(raw) do
@@ -656,7 +656,7 @@ defmodule CustodeWeb.AgentLive do
   defp apply_edit(_id, changes) when changes == %{}, do: {:ok, :unchanged}
   defp apply_edit(id, changes), do: WriteBack.update_routine(id, changes)
 
-  defp parse_edit_value(field, value) when field in ~w(cron model prompt), do: {:ok, value}
+  defp parse_edit_value(field, value) when field in ~w(agent cron model prompt), do: {:ok, value}
 
   defp parse_edit_value("effort", value) do
     {:ok, String.to_existing_atom(value)}
