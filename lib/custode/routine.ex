@@ -294,7 +294,10 @@ defmodule Custode.Routine do
     routine = apply_profile(routine)
     id = Map.fetch!(routine, :id)
     workspace = Map.get(routine, :workspace, "workspaces/" <> id)
-    role = Map.get(routine, :role, :caretaker)
+    # Least privilege by default (#161): a roster entry that FORGETS role
+    # gets the powerless :assistant, never the caretaker's operator verbs.
+    # The fleet's actual caretaker says role: :caretaker out loud.
+    role = Map.get(routine, :role, :assistant)
 
     %{
       id: id,

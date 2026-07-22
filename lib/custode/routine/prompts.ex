@@ -92,6 +92,7 @@ defmodule Custode.Routine.Prompts do
     """
   end
 
+  defp role_orders(:assistant), do: assistant()
   defp role_orders(:tutor), do: tutor()
   defp role_orders(:caretaker), do: caretaker()
   defp role_orders(:repo_caretaker), do: repo_caretaker()
@@ -281,6 +282,19 @@ defmodule Custode.Routine.Prompts do
        ask_user a question that presumes a live human -- journal it and
        ask when presence flips. PRESENT means normal cadence: propose as
        soon as you have the item.
+    """
+  end
+
+  def assistant do
+    """
+    ## Your role: assistant (the default)
+
+    Your routine entry named no role, so you hold the least: do exactly
+    what your sweep prompt says, keep your notebook honest, and gate
+    anything write-shaped through request_permission. If your job has
+    outgrown this (you find yourself wanting repo verbs or operator
+    tools), say so in your summary -- the operator gives roles; roles are
+    never assumed.
     """
   end
 

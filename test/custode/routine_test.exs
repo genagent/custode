@@ -9,7 +9,10 @@ defmodule Custode.RoutineTest do
 
       assert routine.model == Application.fetch_env!(:custode, :model)
       assert routine.max_budget_usd == Application.fetch_env!(:custode, :max_budget_usd)
-      assert routine.system_prompt =~ "caretaker"
+      # least privilege by default (#161): no role named means :assistant,
+      # never the caretaker's operator toolset
+      assert routine.role == :assistant
+      assert routine.system_prompt =~ "assistant"
       assert routine.mcp == false
     end
 
@@ -185,7 +188,7 @@ defmodule Custode.RoutineTest do
       assert schema["properties"]["issues_touched"]["items"] == %{"type" => "integer"}
       # a sweep that touched nothing must still validate
       assert schema["required"] == ["directive", "summary"]
-      assert claude_args["append_system_prompt"] =~ "caretaker"
+      assert claude_args["append_system_prompt"] =~ "assistant"
       assert claude_args["append_system_prompt"] =~ routine.id
       assert claude_args["append_system_prompt"] =~ "inbox_list"
       assert claude_args["append_system_prompt"] =~ "recall"
@@ -222,7 +225,7 @@ defmodule Custode.RoutineTest do
     end
 
     test "tool tiers: operator verbs go to the caretaker role only (#40)" do
-      caretaker = routine_fixture!("workspace", %{mcp: true})
+      caretaker = routine_fixture!("workspace", %{mcp: true, role: :caretaker})
       caretaker_tools = Custode.Routine.tick_args(caretaker)["start"]["args"]["allowed_tools"]
 
       worker = routine_fixture!("workspace", %{mcp: true, role: :backlog_worker})
