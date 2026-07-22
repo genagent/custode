@@ -145,6 +145,35 @@ dedup disciplines, the doorknob rule, the filing format (conventional
 titles, `upkeep` label, evidence inline), and the #196 orders (no
 background watchers at turn end; synchronous checks with exit codes).
 
+## Tiles: a phone number on one page, a subject on the other
+
+The steward raises "is this a new tile?" The answer differs by page,
+and both answers are already implied by existing decisions:
+
+- **Fleet page: a tile is a phone number** (position 1). The steward
+  is a different phone number from the worker -- different cadence,
+  budget, gate stream, memory -- so it gets its own tile. Merging the
+  pair into one tile would re-blur what this design refuses to merge:
+  whose gate is "needs approval", whose spend is the number.
+- **Repositories page (#193): a tile is the subject.** Worker and
+  steward share the repo tile there, because that page asks "how is
+  this repo doing", not "who is working". The steward's health chip
+  lives on that tile.
+
+The pressure the steward actually creates is fleet-page soup as repos
+gain pairs. The answer is grouping, not merging: a repo's agents sit
+adjacent under a small repo header (the sessions-under-projects move,
+and the meta rail's "a place, not a slot" instinct), with the steward
+tile visually quieter than the worker's -- it is @daily and mostly
+green. Sorting stays activity-based across groups; inside a group the
+pair stays together.
+
+Non-repo routines (quakes, italian, stars) are one-to-one subject and
+agent, so the distinction collapses and nothing changes for them.
+"Tile = subject" and "tile = agent" only diverge when a subject has
+multiple agents, which today means exactly the repos -- which is what
+the repositories page is for.
+
 ## Later: the zero-token battery
 
 Slice-two economics: the battery does not need an LLM at all. Custode
