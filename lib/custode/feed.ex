@@ -207,6 +207,10 @@ defmodule Custode.Feed do
       agent: agent_of(meta),
       directive: out["directive"],
       summary: out["summary"] || String.slice(meta.result.result || "", 0, 160),
+      # An operator-origin turn is conversation, not telemetry (#138): the
+      # full answer persists on the entry so a restart cannot strand it in
+      # process memory. Sweep turns stay summary-only.
+      response: prompt_response(meta),
       cost_usd: Float.round(measurements.cost_usd, 4),
       tokens: usage && usage.total
     })
@@ -376,4 +380,17 @@ defmodule Custode.Feed do
 
   defp agent_of(%{job: %{meta: %{"agent_id" => id}}}), do: id
   defp agent_of(_meta), do: "?"
+
+  # The full response text for an operator-origin turn, nil otherwise.
+  # Capped generously: prompt answers are prose, not payloads, and the cap
+  # only guards against a pathological turn flooding a feed row.
+  @response_cap 16_384
+  defp prompt_response(%{job: %{meta: %{"origin" => "operator"}}, result: result}) do
+    case result.result do
+      text when is_binary(text) and text != "" -> String.slice(text, 0, @response_cap)
+      _other -> nil
+    end
+  end
+
+  defp prompt_response(_meta), do: nil
 end
