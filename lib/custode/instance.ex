@@ -61,11 +61,15 @@ defmodule Custode.Instance do
   @impl GenServer
   def init(opts) do
     key = Keyword.get(opts, :key, @key)
+    mine = Keyword.get(opts, :os_pid, os_pid())
 
     case claim(key, opts) do
       :ok ->
+        # Trap exits so a graceful supervisor `:shutdown` runs terminate/2
+        # instead of killing us outright -- that is where we release the row.
+        Process.flag(:trap_exit, true)
         Process.send_after(self(), :beat, beat_interval_ms(opts))
-        {:ok, %{key: key, opts: opts}}
+        {:ok, %{key: key, os_pid: mine, opts: opts}}
 
       {:error, {:occupied, holder}} ->
         Logger.error(
@@ -83,6 +87,21 @@ defmodule Custode.Instance do
     write(state.key, DateTime.utc_now())
     Process.send_after(self(), :beat, beat_interval_ms(state.opts))
     {:noreply, state}
+  end
+
+  @impl GenServer
+  def terminate(_reason, state) do
+    # Release the row eagerly on a graceful stop so a same-second restart
+    # does not hit our own still-fresh heartbeat and refuse to boot. Guard on
+    # os_pid: if a takeover seized the row while we ran, it now belongs to the
+    # usurper and is not ours to delete. Crash paths skip this and rely on the
+    # heartbeat going stale, which is exactly right.
+    case holder(state.key) do
+      %Row{os_pid: os_pid} when os_pid == state.os_pid -> purge(state.key)
+      _ -> :ok
+    end
+
+    :ok
   end
 
   @doc """

@@ -106,6 +106,38 @@ defmodule Custode.InstanceTest do
       assert %Row{os_pid: "me"} = Instance.holder(key)
       GenServer.stop(pid)
     end
+
+    test "releases the row on graceful stop so a restart claims it immediately",
+         %{key: key} do
+      {:ok, pid} =
+        Instance.start_link(name: nil, key: key, beat_interval_ms: 60_000, os_pid: "me")
+
+      assert %Row{os_pid: "me"} = Instance.holder(key)
+
+      # A normal stop must delete the row, not leave a fresh heartbeat behind.
+      GenServer.stop(pid)
+      assert Instance.holder(key) == nil
+
+      # The next boot claims immediately -- no stale_after wait, no takeover.
+      now = DateTime.utc_now()
+      assert :ok = Instance.claim(key, os_pid: "restart", now: now, stale_after_ms: 30_000)
+      assert %Row{os_pid: "restart"} = Instance.holder(key)
+    end
+
+    test "a takeover victim does not delete its usurper's row on stop", %{key: key} do
+      {:ok, pid} =
+        Instance.start_link(name: nil, key: key, beat_interval_ms: 60_000, os_pid: "me")
+
+      assert %Row{os_pid: "me"} = Instance.holder(key)
+
+      # Someone seizes the row while we still run: it is now theirs, not ours.
+      assert :ok = Instance.claim(key, os_pid: "usurper", takeover: true)
+      assert %Row{os_pid: "usurper"} = Instance.holder(key)
+
+      # Our graceful stop must leave the usurper's row untouched.
+      GenServer.stop(pid)
+      assert %Row{os_pid: "usurper"} = Instance.holder(key)
+    end
   end
 
   defp eventually(fun, attempts \\ 50) do
