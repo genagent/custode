@@ -81,6 +81,24 @@ wants goes through an approval gate; nothing merges without a human.
   executing turns, and the server stops itself; then boot again
 - The feed and each agent's page carry the story; gates are one click
 
+## From the phone (optional)
+
+The dashboard can ride your tailnet without leaving loopback -- tailscale
+proxies it, device membership is the auth boundary:
+
+```sh
+mix phx.gen.secret                      # once; the demo key never leaves localhost
+export CUSTODE_SECRET_KEY_BASE=<that>
+export CUSTODE_PUBLIC_HOST=<machine>.<tailnet>.ts.net
+mix run --no-halt
+tailscale serve --bg http://127.0.0.1:4646
+```
+
+The server refuses to boot with `CUSTODE_PUBLIC_HOST` set but no real
+secret key. Gate approvals, prompts, and the feed all work from the phone;
+ntfy deep links point at the ts.net address automatically. Do NOT use
+`tailscale funnel` (public internet) -- there is no app-level auth yet.
+
 ## Uninstall
 
 Stop the server, delete `$CUSTODE_HOME`, delete the checkout. The worked
