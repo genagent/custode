@@ -61,9 +61,20 @@ defmodule Custode.Policy do
     end
   end
 
-  defp applies?(:all, _routine), do: true
+  @doc """
+  Does a scope bind this routine?
 
-  defp applies?(selectors, routine) when is_list(selectors) do
+  The scope language is `:all` or a selector list (`[tag: :external]`,
+  `[repo: "owner/name"]`, `[role: :backlog_worker]`) where ANY selector
+  matching binds; `[]` therefore binds nothing.
+
+  Public because it is the fleet's one way to say "which routines does this
+  apply to". The ambient-orders gate (#19) scopes itself with this language
+  rather than inventing a second one.
+  """
+  def applies?(:all, _routine), do: true
+
+  def applies?(selectors, routine) when is_list(selectors) do
     Enum.any?(selectors, &selector_match?(&1, routine))
   end
 

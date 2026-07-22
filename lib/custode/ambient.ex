@@ -23,20 +23,67 @@ defmodule Custode.Ambient do
   The first pickup for a routine is journaled once (a paper trail for "why
   did this agent start behaving differently"), guarded by a look at the
   journal itself rather than new state.
+
+  ## The policy gate (#19 slice 2)
+
+  A file in a repository is prompt content, so whoever can land a file in
+  that repository can write into the agent's prompt. For a repo the operator
+  owns that is a feature; for a repo that takes pull requests from strangers
+  it is an injection vector, and a contributor could ship standing orders to
+  the agent by opening a PR.
+
+  So pickup is OPT-IN, scoped with `Custode.Policy`'s selector language under
+  the `:ambient_orders` key:
+
+      config :custode, ambient_orders: [repo: "genagent/custode"]
+
+  Default is `[]`: no routine picks up orders unless the operator said so.
+  Routines tagged `:external` are excluded unconditionally -- even under
+  `:all` -- because "the operator's public surface" is exactly the untrusted
+  case, and an `:all` written for convenience should not quietly re-open it.
+
+  The refusal is silent in the prompt (`render/1` returns `""`), but it is
+  not invisible: `status/1` reports which of the three cases a routine is in,
+  so "why is my orders file being ignored" has an answer.
   """
 
   @relative_path ".custode/orders.md"
   @max_bytes 8_192
   @journal_title "Ambient orders picked up"
+  @excluded_tag :external
 
   @doc "Where a routine's ambient orders would live (the file may not exist)."
   def path(routine), do: routine.working_dir |> Path.expand() |> Path.join(@relative_path)
+
+  @doc """
+  Whether a routine picks up ambient orders at all: `:enabled`,
+  `:not_opted_in` (the default), or `:excluded_external`.
+
+  Exclusion is checked FIRST, so an `:external` routine stays excluded no
+  matter how broad the opt-in is.
+  """
+  def status(routine) do
+    cond do
+      @excluded_tag in routine.tags -> :excluded_external
+      Custode.Policy.applies?(opted_in(), routine) -> :enabled
+      true -> :not_opted_in
+    end
+  end
+
+  @doc "Whether this routine's repo may compose orders into its prompt."
+  def enabled?(routine), do: status(routine) == :enabled
+
+  defp opted_in, do: Application.get_env(:custode, :ambient_orders, [])
 
   @doc """
   A routine's ambient orders, capped and trimmed, or `""` when the file is
   absent, unreadable, or empty. Never raises: this rides inside tick
   composition, so a bad file must cost the routine its ambient orders, not
   its sweep.
+
+  Deliberately UNGATED: this is the file read, and an operator wanting to see
+  what a repo is asking for should be able to, gate or no gate. The gate
+  lives at `render/1`, the one place that reaches a prompt.
   """
   def read(routine) do
     case File.read(path(routine)) do
@@ -46,10 +93,15 @@ defmodule Custode.Ambient do
   end
 
   @doc """
-  The rendered section, appended after the role orders. Journals the first
-  pickup for the routine as a side effect.
+  The rendered section, appended after the role orders, or `""` when the
+  routine is not gated in for pickup or the file yields nothing. Journals the
+  first pickup for the routine as a side effect.
   """
   def render(routine) do
+    if enabled?(routine), do: render_orders(routine), else: ""
+  end
+
+  defp render_orders(routine) do
     case read(routine) do
       "" ->
         ""

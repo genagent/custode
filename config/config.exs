@@ -331,6 +331,14 @@ config :custode, Custode.Repo,
 # The MCP endpoint (localhost only) agents use to drive sibling agents/jobs.
 config :custode, mcp_port: 6161
 
+# Repo-owned ambient orders (#19): which routines may compose their
+# working_dir's .custode/orders.md into the prompt. Scoped with the same
+# selector language as the policies below. A file in a repo is prompt
+# content, so this is opt-in by repo: genagent/custode is the fleet's own
+# repository, where the operator owns every file that lands. Routines tagged
+# :external never pick up orders regardless of what is listed here.
+config :custode, ambient_orders: [repo: "genagent/custode"]
+
 # The policy layer (#50): fleet rules declared once, rendered into every
 # binding agent's prompt AND shown on gate cards at review time. When verb
 # tools (#10) exist, the same declarations back mechanical checks.
