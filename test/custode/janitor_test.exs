@@ -79,6 +79,56 @@ defmodule Custode.JanitorTest do
     assert Enum.any?(Custode.Notebook.todos(routine.id, "all"), &(&1.text == "immortal"))
   end
 
+  test "old ledger detail rolls up into monthly rows; totals survive (#39)" do
+    agent = uid("ledger")
+    :ok = Custode.SpendLedger.record(agent, 1.25, "turn", usage: %{input: 100, output: 50})
+    :ok = Custode.SpendLedger.record(agent, 0.75, "turn", usage: %{input: 60, output: 30})
+    :ok = Custode.SpendLedger.record(agent, 0.10)
+
+    [[id1], [id2]] =
+      Custode.Repo.query!(
+        "SELECT id FROM spend WHERE agent_id = ? ORDER BY id LIMIT 2",
+        [agent]
+      ).rows
+
+    backdate!("spend", id1, "inserted_at", 120)
+    backdate!("spend", id2, "inserted_at", 120)
+
+    :ok = perform!()
+
+    rows =
+      Custode.Repo.query!(
+        "SELECT outcome, cost_usd, input_tokens FROM spend WHERE agent_id = ? ORDER BY id",
+        [agent]
+      ).rows
+
+    # two old rows became one rollup; the fresh row is untouched detail
+    assert [["turn", 0.1, nil], ["rollup", rolled, 160]] = rows
+    assert_in_delta rolled, 2.0, 0.001
+
+    # and the all-time total is preserved through the compaction
+    total = Custode.SpendLedger.total(agent, DateTime.add(DateTime.utc_now(), -365, :day))
+    assert_in_delta total, 2.1, 0.001
+  end
+
+  test "stale uploads age out; fresh ones stay (#39/#180)" do
+    routine = routine_fixture!(tmp_workspace!())
+    uploads = routine.workspace |> Path.expand() |> Path.join("uploads")
+    File.mkdir_p!(uploads)
+
+    old = Path.join(uploads, "old.png")
+    fresh = Path.join(uploads, "fresh.png")
+    File.write!(old, "x")
+    File.write!(fresh, "x")
+    stale_mtime = System.os_time(:second) - 60 * 86_400
+    File.touch!(old, stale_mtime)
+
+    :ok = perform!()
+
+    refute File.exists?(old)
+    assert File.exists?(fresh)
+  end
+
   test "the janitor rides the crontab" do
     assert Enum.any?(Custode.Routine.crontab(), fn {cron, worker, _opts} ->
              cron == "@daily" and worker == Custode.Janitor

@@ -22,7 +22,14 @@ defmodule Custode.Janitor do
 
   alias Custode.Repo
 
-  @defaults [done_todos_days: 30, resolved_gates_days: 90, feed_days: 90, filed_notes_days: 30]
+  @defaults [
+    done_todos_days: 30,
+    resolved_gates_days: 90,
+    feed_days: 90,
+    filed_notes_days: 30,
+    ledger_detail_days: 90,
+    uploads_days: 30
+  ]
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
@@ -32,7 +39,9 @@ defmodule Custode.Janitor do
         {"resolved gates", prune_gates()},
         {"feed entries", prune_feed()},
         {"filed notes", prune_filed_notes()},
-        {"idle sub-agents", reap_subagents()}
+        {"idle sub-agents", reap_subagents()},
+        {"ledger rows rolled up", rollup_ledger()},
+        {"stale uploads", prune_uploads()}
       ]
       |> Enum.reject(fn {_what, count} -> count == 0 end)
 
@@ -106,6 +115,83 @@ defmodule Custode.Janitor do
       date
     else
       _not_filed -> nil
+    end
+  end
+
+  # #39: ledger detail past retention compacts into one rollup row per
+  # (agent, month, model) stamped at the month's first instant, totals
+  # preserved -- today/fleet_today are unaffected (they read the recent
+  # window) and the metrics daily series degrades gracefully to
+  # month-granularity for old data instead of losing the spend entirely.
+  defp rollup_ledger do
+    case retention(:ledger_detail_days) do
+      nil ->
+        0
+
+      days ->
+        cutoff = DateTime.add(DateTime.utc_now(), -days, :day)
+
+        old =
+          Repo.all(
+            from(s in Custode.SpendLedger.Entry,
+              where: s.inserted_at < ^cutoff and s.outcome != "rollup"
+            )
+          )
+
+        old
+        |> Enum.group_by(fn row ->
+          {row.agent_id, row.inserted_at.year, row.inserted_at.month, row.model}
+        end)
+        |> Enum.each(fn {{agent_id, year, month, model}, rows} ->
+          {:ok, at} = DateTime.new(Date.new!(year, month, 1), ~T[00:00:00.000000], "Etc/UTC")
+
+          Repo.insert!(%Custode.SpendLedger.Entry{
+            agent_id: agent_id,
+            cost_usd: rows |> Enum.map(& &1.cost_usd) |> Enum.sum() |> Kernel.*(1.0),
+            outcome: "rollup",
+            input_tokens: sum_field(rows, :input_tokens),
+            output_tokens: sum_field(rows, :output_tokens),
+            cache_creation_tokens: sum_field(rows, :cache_creation_tokens),
+            cache_read_tokens: sum_field(rows, :cache_read_tokens),
+            model: model,
+            inserted_at: at
+          })
+        end)
+
+        ids = Enum.map(old, & &1.id)
+        {count, _} = Repo.delete_all(from(s in Custode.SpendLedger.Entry, where: s.id in ^ids))
+        count
+    end
+  end
+
+  defp sum_field(rows, field) do
+    rows |> Enum.map(&Map.get(&1, field)) |> Enum.reject(&is_nil/1) |> Enum.sum()
+  end
+
+  # #39/#180: content-hashed screenshots under <workspace>/uploads age out
+  # once their turn is long past; the prompt text carries the path, so a
+  # very old feed entry may reference a pruned file -- retention matches
+  # the feed's own story, not forever.
+  defp prune_uploads do
+    case retention(:uploads_days) do
+      nil ->
+        0
+
+      days ->
+        cutoff = System.os_time(:second) - days * 86_400
+
+        Custode.Routine.all()
+        |> Enum.flat_map(fn routine ->
+          routine.workspace |> Path.expand() |> Path.join("uploads/*") |> Path.wildcard()
+        end)
+        |> Enum.count(&stale_upload_removed?(&1, cutoff))
+    end
+  end
+
+  defp stale_upload_removed?(path, cutoff) do
+    case File.stat(path, time: :posix) do
+      {:ok, %{mtime: mtime}} when mtime < cutoff -> File.rm(path) == :ok
+      _fresh_or_gone -> false
     end
   end
 
