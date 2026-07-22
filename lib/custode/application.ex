@@ -11,10 +11,12 @@ defmodule Custode.Application do
 
   use Application
 
+  alias Custode.Feed
+
   @impl Application
   def start(_type, _args) do
     Custode.Observer.attach()
-    Custode.Feed.attach()
+    Feed.Ingest.attach()
     Custode.PubSubBridge.attach()
     Custode.SpendLedger.attach()
     Custode.Gates.attach()

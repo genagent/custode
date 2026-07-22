@@ -1,6 +1,8 @@
 defmodule Custode.Feed do
   @moduledoc """
-  The activity feed: a telemetry sink recording one entry per noteworthy
+  The activity feed STORE (#92 item 5): records in, queries out. Telemetry
+  ingestion lives in `Custode.Feed.Ingest`; human-facing notification
+  dispatch lives in `Custode.Feed.Notify`. One entry per noteworthy
   event. Noteworthy means signal, not spam: finished turns (with the sweep
   report and spend), failed turns, the two gated states (with the
   action/question the agent is blocked on), and pause/resume.
@@ -19,6 +21,7 @@ defmodule Custode.Feed do
 
   import Ecto.Query, only: [from: 2]
 
+  alias Custode.Feed.Notify
   alias Custode.Repo
 
   defmodule Entry do
@@ -34,16 +37,6 @@ defmodule Custode.Feed do
   end
 
   @gate_events ~w(needs_approval needs_input)
-
-  @events [
-    [:oban_claude, :agent, :transition],
-    [:oban_claude, :run, :stop],
-    [:oban_claude, :run, :exception]
-  ]
-
-  def attach do
-    :telemetry.attach_many("custode-feed", @events, &__MODULE__.handle_event/4, nil)
-  end
 
   @doc "The jsonl mirror path (nil disables the mirror)."
   def path, do: Application.get_env(:custode, :feed_path, "feed.jsonl")
@@ -226,120 +219,6 @@ defmodule Custode.Feed do
     })
   end
 
-  # :telemetry DETACHES a handler that raises -- one transient Repo/file
-  # error would silently kill this pipeline until restart (audit
-  # 2026-07-21). Never raise out of a handler.
-  def handle_event(event, measurements, meta, config) do
-    do_handle_event(event, measurements, meta, config)
-  rescue
-    exception ->
-      require Logger
-
-      Logger.error("Custode.Feed handler error (kept attached): " <> Exception.message(exception))
-
-      :ok
-  end
-
-  defp do_handle_event([:oban_claude, :run, :stop], measurements, meta, _config) do
-    out = ObanClaude.structured(meta.result) || %{}
-    usage = ClaudeWrapper.Result.usage(meta.result)
-
-    %{
-      event: "turn",
-      agent: agent_of(meta),
-      directive: out["directive"],
-      summary: out["summary"] || String.slice(meta.result.result || "", 0, 160),
-      # An operator-origin turn is conversation, not telemetry (#138): the
-      # full answer persists on the entry so a restart cannot strand it in
-      # process memory. Sweep turns stay summary-only.
-      response: prompt_response(meta),
-      cost_usd: Float.round(measurements.cost_usd, 4),
-      tokens: usage && usage.total
-    }
-    |> put_touched(out)
-    |> write()
-  end
-
-  defp do_handle_event([:oban_claude, :run, :exception], _measurements, meta, _config) do
-    {kind, detail} = error_facts(meta.error)
-
-    write(%{event: "turn_failed", agent: agent_of(meta), kind: kind, detail: detail},
-      notify: true
-    )
-  end
-
-  defp do_handle_event([:oban_claude, :agent, :transition], _measurements, meta, _config) do
-    # The registry is already synced when transition telemetry fires, so the
-    # gated payload is atomically readable here.
-    case {meta.from, meta.to} do
-      {_from, :awaiting_permission} ->
-        write(%{event: "needs_approval", agent: meta.agent_id, action: gated(meta.agent_id)},
-          notify: true
-        )
-
-      {_from, :waiting_for_user} ->
-        write(%{event: "needs_input", agent: meta.agent_id, question: gated(meta.agent_id)},
-          notify: true
-        )
-
-      {_from, :paused} ->
-        write(%{event: "paused", agent: meta.agent_id})
-
-      {:paused, :idle} ->
-        write(%{event: "resumed", agent: meta.agent_id})
-
-      _other ->
-        :ok
-    end
-  end
-
-  # The schema'd sweep epilogue (#120 slice 2): what the turn touched arrives
-  # as typed arrays, so cards and metrics read fields instead of fishing
-  # numbers out of the prose summary. Absent -- or the wrong type, which a
-  # model can still send past a schema -- means the key does not appear at
-  # all, so an unschema'd turn's entry keeps exactly its old shape.
-  defp put_touched(entry, out) do
-    entry
-    |> maybe_put(:prs, numbers(out["prs"]))
-    |> maybe_put(:issues_touched, numbers(out["issues_touched"]))
-  end
-
-  defp maybe_put(entry, _key, []), do: entry
-  defp maybe_put(entry, key, numbers), do: Map.put(entry, key, numbers)
-
-  defp numbers(values) when is_list(values), do: Enum.filter(values, &is_integer/1)
-  defp numbers(_other), do: []
-
-  # The Error struct carries the actual diagnosis (message/stderr/exit code);
-  # dropping it cost a debugging session (quakes' command_failed). Keep a
-  # bounded slice in the feed entry.
-  defp error_facts(%ClaudeWrapper.Error{} = error) do
-    detail =
-      [
-        error.message,
-        error.stderr && String.slice(error.stderr, 0, 300),
-        error.stdout && String.slice(error.stdout, 0, 300)
-      ]
-      |> Enum.reject(&(&1 in [nil, ""]))
-      |> Enum.join(" -- ")
-
-    detail = if error.exit_code, do: "exit #{error.exit_code}: #{detail}", else: detail
-    {error.kind, presence(detail)}
-  end
-
-  defp error_facts(other), do: {:unknown, presence(inspect(other))}
-
-  defp presence(""), do: nil
-  defp presence(string), do: string
-
-  defp gated(agent_id) do
-    case ObanClaude.Agent.status(agent_id) do
-      {:ok, {:awaiting_permission, %{description: description}}} -> description
-      {:ok, {:waiting_for_user, question}} -> question
-      _other -> nil
-    end
-  end
-
   defp write(entry, opts \\ []) do
     entry = Map.put(entry, :at, DateTime.to_iso8601(DateTime.utc_now()))
     encoded = Jason.encode!(entry)
@@ -349,8 +228,7 @@ defmodule Custode.Feed do
     {:ok, _row} = insert(decoded, encoded)
     mirror(encoded)
     Custode.PubSubBridge.broadcast({:feed_entry, decoded})
-    Custode.Ntfy.publish(decoded)
-    if opts[:notify], do: notify(entry)
+    Notify.dispatch(entry, decoded, notify: opts[:notify])
     :ok
   end
 
@@ -402,72 +280,4 @@ defmodule Custode.Feed do
         File.write!(mirror_path, encoded <> "\n", [:append])
     end
   end
-
-  # Fire-and-forget so a slow notifier never blocks the agent process the
-  # telemetry handler runs in. terminal-notifier (brew) is preferred: clicking
-  # the notification deep-links to the agent's dashboard page, where
-  # osascript's display notification can only focus Script Editor.
-  defp notify(entry) do
-    if Application.get_env(:custode, :desktop_notifications, true) and
-         match?({:unix, :darwin}, :os.type()) do
-      body = entry[:action] || entry[:question] || to_string(entry[:kind] || entry.event)
-      title = "custode: #{entry.agent} #{entry.event}"
-      url = dashboard_url(entry)
-
-      Task.Supervisor.start_child(Custode.TaskSupervisor, fn ->
-        deliver_notification(title, body, url, entry.agent)
-      end)
-    end
-
-    :ok
-  end
-
-  defp deliver_notification(title, body, url, agent) do
-    case System.find_executable("terminal-notifier") do
-      nil ->
-        script =
-          "display notification #{inspect(String.slice(body, 0, 140))} " <>
-            "with title #{inspect(title)} sound name \"Glass\""
-
-        System.cmd("osascript", ["-e", script], stderr_to_stdout: true)
-
-      notifier ->
-        args = [
-          "-title",
-          title,
-          "-message",
-          String.slice(body, 0, 240),
-          "-open",
-          url,
-          "-sound",
-          "Glass",
-          "-group",
-          "custode-#{agent}"
-        ]
-
-        System.cmd(notifier, args, stderr_to_stdout: true)
-    end
-  end
-
-  defp dashboard_url(entry), do: Custode.Ntfy.dashboard_url(entry[:agent])
-
-  defp agent_of(%{job: %{meta: %{"agent_id" => id}}}), do: id
-  defp agent_of(_meta), do: "?"
-
-  # The full response text for an operator-origin turn, nil otherwise.
-  # Capped generously: prompt answers are prose, not payloads, and the cap
-  # only guards against a pathological turn flooding a feed row.
-  @response_cap 16_384
-  defp prompt_response(%{job: %{meta: %{"origin" => "operator"}}, result: result}) do
-    # a schema'd run's raw text IS the directive JSON, and the whole answer
-    # already persists uncapped in the entry's summary -- echoing the blob
-    # here just renders the answer twice, once as escaped JSON (#201)
-    case {ObanClaude.structured(result), result.result} do
-      {%{}, _raw} -> nil
-      {nil, text} when is_binary(text) and text != "" -> String.slice(text, 0, @response_cap)
-      _other -> nil
-    end
-  end
-
-  defp prompt_response(_meta), do: nil
 end
