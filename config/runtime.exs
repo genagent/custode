@@ -6,11 +6,12 @@ import Config
 # serves, exactly the source-repo behavior. Rooted here (not config.exs) so
 # releases work and the merge is the normal runtime one.
 if config_env() != :test do
-  config :custode, Custode.Repo, database: Custode.Home.resolve("custode.db")
+  config :custode, Custode.Repo,
+    database: Custode.Home.resolve_in(&Custode.Home.data_dir/0, "custode.db")
 
   config :custode,
-    mcp_config_dir: Custode.Home.resolve("tmp"),
-    feed_path: Custode.Home.resolve("feed.jsonl")
+    mcp_config_dir: Custode.Home.resolve_in(&Custode.Home.runtime_dir/0, "tmp"),
+    feed_path: Custode.Home.resolve_in(&Custode.Home.data_dir/0, "feed.jsonl")
 
   # routines.toml (#41 / design 001): when a routines file exists it is the
   # whole roster and wins outright over the config.exs lists (D1: never

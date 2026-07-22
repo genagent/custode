@@ -84,6 +84,7 @@ defmodule CustodeWeb.Components do
   @doc "The feed event badge class."
   def feed_badge("turn"), do: "badge-info"
   def feed_badge("advisor_suggestion"), do: "badge-secondary"
+  def feed_badge("prompted"), do: "badge-primary"
   def feed_badge("turn_failed"), do: "badge-error"
   def feed_badge("needs_approval"), do: "badge-warning"
   def feed_badge("needs_input"), do: "badge-accent"
@@ -286,6 +287,10 @@ defmodule CustodeWeb.Components do
     >
       <.markdown text={@entry["response"]} />
     </div>
+    <div
+      :if={@entry["event"] == "prompted" && @entry["prompt"]}
+      class="mt-2 whitespace-pre-wrap rounded border-l-2 border-primary/40 bg-base-200/60 p-2 font-mono text-sm"
+    >{@entry["prompt"]}</div>
     """
   end
 

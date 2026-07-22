@@ -49,7 +49,9 @@ defmodule CustodeWeb.AgentLive do
     else
       # capture the state BEFORE casting: it decides what actually happens
       ack = prompt_ack(socket.assigns.state)
-      Agent.cast_prompt(socket.assigns.id, compose_prompt(socket, text))
+      composed = compose_prompt(socket, text)
+      Agent.cast_prompt(socket.assigns.id, composed)
+      Custode.Feed.record_prompted(socket.assigns.id, composed)
 
       {:noreply,
        socket

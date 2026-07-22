@@ -184,6 +184,23 @@ defmodule Custode.Feed do
   """
   def record(entry, opts \\ []) when is_map(entry), do: write(entry, opts)
 
+  @prompt_cap 2_000
+
+  @doc """
+  The operator prompted an agent (#187): the question lands in the activity
+  at SUBMIT time, so the feed shows it while the turn runs and the durable
+  record pairs question with answer (#138). Agent-to-sub-agent prompting is
+  delegation, not conversation, and stays out of the feed.
+  """
+  def record_prompted(agent_id, text) do
+    write(%{
+      event: "prompted",
+      agent: agent_id,
+      prompt: String.slice(text, 0, @prompt_cap),
+      summary: "operator prompted: " <> String.slice(text, 0, 160)
+    })
+  end
+
   # :telemetry DETACHES a handler that raises -- one transient Repo/file
   # error would silently kill this pipeline until restart (audit
   # 2026-07-21). Never raise out of a handler.
@@ -202,7 +219,7 @@ defmodule Custode.Feed do
     out = ObanClaude.structured(meta.result) || %{}
     usage = ClaudeWrapper.Result.usage(meta.result)
 
-    write(%{
+    %{
       event: "turn",
       agent: agent_of(meta),
       directive: out["directive"],
@@ -213,7 +230,9 @@ defmodule Custode.Feed do
       response: prompt_response(meta),
       cost_usd: Float.round(measurements.cost_usd, 4),
       tokens: usage && usage.total
-    })
+    }
+    |> put_touched(out)
+    |> write()
   end
 
   defp do_handle_event([:oban_claude, :run, :exception], _measurements, meta, _config) do
@@ -248,6 +267,23 @@ defmodule Custode.Feed do
         :ok
     end
   end
+
+  # The schema'd sweep epilogue (#120 slice 2): what the turn touched arrives
+  # as typed arrays, so cards and metrics read fields instead of fishing
+  # numbers out of the prose summary. Absent -- or the wrong type, which a
+  # model can still send past a schema -- means the key does not appear at
+  # all, so an unschema'd turn's entry keeps exactly its old shape.
+  defp put_touched(entry, out) do
+    entry
+    |> maybe_put(:prs, numbers(out["prs"]))
+    |> maybe_put(:issues_touched, numbers(out["issues_touched"]))
+  end
+
+  defp maybe_put(entry, _key, []), do: entry
+  defp maybe_put(entry, key, numbers), do: Map.put(entry, key, numbers)
+
+  defp numbers(values) when is_list(values), do: Enum.filter(values, &is_integer/1)
+  defp numbers(_other), do: []
 
   # The Error struct carries the actual diagnosis (message/stderr/exit code);
   # dropping it cost a debugging session (quakes' command_failed). Keep a

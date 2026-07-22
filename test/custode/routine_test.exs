@@ -160,6 +160,21 @@ defmodule Custode.RoutineTest do
       refute Map.has_key?(claude_args, "permission_mode")
       assert is_binary(claude_args["json_schema"])
       assert claude_args["json_schema"] =~ "request_permission"
+
+      # the schema'd epilogue (#120 slice 2): what the sweep touched arrives
+      # as optional integer arrays, so nothing has to parse the summary
+      schema = Jason.decode!(claude_args["json_schema"])
+
+      assert schema["properties"]["prs"] == %{
+               "type" => "array",
+               "items" => %{"type" => "integer"},
+               "description" => "PR numbers this sweep opened, pushed to, or acted on"
+             }
+
+      assert schema["properties"]["issues_touched"]["type"] == "array"
+      assert schema["properties"]["issues_touched"]["items"] == %{"type" => "integer"}
+      # a sweep that touched nothing must still validate
+      assert schema["required"] == ["directive", "summary"]
       assert claude_args["append_system_prompt"] =~ "caretaker"
       assert claude_args["append_system_prompt"] =~ routine.id
       assert claude_args["append_system_prompt"] =~ "inbox_list"
@@ -304,13 +319,16 @@ defmodule Custode.RoutineTest do
       ])
 
       crontab = Custode.Routine.crontab()
-      # one sensor + the always-on janitor + the always-on cadence advisor
-      # (#125) -- routine firing moved to Custode.Scheduler (#142), so no
-      # routine ticks ride the static crontab
-      assert length(crontab) == 3
+      # one sensor + the always-on janitor + the three always-on advisors
+      # (#125's trio) -- routine firing moved to Custode.Scheduler (#142),
+      # so no routine ticks ride the static crontab
+      assert length(crontab) == 5
       refute Enum.any?(crontab, &(elem(&1, 1) == Custode.RoutineTick))
       refute Enum.any?(crontab, &(elem(&1, 1) == ObanClaude.Agent.Tick))
-      assert Enum.any?(crontab, &(elem(&1, 1) == Custode.Advisors.Cadence))
+
+      for advisor <- [Custode.Advisors.Cadence, Custode.Advisors.Model, Custode.Advisors.Budget] do
+        assert Enum.any?(crontab, &(elem(&1, 1) == advisor))
+      end
 
       assert [{"*/30 * * * *", Custode.Sensors.ContributorSearch, sensor_opts}] =
                Enum.filter(crontab, &(elem(&1, 1) == Custode.Sensors.ContributorSearch))

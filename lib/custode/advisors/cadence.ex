@@ -18,8 +18,13 @@ defmodule Custode.Advisors.Cadence do
     * BACK OFF: a sub-daily cron whose utilization over >= 20 sweeps is
       under 10% suggests `@daily` -- the fleet's own night-watch judgment
       (#140, tower-mcp) turned into a rule.
-    * (ramp-up rules wait for #124's backlog-size input; suggesting faster
-      cadence needs demand evidence, not just supply)
+    * RAMP UP (#124's demand half): an @daily repo routine whose sweeps
+      mostly yield AND whose served repo carries a real open backlog gets a
+      faster cron -- windowed to the operator's observed active hours, so
+      the ramp lives inside one static expression (gates resolve when the
+      human is around; proposing outside those hours just parks agents).
+      Demand reads through the scoped repo read verbs; a repo that cannot
+      be read simply produces no suggestion.
 
   The suggestion key encodes the rounded utilization bucket, so a dismissed
   suggestion returns only when the facts materially change.
@@ -32,6 +37,9 @@ defmodule Custode.Advisors.Cadence do
   @window_days 7
   @min_sweeps 20
   @low_utilization 0.10
+  @rampup_min_sweeps 5
+  @rampup_utilization 0.60
+  @rampup_min_backlog 5
 
   @impl Custode.Advisor
   def observe do
@@ -66,6 +74,7 @@ defmodule Custode.Advisors.Cadence do
       %{
         routine_id: routine.id,
         cron: routine.cron,
+        repo: routine.repo,
         sweeps: sweeps,
         yields: yields,
         utilization: if(sweeps > 0, do: yields / sweeps, else: 0.0)
@@ -75,22 +84,98 @@ defmodule Custode.Advisors.Cadence do
 
   @impl Custode.Advisor
   def suggest(observations) do
-    for obs <- observations,
-        obs.sweeps >= @min_sweeps,
-        sub_daily?(obs.cron),
-        obs.utilization < @low_utilization do
-      %{
-        routine_id: obs.routine_id,
-        field: :cron,
-        current: obs.cron,
-        proposed: "@daily",
-        confidence: confidence(obs),
-        evidence:
-          "#{obs.yields} of #{obs.sweeps} sweeps produced a gate or verb over " <>
-            "#{@window_days}d (#{percent(obs.utilization)}); the cadence is buying no-ops"
-      }
+    back_offs =
+      for obs <- observations,
+          obs.sweeps >= @min_sweeps,
+          sub_daily?(obs.cron),
+          obs.utilization < @low_utilization do
+        %{
+          routine_id: obs.routine_id,
+          field: :cron,
+          current: obs.cron,
+          proposed: "@daily",
+          confidence: confidence(obs),
+          evidence:
+            "#{obs.yields} of #{obs.sweeps} sweeps produced a gate or verb over " <>
+              "#{@window_days}d (#{percent(obs.utilization)}); the cadence is buying no-ops"
+        }
+      end
+
+    window = operator_hours()
+
+    ramp_ups =
+      for obs <- observations,
+          not sub_daily?(obs.cron),
+          obs.sweeps >= @rampup_min_sweeps,
+          obs.utilization >= @rampup_utilization,
+          backlog = backlog_size(obs.repo),
+          backlog >= @rampup_min_backlog do
+        %{
+          routine_id: obs.routine_id,
+          field: :cron,
+          current: obs.cron,
+          proposed: "*/30 #{window} * * *",
+          confidence: :medium,
+          evidence:
+            "#{obs.yields} of #{obs.sweeps} daily sweeps yielded (#{percent(obs.utilization)}) " <>
+              "and #{backlog} issues wait in the backlog; windowed to the operator's " <>
+              "observed active hours (#{window}) so proposals do not park overnight"
+        }
+      end
+
+    back_offs ++ ramp_ups
+  end
+
+  # Demand through the scoped read verb; anything short of an answer means
+  # no demand evidence and therefore no suggestion. Deterministic in the
+  # advisor sense: one HTTP read, zero tokens.
+  defp backlog_size(nil), do: 0
+
+  defp backlog_size(repo) do
+    case Custode.Repository.list_issues(repo) do
+      {:ok, issues} -> length(issues)
+      _unreadable -> 0
+    end
+  rescue
+    _error -> 0
+  catch
+    :exit, _reason -> 0
+  end
+
+  # The operator's active hours, learned from when gates actually get
+  # resolved (local tz, 14 days), padded an hour each side; a sparse
+  # history falls back to 9-18.
+  defp operator_hours do
+    tz = Application.get_env(:custode, :timezone, "Etc/UTC")
+
+    hours =
+      Custode.Repo.all(
+        Ecto.Query.from(g in "gates",
+          where: g.status != "open",
+          select: g.updated_at,
+          limit: 200,
+          order_by: [desc: g.updated_at]
+        )
+      )
+      |> Enum.flat_map(fn stamp -> resolved_hour(stamp, tz) end)
+
+    if length(hours) >= 5 do
+      "#{max(Enum.min(hours) - 1, 0)}-#{min(Enum.max(hours) + 1, 23)}"
+    else
+      "9-18"
     end
   end
+
+  defp resolved_hour(%NaiveDateTime{} = naive, tz) do
+    case DateTime.from_naive(naive, "Etc/UTC") do
+      {:ok, utc} -> [DateTime.shift_zone!(utc, tz).hour]
+      _error -> []
+    end
+  rescue
+    _error -> []
+  end
+
+  defp resolved_hour(_other, _tz), do: []
 
   @impl Custode.Advisor
   def key(suggestion) do

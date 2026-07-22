@@ -80,7 +80,11 @@ defmodule Custode.Routine do
 
     # advisors (#125) ride the same static lane as the janitor: always-on,
     # deterministic, zero tokens -- one daily look at the fleet's economics
-    advisor_entries = [{"@daily", Custode.Advisors.Cadence, args: %{}, queue: :sensors}]
+    advisor_entries = [
+      {"@daily", Custode.Advisors.Cadence, args: %{}, queue: :sensors},
+      {"@daily", Custode.Advisors.Model, args: %{}, queue: :sensors},
+      {"@daily", Custode.Advisors.Budget, args: %{}, queue: :sensors}
+    ]
 
     sensor_entries ++ janitor_entries ++ advisor_entries
   end
@@ -292,8 +296,12 @@ defmodule Custode.Routine do
       # caretaker; a repo caretaker runs at the repo root while its notebook
       # lives in a subdirectory. Relative paths root under Custode.Home
       # (#41 slice 5): cwd in source-repo mode, $CUSTODE_HOME installed.
-      workspace: Custode.Home.resolve(workspace),
-      working_dir: Custode.Home.resolve(Map.get(routine, :working_dir, workspace)),
+      workspace: Custode.Home.resolve_in(&Custode.Home.data_dir/0, workspace),
+      working_dir:
+        Custode.Home.resolve_in(
+          &Custode.Home.data_dir/0,
+          Map.get(routine, :working_dir, workspace)
+        ),
       prompt: Map.fetch!(routine, :prompt),
       role: role,
       model: Map.get(routine, :model, Application.fetch_env!(:custode, :model)),
@@ -369,7 +377,21 @@ defmodule Custode.Routine do
         directive: %{type: "string", enum: ["none", "ask_user", "request_permission"]},
         summary: %{type: "string", description: "one-line sweep report"},
         question: %{type: "string", description: "set when directive=ask_user"},
-        action: %{type: "string", description: "set when directive=request_permission"}
+        action: %{type: "string", description: "set when directive=request_permission"},
+        # The schema'd epilogue (#120 slice 2): what the sweep touched, as
+        # numbers rather than prose, so the feed and metrics read fields
+        # instead of parsing the summary. Both stay optional -- a sweep that
+        # touched nothing omits them.
+        prs: %{
+          type: "array",
+          items: %{type: "integer"},
+          description: "PR numbers this sweep opened, pushed to, or acted on"
+        },
+        issues_touched: %{
+          type: "array",
+          items: %{type: "integer"},
+          description: "issue numbers this sweep worked, commented on, or judged"
+        }
       }
     })
   end
