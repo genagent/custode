@@ -207,14 +207,14 @@ defmodule CustodeWeb.AgentLive do
       <div :if={match?({:waiting_for_user, _}, @status)} class="alert alert-info mb-4">
         <div class="w-full">
           <p class="font-semibold">asks: {elem(@status, 1)}</p>
-          <form phx-submit="prompt" class="mt-2 flex gap-2">
-            <input
-              type="text"
+          <form phx-submit="prompt" class="mt-2 flex items-end gap-2">
+            <textarea
               name="text"
+              rows="2"
               placeholder="your answer..."
-              class="input input-sm input-bordered flex-1"
+              class="textarea textarea-bordered textarea-sm flex-1 resize-y"
               autocomplete="off"
-            />
+            ></textarea>
             <button class="btn btn-primary btn-sm">answer</button>
           </form>
         </div>
@@ -223,16 +223,16 @@ defmodule CustodeWeb.AgentLive do
       <form
         :if={@state not in [:offline, :ended, :paused]}
         phx-submit="prompt"
-        class="mb-1 flex gap-2"
+        class="mb-1 flex items-end gap-2"
         id={"prompt-form-#{@prompt_gen}"}
       >
-        <input
-          type="text"
+        <textarea
           name="text"
+          rows="2"
           placeholder={"prompt #{@id}..."}
-          class="input input-sm input-bordered flex-1 font-mono"
+          class="textarea textarea-bordered textarea-sm flex-1 resize-y font-mono"
           autocomplete="off"
-        />
+        ></textarea>
         <button class="btn btn-primary btn-sm">
           {if @state == :running, do: "queue", else: "send"}
         </button>
