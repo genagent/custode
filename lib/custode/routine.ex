@@ -253,6 +253,13 @@ defmodule Custode.Routine do
 
   defp mcp_allowlist(_role), do: Enum.map(@worker_mcp_tools, &("mcp__custode__" <> &1))
 
+  @doc """
+  Normalize a single raw entry outside the roster -- the validation seam for
+  config write-back (design 001 slice 2): an entry that survives this will
+  survive the roster. Raises on a broken entry, exactly like boot would.
+  """
+  def normalize_entry(routine), do: normalize(routine)
+
   defp normalize(routine) do
     routine = apply_profile(routine)
     id = Map.fetch!(routine, :id)
