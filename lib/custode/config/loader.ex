@@ -11,7 +11,8 @@ defmodule Custode.Config.Loader do
   Resolution order for the file path:
 
     1. `$CUSTODE_CONFIG` (explicit, wins)
-    2. `./routines.toml` (the cwd default)
+    2. `routines.toml` under `Custode.Home.root/0` (the cwd in source-repo
+       mode, `$CUSTODE_HOME` in installed mode)
 
   `runtime.exs` calls `load/0` at boot and applies the roster via `config/2`;
   `load!/0` is the runtime-reload flavor (put_env on the live app) that the
@@ -126,7 +127,7 @@ defmodule Custode.Config.Loader do
   def target_path do
     case System.get_env("CUSTODE_CONFIG") do
       path when is_binary(path) and path != "" -> path
-      _unset -> "routines.toml"
+      _unset -> Custode.Home.resolve("routines.toml")
     end
   end
 
@@ -139,7 +140,8 @@ defmodule Custode.Config.Loader do
           else: raise("CUSTODE_CONFIG points at #{path}, not found")
 
       _unset ->
-        if File.exists?("routines.toml"), do: "routines.toml"
+        default = Custode.Home.resolve("routines.toml")
+        if File.exists?(default), do: default
     end
   end
 

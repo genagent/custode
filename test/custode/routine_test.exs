@@ -120,7 +120,9 @@ defmodule Custode.RoutineTest do
 
     test "workspace defaults to workspaces/<id> when omitted" do
       put_env!(:routines, [%{id: "ws-less", cron: :manual, prompt: "x"}])
-      assert Custode.Routine.get("ws-less").workspace == "workspaces/ws-less"
+
+      assert Custode.Routine.get("ws-less").workspace ==
+               Custode.Home.resolve("workspaces/ws-less")
     end
 
     test "get/1 finds by id; default/0 is the first entry" do
@@ -239,11 +241,12 @@ defmodule Custode.RoutineTest do
 
     test "working_dir defaults to workspace, and splits when given" do
       plain = routine_fixture!("workspace")
-      assert plain.working_dir == "workspace"
+      # normalize roots relative paths under Custode.Home (cwd in source mode)
+      assert plain.working_dir == Custode.Home.resolve("workspace")
 
       dev = dev_fixture!()
-      assert dev.workspace == "workspace"
-      assert dev.working_dir == "."
+      assert dev.workspace == Custode.Home.resolve("workspace")
+      assert dev.working_dir == Custode.Home.resolve(".")
 
       claude_args = Custode.Routine.tick_args(dev)["start"]["args"]
       assert claude_args["working_dir"] == Path.expand(".")

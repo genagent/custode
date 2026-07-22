@@ -22,6 +22,11 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.Tools.RejectAction, name: "reject_action")
   component(Custode.MCP.Tools.RunJob, name: "run_job")
 
+  # roster mutation (#75 / design 001 slice 3): preview is free, the write is
+  # caller-guarded inside the tool
+  component(Custode.MCP.RosterTools.PreviewRoutine, name: "preview_routine")
+  component(Custode.MCP.RosterTools.AddRoutine, name: "add_routine")
+
   # the repo verbs (issue #10): typed, policy-checked GitHub writes
   component(Custode.MCP.RepoTools.OpenPr, name: "repo_open_pr")
   component(Custode.MCP.RepoTools.Comment, name: "repo_comment")
