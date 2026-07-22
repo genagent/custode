@@ -32,6 +32,7 @@ defmodule CustodeWeb.Components do
       <div class="card-body p-3 text-sm">
         <div class="flex items-center gap-2">
           <span class={["badge badge-sm", feed_badge(@entry["event"])]}>{@entry["event"]}</span>
+          <.resolved_chip entry={@entry} />
           <span class="font-mono text-xs text-base-content/60">
             <.ago at={@entry["at"]} />
             <.link
@@ -84,6 +85,38 @@ defmodule CustodeWeb.Components do
 
   defp agent_linkable?(agent), do: is_binary(agent) and agent not in ["", "?"]
 
+  attr(:entry, :map, required: true)
+
+  @doc "The worked-it chip on gate cards: what happened, and how long it waited."
+  def resolved_chip(assigns) do
+    ~H"""
+    <span
+      :if={@entry["resolved"]}
+      class={[
+        "badge badge-xs gap-1",
+        (@entry["resolved"] == "rejected" && "badge-ghost") || "badge-success badge-outline"
+      ]}
+      title={@entry["resolved_at"]}
+    >
+      {if @entry["resolved"] == "rejected", do: "✗", else: "✓"} {@entry["resolved"]}
+      <span :if={wait_minutes(@entry)} class="opacity-60">after {wait_minutes(@entry)}m</span>
+    </span>
+    """
+  end
+
+  defp wait_minutes(%{"at" => at, "resolved_at" => resolved_at})
+       when is_binary(at) and is_binary(resolved_at) do
+    with {:ok, opened, _o1} <- DateTime.from_iso8601(at),
+         {:ok, closed, _o2} <- DateTime.from_iso8601(resolved_at) do
+      minutes = div(DateTime.diff(closed, opened), 60)
+      if minutes > 0, do: minutes
+    else
+      _bad -> nil
+    end
+  end
+
+  defp wait_minutes(_entry), do: nil
+
   @doc "Budget progress color: calm until 60%, warning to 90%, error past."
   def budget_progress_class(spend, budget) when is_number(spend) and is_number(budget) do
     cond do
@@ -132,6 +165,7 @@ defmodule CustodeWeb.Components do
       <div class="timeline-end timeline-box mb-2 w-full bg-base-100 text-sm">
         <div class="mb-1 flex items-center gap-2">
           <span class={["badge badge-xs", feed_badge(@entry["event"])]}>{@entry["event"]}</span>
+          <.resolved_chip entry={@entry} />
           <span :if={@entry["cost_usd"]} class="ml-auto font-mono text-xs text-base-content/50">
             ${usd(@entry["cost_usd"])}<span :if={@entry["tokens"]}> &middot; {tok(@entry["tokens"])}</span>
           </span>

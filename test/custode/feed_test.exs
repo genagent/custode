@@ -117,6 +117,44 @@ defmodule Custode.FeedTest do
     assert [%{"event" => "quiet"}] = Custode.Feed.for_agent(agent)
   end
 
+  test "gate cards get resolved-in-place chips when worked (approve/reject/answer)" do
+    import ObanClaude.Testing
+    id = start_stub_agent!()
+
+    :processing = Agent.submit_prompt(id, "go")
+
+    :ok =
+      Agent.job_finished(
+        id,
+        {:ok, structured_result(%{"directive" => "request_permission", "action" => "do it"})}
+      )
+
+    {:ok, {:awaiting_permission, action}} = Agent.await(id, :awaiting_permission, 1_000)
+    :processing = Agent.approve_action(id, action.id)
+    {:ok, :running} = Agent.await(id, :running, 1_000)
+
+    assert [card] =
+             Custode.Feed.for_agent(id) |> Enum.filter(&(&1["event"] == "needs_approval"))
+
+    assert card["resolved"] == "approved"
+    assert is_binary(card["resolved_at"])
+
+    # the continuation asks a question; answering marks THAT card, the
+    # already-resolved one stays untouched
+    :ok =
+      Agent.job_finished(
+        id,
+        {:ok, structured_result(%{"directive" => "ask_user", "question" => "which?"})}
+      )
+
+    {:ok, {:waiting_for_user, _q}} = Agent.await(id, :waiting_for_user, 1_000)
+    :ok = Agent.cast_prompt(id, "that one")
+    {:ok, :running} = Agent.await(id, :running, 1_000)
+
+    assert [question] = Custode.Feed.for_agent(id) |> Enum.filter(&(&1["event"] == "needs_input"))
+    assert question["resolved"] == "answered"
+  end
+
   test "last_message/2 hides resolved gate events, shows live ones" do
     Custode.Feed.record(%{event: "turn", agent: "lm", summary: "did work"})
     Custode.Feed.record(%{event: "needs_approval", agent: "lm", action: "old gate"})

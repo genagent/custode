@@ -61,10 +61,21 @@ defmodule Custode.Gates do
   end
 
   defp do_handle_event([:oban_claude, :agent, :transition], _measurements, meta, _config) do
-    if meta.from in @gated, do: resolve_open(meta.agent_id)
+    if meta.from in @gated do
+      resolve_open(meta.agent_id)
+      Custode.Feed.mark_gate_resolved(meta.agent_id, resolution(meta.from, meta.to))
+    end
+
     if meta.to in @gated, do: open(meta.agent_id, meta.to)
     :ok
   end
+
+  # what actually happened to the gated item, for the feed card's chip
+  defp resolution(:awaiting_permission, :running), do: "approved"
+  defp resolution(:awaiting_permission, :idle), do: "rejected"
+  defp resolution(:waiting_for_user, _to), do: "answered"
+  defp resolution(_from, :paused), do: "cleared by pause"
+  defp resolution(_from, _to), do: "resolved"
 
   @doc "Open gates for an agent."
   def open_gates(agent_id) do
