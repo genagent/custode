@@ -128,11 +128,15 @@ defmodule CustodeWeb.Components do
   slot(:inner_block, required: true)
   attr(:fleet_today, :float, required: true)
   attr(:active, :atom, default: :fleet)
+  attr(:readouts, :boolean, default: true)
 
-  @doc "The shared page chrome: header with nav, the attention chip, the fleet spend."
+  @doc """
+  The shared page chrome: header with nav, the attention chip, the fleet spend.
+
+  `readouts={false}` leaves the header plain because the page carries the
+  fleet-level readouts itself -- the fleet page's meta rail (#178) owns them.
+  """
   def page(assigns) do
-    assigns = assign(assigns, :attention, attention())
-
     ~H"""
     <div class="mx-auto max-w-7xl p-6">
       <header class="mb-6 flex items-baseline gap-4">
@@ -142,15 +146,26 @@ defmodule CustodeWeb.Components do
           <.link navigate="/feed" class={nav_class(@active == :feed)}>feed</.link>
           <.link navigate="/metrics" class={nav_class(@active == :metrics)}>metrics</.link>
         </nav>
-        <.link :if={@attention != []} navigate="/" class="badge badge-warning gap-1">
-          {attention_text(@attention)}
-        </.link>
-        <span class="ml-auto font-mono text-sm text-base-content/70">
+        <.attention_chip :if={@readouts} />
+        <span :if={@readouts} class="ml-auto font-mono text-sm text-base-content/70">
           fleet today ${usd(@fleet_today)}
         </span>
       </header>
       {render_slot(@inner_block)}
     </div>
+    """
+  end
+
+  attr(:class, :string, default: nil)
+
+  @doc "Who is waiting on a human, or nothing at all when the fleet is calm."
+  def attention_chip(assigns) do
+    assigns = assign(assigns, :attention, attention())
+
+    ~H"""
+    <.link :if={@attention != []} navigate="/" class={["badge badge-warning gap-1", @class]}>
+      {attention_text(@attention)}
+    </.link>
     """
   end
 

@@ -298,6 +298,112 @@ defmodule CustodeWeb.FleetLiveBrakeTest do
   end
 end
 
+defmodule CustodeWeb.FleetMetaRailTest do
+  # The caretaker's rail (#178): the meta agent has a place, not a slot, and
+  # the fleet-level readouts moved out of the shared header into it.
+  use ExUnit.Case, async: false
+
+  import Custode.TestHelpers
+  import Phoenix.ConnTest
+  import Phoenix.LiveViewTest
+
+  alias ObanClaude.Agent
+
+  @endpoint CustodeWeb.Endpoint
+
+  setup do
+    path = Path.join(System.tmp_dir!(), uid("lv-rail") <> ".jsonl")
+    put_env!(:feed_path, path)
+    on_exit(fn -> File.rm(path) end)
+    :ok
+  end
+
+  test "a :meta routine renders in the rail regardless of activity; workers never do" do
+    workspace = tmp_workspace!()
+    caretaker = uid("caretaker")
+    worker = uid("worker")
+
+    put_env!(:routines, [
+      %{id: caretaker, cron: "@daily", workspace: workspace, prompt: "tend", tags: [:meta]},
+      %{id: worker, cron: "@daily", workspace: workspace, prompt: "sweep", tags: [:repo]}
+    ])
+
+    # the worker is the only agent with any activity at all, so the activity
+    # sort would have buried the quiet caretaker at the bottom of the grid
+    Custode.Feed.record(%{event: "turn", agent: worker, summary: "fresh news"})
+
+    {:ok, view, html} = live(build_conn(), "/")
+
+    assert has_element?(view, "#meta-rail #tile-#{caretaker}")
+    refute has_element?(view, ".grid #tile-#{caretaker}")
+
+    assert has_element?(view, ".grid #tile-#{worker}")
+    refute has_element?(view, "#meta-rail #tile-#{worker}")
+    assert html =~ "fresh news"
+
+    # the chips filter the grid, so :meta is not offered as one, and a filter
+    # that empties the grid still leaves the caretaker in place
+    refute has_element?(view, "button[phx-value-tag=meta]")
+    html = view |> element("button[phx-value-tag=repo]") |> render_click()
+    assert html =~ "tile-#{caretaker}"
+  end
+
+  test "the fleet spend readout lives in the rail, not the header" do
+    workspace = tmp_workspace!()
+    put_env!(:routines, [%{id: uid("worker"), cron: "@daily", workspace: workspace, prompt: "s"}])
+
+    {:ok, view, _html} = live(build_conn(), "/")
+
+    assert has_element?(view, "#meta-rail", "fleet today")
+    refute has_element?(view, "header", "fleet today")
+
+    # the rail still renders without a :meta routine -- it holds the readouts
+    assert has_element?(view, "#meta-rail", "no :meta agent configured")
+
+    # other pages keep the readouts in their header
+    {:ok, feed_view, _html} = live(build_conn(), "/feed")
+    assert has_element?(feed_view, "header", "fleet today")
+  end
+
+  test "the needs-attention chip moved into the rail with the rest of the readouts" do
+    workspace = tmp_workspace!()
+    gated = uid("gated")
+    put_env!(:routines, [%{id: gated, cron: "@daily", workspace: workspace, prompt: "s"}])
+
+    test_pid = self()
+
+    {:ok, _pid} =
+      Agent.start_agent(gated,
+        enqueue_fun: fn args, meta ->
+          send(test_pid, {:enqueued, args, meta})
+          {:ok, :queued}
+        end
+      )
+
+    on_exit(fn -> Agent.stop_agent(gated) end)
+
+    :processing = Agent.submit_prompt(gated, "gated work")
+    assert_receive {:enqueued, _args, _meta}
+
+    :ok =
+      Agent.job_finished(
+        gated,
+        {:ok,
+         ObanClaude.Testing.structured_result(%{
+           "directive" => "request_permission",
+           "action" => "act"
+         })}
+      )
+
+    {:ok, {:awaiting_permission, _action}} = Agent.await(gated, :awaiting_permission, 1_000)
+
+    {:ok, view, _html} = live(build_conn(), "/")
+
+    assert has_element?(view, "#meta-rail .badge-warning", "#{gated} needs approval")
+    refute has_element?(view, "header .badge-warning")
+  end
+end
+
 defmodule CustodeWeb.FleetLiveNewAgentTest do
   # The dashboard new-agent form (#75 / design 001 slice 4): human authority
   # driving WriteBack -- live TOML preview, then file + roster in one submit.
