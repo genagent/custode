@@ -54,6 +54,7 @@ defmodule Custode.WorktreeBreadcrumb do
   defp record(phase, agent_id, name, working_dir) do
     path = worktree_path(name, working_dir)
     {sha, branch} = git_state(path)
+    {added, removed} = diffstat(path)
 
     Custode.Feed.record(%{
       event: "worktree_state",
@@ -62,6 +63,8 @@ defmodule Custode.WorktreeBreadcrumb do
       worktree: path,
       sha: sha,
       branch: branch,
+      added: added,
+      removed: removed,
       summary: "worktree #{name} at #{to_string(phase)}: #{branch}@#{String.slice(sha, 0, 10)}"
     })
   end
@@ -79,6 +82,64 @@ defmodule Custode.WorktreeBreadcrumb do
       {git(path, ["rev-parse", "HEAD"]), git(path, ["rev-parse", "--abbrev-ref", "HEAD"])}
     else
       {"absent", "absent"}
+    end
+  end
+
+  # Uncommitted work-in-flight, as insertions/deletions across tracked and
+  # untracked files (#211: the desktop app's "+149 -0" bar). `git diff
+  # --shortstat HEAD` alone misses new files, so untracked lines are counted
+  # separately and added in. Absent/unreadable trees report {0, 0}.
+  defp diffstat(path) do
+    if File.dir?(path) do
+      {tracked_add, tracked_del} = shortstat(path)
+      {tracked_add + untracked_lines(path), tracked_del}
+    else
+      {0, 0}
+    end
+  end
+
+  defp shortstat(path) do
+    case System.cmd("git", ["-C", path, "diff", "--numstat", "HEAD"], stderr_to_stdout: true) do
+      {out, 0} -> out |> String.split("\n", trim: true) |> Enum.reduce({0, 0}, &numstat_line/2)
+      {_out, _nonzero} -> {0, 0}
+    end
+  end
+
+  defp numstat_line(line, {add, del}) do
+    case String.split(line, "\t") do
+      [a, d | _] -> {add + to_int(a), del + to_int(d)}
+      _other -> {add, del}
+    end
+  end
+
+  # untracked files count entirely as additions
+  defp untracked_lines(path) do
+    case System.cmd(
+           "git",
+           ["-C", path, "ls-files", "--others", "--exclude-standard"],
+           stderr_to_stdout: true
+         ) do
+      {out, 0} ->
+        out
+        |> String.split("\n", trim: true)
+        |> Enum.reduce(0, fn file, acc -> acc + file_lines(path, file) end)
+
+      {_out, _nonzero} ->
+        0
+    end
+  end
+
+  defp file_lines(path, file) do
+    case File.read(Path.join(path, file)) do
+      {:ok, content} -> content |> String.split("\n") |> length()
+      {:error, _reason} -> 0
+    end
+  end
+
+  defp to_int(str) do
+    case Integer.parse(str) do
+      {n, _rest} -> n
+      :error -> 0
     end
   end
 
