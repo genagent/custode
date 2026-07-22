@@ -61,6 +61,31 @@ defmodule Custode.Feed do
     from(f in Entry, where: f.agent == ^agent_id, order_by: [desc: f.id], limit: ^n) |> load()
   end
 
+  @doc """
+  The most recent entries for one event name, NEWEST FIRST (#178).
+
+  Cards, not a timeline: the freshest entry belongs at the top, which is why
+  this is the one read that does not reverse into chronological order.
+
+  Options:
+
+    * `:limit` -- how many entries (default 10)
+    * `:agent` -- only this agent's entries (the whole fleet's by default)
+    * `:since` -- only entries newer than this many seconds ago
+
+  """
+  def recent_by_event(event, opts \\ []) do
+    from(f in Entry,
+      where: f.event == ^event,
+      order_by: [desc: f.id],
+      limit: ^Keyword.get(opts, :limit, 10)
+    )
+    |> scope_agent(opts[:agent])
+    |> scope_since(opts[:since])
+    |> Repo.all()
+    |> Enum.map(&Jason.decode!(&1.entry))
+  end
+
   @doc "Distinct agent ids that have any feed entry, sorted (feed filter, #21)."
   def agents do
     Repo.all(
@@ -346,6 +371,16 @@ defmodule Custode.Feed do
 
   defp load(query) do
     query |> Repo.all() |> Enum.reverse() |> Enum.map(&Jason.decode!(&1.entry))
+  end
+
+  defp scope_agent(query, nil), do: query
+  defp scope_agent(query, agent), do: from(f in query, where: f.agent == ^agent)
+
+  defp scope_since(query, nil), do: query
+
+  defp scope_since(query, seconds) do
+    cutoff = DateTime.add(DateTime.utc_now(), -seconds)
+    from(f in query, where: f.at > ^cutoff)
   end
 
   defp mirror(encoded) do

@@ -81,6 +81,9 @@ defmodule Custode.Advisor do
         current: to_string(suggestion.current),
         proposed: to_string(suggestion.proposed),
         confidence: to_string(suggestion.confidence),
+        # a field of its own, not just prose inside the summary: the rail's
+        # cards (#178) show the reasoning without parsing a sentence apart
+        evidence: to_string(suggestion.evidence),
         summary:
           "#{advisor_id} suggests #{suggestion[:routine_id]}: #{suggestion.field} " <>
             "#{suggestion.current} -> #{suggestion.proposed} -- #{suggestion.evidence}"
