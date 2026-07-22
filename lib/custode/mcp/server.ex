@@ -27,6 +27,10 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.RosterTools.PreviewRoutine, name: "preview_routine")
   component(Custode.MCP.RosterTools.AddRoutine, name: "add_routine")
 
+  # graceful drain (#132): operator-only, async -- pause now, reply now,
+  # stop when the executing turns finish
+  component(Custode.MCP.Tools.Drain, name: "drain")
+
   # the repo verbs (issue #10): typed, policy-checked GitHub writes
   component(Custode.MCP.RepoTools.OpenPr, name: "repo_open_pr")
   component(Custode.MCP.RepoTools.Comment, name: "repo_comment")

@@ -32,6 +32,8 @@ defmodule Mix.Tasks.Custode do
     subcommand_required(true)
 
     subcommand(Custode.CLI.Status)
+    subcommand(Custode.CLI.Doctor)
+    subcommand(Custode.CLI.Drain)
     subcommand(Custode.CLI.Gates)
     subcommand(Custode.CLI.Approve)
     subcommand(Custode.CLI.Reject)
