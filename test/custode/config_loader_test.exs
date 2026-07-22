@@ -141,9 +141,18 @@ defmodule Custode.Config.LoaderTest do
       File.rm(path)
     end
 
-    # without the env var and no ./routines.toml, nothing loads (D1 fallback:
-    # the exs roster serves) -- guard against a stray file in cwd
-    refute File.exists?("routines.toml")
-    assert Loader.load() == :no_file
+    # without the env var and no roster in the HOME root, nothing loads (D1
+    # fallback: the exs roster serves). The repo root now carries a REAL
+    # routines.toml (the machine's first write-back, 2026-07-22), so scope
+    # the no-file case to an empty CUSTODE_HOME instead of the cwd.
+    empty_home = Path.join(System.tmp_dir!(), "no-roster-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(empty_home)
+    System.put_env("CUSTODE_HOME", empty_home)
+
+    try do
+      assert Loader.load() == :no_file
+    after
+      System.delete_env("CUSTODE_HOME")
+    end
   end
 end

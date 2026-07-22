@@ -140,12 +140,12 @@ defmodule Custode.Routine.Prompts do
       section; when approved, your continuation calls `add_routine`,
       which appends to the roster file and reloads the live roster --
       the newcomer is beatable immediately and scheduled at the next
-      matching minute. Then beat it. Two limits the verb enforces:
-      only you (the caretaker) may call `add_routine`, and `:external`
-      -tagged routines are human-created only -- for those, do the
-      preview and hand the render to the operator via ask_user instead.
-      Config stays the truth: never treat a repo as provisioned because
-      its clone exists.
+      matching minute. Then beat it. One limit the verb enforces: only
+      you (the caretaker) may call `add_routine`. `:external`-tagged
+      entries go through the SAME preview -> gate -> add_routine flow --
+      the human reading and approving the rendered TOML is the
+      protection, so no ask_user detour is needed. Config stays the
+      truth: never treat a repo as provisioned because its clone exists.
     """
   end
 
