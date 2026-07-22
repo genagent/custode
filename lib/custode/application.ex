@@ -1,8 +1,9 @@
 defmodule Custode.Application do
   @moduledoc """
   The tree, bottom to top: repo -> migrations (Oban's tables) -> Oban (queues +
-  the Cron plugin whose crontab carries one `ObanClaude.Agent.Tick` entry per
-  configured routine) -> the agent supervision tree -> nothing else.
+  the Cron plugin whose crontab carries the sensors and the janitor) ->
+  `Custode.Scheduler` (routine firing, so cron edits are live without a
+  restart, #142) -> the agent supervision tree -> nothing else.
 
   No agent is started here. Each routine's tick uses `if_offline: "start"`, so
   the schedule itself boots (and re-boots, after any restart) its agent.
@@ -56,6 +57,13 @@ defmodule Custode.Application do
       # MCP surface answers -- the first-sweep-after-restart tool blackout
       # (#4) was the claude CLI racing the session layer at boot
       Custode.MCP.Probe,
+      # routine firing (#142): ticks once a minute, reads the roster fresh, and
+      # inserts RoutineTick jobs -- so a cron edit is live next minute with no
+      # restart. Starts after the Probe so its reboot inserts wait on the same
+      # :ticks withhold (#4) a crontab insert would. autostart is off in test
+      # (like the empty executing queues) so no timer fires a real insert; the
+      # scheduler's own tests drive injected instances.
+      {Custode.Scheduler, autostart: Application.get_env(:custode, :scheduler_autostart, true)},
       CustodeWeb.Endpoint
     ]
 

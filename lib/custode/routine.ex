@@ -60,23 +60,16 @@ defmodule Custode.Routine do
   def default, do: hd(all())
 
   @doc """
-  The full Cron crontab: one entry per scheduled routine (`cron: :manual`
-  routines are skipped -- identity, tile, and budgets without a schedule)
-  plus one entry per configured sensor (plain workers on the `:sensors`
-  queue; see `Custode.Sensors.ContributorSearch`).
+  The static Oban Cron crontab: one entry per configured sensor plus the
+  daily janitor (plain workers on the `:sensors` queue; see
+  `Custode.Sensors.ContributorSearch`).
 
-  Routine entries schedule `Custode.RoutineTick`, not the agent tick
-  directly: the crontab carries only the routine id, and the id is resolved
-  to the routine's CURRENT `tick_args/1` at each fire (#7). Baking the args
-  in here would freeze them at boot -- an edited prompt/model/budget would
-  not reach a running agent until the next restart.
+  Routines are NOT here anymore. `Custode.Scheduler` owns routine firing so a
+  cron edit takes effect at the next minute with no restart (#142); the static
+  plugin only reads its crontab once, at boot. Sensors and the janitor change
+  rarely, so they stay boot-baked in the plugin.
   """
   def crontab do
-    routine_entries =
-      for routine <- all(), routine.cron != :manual do
-        {routine.cron, Custode.RoutineTick, args: %{"routine_id" => routine.id}, queue: :ticks}
-      end
-
     sensor_entries =
       for sensor <- sensors() do
         args = Map.merge(%{"sensor_id" => sensor.id, "notify" => sensor.notify}, sensor.args)
@@ -85,7 +78,7 @@ defmodule Custode.Routine do
 
     janitor_entries = [{"@daily", Custode.Janitor, args: %{}, queue: :sensors}]
 
-    routine_entries ++ sensor_entries ++ janitor_entries
+    sensor_entries ++ janitor_entries
   end
 
   @doc """

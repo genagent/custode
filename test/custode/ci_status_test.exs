@@ -95,7 +95,7 @@ defmodule Custode.Sensors.CiStatusTest do
     assert inbox_notes(workspace) == []
   end
 
-  test "the crontab carries the ci sensors alongside routine ticks" do
+  test "the crontab carries the ci sensors" do
     put_env!(:sensors, [
       %{
         id: "ci-x",

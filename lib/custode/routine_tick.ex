@@ -9,11 +9,13 @@ defmodule Custode.RoutineTick do
   manual path (`Custode.beat/0`) never had this problem: it rebuilds
   `Routine.tick_args/1` at call time.
 
-  This worker gives the cron path the same freshness. The crontab entry
-  carries only `%{"routine_id" => id}`; every fire resolves the routine's
-  CURRENT config and enqueues a `ObanClaude.Agent.Tick` with freshly built
-  args. A prompt/model/budget edit takes effect on the routine's next beat,
-  no restart required.
+  This worker gives the scheduled path the same freshness. `Custode.Scheduler`
+  inserts only `%{"routine_id" => id}` (#142 moved routine firing off the
+  static Oban crontab); every fire resolves the routine's CURRENT config and
+  enqueues a `ObanClaude.Agent.Tick` with freshly built args. A
+  prompt/model/budget edit takes effect on the routine's next beat, no restart
+  required -- and with the scheduler reading the roster live, a cadence edit
+  now takes effect at the next minute too.
 
   `queue: :ticks`, `max_attempts: 1`: a resolution is a point-in-time beat
   like the tick it produces -- a missed one is simply missed, and retrying

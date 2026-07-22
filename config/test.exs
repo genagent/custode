@@ -6,6 +6,11 @@ config :custode,
   # No executing queues in tests: jobs insert but never run, so a test can
   # NEVER make a paid claude call by accident.
   oban_queues: [],
+  # The routine scheduler's timer stays disarmed in tests (like the empty
+  # executing queues): a test that puts routines into env must not have the
+  # app-level scheduler fire them on a wall-clock minute. Its own tests drive
+  # injected instances directly.
+  scheduler_autostart: false,
   desktop_notifications: false,
   # No network in tests: repo overviews come from the fake fetcher.
   github_fetcher: Custode.Test.FakeGitHubFetcher,
