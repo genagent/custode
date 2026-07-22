@@ -21,11 +21,8 @@ defmodule CustodeWeb.AgentLive do
     {:ok,
      socket
      |> assign(id: id, prompt_ack: nil, prompt_gen: 0)
-     |> allow_upload(:image,
-       accept: @image_types,
-       max_entries: 1,
-       max_file_size: @max_image_bytes
-     )
+     |> allow_image_upload(:image)
+     |> allow_image_upload(:answer_image)
      |> refresh()}
   end
 
@@ -43,29 +40,20 @@ defmodule CustodeWeb.AgentLive do
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl Phoenix.LiveView
-  def handle_event("prompt", %{"text" => text}, socket) do
-    if String.trim(text) == "" and pending_images(socket) == [] do
-      {:noreply, socket}
-    else
-      # capture the state BEFORE casting: it decides what actually happens
-      ack = prompt_ack(socket.assigns.state)
-      composed = compose_prompt(socket, text)
-      Agent.cast_prompt(socket.assigns.id, composed)
-      Custode.Feed.record_prompted(socket.assigns.id, composed)
+  def handle_event("prompt", %{"text" => text}, socket), do: send_prompt(socket, text, :image)
 
-      {:noreply,
-       socket
-       |> assign(prompt_ack: ack, prompt_gen: socket.assigns.prompt_gen + 1)
-       |> refresh()}
-    end
-  end
+  # the answer box is its own submit with its own upload: both forms are on
+  # screen while an agent waits, and an image staged for one must not ride the
+  # other's send (#180 slice 2)
+  def handle_event("answer", %{"text" => text}, socket),
+    do: send_prompt(socket, text, :answer_image)
 
   # live uploads need a change event on the form to auto-upload; nothing to do
   # here beyond letting the entry's own validation land in the assigns
   def handle_event("validate_prompt", _params, socket), do: {:noreply, socket}
 
-  def handle_event("drop_image", %{"ref" => ref}, socket) do
-    {:noreply, cancel_upload(socket, :image, ref)}
+  def handle_event("drop_image", %{"ref" => ref, "upload" => upload}, socket) do
+    {:noreply, cancel_upload(socket, upload_key(upload), ref)}
   end
 
   def handle_event("approve", %{"action" => action_id}, socket) do
@@ -229,15 +217,24 @@ defmodule CustodeWeb.AgentLive do
       <div :if={match?({:waiting_for_user, _}, @status)} class="alert alert-info mb-4">
         <div class="w-full">
           <p class="font-semibold">asks: {elem(@status, 1)}</p>
-          <form phx-submit="prompt" class="mt-2 flex items-end gap-2">
-            <textarea
-              name="text"
-              rows="2"
-              placeholder="your answer..."
-              class="textarea textarea-sm flex-1 resize-y"
-              autocomplete="off"
-            ></textarea>
-            <button class="btn btn-primary btn-sm">answer</button>
+          <form
+            phx-submit="answer"
+            phx-change="validate_prompt"
+            class="mt-2"
+            id={"answer-form-#{@prompt_gen}"}
+          >
+            <.image_chips upload={@uploads.answer_image} />
+            <div class="flex items-end gap-2" phx-drop-target={@routine && @uploads.answer_image.ref}>
+              <textarea
+                name="text"
+                rows="2"
+                placeholder="your answer..."
+                class="textarea textarea-sm flex-1 resize-y"
+                autocomplete="off"
+              ></textarea>
+              <button class="btn btn-primary btn-sm">answer</button>
+            </div>
+            <.image_picker :if={@routine} upload={@uploads.answer_image} />
           </form>
         </div>
       </div>
@@ -249,20 +246,7 @@ defmodule CustodeWeb.AgentLive do
         class="mb-1"
         id={"prompt-form-#{@prompt_gen}"}
       >
-        <div :for={entry <- @uploads.image.entries} class="mb-1 flex items-center gap-2 text-xs">
-          <span class="badge badge-ghost badge-sm font-mono">{entry.client_name}</span>
-          <progress :if={entry.progress < 100} class="progress w-16" value={entry.progress} max="100">
-          </progress>
-          <button type="button" class="btn btn-ghost btn-xs" phx-click="drop_image" phx-value-ref={entry.ref}>
-            remove
-          </button>
-          <span :for={error <- upload_errors(@uploads.image, entry)} class="text-error">
-            {upload_error_text(error)}
-          </span>
-        </div>
-        <p :for={error <- upload_errors(@uploads.image)} class="mb-1 text-xs text-error">
-          {upload_error_text(error)}
-        </p>
+        <.image_chips upload={@uploads.image} />
         <div class="flex items-end gap-2" phx-drop-target={@routine && @uploads.image.ref}>
           <textarea
             name="text"
@@ -275,10 +259,7 @@ defmodule CustodeWeb.AgentLive do
             {if @state == :running, do: "queue", else: "send"}
           </button>
         </div>
-        <label :if={@routine} class="mt-1 flex items-center gap-2 text-xs text-base-content/40">
-          <.live_file_input upload={@uploads.image} class="file-input file-input-xs w-52" />
-          or drop an image on the box
-        </label>
+        <.image_picker :if={@routine} upload={@uploads.image} />
       </form>
       <p :if={@prompt_ack} class="mb-4 text-xs text-base-content/50">{@prompt_ack}</p>
       <div :if={!@prompt_ack} class="mb-5"></div>
@@ -412,7 +393,35 @@ defmodule CustodeWeb.AgentLive do
   defp prompt_ack(:waiting_for_user), do: "answer delivered"
   defp prompt_ack(_state), do: "sent -- turn starting"
 
-  defp pending_images(socket), do: socket.assigns.uploads.image.entries
+  defp allow_image_upload(socket, name) do
+    allow_upload(socket, name,
+      accept: @image_types,
+      max_entries: 1,
+      max_file_size: @max_image_bytes
+    )
+  end
+
+  defp send_prompt(socket, text, upload) do
+    if String.trim(text) == "" and pending_images(socket, upload) == [] do
+      {:noreply, socket}
+    else
+      # capture the state BEFORE casting: it decides what actually happens
+      ack = prompt_ack(socket.assigns.state)
+      composed = compose_prompt(socket, text, upload)
+      Agent.cast_prompt(socket.assigns.id, composed)
+      Custode.Feed.record_prompted(socket.assigns.id, composed)
+
+      {:noreply,
+       socket
+       |> assign(prompt_ack: ack, prompt_gen: socket.assigns.prompt_gen + 1)
+       |> refresh()}
+    end
+  end
+
+  defp upload_key("answer_image"), do: :answer_image
+  defp upload_key(_name), do: :image
+
+  defp pending_images(socket, upload), do: socket.assigns.uploads[upload].entries
 
   # A dropped image reaches the agent as a path, not an attachment: claude
   # reads images natively through Read, and a file in the routine's own
@@ -420,8 +429,8 @@ defmodule CustodeWeb.AgentLive do
   # change at all (#180). The path is absolute because a routine's working_dir
   # is not always its workspace (a repo-tied routine runs in the checkout), and
   # a relative `uploads/` would not resolve from there.
-  defp compose_prompt(socket, text) do
-    case save_images(socket) do
+  defp compose_prompt(socket, text, upload) do
+    case save_images(socket, upload) do
       [] ->
         text
 
@@ -435,12 +444,12 @@ defmodule CustodeWeb.AgentLive do
     end
   end
 
-  defp save_images(%{assigns: %{routine: nil}}), do: []
+  defp save_images(%{assigns: %{routine: nil}}, _upload), do: []
 
-  defp save_images(socket) do
+  defp save_images(socket, upload) do
     dir = Path.join(Path.expand(socket.assigns.routine.workspace), "uploads")
 
-    consume_uploaded_entries(socket, :image, fn %{path: path}, entry ->
+    consume_uploaded_entries(socket, upload, fn %{path: path}, entry ->
       File.mkdir_p!(dir)
       dest = Path.join(dir, image_name(path, entry))
       File.cp!(path, dest)
@@ -463,6 +472,44 @@ defmodule CustodeWeb.AgentLive do
   defp image_extension(entry) do
     extension = entry.client_name |> Path.extname() |> String.downcase()
     if extension in @image_types, do: extension, else: ".png"
+  end
+
+  attr(:upload, :map, required: true)
+
+  defp image_chips(assigns) do
+    ~H"""
+    <div :for={entry <- @upload.entries} class="mb-1 flex items-center gap-2 text-xs">
+      <span class="badge badge-ghost badge-sm font-mono">{entry.client_name}</span>
+      <progress :if={entry.progress < 100} class="progress w-16" value={entry.progress} max="100">
+      </progress>
+      <button
+        type="button"
+        class="btn btn-ghost btn-xs"
+        phx-click="drop_image"
+        phx-value-ref={entry.ref}
+        phx-value-upload={@upload.name}
+      >
+        remove
+      </button>
+      <span :for={error <- upload_errors(@upload, entry)} class="text-error">
+        {upload_error_text(error)}
+      </span>
+    </div>
+    <p :for={error <- upload_errors(@upload)} class="mb-1 text-xs text-error">
+      {upload_error_text(error)}
+    </p>
+    """
+  end
+
+  attr(:upload, :map, required: true)
+
+  defp image_picker(assigns) do
+    ~H"""
+    <label class="mt-1 flex items-center gap-2 text-xs text-base-content/40">
+      <.live_file_input upload={@upload} class="file-input file-input-xs w-52" />
+      or drop an image on the box
+    </label>
+    """
   end
 
   defp upload_error_text(:too_large), do: "too large (10MB max)"
