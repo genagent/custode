@@ -189,6 +189,50 @@ defmodule Custode.RosterToolsTest do
       refute File.read!(path) =~ ~s(model = "opus")
     end
 
+    test "the whole roster vocabulary is editable through the verbs (operator ask, 2026-07-22)" do
+      # every loader key except the deliberate exclusions is one edit away
+      json =
+        tool_json(
+          UpdateRoutine.execute(
+            %{
+              id: "existing",
+              mcp: true,
+              hermetic: true,
+              daily_budget_tokens: 500_000,
+              extra_allowed_tools: ["Bash(git log:*)"]
+            },
+            @operator
+          )
+        )
+
+      assert json["live"] == true
+      routine = Custode.Routine.get("existing")
+      assert routine.hermetic == true
+      assert routine.daily_budget_tokens == 500_000
+      assert "Bash(git log:*)" in routine.extra_allowed_tools
+
+      # the add vocabulary matches: a fully-specified newcomer in one call
+      json =
+        tool_json(
+          AddRoutine.execute(
+            %{
+              id: "fullspec",
+              profile: "backlog_worker",
+              repo: "o/full",
+              model: "haiku",
+              max_budget_usd: 0.25,
+              max_turns: 10
+            },
+            @operator
+          )
+        )
+
+      assert json["live"] == true
+      full = Custode.Routine.get("fullspec")
+      assert full.model == "haiku"
+      assert full.max_turns == 10
+    end
+
     test "remove_routine splices the entry out; unknown ids and workers are refused", %{
       path: path
     } do

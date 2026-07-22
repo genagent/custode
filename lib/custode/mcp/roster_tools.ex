@@ -36,6 +36,19 @@ defmodule Custode.MCP.RosterTools do
     |> put_if(params, :working_dir)
     |> put_if(params, :workspace)
     |> put_if(params, :prompt)
+    |> put_if(params, :model)
+    |> put_if(params, :effort, &String.to_existing_atom/1)
+    |> put_if(params, :agent)
+    |> put_if(params, :max_budget_usd)
+    |> put_if(params, :daily_budget_usd)
+    |> put_if(params, :daily_budget_tokens)
+    |> put_if(params, :timeout_ms)
+    |> put_if(params, :max_turns)
+    |> put_if(params, :role, &String.to_existing_atom/1)
+    |> put_if(params, :mcp)
+    |> put_if(params, :hermetic)
+    |> put_if(params, :system_prompt_file)
+    |> put_if(params, :extra_allowed_tools)
     |> put_if(params, :tags, fn tags -> Enum.map(tags, &String.to_atom/1) end)
   end
 
@@ -67,8 +80,14 @@ defmodule Custode.MCP.RosterTools do
     |> put_if(params, :agent)
     |> put_if(params, :max_budget_usd)
     |> put_if(params, :daily_budget_usd)
+    |> put_if(params, :daily_budget_tokens)
     |> put_if(params, :timeout_ms)
     |> put_if(params, :max_turns)
+    |> put_if(params, :role, &String.to_existing_atom/1)
+    |> put_if(params, :mcp)
+    |> put_if(params, :hermetic)
+    |> put_if(params, :system_prompt_file)
+    |> put_if(params, :extra_allowed_tools)
     |> put_if(params, :tags, fn tags -> Enum.map(tags, &String.to_atom/1) end)
     |> apply_drops(params)
   end
@@ -124,6 +143,22 @@ defmodule Custode.MCP.RosterTools.PreviewRoutine do
     field(:workspace, :string, description: "notebook home (defaults to workspaces/<id>)")
     field(:prompt, :string, description: "sweep prompt (the profile usually supplies it)")
     field(:tags, {:list, :string}, description: "tags, e.g. [\"rust\", \"external\"]")
+    field(:model, :string, description: "sweep model override, e.g. \"sonnet\"")
+    field(:effort, :string, description: "sweep effort override, e.g. \"low\"")
+    field(:agent, :string, description: "persona from the repo's .claude/agents/ (#19)")
+    field(:role, :string, description: "role override, e.g. \"backlog_worker\"")
+    field(:mcp, :boolean, description: "grant the custode MCP tools")
+    field(:hermetic, :boolean, description: "seal out the repo's ambient CLAUDE.md/persona")
+    field(:max_budget_usd, :number, description: "per-turn budget rail")
+    field(:daily_budget_usd, :number, description: "daily budget rail")
+    field(:daily_budget_tokens, :integer, description: "daily token rail")
+    field(:timeout_ms, :integer, description: "per-turn subprocess timeout")
+    field(:max_turns, :integer, description: "agentic turns per run")
+    field(:system_prompt_file, :string, description: "path to a standing-orders file")
+
+    field(:extra_allowed_tools, {:list, :string},
+      description: "extra tool grants, e.g. [\"Bash(git log:*)\"]"
+    )
   end
 
   @impl true
@@ -158,6 +193,22 @@ defmodule Custode.MCP.RosterTools.AddRoutine do
     field(:workspace, :string, description: "notebook home (defaults to workspaces/<id>)")
     field(:prompt, :string, description: "sweep prompt (the profile usually supplies it)")
     field(:tags, {:list, :string}, description: "tags, e.g. [\"rust\", \"external\"]")
+    field(:model, :string, description: "sweep model override, e.g. \"sonnet\"")
+    field(:effort, :string, description: "sweep effort override, e.g. \"low\"")
+    field(:agent, :string, description: "persona from the repo's .claude/agents/ (#19)")
+    field(:role, :string, description: "role override, e.g. \"backlog_worker\"")
+    field(:mcp, :boolean, description: "grant the custode MCP tools")
+    field(:hermetic, :boolean, description: "seal out the repo's ambient CLAUDE.md/persona")
+    field(:max_budget_usd, :number, description: "per-turn budget rail")
+    field(:daily_budget_usd, :number, description: "daily budget rail")
+    field(:daily_budget_tokens, :integer, description: "daily token rail")
+    field(:timeout_ms, :integer, description: "per-turn subprocess timeout")
+    field(:max_turns, :integer, description: "agentic turns per run")
+    field(:system_prompt_file, :string, description: "path to a standing-orders file")
+
+    field(:extra_allowed_tools, {:list, :string},
+      description: "extra tool grants, e.g. [\"Bash(git log:*)\"]"
+    )
   end
 
   @impl true
@@ -217,6 +268,16 @@ defmodule Custode.MCP.RosterTools.PreviewRoutineEdit do
     field(:model, :string, description: "new model override, e.g. \"sonnet\"")
     field(:effort, :string, description: "new effort override, e.g. \"low\"")
     field(:agent, :string, description: "persona from the repo's .claude/agents/ (#19)")
+    field(:role, :string, description: "role override, e.g. \"backlog_worker\"")
+    field(:mcp, :boolean, description: "grant the custode MCP tools")
+    field(:hermetic, :boolean, description: "seal out the repo's ambient CLAUDE.md/persona")
+    field(:daily_budget_tokens, :integer, description: "daily token rail")
+    field(:system_prompt_file, :string, description: "path to a standing-orders file")
+
+    field(:extra_allowed_tools, {:list, :string},
+      description: "extra tool grants, e.g. [\"Bash(git log:*)\"]"
+    )
+
     field(:max_budget_usd, :number, description: "new per-turn budget rail")
     field(:daily_budget_usd, :number, description: "new daily budget rail")
     field(:timeout_ms, :integer, description: "new per-turn timeout")
@@ -267,6 +328,16 @@ defmodule Custode.MCP.RosterTools.UpdateRoutine do
     field(:model, :string, description: "new model override, e.g. \"sonnet\"")
     field(:effort, :string, description: "new effort override, e.g. \"low\"")
     field(:agent, :string, description: "persona from the repo's .claude/agents/ (#19)")
+    field(:role, :string, description: "role override, e.g. \"backlog_worker\"")
+    field(:mcp, :boolean, description: "grant the custode MCP tools")
+    field(:hermetic, :boolean, description: "seal out the repo's ambient CLAUDE.md/persona")
+    field(:daily_budget_tokens, :integer, description: "daily token rail")
+    field(:system_prompt_file, :string, description: "path to a standing-orders file")
+
+    field(:extra_allowed_tools, {:list, :string},
+      description: "extra tool grants, e.g. [\"Bash(git log:*)\"]"
+    )
+
     field(:max_budget_usd, :number, description: "new per-turn budget rail")
     field(:daily_budget_usd, :number, description: "new daily budget rail")
     field(:timeout_ms, :integer, description: "new per-turn timeout")
