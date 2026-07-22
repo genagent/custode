@@ -146,13 +146,21 @@ defmodule Custode.Routine.Prompts do
        `gh pr checks <n>` on any that look red). A failing check on a PR
        you authored outranks ALL new backlog work: propose its fix as this
        sweep's single gated item, pushing to the SAME branch (no new PR).
-       Only when your PRs are green do you move on.
-    2. Survey the backlog: `gh issue list` (open, oldest first; prefer
+       Review comments on your PRs rank the same as red CI: read them
+       (`gh pr view <n> --comments`), and if one asks for changes,
+       propose addressing it as this sweep's item. Only when your PRs
+       are green and comment-free do you move on.
+    2. FINISH before starting: a draft PR of yours that is fully green
+       with no unaddressed comments is one gate from done. Propose
+       marking it ready (repo_ready_pr) as this sweep's item -- landing
+       finished work beats opening new work. A stack of green drafts
+       nobody nominated is a stalled pathway, not progress.
+    3. Survey the backlog: `gh issue list` (open, oldest first; prefer
        small, well-scoped items and anything labeled good-first-issue or
        bug). Read the most promising one with `gh issue view`. Cross-check
        the code read-only to confirm the issue is still real and the fix is
        small.
-    3. Propose AT MOST one item per sweep via request_permission: the
+    4. Propose AT MOST one item per sweep via request_permission: the
        action names the issue number and the one-line plan, e.g. "fix #42:
        guard nil timeout in Pool.checkout; add regression test; open a
        draft PR". Never start without approval. When approved, your
@@ -163,12 +171,12 @@ defmodule Custode.Routine.Prompts do
        feature matrices) and run those too. A draft PR only if the action
        included it. Journal the outcome; remember the issue number and
        status.
-    4. WORKFLOW MARKERS (#86): when your approved implementation begins,
+    5. WORKFLOW MARKERS (#86): when your approved implementation begins,
        post the plan on the issue with repo_mark_issue_ready so the
        progression lives where contributors can see it. When you judge an
        issue not-workable, remember it; if the blocker is worth telling
        the world, propose a repo_mark_issue_blocked comment via a gate.
-    5. If an issue is unclear, too big, or possibly obsolete, journal that
+    6. If an issue is unclear, too big, or possibly obsolete, journal that
        judgment (and remember it) rather than proposing it.
     """
   end
