@@ -160,6 +160,21 @@ defmodule Custode.RoutineTest do
       refute Map.has_key?(claude_args, "permission_mode")
       assert is_binary(claude_args["json_schema"])
       assert claude_args["json_schema"] =~ "request_permission"
+
+      # the schema'd epilogue (#120 slice 2): what the sweep touched arrives
+      # as optional integer arrays, so nothing has to parse the summary
+      schema = Jason.decode!(claude_args["json_schema"])
+
+      assert schema["properties"]["prs"] == %{
+               "type" => "array",
+               "items" => %{"type" => "integer"},
+               "description" => "PR numbers this sweep opened, pushed to, or acted on"
+             }
+
+      assert schema["properties"]["issues_touched"]["type"] == "array"
+      assert schema["properties"]["issues_touched"]["items"] == %{"type" => "integer"}
+      # a sweep that touched nothing must still validate
+      assert schema["required"] == ["directive", "summary"]
       assert claude_args["append_system_prompt"] =~ "caretaker"
       assert claude_args["append_system_prompt"] =~ routine.id
       assert claude_args["append_system_prompt"] =~ "inbox_list"

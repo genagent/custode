@@ -369,7 +369,21 @@ defmodule Custode.Routine do
         directive: %{type: "string", enum: ["none", "ask_user", "request_permission"]},
         summary: %{type: "string", description: "one-line sweep report"},
         question: %{type: "string", description: "set when directive=ask_user"},
-        action: %{type: "string", description: "set when directive=request_permission"}
+        action: %{type: "string", description: "set when directive=request_permission"},
+        # The schema'd epilogue (#120 slice 2): what the sweep touched, as
+        # numbers rather than prose, so the feed and metrics read fields
+        # instead of parsing the summary. Both stay optional -- a sweep that
+        # touched nothing omits them.
+        prs: %{
+          type: "array",
+          items: %{type: "integer"},
+          description: "PR numbers this sweep opened, pushed to, or acted on"
+        },
+        issues_touched: %{
+          type: "array",
+          items: %{type: "integer"},
+          description: "issue numbers this sweep worked, commented on, or judged"
+        }
       }
     })
   end
