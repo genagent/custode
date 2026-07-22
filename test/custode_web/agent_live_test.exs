@@ -168,6 +168,71 @@ defmodule CustodeWeb.AgentLiveTest do
     assert html =~ "flat slot table"
   end
 
+  describe "the working-state strip (#211)" do
+    test "the latest worktree breadcrumb renders; a running turn shows in-flight",
+         %{conn: conn, routine: routine} do
+      repo = "acme/" <> uid("ws")
+      overviews = Application.get_env(:custode, :fake_repo_overviews, %{})
+
+      put_env!(
+        :fake_repo_overviews,
+        Map.put(overviews, repo, {:ok, FakeGitHubFetcher.overview(repo)})
+      )
+
+      routine = routine_fixture!(tmp_workspace!(), %{repo: repo})
+      stub_routine_agent!(routine)
+
+      # a stop breadcrumb: work sitting on a branch, not in flight
+      Custode.Feed.record(%{
+        event: "worktree_state",
+        agent: routine.id,
+        phase: "stop",
+        branch: "feat/thing",
+        sha: "abc1234567def"
+      })
+
+      {:ok, view, html} = live(conn, "/agents/#{routine.id}")
+      assert html =~ "feat/thing"
+      assert html =~ "abc1234567"
+      refute html =~ "working</span>"
+
+      # a start breadcrumb newer than the stop: a turn is in flight now
+      Custode.Feed.record(%{
+        event: "worktree_state",
+        agent: routine.id,
+        phase: "start",
+        branch: "feat/thing",
+        sha: "abc1234567def"
+      })
+
+      assert render(view) =~ "working"
+    end
+
+    test "an absent worktree shows no strip", %{conn: conn, routine: routine} do
+      repo = "acme/" <> uid("ws2")
+      overviews = Application.get_env(:custode, :fake_repo_overviews, %{})
+
+      put_env!(
+        :fake_repo_overviews,
+        Map.put(overviews, repo, {:ok, FakeGitHubFetcher.overview(repo)})
+      )
+
+      routine = routine_fixture!(tmp_workspace!(), %{repo: repo})
+      stub_routine_agent!(routine)
+
+      Custode.Feed.record(%{
+        event: "worktree_state",
+        agent: routine.id,
+        phase: "start",
+        branch: "absent",
+        sha: "absent"
+      })
+
+      {:ok, _view, html} = live(conn, "/agents/#{routine.id}")
+      refute html =~ "last worktree"
+    end
+  end
+
   describe "the agent panel (#100 slice 1)" do
     test "markdown under the panel key renders; raw HTML stays inert",
          %{conn: conn, routine: routine} do
