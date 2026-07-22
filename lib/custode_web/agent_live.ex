@@ -11,10 +11,22 @@ defmodule CustodeWeb.AgentLive do
 
   alias ObanClaude.Agent
 
+  @image_types ~w(.png .jpg .jpeg .gif .webp)
+  @max_image_bytes 10_000_000
+
   @impl Phoenix.LiveView
   def mount(%{"id" => id}, _session, socket) do
     if connected?(socket), do: Custode.PubSubBridge.subscribe()
-    {:ok, socket |> assign(id: id, prompt_ack: nil, prompt_gen: 0) |> refresh()}
+
+    {:ok,
+     socket
+     |> assign(id: id, prompt_ack: nil, prompt_gen: 0)
+     |> allow_upload(:image,
+       accept: @image_types,
+       max_entries: 1,
+       max_file_size: @max_image_bytes
+     )
+     |> refresh()}
   end
 
   @impl Phoenix.LiveView
@@ -32,19 +44,28 @@ defmodule CustodeWeb.AgentLive do
 
   @impl Phoenix.LiveView
   def handle_event("prompt", %{"text" => text}, socket) do
-    if String.trim(text) == "" do
+    if String.trim(text) == "" and pending_images(socket) == [] do
       {:noreply, socket}
     else
       # capture the state BEFORE casting: it decides what actually happens
       ack = prompt_ack(socket.assigns.state)
-      Agent.cast_prompt(socket.assigns.id, text)
-      Custode.Feed.record_prompted(socket.assigns.id, text)
+      composed = compose_prompt(socket, text)
+      Agent.cast_prompt(socket.assigns.id, composed)
+      Custode.Feed.record_prompted(socket.assigns.id, composed)
 
       {:noreply,
        socket
        |> assign(prompt_ack: ack, prompt_gen: socket.assigns.prompt_gen + 1)
        |> refresh()}
     end
+  end
+
+  # live uploads need a change event on the form to auto-upload; nothing to do
+  # here beyond letting the entry's own validation land in the assigns
+  def handle_event("validate_prompt", _params, socket), do: {:noreply, socket}
+
+  def handle_event("drop_image", %{"ref" => ref}, socket) do
+    {:noreply, cancel_upload(socket, :image, ref)}
   end
 
   def handle_event("approve", %{"action" => action_id}, socket) do
@@ -224,19 +245,40 @@ defmodule CustodeWeb.AgentLive do
       <form
         :if={@state not in [:offline, :ended, :paused]}
         phx-submit="prompt"
-        class="mb-1 flex items-end gap-2"
+        phx-change="validate_prompt"
+        class="mb-1"
         id={"prompt-form-#{@prompt_gen}"}
       >
-        <textarea
-          name="text"
-          rows="2"
-          placeholder={"prompt #{@id}..."}
-          class="textarea textarea-sm flex-1 resize-y font-mono"
-          autocomplete="off"
-        ></textarea>
-        <button class="btn btn-primary btn-sm">
-          {if @state == :running, do: "queue", else: "send"}
-        </button>
+        <div :for={entry <- @uploads.image.entries} class="mb-1 flex items-center gap-2 text-xs">
+          <span class="badge badge-ghost badge-sm font-mono">{entry.client_name}</span>
+          <progress :if={entry.progress < 100} class="progress w-16" value={entry.progress} max="100">
+          </progress>
+          <button type="button" class="btn btn-ghost btn-xs" phx-click="drop_image" phx-value-ref={entry.ref}>
+            remove
+          </button>
+          <span :for={error <- upload_errors(@uploads.image, entry)} class="text-error">
+            {upload_error_text(error)}
+          </span>
+        </div>
+        <p :for={error <- upload_errors(@uploads.image)} class="mb-1 text-xs text-error">
+          {upload_error_text(error)}
+        </p>
+        <div class="flex items-end gap-2" phx-drop-target={@routine && @uploads.image.ref}>
+          <textarea
+            name="text"
+            rows="2"
+            placeholder={"prompt #{@id}..."}
+            class="textarea textarea-sm flex-1 resize-y font-mono"
+            autocomplete="off"
+          ></textarea>
+          <button class="btn btn-primary btn-sm">
+            {if @state == :running, do: "queue", else: "send"}
+          </button>
+        </div>
+        <label :if={@routine} class="mt-1 flex items-center gap-2 text-xs text-base-content/40">
+          <.live_file_input upload={@uploads.image} class="file-input file-input-xs w-52" />
+          or drop an image on the box
+        </label>
       </form>
       <p :if={@prompt_ack} class="mb-4 text-xs text-base-content/50">{@prompt_ack}</p>
       <div :if={!@prompt_ack} class="mb-5"></div>
@@ -369,6 +411,64 @@ defmodule CustodeWeb.AgentLive do
   defp prompt_ack(:awaiting_permission), do: "queued behind the pending approval"
   defp prompt_ack(:waiting_for_user), do: "answer delivered"
   defp prompt_ack(_state), do: "sent -- turn starting"
+
+  defp pending_images(socket), do: socket.assigns.uploads.image.entries
+
+  # A dropped image reaches the agent as a path, not an attachment: claude
+  # reads images natively through Read, and a file in the routine's own
+  # workspace is already inside its readable world -- no wrapper or protocol
+  # change at all (#180). The path is absolute because a routine's working_dir
+  # is not always its workspace (a repo-tied routine runs in the checkout), and
+  # a relative `uploads/` would not resolve from there.
+  defp compose_prompt(socket, text) do
+    case save_images(socket) do
+      [] ->
+        text
+
+      paths ->
+        [
+          String.trim(text)
+          | Enum.map(paths, &"attached image: #{&1} -- Read it before answering")
+        ]
+        |> Enum.join("\n")
+        |> String.trim()
+    end
+  end
+
+  defp save_images(%{assigns: %{routine: nil}}), do: []
+
+  defp save_images(socket) do
+    dir = Path.join(Path.expand(socket.assigns.routine.workspace), "uploads")
+
+    consume_uploaded_entries(socket, :image, fn %{path: path}, entry ->
+      File.mkdir_p!(dir)
+      dest = Path.join(dir, image_name(path, entry))
+      File.cp!(path, dest)
+      {:ok, dest}
+    end)
+  end
+
+  # Content-hashed: the same screenshot dropped twice is one file, and a client
+  # filename never steers the write.
+  defp image_name(path, entry) do
+    hash =
+      :sha256
+      |> :crypto.hash(File.read!(path))
+      |> Base.encode16(case: :lower)
+      |> binary_part(0, 16)
+
+    hash <> image_extension(entry)
+  end
+
+  defp image_extension(entry) do
+    extension = entry.client_name |> Path.extname() |> String.downcase()
+    if extension in @image_types, do: extension, else: ".png"
+  end
+
+  defp upload_error_text(:too_large), do: "too large (10MB max)"
+  defp upload_error_text(:too_many_files), do: "one image at a time"
+  defp upload_error_text(:not_accepted), do: "not an image"
+  defp upload_error_text(error), do: to_string(error)
 
   attr(:item, :map, required: true)
   attr(:closed, :boolean, default: false)

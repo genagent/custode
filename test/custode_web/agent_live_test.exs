@@ -168,6 +168,82 @@ defmodule CustodeWeb.AgentLiveTest do
     assert html =~ "flat slot table"
   end
 
+  describe "images dropped on the prompt box (#180 slice 1)" do
+    # a 1x1 png, small enough to live inline
+    @png Base.decode64!(
+           "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+         )
+
+    test "a dropped image lands in the workspace and its path rides the prompt",
+         %{conn: conn, routine: routine} do
+      stub_routine_agent!(routine)
+      {:ok, view, _html} = live(conn, "/agents/#{routine.id}")
+
+      view
+      |> file_input("form[phx-submit=prompt]", :image, [
+        %{name: "screenshot.png", content: @png, type: "image/png"}
+      ])
+      |> render_upload("screenshot.png")
+
+      assert render(view) =~ "screenshot.png"
+
+      view |> form("form[phx-submit=prompt]", %{"text" => "what is this"}) |> render_submit()
+
+      assert_receive {:enqueued, %{"prompt" => prompt}, _meta}
+      assert prompt =~ "what is this"
+      assert prompt =~ "-- Read it before answering"
+
+      [_, path] = Regex.run(~r/attached image: (\S+)/, prompt)
+      assert Path.dirname(path) == Path.join(Path.expand(routine.workspace), "uploads")
+      assert Path.extname(path) == ".png"
+      assert File.read!(path) == @png
+    end
+
+    test "an image with no text sends on its own", %{conn: conn, routine: routine} do
+      stub_routine_agent!(routine)
+      {:ok, view, _html} = live(conn, "/agents/#{routine.id}")
+
+      view
+      |> file_input("form[phx-submit=prompt]", :image, [
+        %{name: "shot.png", content: @png, type: "image/png"}
+      ])
+      |> render_upload("shot.png")
+
+      view |> form("form[phx-submit=prompt]", %{"text" => ""}) |> render_submit()
+
+      assert_receive {:enqueued, %{"prompt" => prompt}, _meta}
+      assert String.starts_with?(prompt, "attached image: ")
+    end
+
+    test "an empty prompt with nothing attached still sends nothing",
+         %{conn: conn, routine: routine} do
+      stub_routine_agent!(routine)
+      {:ok, view, _html} = live(conn, "/agents/#{routine.id}")
+
+      view |> form("form[phx-submit=prompt]", %{"text" => "   "}) |> render_submit()
+
+      refute_receive {:enqueued, _args, _meta}, 100
+    end
+
+    test "a pending image can be removed before sending", %{conn: conn, routine: routine} do
+      stub_routine_agent!(routine)
+      {:ok, view, _html} = live(conn, "/agents/#{routine.id}")
+
+      view
+      |> file_input("form[phx-submit=prompt]", :image, [
+        %{name: "mistake.png", content: @png, type: "image/png"}
+      ])
+      |> render_upload("mistake.png")
+
+      assert render(view) =~ "mistake.png"
+      view |> element("button[phx-click=drop_image]") |> render_click()
+      refute render(view) =~ "mistake.png"
+
+      view |> form("form[phx-submit=prompt]", %{"text" => "never mind"}) |> render_submit()
+      assert_receive {:enqueued, %{"prompt" => "never mind"}, _meta}
+    end
+  end
+
   test "an unknown agent renders gracefully as offline", %{conn: conn} do
     {:ok, _view, html} = live(conn, "/agents/never-started")
     assert html =~ "offline"
