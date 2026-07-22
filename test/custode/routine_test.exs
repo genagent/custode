@@ -368,6 +368,17 @@ defmodule Custode.RoutineTest do
       assert prompt =~ "Never start without approval"
     end
 
+    test "the repo roles read the presence line and shape their sweeps (#141 slice 2)" do
+      for role <- [:backlog_worker, :repo_caretaker] do
+        prompt = Prompts.for_role(role, "x")
+        assert prompt =~ "PRESENCE SHAPES THE SWEEP"
+        assert prompt =~ "AWAY"
+      end
+
+      # the gate-parks-you mechanics are stated where the pace decision lives
+      assert Prompts.for_role(:backlog_worker, "x") =~ "LAST act"
+    end
+
     test "the charter carries the turn-hygiene and operator-provenance orders (#196)" do
       # every role inherits these: a live incident showed a stale stopped-task
       # notification bleeding its disclaimer over a genuine co-delivered approval

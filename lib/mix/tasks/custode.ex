@@ -44,6 +44,8 @@ defmodule Mix.Tasks.Custode do
     subcommand(Custode.CLI.Spend)
     subcommand(Custode.CLI.Pause)
     subcommand(Custode.CLI.Resume)
+    subcommand(Custode.CLI.Away)
+    subcommand(Custode.CLI.Back)
   end
 
   @impl Mix.Task

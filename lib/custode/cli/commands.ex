@@ -301,3 +301,35 @@ defmodule Custode.CLI.Prompt do
     Custode.CLI.emit("prompt_agent", arguments, false, fn _reply -> "delivered" end)
   end
 end
+
+defmodule Custode.CLI.Away do
+  @moduledoc false
+  use Cheer.Command
+
+  command "away" do
+    about("Pin operator presence to AWAY: sweeps queue gates for morning instead of parking.")
+  end
+
+  @impl Cheer.Command
+  def run(_args, _raw) do
+    Custode.CLI.emit("set_presence", %{mode: "away"}, false, fn reply ->
+      "presence pinned away (reading: #{reply["reading"]})"
+    end)
+  end
+end
+
+defmodule Custode.CLI.Back do
+  @moduledoc false
+  use Cheer.Command
+
+  command "back" do
+    about("Restore presence inference; the toggle itself counts as a fresh operator action.")
+  end
+
+  @impl Cheer.Command
+  def run(_args, _raw) do
+    Custode.CLI.emit("set_presence", %{mode: "auto"}, false, fn reply ->
+      "presence back to inference (reading: #{reply["reading"]})"
+    end)
+  end
+end
