@@ -176,8 +176,10 @@ defmodule Custode.Routine.Prompts do
        finished work beats opening new work. A stack of green drafts
        nobody nominated is a stalled pathway, not progress.
     3. Survey the backlog: `gh issue list` (open, oldest first; prefer
-       small, well-scoped items and anything labeled good-first-issue or
-       bug). Read the most promising one with `gh issue view`. Cross-check
+       small, well-scoped items and anything labeled `workable` -- the
+       operator's mark for sliced-and-bounded -- or `bug`; an operator
+       comment starting "Operator slicing" names the exact slice to
+       propose). Read the most promising one with `gh issue view`. Cross-check
        the code read-only to confirm the issue is still real and the fix is
        small.
     4. Propose AT MOST one item per sweep via request_permission: the
