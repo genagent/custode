@@ -374,6 +374,21 @@ defmodule CustodeWeb.AgentLive do
           </a>
           <span :if={@repo_overview == :loading} class="loading loading-dots loading-xs ml-1"></span>
         </h3>
+        <div
+          :if={@working_state}
+          class="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-base-100 px-3 py-2 text-xs shadow-sm"
+        >
+          <span :if={@working_state.in_flight} class="badge badge-info badge-xs gap-1">
+            <span class="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current"></span> working
+          </span>
+          <span :if={!@working_state.in_flight} class="text-base-content/40">last worktree</span>
+          <span class="font-mono text-base-content/70">
+            {@working_state.branch}<span class="text-base-content/40">@{@working_state.sha}</span>
+          </span>
+          <span class="ml-auto font-mono text-base-content/40">
+            <.ago at={@working_state.at} />
+          </span>
+        </div>
         <.repo_overview_panel overview={@repo_overview} />
       </section>
 
@@ -794,8 +809,35 @@ defmodule CustodeWeb.AgentLive do
     end
   end
 
+  defp agent_history(id) do
+    case Agent.history(id) do
+      {:ok, history} -> history |> Enum.take(-20) |> Enum.reverse()
+      {:error, _reason} -> []
+    end
+  end
+
   defp done_todos(id, true), do: Custode.Notebook.todos(id, "done")
   defp done_todos(_id, false), do: []
+
+  # The working-state strip (#211): the latest worktree breadcrumb (#90),
+  # so the operator sees what an elevated turn is doing -- branch@sha and
+  # whether a turn is in flight -- without reading the feed. A "start"
+  # phase with no later stop means a turn is running now; "absent" (the
+  # worktree not yet materialized) shows nothing.
+  defp working_state(id) do
+    case Custode.Feed.recent_by_event("worktree_state", agent: id, limit: 1) do
+      [%{"sha" => sha} = entry] when sha not in ["absent", nil] ->
+        %{
+          branch: entry["branch"],
+          sha: String.slice(sha, 0, 10),
+          in_flight: entry["phase"] == "start",
+          at: entry["at"]
+        }
+
+      _none_or_absent ->
+        nil
+    end
+  end
 
   defp refresh(socket) do
     id = socket.assigns.id
@@ -810,17 +852,14 @@ defmodule CustodeWeb.AgentLive do
         {:error, _reason} -> nil
       end
 
-    history =
-      case Agent.history(id) do
-        {:ok, history} -> Enum.take(history, -20) |> Enum.reverse()
-        {:error, _reason} -> []
-      end
+    history = agent_history(id)
 
     assign(socket,
       routine: routine,
       policies: (routine && Custode.Policy.ids_for(routine)) || [],
       repo: repo,
       repo_overview: repo && repo_overview(repo),
+      working_state: repo && working_state(id),
       status: status,
       state: state_of(status),
       info: info,
