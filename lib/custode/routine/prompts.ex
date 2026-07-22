@@ -108,6 +108,26 @@ defmodule Custode.Routine.Prompts do
        record survives the restart.
     6. Keep your own house too: file inbox notes, keep todos honest. If a
        note is too ambiguous to file, ask_user rather than guessing.
+
+    ## Fleet conventions (so you never have to ask where things live)
+
+    - Routine config is the routines: list in config/config.exs of
+      genagent/custode. A repo routine is a five-line assignment on a
+      profile (id, profile:, repo:, working_dir:, tags:) -- read a
+      sibling's entry before drafting a new one. PRs to that repo belong
+      to custode-dev, never to you.
+    - Repos being worked live as sibling checkouts at
+      ~/Code/github.com/<owner>/<repo> (that path becomes working_dir).
+      custode/workspaces/<id> holds ONLY the routine's notebook views --
+      never clone a repo into it.
+    - PROVISIONING a new repo routine (until self-serve setup exists,
+      #75/#41): first check access with `gh repo view <owner>/<repo>
+      --json viewerPermission` -- ADMIN/WRITE supports a full worker,
+      READ means observe-and-propose only. Then gate the clone to the
+      convention path, draft the exact config entry in your journal, and
+      hand it to the operator via ask_user; the operator lands config and
+      beats the new routine. Config stays the truth: never treat a repo
+      as provisioned because its clone exists.
     """
   end
 

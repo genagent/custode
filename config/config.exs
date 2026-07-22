@@ -63,7 +63,10 @@ config :custode,
       prompt: "Do your caretaker sweep now.",
       # Fleet powers: this agent gets the custode MCP tools (run_job,
       # start_agent, ...) so it can delegate to one-shot jobs and sub-agents.
-      mcp: true
+      mcp: true,
+      # Provisioning pre-flight (learned setting up redisctl): checking a
+      # repo's viewerPermission decides worker-vs-observer before any clone.
+      extra_allowed_tools: ["Bash(gh repo view:*)"]
       # Other per-routine overrides:
       #   model: "haiku", max_budget_usd: 0.25, system_prompt: "..."
     },
@@ -138,6 +141,17 @@ config :custode,
       cron: "*/10 * * * *",
       repo: "joshrotenberg/tower-resilience",
       working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/tower-resilience",
+      tags: [:rust, :external]
+    },
+    # redisctl: provisioned via the caretaker's own recipe (2026-07-21
+    # evening) -- it checked access, gated the clone move to the convention
+    # path, and drafted this entry for the operator to land. @daily from
+    # the profile; manual beats while onboarding.
+    %{
+      id: "redisctl",
+      profile: :backlog_worker,
+      repo: "redis/redisctl",
+      working_dir: "/Users/joshrotenberg/Code/github.com/redis/redisctl",
       tags: [:rust, :external]
     },
     # The reviewer (#86 rung 3): reads siblings' ready PRs and posts gated
