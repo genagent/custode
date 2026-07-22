@@ -225,10 +225,15 @@ defmodule Custode.Routine do
 
   # Policies (#50) append to EVERY prompt, including operator-supplied
   # system_prompt: overrides -- fleet law rides along regardless of role.
-  defp system_prompt(%{mcp: true} = routine),
-    do: routine.system_prompt <> delegation_prompt() <> Custode.Policy.render(routine)
+  # Presence (#141) rides the same way: composed at tick time, so the very
+  # next sweep sees a presence flip with no restart (#121/#142).
+  defp system_prompt(%{mcp: true} = routine) do
+    routine.system_prompt <>
+      delegation_prompt() <> Custode.Policy.render(routine) <> Custode.Presence.render()
+  end
 
-  defp system_prompt(routine), do: routine.system_prompt <> Custode.Policy.render(routine)
+  defp system_prompt(routine),
+    do: routine.system_prompt <> Custode.Policy.render(routine) <> Custode.Presence.render()
 
   # Tool tiers (issue #40): the operator verbs (pause a sibling, beat a
   # routine, read the fleet) belong to the meta-agent only. Every other
