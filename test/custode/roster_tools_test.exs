@@ -110,28 +110,29 @@ defmodule Custode.RosterToolsTest do
     assert refused =~ "sub-agents do not provision"
   end
 
-  test "an :external routine is human-created only, even via the caretaker" do
-    refused =
-      tool_error(
-        AddRoutine.execute(
-          %{id: "extadd", profile: "backlog_worker", tags: ["rust", "external"]},
-          routine_frame("keeper")
-        )
-      )
-
-    assert refused =~ "human-created only"
-    assert Custode.Routine.get("extadd") == nil
-
-    # the operator remains free to create it
+  test "an :external routine adds through the caretaker's gate flow and the operator alike" do
+    # the caretaker's add only runs as an approved continuation, so the human
+    # read the rendered TOML -- that approval is the :external protection now
     json =
       tool_json(
         AddRoutine.execute(
           %{id: "extadd", profile: "backlog_worker", repo: "o/r", tags: ["rust", "external"]},
-          @operator
+          routine_frame("keeper")
         )
       )
 
     assert json["live"] == true
+
+    # a WORKER still cannot add anything, external or not
+    refused =
+      tool_error(
+        AddRoutine.execute(
+          %{id: "extadd2", profile: "backlog_worker", tags: ["rust", "external"]},
+          routine_frame("existing")
+        )
+      )
+
+    assert refused =~ "only the caretaker provisions"
   end
 
   test "duplicates and unknown profiles come back as tool errors" do
