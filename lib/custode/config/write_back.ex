@@ -77,6 +77,13 @@ defmodule Custode.Config.WriteBack do
   end
 
   @doc """
+  The RAW roster entry for an id -- what the file (or exs list) literally
+  says, before any profile default applies. The edit form prefills from
+  this so an edit can never bake defaults into the file (#174 slice 2).
+  """
+  def raw_entry(id) when is_binary(id), do: fetch_raw(id)
+
+  @doc """
   Render the before/after TOML sections an edit would produce, without
   writing anything (#174 slice 3): a caretaker puts BOTH in its
   request_permission action so the human approves the literal change.

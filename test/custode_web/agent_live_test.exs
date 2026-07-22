@@ -168,6 +168,87 @@ defmodule CustodeWeb.AgentLiveTest do
     assert html =~ "flat slot table"
   end
 
+  describe "the edit form (#174 slice 2)" do
+    setup %{routine: routine} do
+      roster = Path.join(System.tmp_dir!(), uid("edit-roster") <> ".toml")
+      System.put_env("CUSTODE_CONFIG", roster)
+      previous = Application.get_env(:custode, :routines)
+
+      on_exit(fn ->
+        System.delete_env("CUSTODE_CONFIG")
+        File.rm(roster)
+        Application.put_env(:custode, :routines, previous)
+      end)
+
+      stub_routine_agent!(routine)
+      %{roster: roster}
+    end
+
+    test "opens prefilled from the raw entry and carries the migration warning",
+         %{conn: conn, routine: routine} do
+      {:ok, view, _html} = live(conn, "/agents/#{routine.id}")
+
+      html = view |> element("button", "edit") |> render_click()
+
+      # raw values, not normalized ones: cron shows, model (profile default
+      # territory) is empty
+      assert html =~ ~s(value="@daily")
+      # no roster file yet: saving is the mode switch, said on the button
+      assert html =~ "migrates your roster"
+      assert html =~ "save (migrates roster to file)"
+    end
+
+    test "saving a change writes the file and the live roster; empty drops an override",
+         %{conn: conn, routine: routine, roster: roster} do
+      {:ok, view, _html} = live(conn, "/agents/#{routine.id}")
+      view |> element("button", "edit") |> render_click()
+
+      view
+      |> form("#edit-agent-modal form", %{"routine" => %{"daily_budget_usd" => "75.5"}})
+      |> render_submit()
+
+      assert File.read!(roster) =~ ~s(daily_budget_usd = 75.5)
+      assert Custode.Routine.get(routine.id).daily_budget_usd == 75.5
+      # the raw entry stayed raw: no baked-in profile defaults
+      refute File.read!(roster) =~ "max_turns"
+
+      # re-open (fresh raw) and clear the override
+      view |> element("button", "edit") |> render_click()
+
+      view
+      |> form("#edit-agent-modal form", %{"routine" => %{"daily_budget_usd" => ""}})
+      |> render_submit()
+
+      refute File.read!(roster) =~ "daily_budget_usd"
+    end
+
+    test "a bad value is refused in place, typed fields intact", %{conn: conn, routine: routine} do
+      {:ok, view, _html} = live(conn, "/agents/#{routine.id}")
+      view |> element("button", "edit") |> render_click()
+
+      html =
+        view
+        |> form("#edit-agent-modal form", %{"routine" => %{"daily_budget_usd" => "lots"}})
+        |> render_submit()
+
+      assert html =~ "must be a number"
+      # the modal stayed open with the typed value bound (#176's lesson)
+      assert html =~ ~s(value="lots")
+    end
+
+    test "remove takes the routine off the roster and navigates home",
+         %{conn: conn, routine: routine} do
+      {:ok, view, _html} = live(conn, "/agents/#{routine.id}")
+      view |> element("button", "edit") |> render_click()
+
+      view |> element("button", "remove agent") |> render_click()
+
+      flash = assert_redirect(view, "/")
+      assert flash["info"] =~ "removed"
+      assert Custode.Routine.get(routine.id) == nil
+    end
+  end
+
   describe "images dropped on the prompt box (#180 slice 1)" do
     # a 1x1 png, small enough to live inline
     @png Base.decode64!(
