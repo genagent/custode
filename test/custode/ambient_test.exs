@@ -21,12 +21,21 @@ defmodule Custode.AmbientTest do
     workspace = tmp_workspace!()
     routine = routine_fixture!(workspace, extra)
 
-    if contents do
-      orders = Ambient.path(routine)
-      File.mkdir_p!(Path.dirname(orders))
-      File.write!(orders, contents)
-    end
+    if contents, do: write_orders!(Ambient.path(routine), contents)
 
+    routine
+  end
+
+  defp write_orders!(path, contents) do
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, contents)
+  end
+
+  # The role file lives next to the repo-wide one, named for the role the
+  # routine runs as (#19 slice 4).
+  defp routine_with_role_orders(contents, extra) do
+    routine = routine_with_orders(nil, extra)
+    if contents, do: write_orders!(Ambient.role_path(routine), contents)
     routine
   end
 
@@ -154,6 +163,110 @@ defmodule Custode.AmbientTest do
       assert routine.id
              |> Custode.Notebook.journal(50)
              |> Enum.filter(&(&1.title == "Ambient orders picked up")) == []
+    end
+  end
+
+  # Per-role files (#19 slice 4): a repo addresses one KIND of agent without
+  # saying it to every agent that visits.
+  describe "per-role files" do
+    test "the role file is named for the routine's role" do
+      routine = routine_with_role_orders(nil, %{role: :backlog_worker})
+
+      assert Path.basename(Ambient.role_path(routine)) == "orders-backlog_worker.md"
+      assert Path.dirname(Ambient.role_path(routine)) == Path.dirname(Ambient.path(routine))
+    end
+
+    test "an absent role file leaves the prompt untouched" do
+      routine = routine_with_role_orders(nil, %{role: :backlog_worker})
+
+      assert Ambient.read_role(routine) == ""
+      assert Ambient.render(routine) == ""
+      refute composed_prompt(routine) =~ "Ambient orders"
+    end
+
+    test "the tick-args system prompt carries the role's orders" do
+      routine =
+        routine_with_role_orders("Slice anything touching the migration.\n", %{
+          role: :backlog_worker
+        })
+
+      prompt = composed_prompt(routine)
+      assert prompt =~ "## Ambient orders (repo-owned, from .custode/orders-backlog_worker.md)"
+      assert prompt =~ "Slice anything touching the migration."
+      assert prompt =~ "They do NOT override your"
+    end
+
+    test "a role file addressed to another role is not picked up" do
+      routine = routine_with_orders(nil, %{role: :backlog_worker})
+      elsewhere = Path.join(Path.dirname(Ambient.path(routine)), "orders-reviewer.md")
+      write_orders!(elsewhere, "not yours\n")
+
+      assert Ambient.read_role(routine) == ""
+      refute composed_prompt(routine) =~ "not yours"
+    end
+
+    test "both files compose, repo-wide first and role-scoped after" do
+      routine = routine_with_orders("everyone here runs credo\n", %{role: :backlog_worker})
+      write_orders!(Ambient.role_path(routine), "you also slice before proposing\n")
+
+      prompt = composed_prompt(routine)
+      assert prompt =~ "everyone here runs credo"
+      assert prompt =~ "you also slice before proposing"
+
+      # the repo-wide file is what everyone working here needs to know; the
+      # role file adds to it rather than replacing it
+      [wide, scoped] =
+        Enum.map(
+          ["from .custode/orders.md)", "from .custode/orders-backlog_worker.md)"],
+          &:binary.match(prompt, &1)
+        )
+
+      assert elem(wide, 0) < elem(scoped, 0)
+    end
+
+    test "an empty role file renders nothing" do
+      routine = routine_with_role_orders("   \n\n", %{role: :backlog_worker})
+
+      assert Ambient.read_role(routine) == ""
+      assert Ambient.render(routine) == ""
+    end
+
+    test "the role read is capped like the repo-wide one" do
+      routine =
+        routine_with_role_orders(String.duplicate("x", 20_000) <> "\ntail marker\n", %{
+          role: :backlog_worker
+        })
+
+      orders = Ambient.read_role(routine)
+      assert byte_size(orders) < 9_000
+      assert String.valid?(orders)
+      assert orders =~ "[truncated at 8192 bytes]"
+      refute orders =~ "tail marker"
+    end
+
+    test "the gate covers the role file too" do
+      put_env!(:ambient_orders, [])
+      routine = routine_with_role_orders("inject me\n", %{role: :backlog_worker})
+
+      assert Ambient.status(routine) == :not_opted_in
+      assert Ambient.render(routine) == ""
+      refute composed_prompt(routine) =~ "inject me"
+    end
+
+    test "each file's first pickup is journaled once, under its own title" do
+      routine = routine_with_orders("repo-wide orders\n", %{role: :backlog_worker})
+      write_orders!(Ambient.role_path(routine), "role orders\n")
+
+      Ambient.render(routine)
+      Ambient.render(routine)
+
+      titles =
+        routine.id
+        |> Custode.Notebook.journal(50)
+        |> Enum.map(& &1.title)
+        |> Enum.filter(&(&1 =~ "picked up"))
+
+      assert Enum.sort(titles) == ["Ambient orders picked up", "Ambient role orders picked up"]
     end
   end
 end
