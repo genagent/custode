@@ -9,6 +9,8 @@ defmodule CustodeWeb.AgentLive do
 
   import CustodeWeb.Components
 
+  alias Custode.Config.Loader
+  alias Custode.Config.WriteBack
   alias ObanClaude.Agent
 
   @image_types ~w(.png .jpg .jpeg .gif .webp)
@@ -21,6 +23,7 @@ defmodule CustodeWeb.AgentLive do
     {:ok,
      socket
      |> assign(id: id, prompt_ack: nil, prompt_gen: 0)
+     |> assign(edit: %{open: false, params: %{}, raw: %{}, error: nil})
      |> allow_image_upload(:image)
      |> allow_image_upload(:answer_image)
      |> refresh()}
@@ -54,6 +57,68 @@ defmodule CustodeWeb.AgentLive do
 
   def handle_event("drop_image", %{"ref" => ref, "upload" => upload}, socket) do
     {:noreply, cancel_upload(socket, upload_key(upload), ref)}
+  end
+
+  # The edit form (#174 slice 2). Prefilled from the RAW entry so saving
+  # can never bake profile defaults into the file; params live in assigns
+  # so a re-render never wipes typed fields (#176's lesson).
+  def handle_event("edit_open", _params, socket) do
+    case WriteBack.raw_entry(socket.assigns.id) do
+      {:ok, raw} ->
+        strings = edit_strings(raw)
+        {:noreply, assign(socket, edit: %{open: true, params: strings, raw: strings, error: nil})}
+
+      {:error, reason} ->
+        {:noreply,
+         assign(socket, edit: %{open: false, params: %{}, raw: %{}, error: inspect(reason)})}
+    end
+  end
+
+  def handle_event("edit_close", _params, socket) do
+    {:noreply, assign(socket, edit: %{open: false, params: %{}, raw: %{}, error: nil})}
+  end
+
+  def handle_event("edit_change", %{"routine" => params}, socket) do
+    {:noreply, update(socket, :edit, &%{&1 | params: params})}
+  end
+
+  def handle_event("edit_save", %{"routine" => params}, socket) do
+    edit = socket.assigns.edit
+
+    with {:ok, changes} <- edit_changes(edit.raw, params),
+         {:ok, _path} <- apply_edit(socket.assigns.id, changes) do
+      note = if changes == %{}, do: "no changes", else: "saved -- live at the next minute"
+
+      {:noreply,
+       socket
+       |> assign(edit: %{open: false, params: %{}, raw: %{}, error: nil})
+       |> put_flash(:info, "#{socket.assigns.id}: #{note}")
+       |> refresh()}
+    else
+      {:error, reason} ->
+        {:noreply,
+         update(socket, :edit, &%{&1 | params: params, error: "refused: #{inspect(reason)}"})}
+    end
+  end
+
+  def handle_event("edit_remove", _params, socket) do
+    case WriteBack.remove_routine(socket.assigns.id) do
+      {:ok, _path} ->
+        Custode.Feed.record(%{
+          event: "repo_verb",
+          agent: socket.assigns.id,
+          summary:
+            "remove_routine #{socket.assigns.id}: removed from the dashboard, notebook kept"
+        })
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "#{socket.assigns.id} removed -- notebook and workspace kept")
+         |> push_navigate(to: "/")}
+
+      {:error, reason} ->
+        {:noreply, update(socket, :edit, &%{&1 | error: "remove refused: #{inspect(reason)}"})}
+    end
   end
 
   def handle_event("approve", %{"action" => action_id}, socket) do
@@ -162,6 +227,9 @@ defmodule CustodeWeb.AgentLive do
           </span>
         </summary>
         <div class="collapse-content space-y-2 text-sm">
+          <div class="flex justify-end">
+            <button class="btn btn-ghost btn-xs" phx-click="edit_open">edit</button>
+          </div>
           <div class="flex flex-wrap gap-x-6 gap-y-1 text-base-content/70">
             <span>role <b>{@routine.role}</b></span>
             <span>
@@ -195,6 +263,8 @@ defmodule CustodeWeb.AgentLive do
           </details>
         </div>
       </details>
+
+      <.edit_agent_modal :if={@routine} edit={@edit} id={@id} />
 
       <div :if={match?({:awaiting_permission, _}, @status)} class="alert alert-warning mb-4">
         <div class="flex-1">
@@ -485,6 +555,137 @@ defmodule CustodeWeb.AgentLive do
   defp upload_error_text(:too_many_files), do: "one image at a time"
   defp upload_error_text(:not_accepted), do: "not an image"
   defp upload_error_text(error), do: to_string(error)
+
+  attr(:edit, :map, required: true)
+  attr(:id, :string, required: true)
+
+  # The edit modal (#174 slice 2): raw values in, empty-a-field to drop that
+  # override back to the profile. With no roster file yet, saving CREATES
+  # routines.toml from the live roster -- the design 001 mode switch, said
+  # out loud on the button rather than sprung on the operator.
+  defp edit_agent_modal(assigns) do
+    # target_path, not file_path: a set-but-absent CUSTODE_CONFIG raises in
+    # file_path/0, but here it just means the first save creates the file
+    assigns =
+      assign(assigns, :migrates, not File.exists?(Loader.target_path()))
+
+    ~H"""
+    <dialog :if={@edit.open} class="modal modal-open" id="edit-agent-modal">
+      <div class="modal-box max-w-2xl">
+        <h3 class="mb-1 font-bold">edit {@id}</h3>
+        <p class="mb-2 text-xs text-base-content/50">
+          raw roster values: an empty field means the profile's default serves.
+          Clearing a filled field drops that override.
+        </p>
+        <p :if={@migrates} class="mb-2 rounded bg-warning/20 p-2 text-xs">
+          saving migrates your roster to <span class="font-mono">routines.toml</span>;
+          the <span class="font-mono">config.exs</span> routine list will no longer apply.
+        </p>
+        <form phx-change="edit_change" phx-submit="edit_save">
+          <div class="grid grid-cols-2 gap-2">
+            <label :for={field <- @edit.params |> Map.keys() |> Enum.sort()} class="form-control">
+              <span class="label-text text-xs font-mono">{field}</span>
+              <input
+                name={"routine[#{field}]"}
+                value={@edit.params[field]}
+                class="input input-bordered input-sm"
+              />
+            </label>
+          </div>
+          <p :if={@edit.error} class="mt-2 text-xs text-error">{@edit.error}</p>
+          <div class="modal-action justify-between">
+            <button
+              type="button"
+              class="btn btn-error btn-outline btn-sm"
+              phx-click="edit_remove"
+              data-confirm={"remove #{@id} from the roster? Its notebook and workspace are kept."}
+            >
+              remove agent
+            </button>
+            <div class="flex gap-2">
+              <button type="button" class="btn btn-ghost btn-sm" phx-click="edit_close">
+                cancel
+              </button>
+              <button class="btn btn-primary btn-sm">
+                {if @migrates, do: "save (migrates roster to file)", else: "save"}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </dialog>
+    """
+  end
+
+  @edit_fields ~w(cron model effort max_budget_usd daily_budget_usd timeout_ms max_turns prompt tags)
+
+  # the raw entry's editable fields as form strings ("" = no override)
+  defp edit_strings(raw) do
+    Map.new(@edit_fields, fn field ->
+      value =
+        case Map.get(raw, String.to_existing_atom(field)) do
+          nil -> ""
+          :manual -> "manual"
+          list when is_list(list) -> Enum.map_join(list, ", ", &to_string/1)
+          other -> to_string(other)
+        end
+
+      {field, value}
+    end)
+  end
+
+  # submitted vs raw: same -> untouched; emptied an override -> nil (drop);
+  # new non-empty value -> typed parse. The id never changes here.
+  defp edit_changes(raw, params) do
+    Enum.reduce_while(@edit_fields, {:ok, %{}}, fn field, {:ok, changes} ->
+      submitted = String.trim(params[field] || "")
+      original = String.trim(raw[field] || "")
+
+      case edit_change(field, submitted, original) do
+        :unchanged -> {:cont, {:ok, changes}}
+        {:ok, value} -> {:cont, {:ok, Map.put(changes, String.to_existing_atom(field), value)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp edit_change(_field, same, same), do: :unchanged
+  defp edit_change(_field, "", _had_override), do: {:ok, nil}
+  defp edit_change(field, submitted, _original), do: parse_edit_value(field, submitted)
+
+  defp apply_edit(_id, changes) when changes == %{}, do: {:ok, :unchanged}
+  defp apply_edit(id, changes), do: WriteBack.update_routine(id, changes)
+
+  defp parse_edit_value(field, value) when field in ~w(cron model prompt), do: {:ok, value}
+
+  defp parse_edit_value("effort", value) do
+    {:ok, String.to_existing_atom(value)}
+  rescue
+    ArgumentError -> {:error, "unknown effort #{inspect(value)}"}
+  end
+
+  defp parse_edit_value(field, value) when field in ~w(max_budget_usd daily_budget_usd) do
+    case Float.parse(value) do
+      {usd, ""} -> {:ok, usd}
+      _other -> {:error, "#{field} must be a number, got #{inspect(value)}"}
+    end
+  end
+
+  defp parse_edit_value(field, value) when field in ~w(timeout_ms max_turns) do
+    case Integer.parse(value) do
+      {n, ""} -> {:ok, n}
+      _other -> {:error, "#{field} must be an integer, got #{inspect(value)}"}
+    end
+  end
+
+  defp parse_edit_value("tags", value) do
+    {:ok,
+     value
+     |> String.split(",")
+     |> Enum.map(&String.trim/1)
+     |> Enum.reject(&(&1 == ""))
+     |> Enum.map(&String.to_atom/1)}
+  end
 
   defp refresh(socket) do
     id = socket.assigns.id
