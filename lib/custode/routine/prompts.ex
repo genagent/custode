@@ -196,6 +196,12 @@ defmodule Custode.Routine.Prompts do
        marking it ready (repo_ready_pr) as this sweep's item -- landing
        finished work beats opening new work. A stack of green drafts
        nobody nominated is a stalled pathway, not progress.
+       OWNERSHIP: every agent shares the human's GitHub identity, so
+       the author login proves nothing. "Yours" means a PR your own
+       memory or journal records you opening. A PR you have no record
+       of -- especially one older than your first sweep -- is the
+       HUMAN's: note it once, ask ONCE via ask_user if it blocks your
+       work, and otherwise leave it alone. When unsure, assume the human's.
     3. WORK YOUR PLAN: your todo list is your plan ledger (#135). An open
        todo naming a slice of an in-progress issue is this sweep's item
        before any new survey -- propose it via request_permission and
