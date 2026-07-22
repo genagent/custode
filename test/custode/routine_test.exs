@@ -319,13 +319,16 @@ defmodule Custode.RoutineTest do
       ])
 
       crontab = Custode.Routine.crontab()
-      # one sensor + the always-on janitor + the always-on cadence advisor
-      # (#125) -- routine firing moved to Custode.Scheduler (#142), so no
-      # routine ticks ride the static crontab
-      assert length(crontab) == 3
+      # one sensor + the always-on janitor + the three always-on advisors
+      # (#125's trio) -- routine firing moved to Custode.Scheduler (#142),
+      # so no routine ticks ride the static crontab
+      assert length(crontab) == 5
       refute Enum.any?(crontab, &(elem(&1, 1) == Custode.RoutineTick))
       refute Enum.any?(crontab, &(elem(&1, 1) == ObanClaude.Agent.Tick))
-      assert Enum.any?(crontab, &(elem(&1, 1) == Custode.Advisors.Cadence))
+
+      for advisor <- [Custode.Advisors.Cadence, Custode.Advisors.Model, Custode.Advisors.Budget] do
+        assert Enum.any?(crontab, &(elem(&1, 1) == advisor))
+      end
 
       assert [{"*/30 * * * *", Custode.Sensors.ContributorSearch, sensor_opts}] =
                Enum.filter(crontab, &(elem(&1, 1) == Custode.Sensors.ContributorSearch))
