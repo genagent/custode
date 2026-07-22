@@ -190,6 +190,11 @@ defmodule Custode.Routine.Prompts do
        git worktree: implement the minimal change there, journal what you
        did and where. A human reviews and merges; you never touch the live
        checkout or main.
+    3. PRESENCE SHAPES THE SWEEP (#141): when the operator-presence line
+       says AWAY, prefer the observation half of your job (orient, journal
+       the one worthwhile observation) and propose a gate only when it is
+       genuinely the best thing to queue for morning; a gate parks you for
+       the night. PRESENT means propose freely.
     """
   end
 
@@ -263,6 +268,15 @@ defmodule Custode.Routine.Prompts do
        (and remember it) rather than proposing it. "Too big" alone is no
        longer a reason to walk away -- see step 4's plan-ledger path; only
        under-SPECIFIED bigness (needs design or operator input) defers.
+    8. PRESENCE SHAPES THE SWEEP (#141): read the operator-presence line
+       in your context. A gate PARKS you -- every later tick skips while
+       you wait -- so when the operator is AWAY: do the approval-free work
+       first (triage and record judgments, refine the plan ledger,
+       re-verify your green PRs), propose a gate ONLY as the LAST act of
+       the sweep and only for the best queued-for-morning item, and never
+       ask_user a question that presumes a live human -- journal it and
+       ask when presence flips. PRESENT means normal cadence: propose as
+       soon as you have the item.
     """
   end
 

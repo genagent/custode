@@ -65,12 +65,31 @@ defmodule Custode.Presence do
   end
 
   @doc """
+  The explicit toggle (#141): `:away` pins away, `:present` pins present,
+  `:auto` restores inference. Every toggle is recorded as a feed event that
+  itself counts as an operator action -- so `back` (set `:auto`) reads
+  present immediately and then expires naturally with the window, instead
+  of needing a pin that never lapses.
+  """
+  def set(mode) when mode in [:present, :away, :auto] do
+    Application.put_env(:custode, :presence_override, if(mode == :auto, do: nil, else: mode))
+
+    Custode.Feed.record(%{
+      event: "presence",
+      agent: "operator",
+      summary: "operator marked #{mode}"
+    })
+
+    status()
+  end
+
+  @doc """
   The newest operator action timestamp across the evidence sources, or nil.
   Never raises: presence rides inside tick composition, and a db hiccup must
   degrade to "no evidence" (away), not break the sweep.
   """
   def last_operator_action_at do
-    [latest_gate_touch(), latest_operator_turn()]
+    [latest_gate_touch(), latest_operator_turn(), latest_presence_toggle()]
     |> Enum.reject(&is_nil/1)
     |> case do
       [] -> nil
@@ -99,6 +118,17 @@ defmodule Custode.Presence do
     Custode.Repo.one(
       from(f in "feed_entries",
         where: not is_nil(fragment("json_extract(?, '$.response')", f.entry)),
+        select: max(f.at)
+      )
+    )
+    |> to_utc()
+  end
+
+  # an explicit toggle is itself a human at the keyboard
+  defp latest_presence_toggle do
+    Custode.Repo.one(
+      from(f in "feed_entries",
+        where: f.event == "presence",
         select: max(f.at)
       )
     )

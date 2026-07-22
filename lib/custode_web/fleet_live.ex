@@ -50,6 +50,18 @@ defmodule CustodeWeb.FleetLive do
     {:noreply, refresh(socket)}
   end
 
+  # present -> pin away; away -> back to inference (the toggle itself counts
+  # as an operator action, so the reading flips to present and then expires
+  # with the window instead of needing a forever-pin)
+  def handle_event("toggle_presence", _params, socket) do
+    case socket.assigns.presence do
+      {:present, _at} -> Custode.Presence.set(:away)
+      {:away, _at} -> Custode.Presence.set(:auto)
+    end
+
+    {:noreply, refresh(socket)}
+  end
+
   def handle_event("apply_suggestion", params, socket) do
     %{"agent" => id, "field" => field, "proposed" => proposed} = params
 
@@ -211,6 +223,7 @@ defmodule CustodeWeb.FleetLive do
           tiles={@meta_tiles}
           fleet_today={@fleet_today}
           suggestions={@suggestions}
+          presence={@presence}
         />
         <div class="min-w-0 flex-1">
           <p class="mb-2 text-xs text-base-content/40">sorted by recent activity</p>
@@ -226,6 +239,7 @@ defmodule CustodeWeb.FleetLive do
   attr(:tiles, :list, required: true)
   attr(:fleet_today, :float, required: true)
   attr(:suggestions, :list, required: true)
+  attr(:presence, :any, required: true)
 
   # The caretaker's rail (#178). The meta agent is not a peer of the workers,
   # so activity sorting hid it exactly when it was quiet -- backwards for the
@@ -242,6 +256,16 @@ defmodule CustodeWeb.FleetLive do
     >
       <div class="flex items-baseline gap-2">
         <span class="text-xs uppercase tracking-wide text-base-content/40">caretaker</span>
+        <button
+          class={[
+            "badge badge-xs cursor-pointer",
+            (elem(@presence, 0) == :present && "badge-success") || "badge-ghost"
+          ]}
+          title="operator presence (#141): click to toggle; sweeps shape themselves to it"
+          phx-click="toggle_presence"
+        >
+          {if elem(@presence, 0) == :present, do: "present", else: "away"}
+        </button>
         <span class="ml-auto font-mono text-sm text-base-content/70">
           fleet today ${usd(@fleet_today)}
         </span>
@@ -590,6 +614,7 @@ defmodule CustodeWeb.FleetLive do
       tiles: tiles,
       meta_tiles: Enum.sort_by(meta_tiles, fn {id, _tile} -> id end),
       suggestions: advisor_suggestions(),
+      presence: Custode.Presence.status(),
       all_tags: all_tags,
       any_pausable: Enum.any?(states, &(&1 not in [:paused, :offline])),
       any_paused: :paused in states,

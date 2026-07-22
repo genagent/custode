@@ -200,3 +200,28 @@ defmodule Custode.MCP.OperatorTools.SpendToday do
     })
   end
 end
+
+defmodule Custode.MCP.OperatorTools.SetPresence do
+  @moduledoc """
+  Set operator presence (#141): "away" pins away, "present" pins present,
+  "auto" restores inference and counts as a fresh operator action. Sweeps
+  read the presence line and shape themselves to it -- away means agents
+  queue at most one well-chosen gate for morning instead of parking early.
+  """
+  use Anubis.Server.Component, type: :tool
+
+  import Custode.MCP.Tools
+
+  schema do
+    field(:mode, :string, required: true, description: ~s(one of "present", "away", "auto"))
+  end
+
+  @impl true
+  def execute(%{mode: mode}, frame) when mode in ["present", "away", "auto"] do
+    {state, _at} = Custode.Presence.set(String.to_existing_atom(mode))
+    reply(frame, %{mode: mode, reading: to_string(state)})
+  end
+
+  def execute(%{mode: mode}, frame),
+    do: fail(frame, ~s(mode must be "present", "away", or "auto"; got #{inspect(mode)}))
+end

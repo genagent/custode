@@ -62,6 +62,24 @@ defmodule Custode.PresenceTest do
     assert Presence.render() =~ "operator: AWAY"
   end
 
+  test "set/1: away pins, present pins, auto restores inference with a fresh action (#141)" do
+    assert {:away, _at} = Presence.set(:away)
+    assert {:away, _at} = Presence.status()
+
+    assert {:present, _at} = Presence.set(:present)
+    assert {:present, _at} = Presence.status()
+
+    # auto clears the pin, and the toggle itself was an operator action --
+    # so the reading is present NOW and will expire with the window, not pin
+    assert {:present, at} = Presence.set(:auto)
+    assert %DateTime{} = at
+    assert Application.get_env(:custode, :presence_override) == nil
+
+    # each toggle went on the record
+    events = Custode.Feed.for_agent("operator") |> Enum.map(& &1["event"])
+    assert Enum.count(events, &(&1 == "presence")) == 3
+  end
+
   test "the tick-args system prompt carries the presence line at fire time" do
     workspace = tmp_workspace!()
     id = uid("routine")

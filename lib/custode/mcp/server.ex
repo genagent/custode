@@ -58,6 +58,7 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.OperatorTools.ListGates, name: "list_gates")
   component(Custode.MCP.OperatorTools.FeedTail, name: "feed_tail")
   component(Custode.MCP.OperatorTools.PauseAgent, name: "pause_agent")
+  component(Custode.MCP.OperatorTools.SetPresence, name: "set_presence")
   component(Custode.MCP.OperatorTools.ResumeAgent, name: "resume_agent")
   component(Custode.MCP.OperatorTools.SpendToday, name: "spend_today")
 
