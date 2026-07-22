@@ -6,7 +6,7 @@ defmodule Custode.OneShotReportTest do
 
   test "report notes carry machine-readable front-matter (#18)" do
     workspace = tmp_workspace!()
-    routine = routine_fixture!(workspace)
+    _routine = routine_fixture!(workspace)
     inbox = Path.join(workspace, "inbox")
 
     job = %Oban.Job{

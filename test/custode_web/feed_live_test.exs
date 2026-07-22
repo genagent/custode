@@ -2,7 +2,6 @@ defmodule CustodeWeb.FeedLiveTest do
   use ExUnit.Case, async: false
 
   import Custode.TestHelpers
-  import ObanClaude.Testing
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 

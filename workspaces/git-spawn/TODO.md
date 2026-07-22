@@ -4,3 +4,4 @@
      dashboard, Custode console, or MCP tools, not this file -->
 
 - [x] (#9) #42: implement typed remotes() workflow helper (Remote struct + list/add/remove/rename/set_url/get_url), mirror branches.rs, workflow-gated, unit + integration tests, run full local gates incl MSRV 1.85 and rustdoc -D warnings, open draft PR
+- [ ] (#15) #44 process-group kill on timeout: real bug (command.rs Child leaks on timeout drop). Dedicated future sweep — needs libc/nix killpg + Windows Job Object + careful non-flaky timeout test.
