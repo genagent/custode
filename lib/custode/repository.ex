@@ -97,7 +97,26 @@ defmodule Custode.Repository do
     else
       _terminated = Elixir.Supervisor.terminate_child(__MODULE__.Supervisor, {__MODULE__, name})
       _deleted = Elixir.Supervisor.delete_child(__MODULE__.Supervisor, {__MODULE__, name})
-      :ok
+      # terminate_child returns once the process is dead, but the Registry
+      # deregisters on the process's DOWN, which is async -- so served?/1 can
+      # briefly still report true. Wait it out so "after stop_serving, the
+      # repo is not served" is a real guarantee callers (and tests) can rely
+      # on, not a race.
+      await_deregistered(name)
+    end
+  end
+
+  defp await_deregistered(name, attempts \\ 50) do
+    cond do
+      not served?(name) ->
+        :ok
+
+      attempts <= 0 ->
+        :ok
+
+      true ->
+        Process.sleep(2)
+        await_deregistered(name, attempts - 1)
     end
   end
 
