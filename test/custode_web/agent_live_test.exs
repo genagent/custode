@@ -104,7 +104,7 @@ defmodule CustodeWeb.AgentLiveTest do
     assert html =~ "which env?"
 
     view
-    |> form(".alert form[phx-submit=prompt]", %{"text" => "staging"})
+    |> form(".alert form[phx-submit=answer]", %{"text" => "staging"})
     |> render_submit()
 
     assert_receive {:enqueued, %{"prompt" => "staging"}, _meta}
@@ -242,6 +242,113 @@ defmodule CustodeWeb.AgentLiveTest do
       view |> form("form[phx-submit=prompt]", %{"text" => "never mind"}) |> render_submit()
       assert_receive {:enqueued, %{"prompt" => "never mind"}, _meta}
     end
+  end
+
+  describe "images dropped on the answer box (#180 slice 2)" do
+    # @png is the same 1x1 defined by the slice 1 block above
+
+    test "a dropped image lands in the workspace and its path rides the answer",
+         %{conn: conn, routine: routine} do
+      stub_routine_agent!(routine)
+      ask!(routine)
+      {:ok, view, _html} = live(conn, "/agents/#{routine.id}")
+
+      view
+      |> file_input("form[phx-submit=answer]", :answer_image, [
+        %{name: "trace.png", content: @png, type: "image/png"}
+      ])
+      |> render_upload("trace.png")
+
+      assert render(view) =~ "trace.png"
+
+      view |> form("form[phx-submit=answer]", %{"text" => "this one"}) |> render_submit()
+
+      assert_receive {:enqueued, %{"prompt" => prompt}, _meta}
+      assert prompt =~ "this one"
+      assert prompt =~ "-- Read it before answering"
+
+      [_, path] = Regex.run(~r/attached image: (\S+)/, prompt)
+      assert Path.dirname(path) == Path.join(Path.expand(routine.workspace), "uploads")
+      assert File.read!(path) == @png
+    end
+
+    test "an image with no text answers on its own", %{conn: conn, routine: routine} do
+      stub_routine_agent!(routine)
+      ask!(routine)
+      {:ok, view, _html} = live(conn, "/agents/#{routine.id}")
+
+      view
+      |> file_input("form[phx-submit=answer]", :answer_image, [
+        %{name: "shot.png", content: @png, type: "image/png"}
+      ])
+      |> render_upload("shot.png")
+
+      view |> form("form[phx-submit=answer]", %{"text" => ""}) |> render_submit()
+
+      assert_receive {:enqueued, %{"prompt" => prompt}, _meta}
+      assert String.starts_with?(prompt, "attached image: ")
+    end
+
+    test "an image staged on one box does not ride the other's send",
+         %{conn: conn, routine: routine} do
+      stub_routine_agent!(routine)
+      ask!(routine)
+      {:ok, view, _html} = live(conn, "/agents/#{routine.id}")
+
+      view
+      |> file_input("form[phx-submit=prompt]", :image, [
+        %{name: "elsewhere.png", content: @png, type: "image/png"}
+      ])
+      |> render_upload("elsewhere.png")
+
+      view |> form("form[phx-submit=answer]", %{"text" => "staging"}) |> render_submit()
+
+      assert_receive {:enqueued, %{"prompt" => answered}, _meta}
+      assert answered == "staging"
+
+      # the prompt box kept its image, and it rides that box's own send
+      view |> form("form[phx-submit=prompt]", %{"text" => "and this"}) |> render_submit()
+      :ok = Agent.job_finished(routine.id, {:ok, result("answered")})
+
+      assert_receive {:enqueued, %{"prompt" => prompted}, _meta}
+      assert prompted =~ "and this"
+      assert prompted =~ "attached image: "
+    end
+
+    test "a pending answer image can be removed before sending",
+         %{conn: conn, routine: routine} do
+      stub_routine_agent!(routine)
+      ask!(routine)
+      {:ok, view, _html} = live(conn, "/agents/#{routine.id}")
+
+      view
+      |> file_input("form[phx-submit=answer]", :answer_image, [
+        %{name: "mistake.png", content: @png, type: "image/png"}
+      ])
+      |> render_upload("mistake.png")
+
+      assert render(view) =~ "mistake.png"
+      view |> element("button[phx-value-upload=answer_image]") |> render_click()
+      refute render(view) =~ "mistake.png"
+
+      view |> form("form[phx-submit=answer]", %{"text" => "never mind"}) |> render_submit()
+      assert_receive {:enqueued, %{"prompt" => "never mind"}, _meta}
+    end
+  end
+
+  # park an agent on a question, which is what puts the answer box on screen
+  defp ask!(routine) do
+    :processing = Agent.submit_prompt(routine.id, "curious")
+    assert_receive {:enqueued, _args, _meta}
+
+    :ok =
+      Agent.job_finished(
+        routine.id,
+        {:ok, structured_result(%{"directive" => "ask_user", "question" => "which env?"})}
+      )
+
+    {:ok, {:waiting_for_user, _q}} = Agent.await(routine.id, :waiting_for_user, 1_000)
+    :ok
   end
 
   test "an unknown agent renders gracefully as offline", %{conn: conn} do
