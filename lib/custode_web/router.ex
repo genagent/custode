@@ -29,6 +29,7 @@ defmodule CustodeWeb.Router do
     pipe_through(:browser)
 
     live("/", CustodeWeb.FleetLive)
+    live("/repos", CustodeWeb.ReposLive)
     live("/agents/:id", CustodeWeb.AgentLive)
     live("/feed", CustodeWeb.FeedLive)
     live("/metrics", CustodeWeb.MetricsLive)
