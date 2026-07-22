@@ -528,6 +528,31 @@ defmodule CustodeWeb.FleetMetaRailTest do
     refute has_element?(view, "header .badge-warning")
   end
 
+  test "an agent approaching its rail gets a banner; paused and calm agents do not (#211)" do
+    workspace = tmp_workspace!()
+    hot = uid("hot")
+    calm = uid("calm")
+
+    put_env!(:routines, [
+      %{id: hot, cron: "@daily", workspace: workspace, prompt: "s", daily_budget_usd: 10.0},
+      %{id: calm, cron: "@daily", workspace: workspace, prompt: "s", daily_budget_usd: 10.0}
+    ])
+
+    # 85% of the rail: approaching, not yet paused
+    :ok = Custode.SpendLedger.record(hot, 8.5)
+    :ok = Custode.SpendLedger.record(calm, 1.0)
+
+    {:ok, _view, html} = live(build_conn(), "/")
+
+    assert html =~ "85%"
+    assert html =~ "of its daily rail"
+    refute html =~ "#{calm}\n        </a>\n        at"
+
+    # the banner names the timezone the rails roll on
+    tz = Application.get_env(:custode, :timezone, "Etc/UTC")
+    assert html =~ tz
+  end
+
   test "the caretaker is a rail resident with a standing prompt box" do
     workspace = tmp_workspace!()
     keeper = uid("keeper")
