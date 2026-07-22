@@ -144,6 +144,48 @@ defmodule CustodeWeb.AgentLive do
         {div(Application.get_env(:custode, :ghost_window_s, 3_600), 60)}m)
       </p>
 
+      <details :if={@routine} class="collapse collapse-arrow mb-4 bg-base-100 shadow-sm">
+        <summary class="collapse-title text-sm font-semibold text-base-content/70">
+          about this agent
+          <span class="text-xs font-normal text-base-content/50">
+            {@routine.role} &middot; {@routine.model}{if @routine.effort, do: "/#{@routine.effort}"} &middot; {cadence_words(@routine.cron)}
+          </span>
+        </summary>
+        <div class="collapse-content space-y-2 text-sm">
+          <div class="flex flex-wrap gap-x-6 gap-y-1 text-base-content/70">
+            <span>role <b>{@routine.role}</b></span>
+            <span>
+              sweeps <b>{@routine.model}</b><span :if={@routine.effort}> at {@routine.effort} effort</span>
+            </span>
+            <span :if={@routine.approved_args["model"]}>
+              approved work <b>{@routine.approved_args["model"]}</b><span :if={@routine.approved_args["effort"]}> at {@routine.approved_args["effort"]}</span>
+            </span>
+            <span>
+              rails ${usd(@routine.max_budget_usd)}/turn<span :if={@routine.daily_budget_usd}>, ${usd(@routine.daily_budget_usd)}/day</span>
+            </span>
+            <span :if={@routine.tags != []}>
+              tags
+              <span :for={tag <- @routine.tags} class="badge badge-ghost badge-xs">{tag}</span>
+            </span>
+          </div>
+          <p :if={@agent_sensors != []} class="text-base-content/70">
+            fed by sensors:
+            <span :for={sensor <- @agent_sensors} class="badge badge-outline badge-xs mr-1">
+              {sensor.id} ({sensor.cron})
+            </span>
+          </p>
+          <p :if={@policies != []} class="text-base-content/70">
+            bound by policies: <span class="font-mono text-xs">{Enum.join(@policies, ", ")}</span>
+          </p>
+          <details class="mt-1">
+            <summary class="cursor-pointer text-xs text-base-content/50">
+              standing orders (the composed system prompt)
+            </summary>
+            <pre class="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap rounded bg-base-200 p-3 text-xs">{@routine.system_prompt}</pre>
+          </details>
+        </div>
+      </details>
+
       <div :if={match?({:awaiting_permission, _}, @status)} class="alert alert-warning mb-4">
         <div class="flex-1">
           <p class="font-semibold">wants permission:</p>
@@ -382,6 +424,7 @@ defmodule CustodeWeb.AgentLive do
       state: state_of(status),
       info: info,
       history: history,
+      agent_sensors: Enum.filter(Custode.Routine.sensors(), &(&1.notify == id)),
       spend_today: Custode.SpendLedger.today(id),
       tokens_today: Custode.SpendLedger.today_tokens(id),
       todos: Custode.Notebook.todos(id),
@@ -394,6 +437,13 @@ defmodule CustodeWeb.AgentLive do
 
   defp state_of({state, _payload}), do: state
   defp state_of(state) when is_atom(state), do: state
+
+  defp cadence_words("@daily"), do: "daily"
+  defp cadence_words("@weekly"), do: "weekly"
+  defp cadence_words("@hourly"), do: "hourly"
+  defp cadence_words(:manual), do: "event-driven (no schedule)"
+  defp cadence_words("*/" <> rest), do: "every #{rest |> String.split(" ") |> hd()}m"
+  defp cadence_words(cron), do: to_string(cron)
 
   defp repo_overview(repo) do
     case Custode.GitHub.overview(repo) do
