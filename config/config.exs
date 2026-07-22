@@ -67,34 +67,18 @@ config :custode,
       # Other per-routine overrides:
       #   model: "haiku", max_budget_usd: 0.25, system_prompt: "..."
     },
-    # custode working on custode: a repo caretaker running READ-ONLY at the
-    # repo root (notebook in dev-workspace/), granted read-only git via Bash
-    # patterns, proposing at most one small change per sweep -- and approved
-    # changes run in an isolated git worktree a human merges. @daily on the
-    # schedule; drive it by hand with Custode.beat("custode-dev").
+    # custode working on custode (the ouroboros): a backlog worker against
+    # custode's own issue queue, same loop as every other repo -- gh-driven
+    # issue selection, one gated slice per sweep, approved implementations
+    # in an isolated worktree behind CI and the review floor. Stays @daily
+    # from the profile; drive it by hand with Custode.beat("custode-dev").
     %{
       id: "custode-dev",
-      cron: "@daily",
+      profile: :backlog_worker,
       workspace: "dev-workspace",
       working_dir: ".",
       repo: "genagent/custode",
-      tags: [:repo, :elixir],
-      prompt: "Do your repository caretaker sweep now.",
-      role: :repo_caretaker,
-      mcp: true,
-      # repo-context turns are pricier than workspace sweeps: a bigger
-      # per-turn cap so an approved implementation can finish in one turn
-      max_budget_usd: 5.0,
-      # approved implementations compile and test; more room than a sweep
-      max_turns: 40,
-      daily_budget_usd: 25.0,
-      extra_allowed_tools: [
-        "Bash(git log:*)",
-        "Bash(git status:*)",
-        "Bash(git diff:*)",
-        "Bash(git show:*)"
-      ],
-      approved_args: %{"permission_mode" => "bypass_permissions", "worktree" => "custode-dev"}
+      tags: [:elixir]
     },
     # Backlog workers: slowly work through a repo's open issues -- at most one
     # proposed item per sweep, always human-gated, approved work in an
@@ -263,15 +247,6 @@ config :custode,
       module: Custode.Sensors.ContributorSearch,
       notify: "contributors",
       args: %{owners: ["joshrotenberg", "genagent"], exclude_authors: ["joshrotenberg"]}
-    },
-    # CI watch (one per repo-tied routine): a PR turning red wakes its
-    # routine within the poll interval instead of at the next @daily sweep.
-    %{
-      id: "ci-custode-dev",
-      cron: "*/15 * * * *",
-      module: Custode.Sensors.CiStatus,
-      notify: "custode-dev",
-      args: %{repo: "genagent/custode"}
     },
     # The dead-man (#3): a sensor that watches the sensors; silence past
     # 2x cadence notes the meta-agent, whose orders escalate to a human.
