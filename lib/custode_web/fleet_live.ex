@@ -11,6 +11,8 @@ defmodule CustodeWeb.FleetLive do
 
   use Phoenix.LiveView
 
+  alias Custode.Config.WriteBack
+
   import CustodeWeb.Components
 
   alias Custode.Routine
@@ -19,7 +21,11 @@ defmodule CustodeWeb.FleetLive do
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
     if connected?(socket), do: Custode.PubSubBridge.subscribe()
-    {:ok, socket |> assign(tag_filter: nil) |> refresh()}
+
+    {:ok,
+     socket
+     |> assign(tag_filter: nil, new_agent: %{open: false, preview: nil, error: nil})
+     |> refresh()}
   end
 
   @impl Phoenix.LiveView
@@ -54,10 +60,92 @@ defmodule CustodeWeb.FleetLive do
     {:noreply, refresh(socket)}
   end
 
+  # The new-agent form (#75 / design 001 slice 4): the human's own authority
+  # (D5) driving the same WriteBack every other surface uses -- file + live
+  # roster in one operation, the preview being the literal text appended.
+  def handle_event("new_agent_open", _params, socket) do
+    {:noreply, assign(socket, new_agent: %{open: true, preview: nil, error: nil})}
+  end
+
+  def handle_event("new_agent_close", _params, socket) do
+    {:noreply, assign(socket, new_agent: %{open: false, preview: nil, error: nil})}
+  end
+
+  def handle_event("new_agent_change", %{"routine" => params}, socket) do
+    new_agent =
+      case form_attrs(params) do
+        {:ok, attrs} ->
+          %{open: true, preview: WriteBack.render_routine(attrs), error: nil}
+
+        {:error, message} ->
+          %{open: true, preview: nil, error: message}
+      end
+
+    {:noreply, assign(socket, new_agent: new_agent)}
+  end
+
+  def handle_event("new_agent_create", %{"routine" => params}, socket) do
+    with {:ok, attrs} <- form_attrs(params),
+         {:ok, path} <- WriteBack.add_routine(attrs) do
+      Custode.Feed.record(%{
+        event: "repo_verb",
+        agent: attrs.id,
+        summary: "add_routine #{attrs.id}: created from the dashboard, appended to #{path}"
+      })
+
+      {:noreply,
+       socket
+       |> assign(new_agent: %{open: false, preview: nil, error: nil})
+       |> put_flash(:info, "#{attrs.id} added -- live now, scheduled at its next cron minute")
+       |> refresh()}
+    else
+      {:error, reason} ->
+        {:noreply, update(socket, :new_agent, &%{&1 | error: "refused: #{inspect(reason)}"})}
+    end
+  end
+
   def handle_event("filter", %{"tag" => tag}, socket) do
     # clicking the active tag clears the filter
     filter = if socket.assigns.tag_filter == tag, do: nil, else: tag
     {:noreply, socket |> assign(tag_filter: filter) |> refresh()}
+  end
+
+  # Form params (string-keyed, string-valued) into the WriteBack attrs
+  # vocabulary -- the same conversions the TOML loader applies. Unknown
+  # profiles come back as a message, not a crash.
+  defp form_attrs(params) do
+    id = String.trim(params["id"] || "")
+
+    if id == "" do
+      {:error, "id is required"}
+    else
+      attrs =
+        %{id: id}
+        |> form_put(params, "profile", fn v -> String.to_existing_atom(v) end)
+        |> form_put(params, "cron")
+        |> form_put(params, "repo")
+        |> form_put(params, "working_dir")
+        |> form_put(params, "workspace")
+        |> form_put(params, "prompt")
+        |> form_put(params, "tags", fn v ->
+          v
+          |> String.split(",")
+          |> Enum.map(&String.trim/1)
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.map(&String.to_atom/1)
+        end)
+
+      {:ok, attrs}
+    end
+  rescue
+    ArgumentError -> {:error, "unknown profile #{inspect(params["profile"])}"}
+  end
+
+  defp form_put(attrs, params, key, convert \\ & &1) do
+    case String.trim(params[key] || "") do
+      "" -> attrs
+      value -> Map.put(attrs, String.to_existing_atom(key), convert.(value))
+    end
   end
 
   @impl Phoenix.LiveView
@@ -89,13 +177,86 @@ defmodule CustodeWeb.FleetLive do
           >
             resume all
           </button>
+          <button class="btn btn-primary btn-xs" phx-click="new_agent_open">
+            new agent
+          </button>
         </span>
       </div>
       <p class="mb-2 text-xs text-base-content/40">sorted by recent activity</p>
+      <.new_agent_modal new_agent={@new_agent} profiles={profile_names()} />
       <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         <.tile :for={{id, tile} <- @tiles} id={id} tile={tile} />
       </div>
     </.page>
+    """
+  end
+
+  defp profile_names, do: Custode.Routine.profiles() |> Map.keys() |> Enum.sort()
+
+  attr(:new_agent, :map, required: true)
+  attr(:profiles, :list, required: true)
+
+  # The new-agent modal (#75 slice 4): five assignment fields + overrides,
+  # with the live preview being WriteBack's literal render -- what you see
+  # is byte-for-byte what lands in routines.toml.
+  defp new_agent_modal(assigns) do
+    ~H"""
+    <dialog :if={@new_agent.open} class="modal modal-open" id="new-agent-modal">
+      <div class="modal-box max-w-2xl">
+        <h3 class="mb-2 font-bold">new agent</h3>
+        <form phx-change="new_agent_change" phx-submit="new_agent_create">
+          <div class="grid grid-cols-2 gap-2">
+            <label class="form-control">
+              <span class="label-text text-xs">id (required)</span>
+              <input name="routine[id]" class="input input-bordered input-sm" placeholder="my-worker" />
+            </label>
+            <label class="form-control">
+              <span class="label-text text-xs">profile</span>
+              <select name="routine[profile]" class="select select-bordered select-sm">
+                <option value="">(none -- bespoke)</option>
+                <option :for={p <- @profiles} value={p}>{p}</option>
+              </select>
+            </label>
+            <label class="form-control">
+              <span class="label-text text-xs">repo (owner/name)</span>
+              <input name="routine[repo]" class="input input-bordered input-sm" placeholder="owner/repo" />
+            </label>
+            <label class="form-control">
+              <span class="label-text text-xs">working_dir (absolute path)</span>
+              <input name="routine[working_dir]" class="input input-bordered input-sm" placeholder="/path/to/checkout" />
+            </label>
+            <label class="form-control">
+              <span class="label-text text-xs">tags (comma separated)</span>
+              <input name="routine[tags]" class="input input-bordered input-sm" placeholder="rust, external" />
+            </label>
+            <label class="form-control">
+              <span class="label-text text-xs">cron (profile default if blank)</span>
+              <input name="routine[cron]" class="input input-bordered input-sm" placeholder="@daily" />
+            </label>
+            <label class="form-control col-span-2">
+              <span class="label-text text-xs">prompt (profile default if blank)</span>
+              <input name="routine[prompt]" class="input input-bordered input-sm" />
+            </label>
+          </div>
+          <div :if={@new_agent.error} class="mt-2 text-sm text-error">{@new_agent.error}</div>
+          <div :if={@new_agent.preview} class="mt-2">
+            <span class="text-xs text-base-content/50">
+              this exact text lands in routines.toml:
+            </span>
+            <pre class="max-h-48 overflow-auto rounded bg-base-200 p-2 text-xs">{@new_agent.preview}</pre>
+          </div>
+          <div class="modal-action">
+            <button type="button" class="btn btn-ghost btn-sm" phx-click="new_agent_close">
+              cancel
+            </button>
+            <button type="submit" class="btn btn-primary btn-sm" disabled={@new_agent.error != nil}>
+              add agent
+            </button>
+          </div>
+        </form>
+      </div>
+      <div class="modal-backdrop" phx-click="new_agent_close"></div>
+    </dialog>
     """
   end
 
