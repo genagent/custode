@@ -91,4 +91,109 @@ defmodule Custode.Config.WriteBackTest do
     # an entry normalize rejects (no cron and no profile to supply one)
     assert {:error, {:invalid_entry, _msg}} = WriteBack.add_routine(%{id: "broken"})
   end
+
+  describe "update_routine/2 (#174 slice 1)" do
+    setup %{path: path} do
+      workspace = tmp_workspace!()
+
+      Application.put_env(:custode, :routines, [
+        %{id: "existing", cron: "@daily", workspace: workspace, prompt: "sweep"}
+      ])
+
+      Application.put_env(:custode, :sensors, [])
+      {:ok, ^path} = WriteBack.add_routine(entry("newbie"))
+      :ok
+    end
+
+    test "edits swap fields on the RAW entry; profile defaults stay unbaked", %{path: path} do
+      assert {:ok, ^path} = WriteBack.update_routine("newbie", %{daily_budget_usd: 75.0})
+
+      {[_existing, raw], []} = Loader.parse!(File.read!(path), path)
+      assert raw.daily_budget_usd == 75.0
+      # the assignment stayed an assignment: no profile-supplied default
+      # (model, cron, prompt...) got baked into the file by the rewrite
+      assert Map.keys(raw) |> Enum.sort() ==
+               [:daily_budget_usd, :id, :profile, :repo, :tags, :working_dir]
+
+      # and the live roster reloaded in the same operation
+      assert Custode.Routine.get("newbie").daily_budget_usd == 75.0
+    end
+
+    test "a nil change drops the override so the profile serves again", %{path: path} do
+      {:ok, ^path} = WriteBack.update_routine("newbie", %{model: "opus"})
+      {[_, raw], []} = Loader.parse!(File.read!(path), path)
+      assert raw.model == "opus"
+
+      {:ok, ^path} = WriteBack.update_routine("newbie", %{model: nil})
+      {[_, raw], []} = Loader.parse!(File.read!(path), path)
+      refute Map.has_key?(raw, :model)
+    end
+
+    test "the splice preserves other entries byte-for-byte, comments included", %{path: path} do
+      # an operator hand-comment above the OTHER entry's section
+      content = File.read!(path)
+
+      commented =
+        String.replace(
+          content,
+          "[[routines]]\nid = \"existing\"",
+          "# hands off: pinned by the operator\n[[routines]]\nid = \"existing\"",
+          global: false
+        )
+
+      File.write!(path, commented)
+
+      {:ok, ^path} = WriteBack.update_routine("newbie", %{max_turns: 99})
+      after_edit = File.read!(path)
+      assert after_edit =~ "# hands off: pinned by the operator"
+      {[_, raw], []} = Loader.parse!(after_edit, path)
+      assert raw.max_turns == 99
+    end
+
+    test "unknown ids, id changes, unknown keys, and broken merges are refused" do
+      assert {:error, {:unknown_id, "ghost"}} =
+               WriteBack.update_routine("ghost", %{model: "opus"})
+
+      assert {:error, :id_is_immutable} = WriteBack.update_routine("newbie", %{id: "renamed"})
+
+      assert {:error, {:unknown_keys, [:budget]}} =
+               WriteBack.update_routine("newbie", %{budget: 1})
+
+      assert {:error, :empty_changes} = WriteBack.update_routine("newbie", %{})
+
+      # dropping the profile leaves an entry with no cron: normalize refuses
+      assert {:error, {:invalid_entry, _msg}} =
+               WriteBack.update_routine("newbie", %{profile: nil})
+    end
+
+    test "remove_routine splices the section out and the roster forgets it", %{path: path} do
+      assert {:ok, ^path} = WriteBack.remove_routine("newbie")
+
+      {[only], []} = Loader.parse!(File.read!(path), path)
+      assert only.id == "existing"
+      assert Custode.Routine.get("newbie") == nil
+      assert Custode.Routine.get("existing")
+
+      assert {:error, {:unknown_id, "newbie"}} = WriteBack.remove_routine("newbie")
+    end
+  end
+
+  test "an edit in exs mode creates the file: the design 001 mode switch", %{path: path} do
+    workspace = tmp_workspace!()
+
+    Application.put_env(:custode, :routines, [
+      %{id: "solo", cron: "@daily", workspace: workspace, prompt: "sweep", max_turns: 10}
+    ])
+
+    Application.put_env(:custode, :sensors, [])
+    refute File.exists?(path)
+
+    assert {:ok, ^path} = WriteBack.update_routine("solo", %{max_turns: 20})
+
+    # the file was born from the whole live roster with the edit applied
+    assert File.exists?(path)
+    {[raw], []} = Loader.parse!(File.read!(path), path)
+    assert raw.id == "solo"
+    assert raw.max_turns == 20
+  end
 end

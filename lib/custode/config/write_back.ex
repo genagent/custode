@@ -51,6 +51,50 @@ defmodule Custode.Config.WriteBack do
   end
 
   @doc """
+  Edit an existing routine (#174 slice 1). `changes` is an atom-keyed map of
+  fields to swap on the RAW entry -- never the normalized one, so a five-line
+  assignment stays five lines and its profile keeps supplying the defaults.
+  A key set to `nil` DROPS that override (back to the profile's value). The
+  id itself is immutable; remove + add is the rename path.
+
+  The edit rewrites only the entry's own `[[routines]]` section in the file
+  (a textual splice), so hand comments on OTHER entries survive byte-for-byte;
+  comments inside the edited section are lost (documented v1 trade). With no
+  roster file yet, the first edit CREATES one from the live roster -- the
+  design 001 mode switch; surfaces must present that deliberately.
+  """
+  def update_routine(id, changes) when is_binary(id) and is_map(changes) do
+    with :ok <- validate_changes(changes),
+         {:ok, raw} <- fetch_raw(id),
+         merged = merge_changes(raw, changes),
+         :ok <- validate_entry(merged) do
+      path = Loader.target_path()
+      ensure_file!(path)
+      splice!(path, id, render_routine(merged))
+      {:ok, _path, _routines, _sensors} = Loader.load!()
+      {:ok, path}
+    end
+  end
+
+  @doc """
+  Remove a routine from the roster (#174 slice 1): splice its section out of
+  the file, reload, and stop the live agent if one is running. The notebook
+  and workspace are deliberately kept -- records outlive routines (design
+  002). Sensors that notify the departed id are left in place for the
+  operator to prune.
+  """
+  def remove_routine(id) when is_binary(id) do
+    with {:ok, _raw} <- fetch_raw(id) do
+      path = Loader.target_path()
+      ensure_file!(path)
+      splice!(path, id, nil)
+      {:ok, _path, _routines, _sensors} = Loader.load!()
+      stop_live_agent(id)
+      {:ok, path}
+    end
+  end
+
+  @doc """
   Render one routine entry as a `[[routines]]` TOML section -- the exact
   text `add_routine/1` appends, for gate cards and previews.
   """
@@ -73,6 +117,8 @@ defmodule Custode.Config.WriteBack do
       :daily_budget_tokens,
       :timeout_ms,
       :max_turns,
+      :hermetic,
+      :system_prompt,
       :system_prompt_file,
       :extra_allowed_tools
     ]
@@ -145,6 +191,143 @@ defmodule Custode.Config.WriteBack do
     module |> Module.split() |> List.last()
   end
 
+  # The RAW entry for an id. The file is the truth when it exists (an
+  # operator may have hand-edited it since the last reload), the env
+  # otherwise -- same precedence the loader lives by.
+  defp fetch_raw(id) do
+    # read via target_path, not Loader.load/0: a set-but-absent
+    # CUSTODE_CONFIG raises there, but here it just means exs mode
+    path = Loader.target_path()
+
+    entries =
+      if File.exists?(path) do
+        {routines, _sensors} = Loader.parse!(File.read!(path), path)
+        routines
+      else
+        Application.fetch_env!(:custode, :routines)
+      end
+
+    case Enum.find(entries, &(&1.id == id)) do
+      nil -> {:error, {:unknown_id, id}}
+      raw -> {:ok, raw}
+    end
+  end
+
+  @editable_keys [
+    :cron,
+    :profile,
+    :workspace,
+    :working_dir,
+    :repo,
+    :tags,
+    :prompt,
+    :role,
+    :model,
+    :effort,
+    :mcp,
+    :hermetic,
+    :max_budget_usd,
+    :daily_budget_usd,
+    :daily_budget_tokens,
+    :timeout_ms,
+    :max_turns,
+    :system_prompt,
+    :system_prompt_file,
+    :extra_allowed_tools,
+    :approved_args
+  ]
+
+  defp validate_changes(changes) do
+    cond do
+      Map.has_key?(changes, :id) ->
+        {:error, :id_is_immutable}
+
+      map_size(changes) == 0 ->
+        {:error, :empty_changes}
+
+      (unknown = Map.keys(changes) -- @editable_keys) != [] ->
+        {:error, {:unknown_keys, unknown}}
+
+      true ->
+        :ok
+    end
+  end
+
+  # nil drops the override so the profile's value serves again
+  defp merge_changes(raw, changes) do
+    raw
+    |> Map.merge(changes)
+    |> Map.reject(fn {_key, value} -> is_nil(value) end)
+  end
+
+  # Replace (or, with nil, delete) the one [[routines]] section whose id
+  # matches. Everything outside that section is preserved byte-for-byte.
+  defp splice!(path, id, replacement) do
+    content = File.read!(path)
+    {before_text, after_text} = section_bounds!(content, id, path)
+
+    File.write!(
+      path,
+      before_text <> ((replacement && String.trim_leading(replacement)) || "") <> after_text
+    )
+  end
+
+  defp section_bounds!(content, id, path) do
+    lines = String.split(content, "\n")
+
+    starts =
+      for {line, index} <- Enum.with_index(lines), String.trim(line) == "[[routines]]", do: index
+
+    start =
+      Enum.find(starts, fn index ->
+        lines
+        |> section_lines(index)
+        |> Enum.any?(&(String.trim(&1) in [~s(id = "#{id}"), ~s(id = '#{id}')]))
+      end) || raise "#{path}: no [[routines]] section with id #{inspect(id)}"
+
+    finish = next_section_index(lines, start)
+    before_text = lines |> Enum.take(start) |> join_lines(:before)
+    after_text = lines |> Enum.drop(finish) |> join_lines(:after)
+    {before_text, after_text}
+  end
+
+  defp section_lines(lines, start) do
+    lines
+    |> Enum.drop(start + 1)
+    |> Enum.take_while(&(not String.starts_with?(String.trim(&1), "[[")))
+  end
+
+  defp next_section_index(lines, start) do
+    count =
+      lines
+      |> Enum.drop(start + 1)
+      |> Enum.take_while(&(not String.starts_with?(String.trim(&1), "[[")))
+      |> length()
+
+    start + 1 + count
+  end
+
+  defp join_lines([], _position), do: ""
+  defp join_lines(lines, :before), do: Enum.join(lines, "\n") <> "\n"
+  defp join_lines(lines, :after), do: "\n" <> Enum.join(lines, "\n")
+
+  defp stop_live_agent(id) do
+    ObanClaude.Agent.stop_agent(id)
+  catch
+    # not running (or already stopping) is fine: removal is idempotent on the
+    # process side, and the roster is already rewritten
+    _kind, _reason -> :ok
+  end
+
+  # normalize raises on a broken entry; surface that as a value, not a
+  # crash, so gate flows can show the reason
+  defp validate_entry(attrs) do
+    _normalized = Custode.Routine.normalize_entry(attrs)
+    :ok
+  rescue
+    error -> {:error, {:invalid_entry, Exception.message(error)}}
+  end
+
   defp validate(attrs) do
     id = Map.get(attrs, :id)
 
@@ -156,14 +339,7 @@ defmodule Custode.Config.WriteBack do
         {:error, {:duplicate_id, id}}
 
       true ->
-        # normalize raises on a broken entry; surface that as a value, not a
-        # crash, so gate flows can show the reason
-        try do
-          _normalized = Custode.Routine.normalize_entry(attrs)
-          :ok
-        rescue
-          error -> {:error, {:invalid_entry, Exception.message(error)}}
-        end
+        validate_entry(attrs)
     end
   end
 
