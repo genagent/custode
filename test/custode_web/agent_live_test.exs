@@ -188,12 +188,16 @@ defmodule CustodeWeb.AgentLiveTest do
         agent: routine.id,
         phase: "stop",
         branch: "feat/thing",
-        sha: "abc1234567def"
+        sha: "abc1234567def",
+        added: 149,
+        removed: 3
       })
 
       {:ok, view, html} = live(conn, "/agents/#{routine.id}")
       assert html =~ "feat/thing"
       assert html =~ "abc1234567"
+      assert html =~ "+149"
+      assert html =~ "-3"
       refute html =~ "working</span>"
 
       # a start breadcrumb newer than the stop: a turn is in flight now

@@ -385,6 +385,13 @@ defmodule CustodeWeb.AgentLive do
           <span class="font-mono text-base-content/70">
             {@working_state.branch}<span class="text-base-content/40">@{@working_state.sha}</span>
           </span>
+          <span
+            :if={@working_state.added > 0 || @working_state.removed > 0}
+            class="font-mono"
+          >
+            <span class="text-success">+{@working_state.added}</span>
+            <span class="text-error">-{@working_state.removed}</span>
+          </span>
           <span class="ml-auto font-mono text-base-content/40">
             <.ago at={@working_state.at} />
           </span>
@@ -831,6 +838,8 @@ defmodule CustodeWeb.AgentLive do
           branch: entry["branch"],
           sha: String.slice(sha, 0, 10),
           in_flight: entry["phase"] == "start",
+          added: entry["added"] || 0,
+          removed: entry["removed"] || 0,
           at: entry["at"]
         }
 

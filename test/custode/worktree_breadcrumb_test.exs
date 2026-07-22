@@ -62,6 +62,35 @@ defmodule Custode.WorktreeBreadcrumbTest do
     end
   end
 
+  test "the breadcrumb counts uncommitted work in flight as +added/-removed (#211)" do
+    agent = uid("brc-diff")
+    base = Path.join(System.tmp_dir!(), uid("wd"))
+    worktree = init_repo!(Path.join([base, ".claude", "worktrees", "custode-#{agent}"]))
+
+    # dirty the tree: modify the tracked file and add an untracked one
+    File.write!(Path.join(worktree, "f.txt"), "x\ny\nz\n")
+    File.write!(Path.join(worktree, "new.txt"), "one\ntwo\n")
+
+    {:ok, _} =
+      ObanClaude.run(
+        %{
+          "prompt" => "approved work",
+          "worktree" => "custode-#{agent}",
+          "working_dir" => base
+        },
+        job: %Oban.Job{meta: %{"agent_id" => agent, "origin" => "tick"}},
+        query_fun: ObanClaude.Testing.respond(ObanClaude.Testing.result(result: "done"))
+      )
+
+    [entry | _] =
+      Custode.Feed.for_agent(agent) |> Enum.filter(&(&1["event"] == "worktree_state"))
+
+    # tracked file grew from 1 line to 3 (+? -?); untracked new.txt adds its
+    # lines; the point is a positive addition count and zero-or-more removals
+    assert entry["added"] > 0
+    assert is_integer(entry["removed"])
+  end
+
   test "an absent worktree at start records absent, not a crash" do
     agent = uid("brc-none")
 
