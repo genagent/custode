@@ -49,6 +49,25 @@ config :custode,
         "model" => "opus",
         "effort" => "high"
       }
+    },
+    # The personal-learning tile (#119): an anki-esque tutor whose crontab
+    # entry IS the spaced repetition. The notebook holds the deck; each run
+    # reviews what is due and adds one new item; the operator's prompt-box
+    # replies are graded answers. Non-repo, gate-free, tiny budget. Add one
+    # with: id "italian", profile "tutor", prompt "Do your Italian tutoring
+    # sweep now." -- the language rides the sweep prompt.
+    tutor: %{
+      cron: "@daily",
+      prompt: "Do your tutoring sweep now (the language is in your standing orders or id).",
+      role: :tutor,
+      mcp: true,
+      model: "sonnet",
+      effort: "low",
+      max_budget_usd: 0.5,
+      daily_budget_usd: 2.0,
+      timeout_ms: 200_000,
+      max_turns: 15,
+      tags: [:personal]
     }
   },
   routines: [

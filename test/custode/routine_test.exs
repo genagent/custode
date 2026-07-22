@@ -381,6 +381,34 @@ defmodule Custode.RoutineTest do
       end
     end
 
+    test "tutor: the deck in memory, answers graded first, a human-readable card (#119)" do
+      prompt = Prompts.for_role(:tutor, "italian")
+      assert prompt =~ ~s(under the key "deck")
+      assert prompt =~ "ANSWERS FIRST"
+      assert prompt =~ "ONE new"
+      assert prompt =~ "FOR A HUMAN to study"
+      # spaced repetition is prompt-space, not machinery
+      assert prompt =~ "interval"
+      # and the deck write is the non-negotiable
+      assert prompt =~ "EVERY sweep"
+    end
+
+    test "the :tutor profile: tiny budget, gate-free personal tile (#119)" do
+      routine =
+        Custode.Routine.normalize_entry(%{
+          id: "italian",
+          profile: :tutor,
+          workspace: tmp_workspace!(),
+          prompt: "Do your Italian tutoring sweep now."
+        })
+
+      assert routine.role == :tutor
+      assert routine.daily_budget_usd == 2.0
+      assert :personal in routine.tags
+      # the sweep prompt override carries the language
+      assert routine.prompt =~ "Italian"
+    end
+
     test "star_tracker: snapshot memory and delta reporting" do
       prompt = Prompts.for_role(:star_tracker, "st")
       assert prompt =~ "star-snapshot"
