@@ -39,3 +39,6 @@ workspaces/*/TODO.md
 workspace/
 workspaces/
 dev-workspace/
+
+# live roster written by the runtime in dev-loop mode; never commit
+/routines.toml

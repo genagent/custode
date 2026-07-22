@@ -62,13 +62,26 @@ defmodule Custode.CLI.Doctor do
   # The check list, each independent so one failure never hides another.
   def checks do
     [
-      {"claude binary + version", ClaudeWrapper.version()},
-      {"claude authentication", ClaudeWrapper.auth_status()},
+      {"claude binary + version", claude_probe(&ClaudeWrapper.version/0)},
+      {"claude authentication", claude_probe(&ClaudeWrapper.auth_status/0)},
       {"gh binary + auth", gh_check()},
       {"timezone #{configured_tz()}", tz_check()},
       {"home #{Home.root()} writable", home_check()},
       {"roster", roster_check()}
     ]
+  end
+
+  # A missing binary is doctor's bread-and-butter failure, and the wrapper's
+  # probes run in a linked task -- an :enoent there would kill the caller,
+  # not return an error. Guard the PATH lookup before ever invoking them.
+  defp claude_probe(fun) do
+    if System.find_executable("claude") do
+      fun.()
+    else
+      {:error, "claude not on PATH"}
+    end
+  rescue
+    error -> {:error, Exception.message(error)}
   end
 
   defp gh_check do
