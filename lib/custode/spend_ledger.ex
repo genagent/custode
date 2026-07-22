@@ -114,7 +114,7 @@ defmodule Custode.SpendLedger do
   end
 
   @doc "An agent's spend since the start of the current UTC day."
-  def today(agent_id), do: total(agent_id, start_of_utc_day())
+  def today(agent_id), do: total(agent_id, start_of_local_day())
 
   @doc "An agent's total spend since `since` (a DateTime)."
   def total(agent_id, since) do
@@ -128,7 +128,7 @@ defmodule Custode.SpendLedger do
   @doc "Everyone's spend since the start of the current UTC day."
   def fleet_today do
     Repo.aggregate(
-      from(s in Entry, where: s.inserted_at >= ^start_of_utc_day()),
+      from(s in Entry, where: s.inserted_at >= ^start_of_local_day()),
       :sum,
       :cost_usd
     ) || 0.0
@@ -142,7 +142,7 @@ defmodule Custode.SpendLedger do
   def today_tokens(agent_id) do
     Repo.one(
       from(s in Entry,
-        where: s.agent_id == ^agent_id and s.inserted_at >= ^start_of_utc_day(),
+        where: s.agent_id == ^agent_id and s.inserted_at >= ^start_of_local_day(),
         select:
           coalesce(sum(s.input_tokens), 0) + coalesce(sum(s.output_tokens), 0) +
             coalesce(sum(s.cache_creation_tokens), 0)
@@ -154,7 +154,7 @@ defmodule Custode.SpendLedger do
   def fleet_today_tokens do
     Repo.one(
       from(s in Entry,
-        where: s.inserted_at >= ^start_of_utc_day(),
+        where: s.inserted_at >= ^start_of_local_day(),
         select:
           coalesce(sum(s.input_tokens), 0) + coalesce(sum(s.output_tokens), 0) +
             coalesce(sum(s.cache_creation_tokens), 0)
@@ -258,7 +258,16 @@ defmodule Custode.SpendLedger do
     end
   end
 
-  defp start_of_utc_day do
-    DateTime.new!(Date.utc_today(), ~T[00:00:00], "Etc/UTC")
+  # "Today" begins at local midnight in the configured :timezone (#17), the
+  # same clock the scheduler fires on -- not UTC. With a UTC day, a Pacific
+  # operator's rails rolled at 5pm and an overnight session consumed the
+  # NEXT day's budget before breakfast (custode-dev, 2026-07-22). Rows are
+  # stored UTC; only the boundary shifts.
+  defp start_of_local_day do
+    tz = Application.get_env(:custode, :timezone, "Etc/UTC")
+    local_now = DateTime.now!(tz)
+
+    DateTime.new!(DateTime.to_date(local_now), ~T[00:00:00], tz)
+    |> DateTime.shift_zone!("Etc/UTC")
   end
 end

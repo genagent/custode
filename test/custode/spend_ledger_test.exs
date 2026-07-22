@@ -154,3 +154,50 @@ defmodule Custode.SpendLedgerTest do
            )
   end
 end
+
+defmodule Custode.SpendLedgerDayBoundaryTest do
+  # "Today" rolls at LOCAL midnight in the configured :timezone, not UTC
+  # (#17 extended to the ledger): a Pacific operator's overnight session must
+  # not consume the next day's rails before breakfast.
+  use ExUnit.Case, async: false
+
+  import Custode.TestHelpers
+
+  setup do
+    previous = Application.get_env(:custode, :timezone)
+    on_exit(fn -> Application.put_env(:custode, :timezone, previous) end)
+    :ok
+  end
+
+  test "spend before local midnight does not count toward today" do
+    agent = uid("tzday")
+    Application.put_env(:custode, :timezone, "America/Los_Angeles")
+
+    # a row stamped 20 hours ago: same UTC day sometimes, previous PACIFIC
+    # day whenever local now is before 20:00 -- assert relative to the
+    # boundary the code computes rather than pinning wall-clock times
+    yesterday_ish = DateTime.add(DateTime.utc_now(), -20 * 3600, :second)
+
+    Custode.Repo.insert!(%Custode.SpendLedger.Entry{
+      agent_id: agent,
+      cost_usd: 10.0,
+      outcome: "turn",
+      inserted_at: yesterday_ish
+    })
+
+    local_now = DateTime.now!("America/Los_Angeles")
+
+    local_midnight_utc =
+      DateTime.new!(DateTime.to_date(local_now), ~T[00:00:00], "America/Los_Angeles")
+      |> DateTime.shift_zone!("Etc/UTC")
+
+    expected =
+      if DateTime.compare(yesterday_ish, local_midnight_utc) == :lt, do: 0.0, else: 10.0
+
+    assert_in_delta Custode.SpendLedger.today(agent), expected, 0.001
+
+    # and a fresh row always counts
+    :ok = Custode.SpendLedger.record(agent, 1.5, "turn")
+    assert_in_delta Custode.SpendLedger.today(agent), expected + 1.5, 0.001
+  end
+end
