@@ -50,6 +50,9 @@ defmodule Custode.Presence do
   """
   def render(now \\ DateTime.utc_now()) do
     case status(now) do
+      {:present, nil} ->
+        "\n## Operator presence\noperator: PRESENT (pinned; no recorded actions yet)\n"
+
       {:present, at} ->
         "\n## Operator presence\noperator: PRESENT (last action #{ago(at, now)})\n"
 
