@@ -112,6 +112,37 @@ defmodule Custode.Metrics do
     {gates, median(Enum.map(gates, & &1.minutes))}
   end
 
+  @doc """
+  Cost, tokens, and outcomes grouped by MODEL over the last `days` --
+  the display side of the model-selection ladder (#111): is opus earning
+  its tokens, and where. Rows recorded before model tracking land under
+  "(unrecorded)".
+  """
+  def by_model(days) do
+    since = start_of_day(days - 1)
+
+    rows =
+      Repo.all(
+        from(s in Entry,
+          where: s.inserted_at >= ^since,
+          group_by: s.model,
+          select: {
+            s.model,
+            sum(s.cost_usd),
+            coalesce(sum(s.input_tokens), 0) + coalesce(sum(s.output_tokens), 0) +
+              coalesce(sum(s.cache_creation_tokens), 0),
+            count(s.id),
+            fragment("SUM(CASE WHEN ? != 'turn' THEN 1 ELSE 0 END)", s.outcome)
+          }
+        )
+      )
+
+    for {model, usd, tokens, turns, failed} <- rows, into: %{} do
+      {model || "(unrecorded)",
+       %{usd: usd || 0.0, tokens: tokens || 0, turns: turns, failed: failed || 0}}
+    end
+  end
+
   @doc "The last `days` of one agent's daily spend, oldest first (tile sparkline)."
   def spend_series(agent_id, days) do
     daily = daily_by_agent(days)

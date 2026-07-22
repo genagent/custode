@@ -109,6 +109,41 @@ defmodule CustodeWeb.MetricsLive do
           </h3>
           <.gate_latency gates={@gates} median={@gate_median} />
         </section>
+
+        <section class="rounded-lg bg-base-100 p-4 shadow-sm xl:col-span-2">
+          <h3 class="mb-3 font-semibold text-base-content/70">
+            by model
+            <span class="text-xs font-normal">
+              (last {@days_shown}d -- is opus earning its tokens? #111)
+            </span>
+          </h3>
+          <div class="overflow-x-auto">
+            <table class="table table-xs">
+              <thead>
+                <tr>
+                  <th>model</th>
+                  <th class="text-right">turns</th>
+                  <th class="text-right">failed</th>
+                  <th class="text-right">spend</th>
+                  <th class="text-right">tokens</th>
+                  <th class="text-right">$/turn</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={{model, row} <- Enum.sort_by(@by_model, fn {_m, r} -> -r.usd end)}>
+                  <td class="font-mono">{model}</td>
+                  <td class="text-right">{row.turns}</td>
+                  <td class={["text-right", row.failed > 0 && "text-error"]}>{row.failed}</td>
+                  <td class="text-right font-mono">${CustodeWeb.Components.usd(row.usd)}</td>
+                  <td class="text-right font-mono">{CustodeWeb.Components.tok(row.tokens)}</td>
+                  <td class="text-right font-mono">
+                    ${CustodeWeb.Components.usd(row.usd / max(row.turns, 1))}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
       </div>
     </.page>
     """
@@ -133,6 +168,7 @@ defmodule CustodeWeb.MetricsLive do
     today = Date.utc_today() |> Date.to_iso8601()
 
     assign(socket,
+      by_model: Custode.Metrics.by_model(@days),
       tokens_today: Custode.SpendLedger.fleet_today_tokens(),
       turns_today: Map.get(turns, today, %{ok: 0, failed: 0}),
       days_shown: @days,

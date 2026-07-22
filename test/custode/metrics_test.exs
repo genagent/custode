@@ -74,6 +74,24 @@ defmodule Custode.MetricsTest do
     assert Metrics.spend_series_by_agent(7)[agent] == series
   end
 
+  test "by_model groups cost/tokens/outcomes per model (#111 display)" do
+    agent = uid("bym")
+
+    :ok =
+      Custode.SpendLedger.record(agent, 1.0, "turn",
+        model: "opus",
+        usage: %{input: 100, output: 50}
+      )
+
+    :ok = Custode.SpendLedger.record(agent, 0.1, "failed", model: "sonnet")
+    :ok = Custode.SpendLedger.record(agent, 0.2, "turn")
+
+    by_model = Custode.Metrics.by_model(2)
+    assert %{usd: 1.0, tokens: 150, turns: 1, failed: 0} = by_model["opus"]
+    assert %{turns: 1, failed: 1} = by_model["sonnet"]
+    assert by_model["(unrecorded)"].turns >= 1
+  end
+
   test "the metrics page renders all four sections" do
     agent = uid("page")
     :ok = Custode.SpendLedger.record(agent, 1.0, "turn", usage: %{input: 500, output: 100})
@@ -83,6 +101,7 @@ defmodule Custode.MetricsTest do
     assert html =~ "tokens per day"
     assert html =~ "turns per day"
     assert html =~ "gate latency"
+    assert html =~ "by model"
     assert html =~ agent
   end
 end
