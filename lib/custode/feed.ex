@@ -33,6 +33,8 @@ defmodule Custode.Feed do
     end
   end
 
+  @gate_events ~w(needs_approval needs_input)
+
   @events [
     [:oban_claude, :agent, :transition],
     [:oban_claude, :run, :stop],
@@ -72,6 +74,47 @@ defmodule Custode.Feed do
     )
   end
 
+  @doc """
+  Mark the agent's latest unresolved gate card (needs_approval /
+  needs_input) as worked: the ORIGINAL entry gains resolved/resolved_at
+  in place, so the timeline shows a checkmark chip instead of a stale
+  yellow card -- and the update rides the same PubSub topic (the stream
+  dom id is stable, so LiveViews replace the card live).
+  """
+  def mark_gate_resolved(agent_id, resolution) do
+    row =
+      Repo.one(
+        from(f in Entry,
+          where:
+            f.agent == ^agent_id and f.event in ^@gate_events and
+              fragment("json_extract(?, '$.resolved') IS NULL", f.entry),
+          order_by: [desc: f.id],
+          limit: 1
+        )
+      )
+
+    case row do
+      nil ->
+        :ok
+
+      entry ->
+        decoded =
+          entry.entry
+          |> Jason.decode!()
+          |> Map.put("resolved", resolution)
+          |> Map.put("resolved_at", DateTime.to_iso8601(DateTime.utc_now()))
+
+        encoded = Jason.encode!(decoded)
+
+        Repo.update_all(from(f in Entry, where: f.id == ^entry.id),
+          set: [entry: encoded]
+        )
+
+        Custode.PubSubBridge.broadcast({:feed_entry, decoded})
+        :ok
+    end
+  end
+
   @doc "The timestamp of an agent's most recent feed entry (nil if none)."
   def last_activity_at(agent_id) do
     Repo.one(from(f in Entry, where: f.agent == ^agent_id, select: max(f.at)))
@@ -79,8 +122,6 @@ defmodule Custode.Feed do
 
   @doc "The most recent feed entry for an agent (its \"last message\"), or nil."
   def last_for(agent_id), do: agent_id |> for_agent(1) |> List.last()
-
-  @gate_events ~w(needs_approval needs_input)
 
   @doc """
   The agent's last message for display. Gate events (`needs_approval`,
