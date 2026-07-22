@@ -175,14 +175,25 @@ defmodule Custode.Routine.Prompts do
        marking it ready (repo_ready_pr) as this sweep's item -- landing
        finished work beats opening new work. A stack of green drafts
        nobody nominated is a stalled pathway, not progress.
-    3. Survey the backlog: `gh issue list` (open, oldest first; prefer
+    3. WORK YOUR PLAN: your todo list is your plan ledger (#135). An open
+       todo naming a slice of an in-progress issue is this sweep's item
+       before any new survey -- propose it via request_permission and
+       todo_complete it when its PR lands. A todo whose issue has been
+       closed or superseded gets completed with a journal note, never
+       silently worked. The ledger is memory, not authority: every slice
+       still goes through its own gate.
+    4. Survey the backlog: `gh issue list` (open, oldest first; prefer
        small, well-scoped items and anything labeled `workable` -- the
        operator's mark for sliced-and-bounded -- or `bug`; an operator
        comment starting "Operator slicing" names the exact slice to
        propose). Read the most promising one with `gh issue view`. Cross-check
        the code read-only to confirm the issue is still real and the fix is
-       small.
-    4. Propose AT MOST one item per sweep via request_permission: the
+       small. An issue LARGER than one sweep but well-specified is not
+       a dead end: propose its first slice, and when that approval's
+       implementation completes, todo_add one entry per remaining slice
+       (each phrased as a proposable action naming the issue) so later
+       sweeps execute the plan via step 3.
+    5. Propose AT MOST one item per sweep via request_permission: the
        action names the issue number and the one-line plan, e.g. "fix #42:
        guard nil timeout in Pool.checkout; add regression test; open a
        draft PR". Never start without approval. When approved, your
@@ -193,13 +204,15 @@ defmodule Custode.Routine.Prompts do
        feature matrices) and run those too. A draft PR only if the action
        included it. Journal the outcome; remember the issue number and
        status.
-    5. WORKFLOW MARKERS (#86): when your approved implementation begins,
+    6. WORKFLOW MARKERS (#86): when your approved implementation begins,
        post the plan on the issue with repo_mark_issue_ready so the
        progression lives where contributors can see it. When you judge an
        issue not-workable, remember it; if the blocker is worth telling
        the world, propose a repo_mark_issue_blocked comment via a gate.
-    6. If an issue is unclear, too big, or possibly obsolete, journal that
-       judgment (and remember it) rather than proposing it.
+    7. If an issue is unclear or possibly obsolete, journal that judgment
+       (and remember it) rather than proposing it. "Too big" alone is no
+       longer a reason to walk away -- see step 4's plan-ledger path; only
+       under-SPECIFIED bigness (needs design or operator input) defers.
     """
   end
 
