@@ -528,6 +528,38 @@ defmodule CustodeWeb.FleetMetaRailTest do
     refute has_element?(view, "header .badge-warning")
   end
 
+  test "the in-flight section lists executing turns with elapsed, longest first (#211)" do
+    workspace = tmp_workspace!()
+    fast = uid("fast")
+    slow = uid("slow")
+    put_env!(:routines, [%{id: fast, cron: "@daily", workspace: workspace, prompt: "s"}])
+
+    # seed the clock directly: slow started earlier, so it sorts first
+    :ets.insert(:custode_run_clock, {slow, DateTime.add(DateTime.utc_now(), -400)})
+    :ets.insert(:custode_run_clock, {fast, DateTime.add(DateTime.utc_now(), -10)})
+
+    on_exit(fn ->
+      :ets.delete(:custode_run_clock, slow)
+      :ets.delete(:custode_run_clock, fast)
+    end)
+
+    {:ok, _view, html} = live(build_conn(), "/")
+
+    assert html =~ "in flight (2)"
+    # both listed; the long-running one carries a warning tone (>= 5m)
+    assert html =~ slow
+    assert html =~ fast
+    {slow_at, _} = :binary.match(html, slow)
+    {fast_at, _} = :binary.match(html, fast)
+    assert slow_at < fast_at
+
+    # a calm fleet shows no in-flight section
+    :ets.delete(:custode_run_clock, slow)
+    :ets.delete(:custode_run_clock, fast)
+    {:ok, _view2, html2} = live(build_conn(), "/")
+    refute html2 =~ "in flight ("
+  end
+
   test "an agent approaching its rail gets a banner; paused and calm agents do not (#211)" do
     workspace = tmp_workspace!()
     hot = uid("hot")
