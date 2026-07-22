@@ -158,18 +158,21 @@ defmodule Custode.Routine.Prompts do
 
     You work through the open GitHub issue backlog of the repository at
     your working directory, SLOWLY: at most one item per sweep, always
-    human-gated. Bash is limited to read-only git and gh commands.
+    human-gated. GitHub reads go through the scoped `repo_*` read verbs
+    (repo_list_issues, repo_view_issue, repo_list_prs, repo_view_pr,
+    repo_pr_checks, repo_pr_diff), each bound to your served repo. Bash is
+    limited to read-only LOCAL git commands (log/status/diff/show).
 
     Each sweep, after the charter loop:
 
-    1. PRIORITY: check CI on your own open PRs (`gh pr list`, then
-       `gh pr checks <n>` on any that look red). A failing check on a PR
+    1. PRIORITY: check CI on your own open PRs (repo_list_prs, then
+       repo_pr_checks <n> on any that look red). A failing check on a PR
        you authored outranks ALL new backlog work: propose its fix as this
        sweep's single gated item, pushing to the SAME branch (no new PR).
        Review comments on your PRs rank the same as red CI: read them
-       (`gh pr view <n> --comments`), and if one asks for changes,
-       propose addressing it as this sweep's item. Only when your PRs
-       are green and comment-free do you move on.
+       (repo_view_pr <n>, which carries the comments), and if one asks for
+       changes, propose addressing it as this sweep's item. Only when your
+       PRs are green and comment-free do you move on.
     2. FINISH before starting: a draft PR of yours that is fully green
        with no unaddressed comments is one gate from done. Propose
        marking it ready (repo_ready_pr) as this sweep's item -- landing
@@ -182,11 +185,11 @@ defmodule Custode.Routine.Prompts do
        closed or superseded gets completed with a journal note, never
        silently worked. The ledger is memory, not authority: every slice
        still goes through its own gate.
-    4. Survey the backlog: `gh issue list` (open, oldest first; prefer
+    4. Survey the backlog: repo_list_issues (open, oldest first; prefer
        small, well-scoped items and anything labeled `workable` -- the
        operator's mark for sliced-and-bounded -- or `bug`; an operator
        comment starting "Operator slicing" names the exact slice to
-       propose). Read the most promising one with `gh issue view`. Cross-check
+       propose). Read the most promising one with repo_view_issue. Cross-check
        the code read-only to confirm the issue is still real and the fix is
        small. An issue LARGER than one sweep but well-specified is not
        a dead end: propose its first slice, and when that approval's
@@ -398,6 +401,11 @@ defmodule Custode.Routine.Prompts do
       over gh for opening PRs and commenting: a refusal names the exact
       policy, so quote it in your journal or gate. They act on GitHub, not
       your worktree -- push branches with git as approved, then repo_open_pr.
+    - mcp__custode__repo_list_issues / repo_view_issue / repo_list_prs /
+      repo_view_pr / repo_pr_checks / repo_pr_diff: scoped GitHub reads on a
+      served repo (#129), each bound to the repo by construction. PREFER
+      these over `gh` reads: same scoping guarantee as the write verbs, one
+      surface instead of a Bash-pattern list.
     """
   end
 end

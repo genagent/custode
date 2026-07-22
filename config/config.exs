@@ -32,15 +32,16 @@ config :custode,
       max_turns: 75,
       tags: [:repo, :backlog],
       sensors: [:ci],
+      # Local git reads stay Bash (workspace-local, harmless). The gh reads
+      # are now scoped MCP read verbs (#129): repo_list_issues / repo_view_issue
+      # / repo_list_prs / repo_view_pr / repo_pr_checks / repo_pr_diff, bound to
+      # this routine's served repo -- so the unscoped `gh issue list` grants
+      # (which let any routine read any repo) are gone.
       extra_allowed_tools: [
         "Bash(git log:*)",
         "Bash(git status:*)",
         "Bash(git diff:*)",
-        "Bash(git show:*)",
-        "Bash(gh issue list:*)",
-        "Bash(gh issue view:*)",
-        "Bash(gh pr list:*)",
-        "Bash(gh pr view:*)"
+        "Bash(git show:*)"
       ],
       approved_args: %{
         "permission_mode" => "bypass_permissions",

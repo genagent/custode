@@ -31,6 +31,15 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.RepoTools.MarkIssueBlocked, name: "repo_mark_issue_blocked")
   component(Custode.MCP.RepoTools.ReviewPr, name: "repo_review_pr")
 
+  # the repo READ verbs (issue #129): scoped GitHub reads, replacing the
+  # unscoped gh Bash grants
+  component(Custode.MCP.RepoTools.ListIssues, name: "repo_list_issues")
+  component(Custode.MCP.RepoTools.ViewIssue, name: "repo_view_issue")
+  component(Custode.MCP.RepoTools.ListPrs, name: "repo_list_prs")
+  component(Custode.MCP.RepoTools.ViewPr, name: "repo_view_pr")
+  component(Custode.MCP.RepoTools.PrChecks, name: "repo_pr_checks")
+  component(Custode.MCP.RepoTools.PrDiff, name: "repo_pr_diff")
+
   # the operator tier (issue #33): run the fleet, not just delegate into it
   component(Custode.MCP.OperatorTools.Beat, name: "beat")
   component(Custode.MCP.OperatorTools.DropNote, name: "drop_note")

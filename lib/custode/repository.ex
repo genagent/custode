@@ -12,8 +12,11 @@ defmodule Custode.Repository do
   between implicit agent action and gating every step -- policy-safe verbs
   act directly; everything else still gates.
 
-  v1 verbs: `open_pr/2`, `comment/3`, `ready_pr/2`, `merge_pr/2`.
-  Reads stay on `Custode.GitHub` (the dashboard panel fetcher/cache).
+  Write verbs: `open_pr/2`, `comment/3`, `ready_pr/2`, `merge_pr/2`.
+  Read verbs (#129): `list_issues/2`, `view_issue/2`, `list_prs/2`,
+  `view_pr/2`, `pr_checks/2`, `pr_diff/2` -- scoped GitHub reads through the
+  bound server, replacing the unscoped `gh issue list` / `gh pr view` Bash
+  grants. `Custode.GitHub` still owns the dashboard panel fetcher/cache.
   """
 
   use GenServer
@@ -102,6 +105,37 @@ defmodule Custode.Repository do
   @doc "Merge a PR. Refused wherever the merge policy is :manual."
   def merge_pr(name, number), do: call(name, {:merge_pr, number})
 
+  # ---------------------------------------------------------------------------
+  # read verbs (issue #129): scoped GitHub reads through the bound server
+  # ---------------------------------------------------------------------------
+  #
+  # These fold the gh read grants (`gh issue list`, `gh pr view`, ...) into the
+  # verb layer. Unlike a Bash gh grant -- which is unscoped, so any routine can
+  # read any repo -- a read verb is bound to this repo's server by construction,
+  # the same scoping the write verbs get. Reads take no policy check (nothing
+  # to refuse) and do NOT record a feed entry: they are frequent and
+  # side-effect-free, and per-read feed spam would drown the state-change
+  # signal the feed exists for. The GenServer seat is the point of entry a
+  # later slice can hang a per-sweep response cache on.
+
+  @doc "List issues (defaults to open, oldest first). `opts`: `:state`."
+  def list_issues(name, opts \\ %{}), do: call(name, {:list_issues, opts})
+
+  @doc "View one issue: title, state, labels, body, and its comments."
+  def view_issue(name, number), do: call(name, {:view_issue, number})
+
+  @doc "List pull requests (defaults to open, oldest first). `opts`: `:state`."
+  def list_prs(name, opts \\ %{}), do: call(name, {:list_prs, opts})
+
+  @doc "View one PR: title, state, draft, base/head, body."
+  def view_pr(name, number), do: call(name, {:view_pr, number})
+
+  @doc "The check runs on a PR's head commit (name, status, conclusion)."
+  def pr_checks(name, number), do: call(name, {:pr_checks, number})
+
+  @doc "The changed files of a PR, each with its patch (the diff)."
+  def pr_diff(name, number), do: call(name, {:pr_diff, number})
+
   defp call(name, request) do
     if served?(name) do
       GenServer.call(via(name), request, 30_000)
@@ -159,6 +193,30 @@ defmodule Custode.Repository do
     end
   end
 
+  def handle_call({:list_issues, opts}, _from, state) do
+    read_op(:list_issues, [state.owner, state.repo, opts]) |> reply(state)
+  end
+
+  def handle_call({:view_issue, number}, _from, state) do
+    read_op(:view_issue, [state.owner, state.repo, number]) |> reply(state)
+  end
+
+  def handle_call({:list_prs, opts}, _from, state) do
+    read_op(:list_prs, [state.owner, state.repo, opts]) |> reply(state)
+  end
+
+  def handle_call({:view_pr, number}, _from, state) do
+    read_op(:view_pr, [state.owner, state.repo, number]) |> reply(state)
+  end
+
+  def handle_call({:pr_checks, number}, _from, state) do
+    read_op(:pr_checks, [state.owner, state.repo, number]) |> reply(state)
+  end
+
+  def handle_call({:pr_diff, number}, _from, state) do
+    read_op(:pr_diff, [state.owner, state.repo, number]) |> reply(state)
+  end
+
   # The workflow's review stage (#86) is mechanical law regardless of who
   # merges, latest-wins on the review timeline: an approving review or ok
   # "review:" marker opens the door; a "review: needs-human" marker
@@ -207,6 +265,14 @@ defmodule Custode.Repository do
     end
   end
 
+  # Reads take the same ops seam but no feed record (see the read-verbs note).
+  defp read_op(verb, args) do
+    case apply(ops(), verb, args) do
+      {:ok, data} -> {:ok, data}
+      {:error, reason} -> {:error, "github: #{inspect(reason)}"}
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # policy checks (the mechanical third of #50)
   # ---------------------------------------------------------------------------
@@ -248,7 +314,7 @@ defmodule Custode.Repository do
 end
 
 defmodule Custode.Repository.Ops do
-  @moduledoc "The real GitHub writes behind the verbs (gh_ex, operator token)."
+  @moduledoc "The real GitHub reads and writes behind the verbs (gh_ex, operator token)."
 
   def open_pr(owner, repo, attrs) do
     with {:ok, client} <- client() do
@@ -287,6 +353,107 @@ defmodule Custode.Repository.Ops do
     with {:ok, client} <- client() do
       unwrap(GhEx.PullRequests.merge(client, owner, repo, number))
     end
+  end
+
+  # ---------------------------------------------------------------------------
+  # reads (issue #129): shaped down to what a sweep needs, not the raw payload
+  # ---------------------------------------------------------------------------
+
+  def list_issues(owner, repo, opts) do
+    params = [state: state_param(opts), sort: "created", direction: "asc"]
+
+    with {:ok, client} <- client(),
+         {:ok, issues} <- unwrap(GhEx.Issues.list(client, owner, repo, params: params)) do
+      # GitHub's issues endpoint returns PRs too; drop them (they carry a
+      # "pull_request" key). PRs have their own verb.
+      {:ok, issues |> Enum.reject(&Map.has_key?(&1, "pull_request")) |> Enum.map(&issue_row/1)}
+    end
+  end
+
+  def view_issue(owner, repo, number) do
+    with {:ok, client} <- client(),
+         {:ok, issue} <- unwrap(GhEx.Issues.get(client, owner, repo, number)),
+         {:ok, comments} <- unwrap(GhEx.Issues.list_comments(client, owner, repo, number)) do
+      {:ok,
+       Map.put(issue_row(issue), :body, issue["body"])
+       |> Map.put(:comments, comment_rows(comments))}
+    end
+  end
+
+  def list_prs(owner, repo, opts) do
+    params = [state: state_param(opts), sort: "created", direction: "asc"]
+
+    with {:ok, client} <- client(),
+         {:ok, prs} <- unwrap(GhEx.PullRequests.list(client, owner, repo, params: params)) do
+      {:ok, Enum.map(prs, &pr_row/1)}
+    end
+  end
+
+  def view_pr(owner, repo, number) do
+    with {:ok, client} <- client(),
+         {:ok, pr} <- unwrap(GhEx.PullRequests.get(client, owner, repo, number)) do
+      {:ok, pr_row(pr) |> Map.put(:body, pr["body"])}
+    end
+  end
+
+  def pr_checks(owner, repo, number) do
+    with {:ok, client} <- client(),
+         {:ok, pr} <- unwrap(GhEx.PullRequests.get(client, owner, repo, number)),
+         sha = get_in(pr, ["head", "sha"]),
+         {:ok, result} <- unwrap(GhEx.Checks.list_for_ref(client, owner, repo, sha)) do
+      {:ok, %{sha: sha, checks: Enum.map(result["check_runs"] || [], &check_row/1)}}
+    end
+  end
+
+  def pr_diff(owner, repo, number) do
+    with {:ok, client} <- client(),
+         {:ok, files} <- unwrap(GhEx.PullRequests.list_files(client, owner, repo, number)) do
+      {:ok, %{files: Enum.map(files, &file_row/1)}}
+    end
+  end
+
+  defp state_param(opts), do: opts[:state] || opts["state"] || "open"
+
+  defp issue_row(issue) do
+    %{
+      number: issue["number"],
+      title: issue["title"],
+      state: issue["state"],
+      labels: for(l <- issue["labels"] || [], do: l["name"]),
+      updated_at: issue["updated_at"],
+      url: issue["html_url"]
+    }
+  end
+
+  defp pr_row(pr) do
+    %{
+      number: pr["number"],
+      title: pr["title"],
+      state: pr["state"],
+      draft: pr["draft"],
+      base: get_in(pr, ["base", "ref"]),
+      head: get_in(pr, ["head", "ref"]),
+      updated_at: pr["updated_at"],
+      url: pr["html_url"]
+    }
+  end
+
+  defp comment_rows(comments) do
+    for c <- comments, do: %{author: get_in(c, ["user", "login"]), body: c["body"]}
+  end
+
+  defp check_row(run) do
+    %{name: run["name"], status: run["status"], conclusion: run["conclusion"]}
+  end
+
+  defp file_row(file) do
+    %{
+      filename: file["filename"],
+      status: file["status"],
+      additions: file["additions"],
+      deletions: file["deletions"],
+      patch: file["patch"]
+    }
   end
 
   @doc """
