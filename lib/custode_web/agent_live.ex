@@ -135,8 +135,13 @@ defmodule CustodeWeb.AgentLive do
         </div>
       </div>
 
-      <p :if={@state == :offline} class="mb-4 text-sm text-base-content/50">
+      <p :if={@state == :offline and @routine} class="mb-4 text-sm text-base-content/50">
         offline -- the next beat starts it
+      </p>
+      <p :if={@state == :offline and !@routine} class="mb-4 text-sm text-base-content/50">
+        ended -- this was an ephemeral agent; its memory and activity trail
+        persist below (ghost tiles keep it on the fleet page for
+        {div(Application.get_env(:custode, :ghost_window_s, 3_600), 60)}m)
       </p>
 
       <div :if={match?({:awaiting_permission, _}, @status)} class="alert alert-warning mb-4">
