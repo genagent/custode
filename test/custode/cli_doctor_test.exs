@@ -23,15 +23,22 @@ defmodule Custode.CLI.DoctorTest do
   end
 
   test "a home that cannot be created reports an error, not a raise" do
+    # on_exit, not try/after: cleanup must survive the test process dying
+    # (a linked-probe crash once leaked this env var into routine_test)
+    previous = System.get_env("CUSTODE_HOME")
+
+    on_exit(fn ->
+      case previous do
+        nil -> System.delete_env("CUSTODE_HOME")
+        val -> System.put_env("CUSTODE_HOME", val)
+      end
+    end)
+
     System.put_env("CUSTODE_HOME", "/dev/null/nope")
 
-    try do
-      {_label, result} =
-        Custode.CLI.Doctor.checks() |> Enum.find(fn {l, _} -> l =~ "home" end)
+    {_label, result} =
+      Custode.CLI.Doctor.checks() |> Enum.find(fn {l, _} -> l =~ "home" end)
 
-      assert match?({:error, _}, result)
-    after
-      System.delete_env("CUSTODE_HOME")
-    end
+    assert match?({:error, _}, result)
   end
 end
