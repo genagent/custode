@@ -56,7 +56,9 @@ config :custode,
       # A sonnet sweep costs ~$0.40, so every minute is ~$25/hour -- the
       # default is a calm every-10-minutes. For an attended demo, flip to
       # "* * * * *" (or just drive beats by hand with Custode.beat()).
-      cron: "*/10 * * * *",
+      # NIGHT WATCH (2026-07-21): */30 overnight; its job while unattended
+      # is stale-gate escalation and stuck siblings, which half-hourly serves.
+      cron: "*/30 * * * *",
       # The directory this agent tends. Relative paths resolve from the cwd.
       workspace: "workspace",
       tags: [:meta],
@@ -89,9 +91,11 @@ config :custode,
     %{
       id: "adrs",
       profile: :backlog_worker,
-      # TEMPORARY crank (2026-07-21 evening): work the backlog hard while
-      # the operator supervises; restore @daily when the sprint ends
-      cron: "*/10 * * * *",
+      # NIGHT WATCH (2026-07-21): sprint crank relaxed to half-hourly for
+      # the unattended overnight run -- real backlog remains here, and the
+      # operator works the gate queue on a wakeup loop. Restore @daily (or
+      # let #124's cadence advisor decide) in the morning.
+      cron: "*/30 * * * *",
       repo: "joshrotenberg/adrs",
       working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/adrs",
       tags: [:rust, :external]
@@ -99,9 +103,11 @@ config :custode,
     %{
       id: "redis-tower",
       profile: :backlog_worker,
-      # TEMPORARY crank (2026-07-21 evening): work the backlog hard while
-      # the operator supervises; restore @daily when the sprint ends
-      cron: "*/10 * * * *",
+      # NIGHT WATCH (2026-07-21): sprint crank relaxed to half-hourly for
+      # the unattended overnight run -- real backlog remains here, and the
+      # operator works the gate queue on a wakeup loop. Restore @daily (or
+      # let #124's cadence advisor decide) in the morning.
+      cron: "*/30 * * * *",
       repo: "joshrotenberg/redis-tower",
       working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/redis-tower",
       tags: [:rust, :external]
@@ -109,9 +115,11 @@ config :custode,
     %{
       id: "git-spawn",
       profile: :backlog_worker,
-      # TEMPORARY crank (2026-07-21 evening): work the backlog hard while
-      # the operator supervises; restore @daily when the sprint ends
-      cron: "*/10 * * * *",
+      # NIGHT WATCH (2026-07-21): sprint crank relaxed to half-hourly for
+      # the unattended overnight run -- real backlog remains here, and the
+      # operator works the gate queue on a wakeup loop. Restore @daily (or
+      # let #124's cadence advisor decide) in the morning.
+      cron: "*/30 * * * *",
       repo: "joshrotenberg/git-spawn",
       working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/git-spawn",
       tags: [:rust, :external]
@@ -126,9 +134,11 @@ config :custode,
     %{
       id: "tower-mcp",
       profile: :backlog_worker,
-      # TEMPORARY crank (2026-07-21 evening): work the backlog hard while
-      # the operator supervises; restore @daily when the sprint ends
-      cron: "*/10 * * * *",
+      # NIGHT WATCH (2026-07-21): fully gated backlog -- every open issue is
+      # milestone-gated, in review, or held for the operator (#937). */10
+      # was pure no-op spend ($5+ today announcing nothing to propose);
+      # @daily until the board changes.
+      cron: "@daily",
       repo: "joshrotenberg/tower-mcp",
       working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/tower-mcp",
       tags: [:rust, :external]
@@ -136,9 +146,11 @@ config :custode,
     %{
       id: "tower-resilience",
       profile: :backlog_worker,
-      # TEMPORARY crank (2026-07-21 evening): work the backlog hard while
-      # the operator supervises; restore @daily when the sprint ends
-      cron: "*/10 * * * *",
+      # NIGHT WATCH (2026-07-21): sprint crank relaxed to half-hourly for
+      # the unattended overnight run -- real backlog remains here, and the
+      # operator works the gate queue on a wakeup loop. Restore @daily (or
+      # let #124's cadence advisor decide) in the morning.
+      cron: "*/30 * * * *",
       repo: "joshrotenberg/tower-resilience",
       working_dir: "/Users/joshrotenberg/Code/github.com/joshrotenberg/tower-resilience",
       tags: [:rust, :external]
