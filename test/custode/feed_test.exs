@@ -134,6 +134,25 @@ defmodule Custode.FeedTest do
     assert [%{"response" => ^answer}] = Enum.filter(entries, & &1["response"])
   end
 
+  test "an operator turn with structured output carries no response blob (#201)" do
+    answer = "Pros: fixes the bug. Cons: binds the semver surface to schemars 1.x."
+
+    {:ok, _} =
+      ObanClaude.run(%{"prompt" => "tradeoffs of #937?"},
+        job: %Oban.Job{meta: %{"agent_id" => "feed-blob", "origin" => "operator"}},
+        query_fun:
+          respond(
+            structured_result(%{"directive" => "none", "summary" => answer}, cost_usd: 0.07)
+          )
+      )
+
+    assert [entry] = Custode.Feed.for_agent("feed-blob")
+    # the answer lives ONCE, in the summary; the raw directive JSON that a
+    # schema'd run leaves in result.result never echoes as a response block
+    assert entry["summary"] == answer
+    assert entry["response"] == nil
+  end
+
   test "a failed run writes a turn_failed entry with the error kind AND its detail" do
     {{:error, :command_failed}, _} =
       ObanClaude.run(%{"prompt" => "x"},
