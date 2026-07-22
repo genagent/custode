@@ -297,3 +297,92 @@ defmodule CustodeWeb.FleetLiveBrakeTest do
     assert html =~ "opacity-60"
   end
 end
+
+defmodule CustodeWeb.FleetLiveNewAgentTest do
+  # The dashboard new-agent form (#75 / design 001 slice 4): human authority
+  # driving WriteBack -- live TOML preview, then file + roster in one submit.
+  use ExUnit.Case, async: false
+
+  import Custode.TestHelpers
+  import Phoenix.ConnTest
+  import Phoenix.LiveViewTest
+
+  @endpoint CustodeWeb.Endpoint
+
+  setup do
+    roster = Path.join(System.tmp_dir!(), uid("form-roster") <> ".toml")
+    System.put_env("CUSTODE_CONFIG", roster)
+    previous = Application.get_env(:custode, :routines)
+    feed = Path.join(System.tmp_dir!(), uid("form-feed") <> ".jsonl")
+    put_env!(:feed_path, feed)
+
+    on_exit(fn ->
+      System.delete_env("CUSTODE_CONFIG")
+      File.rm(roster)
+      File.rm(feed)
+      Application.put_env(:custode, :routines, previous)
+    end)
+
+    workspace = tmp_workspace!()
+
+    put_env!(:routines, [
+      %{id: uid("seed"), cron: "@daily", workspace: workspace, prompt: "sweep"}
+    ])
+
+    %{roster: roster}
+  end
+
+  test "the form previews the literal TOML and the submit lands it live", %{roster: roster} do
+    {:ok, view, _html} = live(build_conn(), "/")
+
+    render_click(view, "new_agent_open")
+
+    html =
+      render_change(view, "new_agent_change", %{
+        "routine" => %{
+          "id" => "form-worker",
+          "profile" => "backlog_worker",
+          "repo" => "o/r",
+          "working_dir" => "/tmp/o",
+          "tags" => "rust"
+        }
+      })
+
+    assert html =~ "this exact text lands in routines.toml"
+    assert html =~ "id = &quot;form-worker&quot;"
+
+    render_submit(view, "new_agent_create", %{
+      "routine" => %{
+        "id" => "form-worker",
+        "profile" => "backlog_worker",
+        "repo" => "o/r",
+        "working_dir" => "/tmp/o",
+        "tags" => "rust"
+      }
+    })
+
+    assert File.exists?(roster)
+    assert Custode.Routine.get("form-worker").role == :backlog_worker
+  end
+
+  test "a bad profile disables the submit with a message, not a crash" do
+    {:ok, view, _html} = live(build_conn(), "/")
+
+    render_click(view, "new_agent_open")
+
+    html =
+      render_change(view, "new_agent_change", %{
+        "routine" => %{"id" => "x", "profile" => "bogus"}
+      })
+
+    assert html =~ "unknown profile"
+
+    # duplicates come back as a form error on submit
+    seed = Application.get_env(:custode, :routines) |> hd() |> Map.fetch!(:id)
+
+    html =
+      render_submit(view, "new_agent_create", %{"routine" => %{"id" => seed}})
+
+    assert html =~ "duplicate_id"
+  end
+end
