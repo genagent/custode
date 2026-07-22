@@ -48,6 +48,58 @@ defmodule Custode.MCP.RosterTools do
 
   @doc false
   def external?(attrs), do: :external in Map.get(attrs, :tags, [])
+
+  @doc false
+  # The edit-changes shape (#174 slice 3): the assignment fields plus the
+  # envelope knobs an edit most often touches (model, budgets, turns). A
+  # `drop` list marks overrides to REMOVE, mapping to update_routine's
+  # nil-drops-the-key semantics.
+  def to_changes(params) do
+    %{}
+    |> put_if(params, :profile, &String.to_existing_atom/1)
+    |> put_if(params, :cron)
+    |> put_if(params, :repo)
+    |> put_if(params, :working_dir)
+    |> put_if(params, :workspace)
+    |> put_if(params, :prompt)
+    |> put_if(params, :model)
+    |> put_if(params, :effort, &String.to_existing_atom/1)
+    |> put_if(params, :max_budget_usd)
+    |> put_if(params, :daily_budget_usd)
+    |> put_if(params, :timeout_ms)
+    |> put_if(params, :max_turns)
+    |> put_if(params, :tags, fn tags -> Enum.map(tags, &String.to_atom/1) end)
+    |> apply_drops(params)
+  end
+
+  defp apply_drops(changes, %{drop: fields}) when is_list(fields) do
+    Enum.reduce(fields, changes, fn field, acc ->
+      Map.put(acc, String.to_existing_atom(field), nil)
+    end)
+  end
+
+  defp apply_drops(changes, _params), do: changes
+
+  @doc false
+  # Roster writes are for the operator and the caretaker (whose approved
+  # continuation is the gate flow's actuator). Workers and sub-agents
+  # propose to the caretaker instead -- one funnel, one judgment. The
+  # single-writer call is deliberate (operator conversation, 2026-07-22):
+  # any agent may ASK for a roster change; exactly one agent writes.
+  def check_roster_writer(frame) do
+    case Custode.MCP.caller(frame) do
+      %{kind: :operator} -> :ok
+      %{kind: :routine, id: id} -> check_caretaker(id)
+      _sub_agent -> {:error, "identity: sub-agents do not touch the roster"}
+    end
+  end
+
+  defp check_caretaker(id) do
+    case Custode.Routine.get(id) do
+      %{role: :caretaker} -> :ok
+      _other -> {:error, "identity: only the caretaker writes the roster; drop it a note"}
+    end
+  end
 end
 
 defmodule Custode.MCP.RosterTools.PreviewRoutine do
@@ -111,7 +163,7 @@ defmodule Custode.MCP.RosterTools.AddRoutine do
   def execute(params, frame) do
     attrs = RosterTools.to_attrs(params)
 
-    with :ok <- check_roster_writer(frame),
+    with :ok <- RosterTools.check_roster_writer(frame),
          :ok <- check_external_policy(frame, attrs),
          {:ok, path} <- WriteBack.add_routine(attrs) do
       Custode.Feed.record(%{
@@ -128,24 +180,6 @@ defmodule Custode.MCP.RosterTools.AddRoutine do
     ArgumentError -> fail(frame, "unknown profile #{inspect(params[:profile])}")
   end
 
-  # The write is for the operator and the caretaker (whose approved
-  # continuation is the gate flow's actuator). Workers and sub-agents
-  # propose to the caretaker instead -- one funnel, one judgment.
-  defp check_roster_writer(frame) do
-    case Custode.MCP.caller(frame) do
-      %{kind: :operator} -> :ok
-      %{kind: :routine, id: id} -> check_caretaker(id)
-      _sub_agent -> {:error, "identity: sub-agents do not provision routines"}
-    end
-  end
-
-  defp check_caretaker(id) do
-    case Custode.Routine.get(id) do
-      %{role: :caretaker} -> :ok
-      _other -> {:error, "identity: only the caretaker provisions routines; drop it a note"}
-    end
-  end
-
   # The :external invariant, re-drawn from live use (2026-07-22): what
   # matters is that no :external routine exists that a human did not read
   # and approve -- and the caretaker's add only ever runs as the approved
@@ -155,4 +189,144 @@ defmodule Custode.MCP.RosterTools.AddRoutine do
   # ask_user and the operator ran the add by hand). Workers and sub-agents
   # remain fully refused by check_roster_writer.
   defp check_external_policy(_frame, _attrs), do: :ok
+end
+
+defmodule Custode.MCP.RosterTools.PreviewRoutineEdit do
+  @moduledoc """
+  Render the before/after TOML sections an edit would produce, without
+  writing -- put BOTH in your request_permission action so the human
+  approves the literal change. `drop` removes an override so the profile's
+  value serves again.
+  """
+  use Anubis.Server.Component, type: :tool
+
+  import Custode.MCP.Tools
+
+  alias Custode.Config.WriteBack
+  alias Custode.MCP.RosterTools
+
+  schema do
+    field(:id, :string, required: true, description: "routine id to edit")
+    field(:profile, :string, description: "new profile name")
+    field(:cron, :string, description: "new cron override")
+    field(:repo, :string, description: "new owner/name")
+    field(:working_dir, :string, description: "new checkout path")
+    field(:workspace, :string, description: "new notebook home")
+    field(:prompt, :string, description: "new sweep prompt")
+    field(:model, :string, description: "new model override, e.g. \"sonnet\"")
+    field(:effort, :string, description: "new effort override, e.g. \"low\"")
+    field(:max_budget_usd, :number, description: "new per-turn budget rail")
+    field(:daily_budget_usd, :number, description: "new daily budget rail")
+    field(:timeout_ms, :integer, description: "new per-turn timeout")
+    field(:max_turns, :integer, description: "new max turns")
+    field(:tags, {:list, :string}, description: "replacement tag list")
+    field(:drop, {:list, :string}, description: "override keys to REMOVE (profile serves again)")
+  end
+
+  @impl true
+  def execute(params, frame) do
+    changes = RosterTools.to_changes(params)
+
+    case WriteBack.preview_update(params.id, changes) do
+      {:ok, %{before: before_toml, after: after_toml}} ->
+        reply(frame, %{before: before_toml, after: after_toml})
+
+      {:error, reason} ->
+        fail(frame, "preview_routine_edit refused: #{inspect(reason)}")
+    end
+  rescue
+    ArgumentError -> fail(frame, "unknown field value in #{inspect(Map.keys(params))}")
+  end
+end
+
+defmodule Custode.MCP.RosterTools.UpdateRoutine do
+  @moduledoc """
+  Edit an existing routine on the roster file and reload the running roster
+  (#174 slice 3): the change is live at the scheduler's next minute. Only
+  the operator and the caretaker's approved continuations may call this;
+  propose it via request_permission with the preview_routine_edit render.
+  The id is immutable -- remove + add is the rename path.
+  """
+  use Anubis.Server.Component, type: :tool
+
+  import Custode.MCP.Tools
+
+  alias Custode.Config.WriteBack
+  alias Custode.MCP.RosterTools
+
+  schema do
+    field(:id, :string, required: true, description: "routine id to edit")
+    field(:profile, :string, description: "new profile name")
+    field(:cron, :string, description: "new cron override")
+    field(:repo, :string, description: "new owner/name")
+    field(:working_dir, :string, description: "new checkout path")
+    field(:workspace, :string, description: "new notebook home")
+    field(:prompt, :string, description: "new sweep prompt")
+    field(:model, :string, description: "new model override, e.g. \"sonnet\"")
+    field(:effort, :string, description: "new effort override, e.g. \"low\"")
+    field(:max_budget_usd, :number, description: "new per-turn budget rail")
+    field(:daily_budget_usd, :number, description: "new daily budget rail")
+    field(:timeout_ms, :integer, description: "new per-turn timeout")
+    field(:max_turns, :integer, description: "new max turns")
+    field(:tags, {:list, :string}, description: "replacement tag list")
+    field(:drop, {:list, :string}, description: "override keys to REMOVE (profile serves again)")
+  end
+
+  @impl true
+  def execute(params, frame) do
+    changes = RosterTools.to_changes(params)
+
+    with :ok <- RosterTools.check_roster_writer(frame),
+         {:ok, path} <- WriteBack.update_routine(params.id, changes) do
+      changed = changes |> Map.keys() |> Enum.sort() |> Enum.join(", ")
+
+      Custode.Feed.record(%{
+        event: "repo_verb",
+        agent: Custode.MCP.caller(frame).id,
+        summary: "update_routine #{params.id}: #{changed} -- #{path} rewritten, roster reloaded"
+      })
+
+      reply(frame, %{id: params.id, path: path, live: true})
+    else
+      {:error, reason} -> fail(frame, "update_routine refused: #{inspect(reason)}")
+    end
+  rescue
+    ArgumentError -> fail(frame, "unknown field value in #{inspect(Map.keys(params))}")
+  end
+end
+
+defmodule Custode.MCP.RosterTools.RemoveRoutine do
+  @moduledoc """
+  Remove a routine from the roster and stop its live agent (#174 slice 3).
+  The notebook and workspace stay -- records outlive routines. Removal is
+  de-escalation, so the caretaker's approved continuation may remove
+  :external entries too. Propose via request_permission naming the id and
+  why.
+  """
+  use Anubis.Server.Component, type: :tool
+
+  import Custode.MCP.Tools
+
+  alias Custode.Config.WriteBack
+  alias Custode.MCP.RosterTools
+
+  schema do
+    field(:id, :string, required: true, description: "routine id to remove")
+  end
+
+  @impl true
+  def execute(params, frame) do
+    with :ok <- RosterTools.check_roster_writer(frame),
+         {:ok, path} <- WriteBack.remove_routine(params.id) do
+      Custode.Feed.record(%{
+        event: "repo_verb",
+        agent: Custode.MCP.caller(frame).id,
+        summary: "remove_routine #{params.id}: spliced out of #{path}, agent stopped"
+      })
+
+      reply(frame, %{id: params.id, path: path, live: true})
+    else
+      {:error, reason} -> fail(frame, "remove_routine refused: #{inspect(reason)}")
+    end
+  end
 end

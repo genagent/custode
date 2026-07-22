@@ -103,11 +103,11 @@ defmodule Custode.RosterToolsTest do
         )
       )
 
-    assert refused =~ "only the caretaker provisions"
+    assert refused =~ "only the caretaker writes the roster"
     assert Custode.Routine.get("workeradd") == nil
 
     refused = tool_error(AddRoutine.execute(%{id: "subadd"}, sub_frame("helper")))
-    assert refused =~ "sub-agents do not provision"
+    assert refused =~ "sub-agents do not touch the roster"
   end
 
   test "an :external routine adds through the caretaker's gate flow and the operator alike" do
@@ -132,7 +132,7 @@ defmodule Custode.RosterToolsTest do
         )
       )
 
-    assert refused =~ "only the caretaker provisions"
+    assert refused =~ "only the caretaker writes the roster"
   end
 
   test "duplicates and unknown profiles come back as tool errors" do
@@ -141,5 +141,67 @@ defmodule Custode.RosterToolsTest do
 
     refused = tool_error(AddRoutine.execute(%{id: "x", profile: "bogus_profile"}, @operator))
     assert refused =~ "unknown profile"
+  end
+
+  describe "the edit verbs (#174 slice 3)" do
+    alias Custode.MCP.RosterTools.{PreviewRoutineEdit, RemoveRoutine, UpdateRoutine}
+
+    test "preview_routine_edit renders before and after without writing", %{path: path} do
+      json =
+        tool_json(
+          PreviewRoutineEdit.execute(
+            %{id: "existing", daily_budget_usd: 75.0},
+            routine_frame("anyone")
+          )
+        )
+
+      assert json["before"] =~ ~s(id = "existing")
+      refute json["before"] =~ "daily_budget_usd"
+      assert json["after"] =~ ~s(daily_budget_usd = 75.0)
+      refute File.exists?(path)
+    end
+
+    test "the caretaker edits through the gate flow; a worker is refused", %{path: path} do
+      json =
+        tool_json(
+          UpdateRoutine.execute(
+            %{id: "existing", daily_budget_usd: 75.0},
+            routine_frame("keeper")
+          )
+        )
+
+      assert json["live"] == true
+      assert File.read!(path) =~ ~s(daily_budget_usd = 75.0)
+
+      refused =
+        tool_error(
+          UpdateRoutine.execute(%{id: "keeper", model: "opus"}, routine_frame("existing"))
+        )
+
+      assert refused =~ "only the caretaker writes the roster"
+    end
+
+    test "drop removes an override so the profile serves again", %{path: path} do
+      tool_json(UpdateRoutine.execute(%{id: "existing", model: "opus"}, @operator))
+      assert File.read!(path) =~ ~s(model = "opus")
+
+      tool_json(UpdateRoutine.execute(%{id: "existing", drop: ["model"]}, @operator))
+      refute File.read!(path) =~ ~s(model = "opus")
+    end
+
+    test "remove_routine splices the entry out; unknown ids and workers are refused", %{
+      path: path
+    } do
+      json = tool_json(RemoveRoutine.execute(%{id: "existing"}, @operator))
+      assert json["live"] == true
+      refute File.read!(path) =~ ~s(id = "existing")
+      assert Custode.Routine.get("existing") == nil
+
+      refused = tool_error(RemoveRoutine.execute(%{id: "ghost"}, @operator))
+      assert refused =~ "unknown_id"
+
+      refused = tool_error(RemoveRoutine.execute(%{id: "keeper"}, routine_frame("nobody")))
+      assert refused =~ "only the caretaker writes the roster"
+    end
   end
 end

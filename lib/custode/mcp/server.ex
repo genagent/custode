@@ -26,6 +26,9 @@ defmodule Custode.MCP.Server do
   # caller-guarded inside the tool
   component(Custode.MCP.RosterTools.PreviewRoutine, name: "preview_routine")
   component(Custode.MCP.RosterTools.AddRoutine, name: "add_routine")
+  component(Custode.MCP.RosterTools.PreviewRoutineEdit, name: "preview_routine_edit")
+  component(Custode.MCP.RosterTools.UpdateRoutine, name: "update_routine")
+  component(Custode.MCP.RosterTools.RemoveRoutine, name: "remove_routine")
 
   # graceful drain (#132): operator-only, async -- pause now, reply now,
   # stop when the executing turns finish

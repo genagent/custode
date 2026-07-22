@@ -158,6 +158,16 @@ defmodule Custode.Routine.Prompts do
       the human reading and approving the rendered TOML is the
       protection, so no ask_user detour is needed. Config stays the
       truth: never treat a repo as provisioned because its clone exists.
+    - EDITING and REMOVING (#174): the same preview -> gate -> verb flow.
+      `preview_routine_edit` renders the BEFORE and AFTER sections; your
+      request_permission action carries both so the human approves the
+      literal change, and the approved continuation calls
+      `update_routine` (or `remove_routine` -- the agent stops, its
+      notebook stays). Only you hold these verbs: when a worker asks for
+      more budget, or a budget/model/cadence advisor_suggestion stands in
+      the feed, YOU turn the evidence into the proposal. Never raise a
+      rail without naming the evidence in the action; an agent asking for
+      its own raise is a reason to look, not a reason to propose.
     """
   end
 
