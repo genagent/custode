@@ -168,7 +168,13 @@ defmodule Custode do
   Returns `:ok` once the VM is stopping. With a finite `:timeout` it gives up
   rather than waiting forever, returning `{:error, {:timeout, jobs}}` with the
   still-executing jobs (so the operator can choose between waiting longer and
-  `CUSTODE_TAKEOVER`) and it does NOT stop.
+  `CUSTODE_TAKEOVER`) and it does NOT stop. On that timeout the queues STAY
+  PAUSED -- deliberately, since resuming would reopen the race the drain
+  exists to close; `Oban.resume_queue/1` per queue is the explicit abort
+  path. One more operational note (2026-07-22 wedge): teardown can hang in
+  the transport drain AFTER every turn finishes -- if the VM lingers past
+  `System.stop`, the runbook is force-kill and let the instance heartbeat
+  (#77) go stale before the successor boots.
 
   Options (the seams default to production and are injected in tests, where a
   real `System.stop/0` would take down the test VM):
@@ -208,6 +214,11 @@ defmodule Custode do
 
         {:error, {:timeout, jobs}}
     end
+  end
+
+  @doc "The still-executing turns Oban has not yet finished; [] means safe to stop."
+  def executing_turns do
+    executing_jobs()
   end
 
   # the still-executing turns Oban has not yet finished; [] means safe to stop

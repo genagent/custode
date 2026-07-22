@@ -255,6 +255,35 @@ defmodule Custode.CLI.Resume do
   end
 end
 
+defmodule Custode.CLI.Drain do
+  @moduledoc false
+  use Cheer.Command
+
+  command "drain" do
+    about("Pause the queues, wait out executing turns, then stop the server.")
+
+    long_about("""
+    The graceful restart's first half (#132): pauses :ticks/:agents/:sensors
+    immediately (closing the new-work race), replies with how many turns are
+    still executing, and stops the VM when they finish. Progress lands in
+    the feed. On --timeout expiry the queues STAY paused; resume_queue is
+    the abort path.
+    """)
+
+    option(:timeout, type: :integer, help: "Give up (queues stay paused) after N ms.")
+    option(:json, type: :boolean, help: "Raw JSON reply.")
+  end
+
+  @impl Cheer.Command
+  def run(args, _raw) do
+    arguments = if args[:timeout], do: %{timeout_ms: args[:timeout]}, else: %{}
+
+    Custode.CLI.emit("drain", arguments, args[:json] == true, fn reply ->
+      "draining: #{reply["executing"]} turn(s) executing\n#{reply["note"]}"
+    end)
+  end
+end
+
 defmodule Custode.CLI.Prompt do
   @moduledoc false
   use Cheer.Command
