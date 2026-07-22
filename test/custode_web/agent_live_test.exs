@@ -168,6 +168,34 @@ defmodule CustodeWeb.AgentLiveTest do
     assert html =~ "flat slot table"
   end
 
+  describe "the agent panel (#100 slice 1)" do
+    test "markdown under the panel key renders; raw HTML stays inert",
+         %{conn: conn, routine: routine} do
+      stub_routine_agent!(routine)
+
+      :ok =
+        Custode.Memory.remember(
+          routine.id,
+          "panel",
+          "## watchlist\n\n| repo | state |\n|---|---|\n| tower | green |\n\n<script>alert(1)</script>"
+        )
+
+      {:ok, _view, html} = live(conn, "/agents/#{routine.id}")
+
+      assert html =~ "agent panel"
+      assert html =~ "watchlist"
+      assert html =~ "tower"
+      # escape-before-parse: the script tag never survives as markup
+      refute html =~ "<script>alert(1)</script>"
+    end
+
+    test "no panel memory, no section", %{conn: conn, routine: routine} do
+      stub_routine_agent!(routine)
+      {:ok, _view, html} = live(conn, "/agents/#{routine.id}")
+      refute html =~ "agent panel"
+    end
+  end
+
   describe "deeper browsing (#21)" do
     test "journal search narrows; clearing restores; older entries grow the list",
          %{conn: conn, routine: routine} do
