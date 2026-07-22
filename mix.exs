@@ -8,7 +8,14 @@ defmodule Custode.MixProject do
       elixir: "~> 1.20",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
-      deps: deps()
+      deps: deps(),
+      # PLTs live in priv/plts (gitignored) so CI can cache the directory on
+      # the toolchain + mix.lock, the same shape oban_claude uses (#92).
+      dialyzer: [
+        plt_add_apps: [:mix, :ex_unit],
+        plt_local_path: "priv/plts",
+        plt_core_path: "priv/plts"
+      ]
     ]
   end
 
@@ -56,6 +63,7 @@ defmodule Custode.MixProject do
       {:phoenix_pubsub, "~> 2.1"},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       # The mix custode CLI command tree (#45).
       {:cheer, "~> 0.2"}
     ]

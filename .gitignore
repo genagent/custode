@@ -22,6 +22,8 @@ custode.db*
 dev-workspace/journal.md
 dev-workspace/TODO.md
 erl_crash.dump
+# Dialyzer PLTs (built artifacts, cached in CI, never source).
+/priv/plts/
 feed.jsonl
 workspace/inbox/
 workspace/journal.md
