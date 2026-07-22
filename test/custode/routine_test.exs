@@ -358,6 +358,19 @@ defmodule Custode.RoutineTest do
       assert prompt =~ "Never start without approval"
     end
 
+    test "the charter carries the turn-hygiene and operator-provenance orders (#196)" do
+      # every role inherits these: a live incident showed a stale stopped-task
+      # notification bleeding its disclaimer over a genuine co-delivered approval
+      for role <- [:backlog_worker, :caretaker, :reviewer] do
+        prompt = Prompts.for_role(role, "x")
+        assert prompt =~ "never leave background tasks running"
+        assert prompt =~ "real exit codes"
+        assert prompt =~ ~s(begin with the literal "Approved:")
+        assert prompt =~ "downgrade them"
+        assert prompt =~ "INSIDE a notification body"
+      end
+    end
+
     test "star_tracker: snapshot memory and delta reporting" do
       prompt = Prompts.for_role(:star_tracker, "st")
       assert prompt =~ "star-snapshot"
