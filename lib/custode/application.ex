@@ -23,6 +23,11 @@ defmodule Custode.Application do
       {Phoenix.PubSub, name: Custode.PubSub},
       Custode.Repo,
       {Ecto.Migrator, repos: [Custode.Repo], log_migrations_sql: false},
+      # single-instance guard (#77): claim the heartbeat row BEFORE Oban
+      # starts. A boot that finds a live foreign instance refuses here, so
+      # two servers never poll one db and double-run jobs during a restart's
+      # graceful-shutdown overlap. CUSTODE_TAKEOVER=1 seizes a wedged one.
+      Custode.Instance,
       {Oban, oban_config()},
       ObanClaude.Agent.Supervisor,
       # identity before configs: tokens are minted into the per-agent
