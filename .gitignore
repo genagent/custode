@@ -29,3 +29,11 @@ workspace/TODO.md
 workspaces/*/inbox/
 workspaces/*/journal.md
 workspaces/*/TODO.md
+
+# Workspace runtime data: journal.md/TODO.md are regenerable views of db
+# records (design/002) and inbox notes are runtime messages -- none of it is
+# source. Tracked copies also kept getting swept into unrelated commits by
+# operator add -A (#117, #144); untracked, that class is gone.
+workspace/
+workspaces/
+dev-workspace/
