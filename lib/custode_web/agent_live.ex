@@ -24,6 +24,7 @@ defmodule CustodeWeb.AgentLive do
      socket
      |> assign(id: id, prompt_ack: nil, prompt_gen: 0)
      |> assign(edit: %{open: false, params: %{}, raw: %{}, error: nil})
+     |> assign(journal_limit: 10, feed_limit: 30, journal_search: "", show_done_todos: false)
      |> allow_image_upload(:image)
      |> allow_image_upload(:answer_image)
      |> refresh()}
@@ -144,6 +145,30 @@ defmodule CustodeWeb.AgentLive do
   def handle_event("beat", _params, socket) do
     {:ok, _job} = Custode.beat(socket.assigns.id)
     {:noreply, socket}
+  end
+
+  # Deeper browsing (#21): the page reveals more instead of paginating --
+  # limits grow, a search narrows the journal, done todos and memory
+  # forgetting are one click each.
+  def handle_event("more_journal", _params, socket) do
+    {:noreply, socket |> update(:journal_limit, &(&1 + 20)) |> refresh()}
+  end
+
+  def handle_event("more_feed", _params, socket) do
+    {:noreply, socket |> update(:feed_limit, &(&1 + 30)) |> refresh()}
+  end
+
+  def handle_event("journal_search", %{"search" => term}, socket) do
+    {:noreply, socket |> assign(journal_search: term) |> refresh()}
+  end
+
+  def handle_event("toggle_done_todos", _params, socket) do
+    {:noreply, socket |> update(:show_done_todos, &(!&1)) |> refresh()}
+  end
+
+  def handle_event("forget_memory", %{"key" => key}, socket) do
+    :ok = Custode.Memory.forget(socket.assigns.id, key)
+    {:noreply, refresh(socket)}
   end
 
   def handle_event("todo_done", %{"todo" => todo_id}, socket) do
@@ -370,11 +395,40 @@ defmodule CustodeWeb.AgentLive do
                 <span>{todo.text}</span>
               </li>
             </ul>
+            <button
+              class="btn btn-ghost btn-xs mt-1 text-base-content/40"
+              phx-click="toggle_done_todos"
+            >
+              {if @show_done_todos, do: "hide done", else: "show done"}
+            </button>
+            <ul :if={@show_done_todos} class="mt-1 space-y-1 text-sm">
+              <li
+                :for={todo <- Enum.reverse(@done_todos)}
+                class="text-base-content/40 line-through"
+              >
+                {todo.text}
+              </li>
+              <li :if={@done_todos == []} class="text-base-content/40">(none done yet)</li>
+            </ul>
           </section>
 
           <section :if={@routine}>
-            <h3 class="mb-2 text-lg font-semibold text-base-content/70">journal</h3>
-            <p :if={@journal == []} class="text-sm text-base-content/40">(no entries)</p>
+            <h3 class="mb-2 flex items-baseline gap-3 text-lg font-semibold text-base-content/70">
+              journal
+              <form phx-change="journal_search" phx-submit="journal_search" class="inline">
+                <input
+                  name="search"
+                  value={@journal_search}
+                  placeholder="search..."
+                  phx-debounce="300"
+                  class="input input-ghost input-xs w-36 font-normal"
+                  autocomplete="off"
+                />
+              </form>
+            </h3>
+            <p :if={@journal == []} class="text-sm text-base-content/40">
+              {if @journal_search == "", do: "(no entries)", else: "(no matches)"}
+            </p>
             <div :for={entry <- @journal} class="mb-2 rounded-lg bg-base-100 p-3 text-sm shadow-sm">
               <p class="mb-1 text-xs text-base-content/50">
                 <.ago at={entry.inserted_at} />
@@ -396,13 +450,29 @@ defmodule CustodeWeb.AgentLive do
                 </div>
               </details>
             </div>
+            <button
+              :if={length(@journal) >= @journal_limit}
+              class="btn btn-ghost btn-xs text-base-content/40"
+              phx-click="more_journal"
+            >
+              older entries
+            </button>
           </section>
 
           <section :if={@memories != []}>
             <h3 class="mb-2 text-lg font-semibold text-base-content/70">memory</h3>
-            <div :for={memory <- @memories} class="mb-1 text-sm">
+            <div :for={memory <- @memories} class="group mb-1 flex items-baseline gap-1 text-sm">
               <span class="font-mono text-xs text-base-content/50">{memory.key}:</span>
-              {memory.value}
+              <span class="min-w-0">{memory.value}</span>
+              <button
+                class="btn btn-ghost btn-xs text-base-content/30 opacity-0 group-hover:opacity-100"
+                title={"forget #{memory.key}"}
+                phx-click="forget_memory"
+                phx-value-key={memory.key}
+                data-confirm={"forget #{memory.key}? The agent will not miss what it cannot recall."}
+              >
+                &#10005;
+              </button>
             </div>
           </section>
 
@@ -423,6 +493,13 @@ defmodule CustodeWeb.AgentLive do
         <div>
           <h3 class="mb-2 text-lg font-semibold text-base-content/70">activity</h3>
           <p :if={@feed == []} class="text-sm text-base-content/40">(nothing yet)</p>
+          <button
+            :if={length(@feed) >= @feed_limit}
+            class="btn btn-ghost btn-xs mb-2 text-base-content/40"
+            phx-click="more_feed"
+          >
+            older activity
+          </button>
           <div class="space-y-2">
             <.feed_entry :for={entry <- Enum.reverse(@feed)} entry={entry} show_agent={false} />
           </div>
@@ -694,6 +771,9 @@ defmodule CustodeWeb.AgentLive do
      |> Enum.map(&String.to_atom/1)}
   end
 
+  defp done_todos(id, true), do: Custode.Notebook.todos(id, "done")
+  defp done_todos(_id, false), do: []
+
   defp refresh(socket) do
     id = socket.assigns.id
     routine = Custode.Routine.get(id)
@@ -726,9 +806,13 @@ defmodule CustodeWeb.AgentLive do
       spend_today: Custode.SpendLedger.today(id),
       tokens_today: Custode.SpendLedger.today_tokens(id),
       todos: Custode.Notebook.todos(id),
-      journal: Custode.Notebook.journal(id, 10),
+      done_todos: done_todos(id, socket.assigns.show_done_todos),
+      journal:
+        Custode.Notebook.journal(id, socket.assigns.journal_limit,
+          search: socket.assigns.journal_search
+        ),
       memories: Custode.Memory.recall(id),
-      feed: Custode.Feed.for_agent(id, 30),
+      feed: Custode.Feed.for_agent(id, socket.assigns.feed_limit),
       fleet_today: Custode.SpendLedger.fleet_today()
     )
   end
