@@ -16,6 +16,14 @@ defmodule Custode do
   alias ObanClaude.Agent
   alias ObanClaude.Agent.Tick
 
+  @doc """
+  The bare state inside a status, whether it arrives gated
+  (`{:awaiting_permission, payload}`) or plain (`:idle`). The one
+  definition -- web components and MCP tools all delegate here (#92).
+  """
+  def state_of({state, _payload}), do: state
+  def state_of(state) when is_atom(state), do: state
+
   @doc "Lifecycle status, straight off the registry."
   def status(id \\ nil), do: Agent.status(fetch!(id).id)
 

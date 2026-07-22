@@ -31,7 +31,7 @@ defmodule Custode.Ntfy do
     if is_binary(topic) and (urgent? or conf(:publish, :all) == :all) do
       message = build(entry, topic, urgent?)
       sink = sink()
-      Task.start(fn -> sink.(message) end)
+      Task.Supervisor.start_child(Custode.TaskSupervisor, fn -> sink.(message) end)
     end
 
     :ok
