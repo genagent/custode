@@ -91,6 +91,7 @@ defmodule CustodeWeb.FleetLive do
           </button>
         </span>
       </div>
+      <p class="mb-2 text-xs text-base-content/40">sorted by recent activity</p>
       <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         <.tile :for={{id, tile} <- @tiles} id={id} tile={tile} />
       </div>
@@ -229,7 +230,8 @@ defmodule CustodeWeb.FleetLive do
            spend_today: Custode.SpendLedger.today(id),
            open_todos: length(Custode.Notebook.todos(id)),
            series: Map.get(series_by_agent, id),
-           last: Custode.Feed.last_message(id, needs_attention?(status))
+           last: Custode.Feed.last_message(id, needs_attention?(status)),
+           last_activity: Custode.Feed.last_activity_at(id)
          }}
       end
 
@@ -250,20 +252,20 @@ defmodule CustodeWeb.FleetLive do
            spend_today: Custode.SpendLedger.today(id),
            open_todos: 0,
            series: nil,
-           last: Custode.Feed.last_for(id)
+           last: Custode.Feed.last_for(id),
+           last_activity: Custode.Feed.last_activity_at(id)
          }}
       end
 
-    # anything needing a human sorts first; then config order, then the
-    # living rest; ended ghosts always last
-    order = Map.new(Enum.with_index(routine_ids))
-
+    # anything needing a human sorts first; ended ghosts always last; the
+    # living rest surfaces by most recent activity (#131), newest first, with
+    # never-active agents after the active ones and id as the stable tiebreak
     tiles =
       (tiles ++ ghosts)
       |> filter_tiles(socket.assigns[:tag_filter])
       |> Enum.sort_by(fn {id, tile} ->
         {if(needs_attention?(tile.status), do: 0, else: 1),
-         if(tile.state == :ended, do: 1, else: 0), Map.get(order, id, 999), id}
+         if(tile.state == :ended, do: 1, else: 0), activity_key(tile.last_activity), id}
       end)
 
     all_tags =
@@ -288,6 +290,13 @@ defmodule CustodeWeb.FleetLive do
       tile.routine != nil and tag in Enum.map(tile.routine.tags, &to_string/1)
     end)
   end
+
+  # sortable key for "most recent activity, newest first": active agents
+  # (present timestamp) sort ahead of never-active ones, and within the
+  # active set a negated unix stamp puts the newest first under an ascending
+  # sort. nil stamps share a constant, leaving id as the tiebreak.
+  defp activity_key(%DateTime{} = at), do: {0, -DateTime.to_unix(at, :microsecond)}
+  defp activity_key(nil), do: {1, 0}
 
   defp tile_ring(:ended), do: "opacity-60"
   defp tile_ring(:awaiting_permission), do: "ring-2 ring-warning"

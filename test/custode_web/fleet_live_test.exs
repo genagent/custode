@@ -199,6 +199,49 @@ defmodule CustodeWeb.FleetLiveTagsTest do
   end
 end
 
+defmodule CustodeWeb.FleetLiveActivitySortTest do
+  use ExUnit.Case, async: false
+
+  import Custode.TestHelpers
+  import Phoenix.ConnTest
+  import Phoenix.LiveViewTest
+
+  @endpoint CustodeWeb.Endpoint
+
+  setup do
+    path = Path.join(System.tmp_dir!(), uid("lv-sort") <> ".jsonl")
+    put_env!(:feed_path, path)
+    on_exit(fn -> File.rm(path) end)
+    :ok
+  end
+
+  test "tiles sort by most recent activity, newest first, ahead of id order (#131)" do
+    workspace = tmp_workspace!()
+    # id order (older < recent) is the opposite of the activity order we seed
+    older = uid("aaa")
+    recent = uid("zzz")
+
+    put_env!(:routines, [
+      %{id: older, cron: "@daily", workspace: workspace, prompt: "sweep"},
+      %{id: recent, cron: "@daily", workspace: workspace, prompt: "sweep"}
+    ])
+
+    # seed sequentially so `recent` carries the newer feed timestamp
+    Custode.Feed.record(%{event: "turn", agent: older, summary: "old news"})
+    Process.sleep(5)
+    Custode.Feed.record(%{event: "turn", agent: recent, summary: "fresh news"})
+
+    {:ok, _view, html} = live(build_conn(), "/")
+
+    {recent_at, _} = :binary.match(html, "tile-#{recent}")
+    {older_at, _} = :binary.match(html, "tile-#{older}")
+
+    # recent activity floats above the id-earlier tile
+    assert recent_at < older_at
+    assert html =~ "sorted by recent activity"
+  end
+end
+
 defmodule CustodeWeb.FleetLiveBrakeTest do
   use ExUnit.Case, async: false
 
