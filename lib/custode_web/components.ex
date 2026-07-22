@@ -15,6 +15,7 @@ defmodule CustodeWeb.Components do
 
   @doc "The feed event badge class."
   def feed_badge("turn"), do: "badge-info"
+  def feed_badge("advisor_suggestion"), do: "badge-secondary"
   def feed_badge("turn_failed"), do: "badge-error"
   def feed_badge("needs_approval"), do: "badge-warning"
   def feed_badge("needs_input"), do: "badge-accent"
