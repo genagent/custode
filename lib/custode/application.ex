@@ -19,6 +19,7 @@ defmodule Custode.Application do
     Custode.SpendLedger.attach()
     Custode.Gates.attach()
     Custode.SubAgents.attach()
+    Custode.WorktreeBreadcrumb.attach()
     Custode.Routine.ensure_workspaces!()
 
     children = [
