@@ -184,6 +184,23 @@ defmodule Custode.Feed do
   """
   def record(entry, opts \\ []) when is_map(entry), do: write(entry, opts)
 
+  @prompt_cap 2_000
+
+  @doc """
+  The operator prompted an agent (#187): the question lands in the activity
+  at SUBMIT time, so the feed shows it while the turn runs and the durable
+  record pairs question with answer (#138). Agent-to-sub-agent prompting is
+  delegation, not conversation, and stays out of the feed.
+  """
+  def record_prompted(agent_id, text) do
+    write(%{
+      event: "prompted",
+      agent: agent_id,
+      prompt: String.slice(text, 0, @prompt_cap),
+      summary: "operator prompted: " <> String.slice(text, 0, 160)
+    })
+  end
+
   # :telemetry DETACHES a handler that raises -- one transient Repo/file
   # error would silently kill this pipeline until restart (audit
   # 2026-07-21). Never raise out of a handler.

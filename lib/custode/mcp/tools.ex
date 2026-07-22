@@ -201,8 +201,17 @@ defmodule Custode.MCP.Tools.PromptAgent do
   @impl true
   def execute(%{agent_id: agent_id, prompt: prompt}, frame) do
     case ObanClaude.Agent.cast_prompt(agent_id, prompt) do
-      :ok -> reply(frame, %{agent_id: agent_id, delivered: true})
-      {:error, reason} -> fail(frame, "prompt failed: #{inspect(reason)}")
+      :ok ->
+        # the operator's question belongs in the activity (#187); an agent
+        # prompting its own sub-agents is delegation and stays out
+        if match?(%{kind: :operator}, Custode.MCP.caller(frame)) do
+          Custode.Feed.record_prompted(agent_id, prompt)
+        end
+
+        reply(frame, %{agent_id: agent_id, delivered: true})
+
+      {:error, reason} ->
+        fail(frame, "prompt failed: #{inspect(reason)}")
     end
   end
 end
