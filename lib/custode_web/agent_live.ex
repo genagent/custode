@@ -377,6 +377,18 @@ defmodule CustodeWeb.AgentLive do
         <.repo_overview_panel overview={@repo_overview} />
       </section>
 
+      <section :if={@panel} class="mb-6">
+        <h3 class="mb-2 text-lg font-semibold text-base-content/70">
+          agent panel
+          <span class="text-xs font-normal text-base-content/40">
+            self-curated (memory key "panel")
+          </span>
+        </h3>
+        <div class="rounded-lg bg-base-100 p-4 shadow-sm">
+          <.markdown text={@panel} />
+        </div>
+      </section>
+
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div class="space-y-6">
           <section :if={@routine}>
@@ -771,6 +783,17 @@ defmodule CustodeWeb.AgentLive do
      |> Enum.map(&String.to_atom/1)}
   end
 
+  # The agent panel (#100 slice 1): the agent curates markdown under its
+  # own memory key "panel"; the escape-before-parse markdown component
+  # keeps any raw HTML inert, which is why this rung needs no gate. The
+  # forget button on the memory row is the kill switch.
+  defp panel_of(id) do
+    case Custode.Memory.recall(id, "panel") do
+      {:ok, value} -> value
+      :error -> nil
+    end
+  end
+
   defp done_todos(id, true), do: Custode.Notebook.todos(id, "done")
   defp done_todos(_id, false), do: []
 
@@ -812,6 +835,7 @@ defmodule CustodeWeb.AgentLive do
           search: socket.assigns.journal_search
         ),
       memories: Custode.Memory.recall(id),
+      panel: panel_of(id),
       feed: Custode.Feed.for_agent(id, socket.assigns.feed_limit),
       fleet_today: Custode.SpendLedger.fleet_today()
     )
