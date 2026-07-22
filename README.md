@@ -38,6 +38,19 @@ mostly fine for filing. Each turn is capped by `max_budget_usd`.
 - a sibling checkout of oban_claude at `../oban_claude` (main; the agent
   layer shipped in 0.4.0, so `{:oban_claude, "~> 0.4"}` works too)
 
+## Installing on a fresh machine
+
+The dev loop below runs in the checkout with zero setup. For a real
+install -- a second machine, work projects, state that should survive --
+follow [guides/install.md](guides/install.md): prerequisites,
+`CUSTODE_HOME` (one directory holds everything the fleet accumulates),
+`mix custode doctor` as the preflight (claude, gh, timezone, home,
+roster -- no paid calls, non-zero exit on any failure), first boot, and
+the three ways to tell the fleet what to watch (the new-agent form, a
+conversation with the caretaker, or `routines.toml` itself). The guide
+also covers reaching the dashboard from your phone over a tailnet and
+the one-directory uninstall.
+
 ## Run it
 
 ```
