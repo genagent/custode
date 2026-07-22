@@ -127,7 +127,7 @@ defmodule Custode.Config.Loader do
   def target_path do
     case System.get_env("CUSTODE_CONFIG") do
       path when is_binary(path) and path != "" -> path
-      _unset -> Custode.Home.resolve("routines.toml")
+      _unset -> Custode.Home.resolve_in(&Custode.Home.config_dir/0, "routines.toml")
     end
   end
 
@@ -140,7 +140,7 @@ defmodule Custode.Config.Loader do
           else: raise("CUSTODE_CONFIG points at #{path}, not found")
 
       _unset ->
-        default = Custode.Home.resolve("routines.toml")
+        default = Custode.Home.resolve_in(&Custode.Home.config_dir/0, "routines.toml")
         if File.exists?(default), do: default
     end
   end

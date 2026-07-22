@@ -30,6 +30,30 @@ defmodule Custode.Home do
     end
   end
 
+  # The four-way split (design 003 D2). Today both modes collapse every dir
+  # to root/0 -- CUSTODE_HOME by definition, source mode because the cwd IS
+  # the project. The dirs exist NOW so callers bind to the right one once;
+  # binary mode's XDG resolution (config/data/runtime/cache homes) arrives
+  # with the build-time mode flag in slice 5 and changes only these four
+  # functions.
+
+  @doc "Operator-edited config: custode.toml, routines.toml, prompt overrides."
+  def config_dir, do: root()
+
+  @doc "What the fleet accumulates: db, workspace notebooks, feed mirror."
+  def data_dir, do: root()
+
+  @doc "Boot-scoped state: per-agent MCP configs, the operator token."
+  def runtime_dir, do: root()
+
+  @doc "What can burn: PLTs, response caches."
+  def cache_dir, do: root()
+
+  @doc "Resolve a path under a specific dir (absolute paths respected)."
+  def resolve_in(dir, path) when is_function(dir, 0) do
+    if Path.type(path) == :absolute, do: path, else: Path.join(dir.(), path)
+  end
+
   @doc """
   Resolve a runtime path: absolute stays as given, relative roots under
   `root/0`. The result is always absolute.
