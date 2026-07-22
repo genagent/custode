@@ -151,7 +151,7 @@ defmodule CustodeWeb.FleetLive do
   @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
-    <.page fleet_today={@fleet_today} active={:fleet}>
+    <.page fleet_today={@fleet_today} active={:fleet} readouts={false}>
       <div class="mb-4 flex flex-wrap items-center gap-2">
         <button
           :for={tag <- @all_tags}
@@ -182,12 +182,48 @@ defmodule CustodeWeb.FleetLive do
           </button>
         </span>
       </div>
-      <p class="mb-2 text-xs text-base-content/40">sorted by recent activity</p>
       <.new_agent_modal new_agent={@new_agent} profiles={profile_names()} />
-      <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <.tile :for={{id, tile} <- @tiles} id={id} tile={tile} />
+      <div class="flex flex-col gap-4 xl:flex-row-reverse xl:items-start">
+        <.meta_rail tiles={@meta_tiles} fleet_today={@fleet_today} />
+        <div class="min-w-0 flex-1">
+          <p class="mb-2 text-xs text-base-content/40">sorted by recent activity</p>
+          <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3">
+            <.tile :for={{id, tile} <- @tiles} id={id} tile={tile} />
+          </div>
+        </div>
       </div>
     </.page>
+    """
+  end
+
+  attr(:tiles, :list, required: true)
+  attr(:fleet_today, :float, required: true)
+
+  # The caretaker's rail (#178). The meta agent is not a peer of the workers,
+  # so activity sorting hid it exactly when it was quiet -- backwards for the
+  # one agent whose job is watching the others. Here it gets a place rather
+  # than a slot: a right-hand rail on wide screens, a strip above the grid on
+  # narrow ones, outside the tag filter and outside the sort. The rail is also
+  # where the fleet-level readouts live now (spend, who needs a human), which
+  # is why it renders even with no :meta routine configured.
+  defp meta_rail(assigns) do
+    ~H"""
+    <aside
+      id="meta-rail"
+      class="flex w-full shrink-0 flex-col gap-3 rounded-xl bg-base-200/40 p-3 xl:w-80"
+    >
+      <div class="flex items-baseline gap-2">
+        <span class="text-xs uppercase tracking-wide text-base-content/40">caretaker</span>
+        <span class="ml-auto font-mono text-sm text-base-content/70">
+          fleet today ${usd(@fleet_today)}
+        </span>
+      </div>
+      <.attention_chip />
+      <.tile :for={{id, tile} <- @tiles} id={id} tile={tile} />
+      <p :if={@tiles == []} class="text-xs text-base-content/40">
+        no :meta agent configured
+      </p>
+    </aside>
     """
   end
 
@@ -451,30 +487,48 @@ defmodule CustodeWeb.FleetLive do
          }}
       end
 
+    # :meta tiles leave the grid entirely for the rail (#178) -- no filter, no
+    # sort, so a quiet caretaker stays where the operator left it
+    {meta_tiles, worker_tiles} =
+      Enum.split_with(tiles ++ ghosts, fn {_id, tile} -> meta?(tile) end)
+
     # anything needing a human sorts first; ended ghosts always last; the
     # living rest surfaces by most recent activity (#131), newest first, with
     # never-active agents after the active ones and id as the stable tiebreak
     tiles =
-      (tiles ++ ghosts)
+      worker_tiles
       |> filter_tiles(socket.assigns[:tag_filter])
       |> Enum.sort_by(fn {id, tile} ->
         {if(needs_attention?(tile.status), do: 0, else: 1),
          if(tile.state == :ended, do: 1, else: 0), activity_key(tile.last_activity), id}
       end)
 
+    # the chips filter the grid, so they come from the routines the grid holds
     all_tags =
-      routines |> Enum.flat_map(& &1.tags) |> Enum.uniq() |> Enum.map(&to_string/1) |> Enum.sort()
+      routines
+      |> Enum.reject(&meta_routine?/1)
+      |> Enum.flat_map(& &1.tags)
+      |> Enum.uniq()
+      |> Enum.map(&to_string/1)
+      |> Enum.sort()
 
     states = Enum.map(running, fn {_id, status} -> state_of(status) end)
 
     assign(socket,
       tiles: tiles,
+      meta_tiles: Enum.sort_by(meta_tiles, fn {id, _tile} -> id end),
       all_tags: all_tags,
       any_pausable: Enum.any?(states, &(&1 not in [:paused, :offline])),
       any_paused: :paused in states,
       fleet_today: Custode.SpendLedger.fleet_today()
     )
   end
+
+  # sub-agents and ghosts carry no routine, so they are never meta
+  defp meta?(%{routine: nil}), do: false
+  defp meta?(%{routine: routine}), do: meta_routine?(routine)
+
+  defp meta_routine?(routine), do: :meta in routine.tags
 
   # non-routine agents (sub-agents) have no tags and hide under any filter
   defp filter_tiles(tiles, nil), do: tiles
