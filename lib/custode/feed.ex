@@ -422,8 +422,12 @@ defmodule Custode.Feed do
   # only guards against a pathological turn flooding a feed row.
   @response_cap 16_384
   defp prompt_response(%{job: %{meta: %{"origin" => "operator"}}, result: result}) do
-    case result.result do
-      text when is_binary(text) and text != "" -> String.slice(text, 0, @response_cap)
+    # a schema'd run's raw text IS the directive JSON, and the whole answer
+    # already persists uncapped in the entry's summary -- echoing the blob
+    # here just renders the answer twice, once as escaped JSON (#201)
+    case {ObanClaude.structured(result), result.result} do
+      {%{}, _raw} -> nil
+      {nil, text} when is_binary(text) and text != "" -> String.slice(text, 0, @response_cap)
       _other -> nil
     end
   end
