@@ -182,6 +182,11 @@ config :custode,
       model: "opus",
       max_budget_usd: 5.0,
       daily_budget_usd: 15.0,
+      # reviews read whole diffs plus issue context and post through a gated
+      # verb: the sweep default (20 turns / 200s) starved it twice on
+      # 2026-07-22 (max_turns_exceeded reviewing a two-PR queue)
+      max_turns: 50,
+      timeout_ms: 600_000,
       # verdicts post through repo_review_pr (MCP): no shell elevation
       approved_args: %{},
       extra_allowed_tools: [
