@@ -62,6 +62,18 @@ defmodule CustodeWeb.FleetLive do
     {:noreply, refresh(socket)}
   end
 
+  # the rail's caretaker prompt (a static conversation entry, not a tile
+  # click-through); same cast semantics as the agent page's box
+  def handle_event("rail_prompt", %{"agent" => id, "text" => text}, socket) do
+    if String.trim(text) == "" do
+      {:noreply, socket}
+    else
+      Agent.cast_prompt(id, text)
+      Custode.Feed.record_prompted(id, text)
+      {:noreply, socket |> put_flash(:info, "sent to #{id}") |> refresh()}
+    end
+  end
+
   def handle_event("apply_suggestion", params, socket) do
     %{"agent" => id, "field" => field, "proposed" => proposed} = params
 
@@ -270,8 +282,8 @@ defmodule CustodeWeb.FleetLive do
           fleet today ${usd(@fleet_today)}
         </span>
       </div>
-      <.attention_chip />
-      <.tile :for={{id, tile} <- @tiles} id={id} tile={tile} />
+      <.attention_chip wrap />
+      <.caretaker_card :for={{id, tile} <- @tiles} id={id} tile={tile} />
       <p :if={@tiles == []} class="text-xs text-base-content/40">
         no :meta agent configured
       </p>
@@ -280,6 +292,52 @@ defmodule CustodeWeb.FleetLive do
         <.suggestion_card :for={suggestion <- @suggestions} suggestion={suggestion} />
       </div>
     </aside>
+    """
+  end
+
+  attr(:id, :string, required: true)
+  attr(:tile, :map, required: true)
+
+  # The caretaker as a rail RESIDENT, not a tile (operator, 2026-07-22):
+  # a static element with its own layout leeway and an always-there prompt
+  # box -- talking to the caretaker is the rail's whole point, so the
+  # conversation entry never hides behind a click-through.
+  defp caretaker_card(assigns) do
+    ~H"""
+    <div id={"tile-#{@id}"} class="rounded-lg bg-base-100 p-3 shadow-sm">
+      <div class="flex items-center gap-2">
+        <.link navigate={"/agents/#{@id}"} class="font-mono font-bold hover:underline">
+          {@id}
+        </.link>
+        <.status_badge status={@tile.status} size="badge-sm" />
+        <button class="btn btn-ghost btn-xs ml-auto" phx-click="beat" phx-value-id={@id}>
+          beat
+        </button>
+      </div>
+      <p :if={@tile.spend_today} class="mt-1 text-xs text-base-content/60">
+        today <b>${usd(@tile.spend_today)}</b><span :if={@tile.budget}> / ${usd(@tile.budget)}</span>
+      </p>
+      <div :if={@tile.last} class="mt-2 rounded bg-base-200/60 p-2 text-xs">
+        <div class="mb-1 flex items-center gap-2 text-base-content/50">
+          <.event_badge entry={@tile.last} />
+          <span class="font-mono"><.ago at={@tile.last["at"]} /></span>
+        </div>
+        <p class="line-clamp-3 text-base-content/80">{feed_text(@tile.last)}</p>
+      </div>
+      <form phx-submit="rail_prompt" class="mt-2">
+        <input type="hidden" name="agent" value={@id} />
+        <div class="flex items-end gap-1">
+          <textarea
+            name="text"
+            rows="2"
+            placeholder={"tell #{@id}..."}
+            class="textarea textarea-sm min-h-0 flex-1 resize-y text-xs"
+            autocomplete="off"
+          ></textarea>
+          <button class="btn btn-primary btn-xs">send</button>
+        </div>
+      </form>
+    </div>
     """
   end
 
