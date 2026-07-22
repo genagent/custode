@@ -60,15 +60,21 @@ defmodule Custode.Routine do
   def default, do: hd(all())
 
   @doc """
-  The full Cron crontab: one Tick entry per scheduled routine (`cron:
-  :manual` routines are skipped -- identity, tile, and budgets without a
-  schedule) plus one entry per configured sensor (plain workers on the
-  `:sensors` queue; see `Custode.Sensors.ContributorSearch`).
+  The full Cron crontab: one entry per scheduled routine (`cron: :manual`
+  routines are skipped -- identity, tile, and budgets without a schedule)
+  plus one entry per configured sensor (plain workers on the `:sensors`
+  queue; see `Custode.Sensors.ContributorSearch`).
+
+  Routine entries schedule `Custode.RoutineTick`, not the agent tick
+  directly: the crontab carries only the routine id, and the id is resolved
+  to the routine's CURRENT `tick_args/1` at each fire (#7). Baking the args
+  in here would freeze them at boot -- an edited prompt/model/budget would
+  not reach a running agent until the next restart.
   """
   def crontab do
     routine_entries =
       for routine <- all(), routine.cron != :manual do
-        {routine.cron, ObanClaude.Agent.Tick, args: tick_args(routine), queue: :ticks}
+        {routine.cron, Custode.RoutineTick, args: %{"routine_id" => routine.id}, queue: :ticks}
       end
 
     sensor_entries =
