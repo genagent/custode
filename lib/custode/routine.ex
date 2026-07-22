@@ -80,7 +80,11 @@ defmodule Custode.Routine do
 
     # advisors (#125) ride the same static lane as the janitor: always-on,
     # deterministic, zero tokens -- one daily look at the fleet's economics
-    advisor_entries = [{"@daily", Custode.Advisors.Cadence, args: %{}, queue: :sensors}]
+    advisor_entries = [
+      {"@daily", Custode.Advisors.Cadence, args: %{}, queue: :sensors},
+      {"@daily", Custode.Advisors.Model, args: %{}, queue: :sensors},
+      {"@daily", Custode.Advisors.Budget, args: %{}, queue: :sensors}
+    ]
 
     sensor_entries ++ janitor_entries ++ advisor_entries
   end
