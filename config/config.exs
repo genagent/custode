@@ -346,8 +346,11 @@ config :custode,
       id: :conventional_commits,
       applies: [tag: :repo],
       text:
-        "Conventional-commit style everywhere: commit messages, PR titles, and " <>
-          "branch names (feat:/fix:/docs:/test:/chore:; branch prefixes to match)."
+        "Conventional-commit style everywhere: commit messages, PR titles, " <>
+          "branch names, AND issue titles (feat:/fix:/docs:/test:/chore:; " <>
+          "branch prefixes to match). CI enforces commits and PR titles; " <>
+          "issue titles are on you -- file them conventional, and treat a " <>
+          "non-conventional title on an issue you touch as worth flagging."
     },
     %{
       id: :draft_pr_first,
