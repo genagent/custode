@@ -48,6 +48,35 @@ defmodule Custode.NotebookTest do
       {:ok, _entry} = Notebook.journal_append(id, "learned a thing")
       assert [%{body: "learned a thing"}] = Notebook.journal(id)
     end
+
+    test "compaction distills live entries into a summary and shrinks the agent's view (#214)",
+         %{routine: routine, workspace: workspace} do
+      {:ok, _} = Notebook.journal_append(routine.id, "swept on monday")
+      {:ok, _} = Notebook.journal_append(routine.id, "swept on tuesday")
+
+      {:ok, %{summarized: 2}} =
+        Notebook.compact_journal(routine.id, "two quiet sweeps, nothing changed")
+
+      # the dashboard view keeps the whole trail (3: two originals + summary)
+      all = Notebook.journal(routine.id, 50)
+      assert length(all) == 3
+      assert Enum.any?(all, &(&1.body =~ "two quiet sweeps"))
+
+      # the AGENT's view (live only) is just the summary -- the originals
+      # were folded in, so it will not re-distill them
+      live = Notebook.journal(routine.id, 50, live_only: true)
+      assert [%{source: "compaction", body: "two quiet sweeps, nothing changed"}] = live
+
+      # journal.md re-rendered to the shrunken view
+      assert File.read!(Path.join(workspace, "journal.md")) =~ "two quiet sweeps"
+      refute File.read!(Path.join(workspace, "journal.md")) =~ "swept on monday"
+
+      # a later entry is live again; a second compaction folds it plus the
+      # prior summary
+      {:ok, _} = Notebook.journal_append(routine.id, "swept on wednesday")
+      {:ok, %{summarized: 2}} = Notebook.compact_journal(routine.id, "still quiet")
+      assert [%{body: "still quiet"}] = Notebook.journal(routine.id, 50, live_only: true)
+    end
   end
 
   describe "inbox bookkeeping" do

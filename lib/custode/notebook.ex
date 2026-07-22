@@ -28,6 +28,9 @@ defmodule Custode.Notebook do
       field(:title, :string)
       field(:body, :string)
       field(:source, :string, default: "sweep")
+      # non-nil once the agent has distilled this entry into a summary (#214);
+      # the janitor retires compacted entries after they also age out
+      field(:compacted_at, :utc_datetime_usec)
       timestamps(type: :utc_datetime_usec)
     end
   end
@@ -66,7 +69,10 @@ defmodule Custode.Notebook do
   @doc """
   The newest `n` journal entries, newest first. `search: "text"` narrows to
   entries whose title or body contains it (case-insensitive) -- the
-  dashboard's journal search (#21).
+  dashboard's journal search (#21). `live_only: true` excludes entries the
+  agent has already distilled (#214), so the agent's own view (journal.md)
+  shrinks to its summaries plus what has happened since; the dashboard keeps
+  showing the full trail until the janitor retires it.
   """
   def journal(routine_id, n \\ 20, opts \\ []) do
     base =
@@ -77,9 +83,46 @@ defmodule Custode.Notebook do
       )
 
     base
+    |> journal_live_only(opts[:live_only])
     |> journal_search(opts[:search])
     |> Repo.all()
   end
+
+  @doc """
+  Distill the agent's live journal into a summary (#214): insert `summary`
+  as a fresh live entry (source "compaction") and stamp every
+  currently-live entry as compacted, in one transaction. The summary
+  survives; the compacted originals stay readable on the dashboard until the
+  janitor retires them, but leave the agent's own journal.md so it does not
+  re-distill what it already folded in.
+  """
+  def compact_journal(routine_id, summary) when is_binary(summary) do
+    now = DateTime.utc_now()
+
+    {count, entry} =
+      Repo.transaction(fn ->
+        {count, _} =
+          Repo.update_all(
+            from(e in JournalEntry,
+              where: e.routine_id == ^routine_id and is_nil(e.compacted_at)
+            ),
+            set: [compacted_at: now]
+          )
+
+        {:ok, entry} =
+          journal_append(routine_id, summary, title: "compaction", source: "compaction")
+
+        {count, entry}
+      end)
+      |> case do
+        {:ok, result} -> result
+      end
+
+    {:ok, %{summarized: count, entry: entry}}
+  end
+
+  defp journal_live_only(query, true), do: from(e in query, where: is_nil(e.compacted_at))
+  defp journal_live_only(query, _falsey), do: query
 
   defp journal_search(query, term) when is_binary(term) and term != "" do
     like = "%" <> String.replace(term, ["%", "_"], &"\\#{&1}") <> "%"
@@ -176,8 +219,10 @@ defmodule Custode.Notebook do
   end
 
   defp render_journal(routine_id) do
+    # the agent's own view: live entries only (#214), so a distilled
+    # journal shrinks to its summaries plus what has happened since
     entries =
-      for entry <- journal(routine_id, 200) do
+      for entry <- journal(routine_id, 200, live_only: true) do
         title = if entry.title, do: " -- #{entry.title}", else: ""
         stamp = Calendar.strftime(entry.inserted_at, "%Y-%m-%d %H:%M UTC")
         "## #{stamp}#{title} (#{entry.source})\n\n#{String.trim(entry.body)}\n"

@@ -129,6 +129,38 @@ defmodule Custode.JanitorTest do
     assert File.exists?(fresh)
   end
 
+  test "compacted journal entries retire only once aged out; live entries are immortal (#214)" do
+    routine = routine_fixture!(tmp_workspace!())
+
+    # a live entry, an old-compacted entry, and a recently-compacted entry
+    {:ok, live} = Custode.Notebook.journal_append(routine.id, "still true")
+    {:ok, old} = Custode.Notebook.journal_append(routine.id, "long since folded in")
+    {:ok, fresh} = Custode.Notebook.journal_append(routine.id, "just distilled")
+
+    now = DateTime.utc_now() |> DateTime.to_iso8601()
+    stale = DateTime.utc_now() |> DateTime.add(-120, :day) |> DateTime.to_iso8601()
+
+    Custode.Repo.query!("UPDATE journal_entries SET compacted_at = ? WHERE id = ?", [
+      stale,
+      old.id
+    ])
+
+    Custode.Repo.query!("UPDATE journal_entries SET compacted_at = ? WHERE id = ?", [
+      now,
+      fresh.id
+    ])
+
+    # even a very old LIVE entry must survive: age alone never deletes it
+    backdate!("journal_entries", live.id, "inserted_at", 400)
+
+    :ok = perform!()
+
+    bodies = Custode.Notebook.journal(routine.id, 50) |> Enum.map(& &1.body)
+    assert "still true" in bodies
+    assert "just distilled" in bodies
+    refute "long since folded in" in bodies
+  end
+
   test "the janitor rides the crontab" do
     assert Enum.any?(Custode.Routine.crontab(), fn {cron, worker, _opts} ->
              cron == "@daily" and worker == Custode.Janitor

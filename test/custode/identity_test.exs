@@ -161,6 +161,15 @@ defmodule Custode.IdentityTest do
       )
 
     assert tool_json(reply)
+
+    # compaction is a notebook write too: self-scoped (#214)
+    reply =
+      NotebookTools.CompactJournal.execute(
+        %{routine_id: other, summary: "not mine to fold"},
+        frame_for(:routine, own.id)
+      )
+
+    assert tool_error(reply) =~ "may not write"
   end
 
   test "per-routine configs carry bearer headers; sub-agent configs mint on demand" do

@@ -49,6 +49,40 @@ defmodule Custode.MCP.NotebookTools.JournalAppend do
   end
 end
 
+defmodule Custode.MCP.NotebookTools.CompactJournal do
+  @moduledoc """
+  Distill your OWN journal (#214): pass a summary that captures what your
+  current journal entries still say, and every live entry is folded into it
+  -- your journal.md shrinks to the summary plus what happens next, and the
+  originals age out of the database. Use this when your journal has grown
+  large; it is your memory hygiene, not deletion. Self-scoped.
+  """
+  use Anubis.Server.Component, type: :tool
+
+  import Custode.MCP.Tools
+
+  schema do
+    field(:routine_id, :string, required: true)
+
+    field(:summary, :string,
+      required: true,
+      description: "the distillation: what your journal so far still means, in a few lines"
+    )
+  end
+
+  @impl true
+  def execute(%{routine_id: routine_id, summary: summary}, frame) do
+    case check_self(frame, routine_id) do
+      :ok ->
+        {:ok, %{summarized: count}} = Custode.Notebook.compact_journal(routine_id, summary)
+        reply(frame, %{summarized: count})
+
+      {:error, message} ->
+        fail(frame, message)
+    end
+  end
+end
+
 defmodule Custode.MCP.NotebookTools.TodoAdd do
   @moduledoc "Add an open todo to a routine's list."
   use Anubis.Server.Component, type: :tool
