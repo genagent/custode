@@ -1,0 +1,64 @@
+defmodule Custode.Feed.Notify do
+  @moduledoc """
+  Human-facing notification dispatch behind one interface (#92 item 5):
+  every entry goes to ntfy (which applies its own filter); entries flagged
+  `notify: true` (needs a human NOW) also raise the macOS desktop
+  notification. The feed store calls `dispatch/3`; nothing else needs to
+  know there are two channels.
+  """
+
+  @doc "Fan an entry out: `entry` atom-keyed (pre-encode), `decoded` JSON-clean."
+  def dispatch(entry, decoded, opts) do
+    Custode.Ntfy.publish(decoded)
+    if opts[:notify], do: desktop(entry)
+    :ok
+  end
+
+  # Fire-and-forget so a slow notifier never blocks the agent process the
+  # telemetry handler runs in. terminal-notifier (brew) is preferred: clicking
+  # the notification deep-links to the agent's dashboard page, where
+  # osascript's display notification can only focus Script Editor.
+  defp desktop(entry) do
+    if Application.get_env(:custode, :desktop_notifications, true) and
+         match?({:unix, :darwin}, :os.type()) do
+      body = entry[:action] || entry[:question] || to_string(entry[:kind] || entry.event)
+      title = "custode: #{entry.agent} #{entry.event}"
+      url = dashboard_url(entry)
+
+      Task.Supervisor.start_child(Custode.TaskSupervisor, fn ->
+        deliver_notification(title, body, url, entry.agent)
+      end)
+    end
+
+    :ok
+  end
+
+  defp deliver_notification(title, body, url, agent) do
+    case System.find_executable("terminal-notifier") do
+      nil ->
+        script =
+          "display notification #{inspect(String.slice(body, 0, 140))} " <>
+            "with title #{inspect(title)} sound name \"Glass\""
+
+        System.cmd("osascript", ["-e", script], stderr_to_stdout: true)
+
+      notifier ->
+        args = [
+          "-title",
+          title,
+          "-message",
+          String.slice(body, 0, 240),
+          "-open",
+          url,
+          "-sound",
+          "Glass",
+          "-group",
+          "custode-#{agent}"
+        ]
+
+        System.cmd(notifier, args, stderr_to_stdout: true)
+    end
+  end
+
+  defp dashboard_url(entry), do: Custode.Ntfy.dashboard_url(entry[:agent])
+end
