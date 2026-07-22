@@ -42,6 +42,9 @@ defmodule Custode.MixProject do
       {:req, "~> 0.5"},
       # Real timezones for the cron schedule (#17).
       {:tzdata, "~> 1.1"},
+      # routines.toml (#41 / design 001): the roster as an operator-edited
+      # data file; TOML because comments are load-bearing in this file.
+      {:toml, "~> 0.7"},
       # Markdown rendering for agent output (journal tables and friends).
       {:earmark, "~> 1.4"},
       {:bandit, "~> 1.5"},
