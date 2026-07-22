@@ -6,6 +6,7 @@ defmodule Custode.RepositoryTest do
   alias Custode.Repository
 
   defmodule FakeOps do
+    @behaviour Custode.Repository.OpsBehaviour
     def open_pr(owner, repo, attrs) do
       send(pid(), {:open_pr, owner, repo, attrs})
       {:ok, %{"number" => 101, "html_url" => "https://x/#{owner}/#{repo}/pull/101"}}

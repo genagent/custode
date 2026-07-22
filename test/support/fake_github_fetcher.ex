@@ -6,6 +6,9 @@ defmodule Custode.Test.FakeGitHubFetcher do
   never hits the network by accident.
   """
 
+  @behaviour Custode.GitHub.FetcherBehaviour
+
+  @impl true
   def fetch(repo) do
     overviews = Application.get_env(:custode, :fake_repo_overviews, %{})
     Map.get(overviews, repo, {:error, :not_faked})

@@ -5,6 +5,9 @@ defmodule Custode.Test.FakeGhRunner do
   where each value is a list of raw gh item maps.
   """
 
+  @behaviour Custode.Sensors.GhRunnerBehaviour
+
+  @impl true
   def run(argv) do
     kind = Enum.at(argv, 1)
     results = Application.get_env(:custode, :fake_gh_results, %{})

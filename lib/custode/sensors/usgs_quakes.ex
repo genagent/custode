@@ -72,9 +72,18 @@ defmodule Custode.Sensors.UsgsQuakes do
   end
 end
 
+defmodule Custode.Sensors.UsgsQuakes.FetcherBehaviour do
+  @moduledoc "The `:quake_fetcher` contract (#92): GeoJSON summary URL in, decoded body out."
+
+  @callback fetch(url :: String.t()) :: {:ok, map()} | {:error, term()}
+end
+
 defmodule Custode.Sensors.UsgsQuakes.Fetcher do
   @moduledoc "The real USGS fetch: GeoJSON summary URL in, decoded body out."
 
+  @behaviour Custode.Sensors.UsgsQuakes.FetcherBehaviour
+
+  @impl true
   def fetch(url) do
     case Req.get(url, retry: false, receive_timeout: 15_000) do
       {:ok, %Req.Response{status: 200, body: body}} when is_map(body) -> {:ok, body}
