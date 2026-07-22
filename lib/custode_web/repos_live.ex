@@ -1,0 +1,89 @@
+defmodule CustodeWeb.ReposLive do
+  @moduledoc """
+  The repositories page (#193): the repo-centric axis of the dashboard. One
+  tile per distinct repository in the roster, each carrying the shared
+  issues/PRs panel plus the agents that work it -- the fleet page answers
+  "who is working", this page answers "how is each repo doing".
+
+  Overviews come from the same `Custode.GitHub` cache the agent page reads,
+  so N tiles cost no more than N agent-page visits; the
+  `{:repo_overview, repo}` broadcast fills tiles in live as fetches land.
+  """
+
+  use Phoenix.LiveView
+
+  import CustodeWeb.Components
+
+  @impl Phoenix.LiveView
+  def mount(_params, _session, socket) do
+    if connected?(socket), do: Custode.PubSubBridge.subscribe()
+    {:ok, refresh(socket)}
+  end
+
+  @impl Phoenix.LiveView
+  def handle_info({:repo_overview, _repo}, socket), do: {:noreply, refresh(socket)}
+  def handle_info(_message, socket), do: {:noreply, socket}
+
+  @impl Phoenix.LiveView
+  def render(assigns) do
+    ~H"""
+    <.page fleet_today={@fleet_today} active={:repos}>
+      <p :if={@repos == []} class="text-sm text-base-content/40">
+        no repositories in the roster yet -- add a repo-tied agent on the fleet page
+      </p>
+      <div class="space-y-8">
+        <section :for={{repo, agents} <- @repos}>
+          <h3 class="mb-2 flex flex-wrap items-baseline gap-2 text-lg font-semibold text-base-content/70">
+            <a
+              href={"https://github.com/#{repo}"}
+              target="_blank"
+              class="link link-hover font-mono"
+            >
+              {repo}
+            </a>
+            <.link
+              :for={agent <- agents}
+              navigate={"/agents/#{agent}"}
+              class="badge badge-ghost badge-sm font-mono"
+            >
+              {agent}
+            </.link>
+            <span
+              :if={overview(@overviews, repo) == :loading}
+              class="loading loading-dots loading-xs"
+            >
+            </span>
+          </h3>
+          <.repo_overview_panel overview={overview(@overviews, repo)} />
+        </section>
+      </div>
+    </.page>
+    """
+  end
+
+  defp overview(overviews, repo), do: Map.get(overviews, repo)
+
+  # Dedupe repos across the roster (several agents can work one repo) and
+  # keep the roster's order for the first appearance of each.
+  defp refresh(socket) do
+    repos =
+      Custode.Routine.all()
+      |> Enum.filter(& &1.repo)
+      |> Enum.group_by(& &1.repo, & &1.id)
+      |> Enum.sort_by(fn {repo, _agents} -> repo end)
+
+    overviews =
+      Map.new(repos, fn {repo, _agents} ->
+        case Custode.GitHub.overview(repo) do
+          {:ok, overview} -> {repo, overview}
+          :loading -> {repo, :loading}
+        end
+      end)
+
+    assign(socket,
+      fleet_today: Custode.SpendLedger.fleet_today(),
+      repos: repos,
+      overviews: overviews
+    )
+  end
+end

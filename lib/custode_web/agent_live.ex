@@ -272,38 +272,7 @@ defmodule CustodeWeb.AgentLive do
           </a>
           <span :if={@repo_overview == :loading} class="loading loading-dots loading-xs ml-1"></span>
         </h3>
-        <div :if={is_map(@repo_overview)} class="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <div class="rounded-lg bg-base-100 p-3 shadow-sm">
-            <p class="mb-2 text-sm font-semibold">
-              issues <span class="badge badge-ghost badge-sm">{@repo_overview.open_issues.total} open</span>
-            </p>
-            <.repo_item :for={item <- @repo_overview.open_issues.items} item={item} />
-            <p
-              :if={@repo_overview.closed_issues.items != []}
-              class="mb-1 mt-3 text-xs font-semibold text-base-content/50"
-            >
-              recently closed
-            </p>
-            <.repo_item :for={item <- @repo_overview.closed_issues.items} item={item} closed />
-          </div>
-          <div class="rounded-lg bg-base-100 p-3 shadow-sm">
-            <p class="mb-2 text-sm font-semibold">
-              pull requests
-              <span class="badge badge-ghost badge-sm">{@repo_overview.open_prs.total} open</span>
-            </p>
-            <p :if={@repo_overview.open_prs.items == []} class="text-xs text-base-content/40">
-              (none open)
-            </p>
-            <.repo_item :for={item <- @repo_overview.open_prs.items} item={item} />
-            <p
-              :if={@repo_overview.merged_prs.items != []}
-              class="mb-1 mt-3 text-xs font-semibold text-base-content/50"
-            >
-              recently merged
-            </p>
-            <.repo_item :for={item <- @repo_overview.merged_prs.items} item={item} closed />
-          </div>
-        </div>
+        <.repo_overview_panel overview={@repo_overview} />
       </section>
 
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -516,31 +485,6 @@ defmodule CustodeWeb.AgentLive do
   defp upload_error_text(:too_many_files), do: "one image at a time"
   defp upload_error_text(:not_accepted), do: "not an image"
   defp upload_error_text(error), do: to_string(error)
-
-  attr(:item, :map, required: true)
-  attr(:closed, :boolean, default: false)
-
-  defp repo_item(assigns) do
-    ~H"""
-    <p class="flex items-center gap-2 truncate py-0.5 text-sm">
-      <span :if={Map.has_key?(@item, :checks)} class={["inline-block h-2 w-2 shrink-0 rounded-full", check_dot(@item.checks)]} title={"checks: #{@item.checks || "none"}"}>
-      </span>
-      <a href={@item.url} target="_blank" class="link link-hover truncate">
-        <span class={["font-mono text-xs", (@closed && "text-base-content/40") || "text-base-content/60"]}>
-          #{@item.number}
-        </span>
-        <span class={@closed && "text-base-content/50"}>{@item.title}</span>
-      </a>
-      <span :if={@item[:draft]} class="badge badge-ghost badge-xs shrink-0">draft</span>
-    </p>
-    """
-  end
-
-  defp check_dot("SUCCESS"), do: "bg-success"
-  defp check_dot("FAILURE"), do: "bg-error"
-  defp check_dot("ERROR"), do: "bg-error"
-  defp check_dot(state) when state in ["PENDING", "EXPECTED"], do: "bg-warning"
-  defp check_dot(_none), do: "bg-base-content/20"
 
   defp refresh(socket) do
     id = socket.assigns.id

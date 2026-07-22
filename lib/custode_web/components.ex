@@ -143,6 +143,7 @@ defmodule CustodeWeb.Components do
         <.link navigate="/" class="text-3xl font-bold hover:opacity-70">custode</.link>
         <nav class="flex gap-3 text-sm">
           <.link navigate="/" class={nav_class(@active == :fleet)}>fleet</.link>
+          <.link navigate="/repos" class={nav_class(@active == :repos)}>repos</.link>
           <.link navigate="/feed" class={nav_class(@active == :feed)}>feed</.link>
           <.link navigate="/metrics" class={nav_class(@active == :metrics)}>metrics</.link>
         </nav>
@@ -308,6 +309,75 @@ defmodule CustodeWeb.Components do
     >{@entry["prompt"]}</div>
     """
   end
+
+  attr(:overview, :any, required: true)
+
+  @doc """
+  The issues/PRs two-card panel for a repo overview -- shared by the agent
+  page and the repositories page (#193). Renders nothing until the overview
+  map arrives (`Custode.GitHub.overview/1` broadcasts when it does).
+  """
+  def repo_overview_panel(assigns) do
+    ~H"""
+    <div :if={is_map(@overview)} class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <div class="rounded-lg bg-base-100 p-3 shadow-sm">
+        <p class="mb-2 text-sm font-semibold">
+          issues <span class="badge badge-ghost badge-sm">{@overview.open_issues.total} open</span>
+        </p>
+        <.repo_item :for={item <- @overview.open_issues.items} item={item} />
+        <p
+          :if={@overview.closed_issues.items != []}
+          class="mb-1 mt-3 text-xs font-semibold text-base-content/50"
+        >
+          recently closed
+        </p>
+        <.repo_item :for={item <- @overview.closed_issues.items} item={item} closed />
+      </div>
+      <div class="rounded-lg bg-base-100 p-3 shadow-sm">
+        <p class="mb-2 text-sm font-semibold">
+          pull requests
+          <span class="badge badge-ghost badge-sm">{@overview.open_prs.total} open</span>
+        </p>
+        <p :if={@overview.open_prs.items == []} class="text-xs text-base-content/40">
+          (none open)
+        </p>
+        <.repo_item :for={item <- @overview.open_prs.items} item={item} />
+        <p
+          :if={@overview.merged_prs.items != []}
+          class="mb-1 mt-3 text-xs font-semibold text-base-content/50"
+        >
+          recently merged
+        </p>
+        <.repo_item :for={item <- @overview.merged_prs.items} item={item} closed />
+      </div>
+    </div>
+    """
+  end
+
+  attr(:item, :map, required: true)
+  attr(:closed, :boolean, default: false)
+
+  defp repo_item(assigns) do
+    ~H"""
+    <p class="flex items-center gap-2 truncate py-0.5 text-sm">
+      <span :if={Map.has_key?(@item, :checks)} class={["inline-block h-2 w-2 shrink-0 rounded-full", check_dot(@item.checks)]} title={"checks: #{@item.checks || "none"}"}>
+      </span>
+      <a href={@item.url} target="_blank" class="link link-hover truncate">
+        <span class={["font-mono text-xs", (@closed && "text-base-content/40") || "text-base-content/60"]}>
+          #{@item.number}
+        </span>
+        <span class={@closed && "text-base-content/50"}>{@item.title}</span>
+      </a>
+      <span :if={@item[:draft]} class="badge badge-ghost badge-xs shrink-0">draft</span>
+    </p>
+    """
+  end
+
+  defp check_dot("SUCCESS"), do: "bg-success"
+  defp check_dot("FAILURE"), do: "bg-error"
+  defp check_dot("ERROR"), do: "bg-error"
+  defp check_dot(state) when state in ["PENDING", "EXPECTED"], do: "bg-warning"
+  defp check_dot(_none), do: "bg-base-content/20"
 
   @doc "Dollar amounts render with two decimals everywhere (#31)."
   def usd(value) when is_number(value), do: :erlang.float_to_binary(value / 1, decimals: 2)
