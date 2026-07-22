@@ -311,12 +311,9 @@ defmodule CustodeWeb.AgentLive do
                 <b :if={entry.title}>{entry.title}</b>
                 <span class="text-base-content/40">({entry.source})</span>
               </p>
-              <p
-                :if={String.length(entry.body) <= 400}
-                class="whitespace-pre-wrap text-base-content/80"
-              >
-                {entry.body}
-              </p>
+              <div :if={String.length(entry.body) <= 400}>
+                <.markdown text={entry.body} />
+              </div>
               <details
                 :if={String.length(entry.body) > 400}
                 class="collapse collapse-arrow rounded-none"
@@ -325,7 +322,7 @@ defmodule CustodeWeb.AgentLive do
                   {String.slice(entry.body, 0, 200)}&hellip;
                 </summary>
                 <div class="collapse-content p-0">
-                  <p class="mt-1 whitespace-pre-wrap text-base-content/80">{entry.body}</p>
+                  <div class="mt-1"><.markdown text={entry.body} /></div>
                 </div>
               </details>
             </div>

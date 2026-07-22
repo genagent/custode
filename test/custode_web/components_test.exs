@@ -25,6 +25,23 @@ defmodule CustodeWeb.ComponentsTest do
     end
   end
 
+  describe "markdown rendering" do
+    import Phoenix.LiveViewTest, only: [render_component: 2]
+
+    test "tables and code render; raw HTML from agents is inert" do
+      table = "| repo | license |\n|------|---------|\n| adrs | Apache-2.0 |"
+      html = render_component(&CustodeWeb.Components.markdown/1, text: table)
+      assert html =~ "<table"
+      assert html =~ "Apache-2.0"
+
+      sneaky = "hello <script>alert(1)</script> `code` world"
+      html = render_component(&CustodeWeb.Components.markdown/1, text: sneaky)
+      refute html =~ "<script>"
+      assert html =~ "&lt;script&gt;" or html =~ "&amp;lt;script"
+      assert html =~ "<code"
+    end
+  end
+
   describe "feed_text/1" do
     test "failure events carry a what-happens-next hint" do
       assert feed_text(%{"event" => "turn_failed", "kind" => "max_turns_exceeded"}) =~

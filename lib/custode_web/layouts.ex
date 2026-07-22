@@ -31,6 +31,21 @@ defmodule CustodeWeb.Layouts do
             window.liveSocket = liveSocket;
           });
         </script>
+        <style>
+          /* agent-output markdown (journal tables and friends) */
+          .agent-md table { border-collapse: collapse; margin: 0.5rem 0; font-size: 0.8rem; }
+          .agent-md th, .agent-md td { border: 1px solid color-mix(in oklab, currentColor 20%, transparent); padding: 0.2rem 0.5rem; text-align: left; }
+          .agent-md th { font-weight: 600; }
+          .agent-md code { font-size: 0.8em; background: color-mix(in oklab, currentColor 10%, transparent); padding: 0.1em 0.3em; border-radius: 0.25rem; }
+          .agent-md pre { overflow-x: auto; background: color-mix(in oklab, currentColor 8%, transparent); padding: 0.5rem; border-radius: 0.375rem; margin: 0.5rem 0; }
+          .agent-md pre code { background: none; padding: 0; }
+          .agent-md ul, .agent-md ol { padding-left: 1.25rem; margin: 0.25rem 0; }
+          .agent-md ul { list-style: disc; }
+          .agent-md ol { list-style: decimal; }
+          .agent-md p { margin: 0.25rem 0; }
+          .agent-md h1, .agent-md h2, .agent-md h3 { font-weight: 600; margin: 0.5rem 0 0.25rem; }
+          .agent-md blockquote { border-left: 3px solid color-mix(in oklab, currentColor 25%, transparent); padding-left: 0.6rem; opacity: 0.85; }
+        </style>
       </head>
       <body class="min-h-screen bg-base-200">
         {@inner_content}

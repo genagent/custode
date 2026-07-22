@@ -42,6 +42,8 @@ defmodule Custode.MixProject do
       {:req, "~> 0.5"},
       # Real timezones for the cron schedule (#17).
       {:tzdata, "~> 1.1"},
+      # Markdown rendering for agent output (journal tables and friends).
+      {:earmark, "~> 1.4"},
       {:bandit, "~> 1.5"},
       # The dashboard: LiveView over the facade + PubSub, daisyUI via CDN
       # (no node/asset pipeline; see CustodeWeb.Layouts).

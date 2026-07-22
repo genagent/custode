@@ -137,6 +137,29 @@ defmodule CustodeWeb.Components do
   def event_dot("repo_verb"), do: "text-success"
   def event_dot(_event), do: "text-base-content/30"
 
+  attr(:text, :string, required: true)
+
+  @doc """
+  Markdown for agent output (journal tables and friends). The input is
+  HTML-escaped BEFORE Earmark, so any raw HTML an agent (or an injected
+  note) emits is inert by construction -- only Earmark-generated markup
+  renders. Falls back to pre-wrapped text if parsing fails.
+  """
+  def markdown(assigns) do
+    ~H"""
+    <div class="agent-md text-base-content/80">{render_markdown(@text)}</div>
+    """
+  end
+
+  defp render_markdown(text) do
+    escaped = text |> Plug.HTML.html_escape()
+
+    case Earmark.as_html(escaped, breaks: true) do
+      {:ok, html, _messages} -> Phoenix.HTML.raw(html)
+      {:error, _html, _messages} -> text
+    end
+  end
+
   attr(:entry, :map, required: true)
   attr(:id, :string, default: nil)
 
