@@ -386,3 +386,45 @@ defmodule CustodeWeb.FleetLiveNewAgentTest do
     assert html =~ "duplicate_id"
   end
 end
+
+defmodule CustodeWeb.FleetLiveFormStateTest do
+  # Regression (operator-reported): changing one field must not clear the
+  # others -- unbound inputs were wiped by the preview's re-render.
+  use ExUnit.Case, async: false
+
+  import Custode.TestHelpers
+  import Phoenix.ConnTest
+  import Phoenix.LiveViewTest
+
+  @endpoint CustodeWeb.Endpoint
+
+  setup do
+    path = Path.join(System.tmp_dir!(), uid("formstate-feed") <> ".jsonl")
+    put_env!(:feed_path, path)
+    on_exit(fn -> File.rm(path) end)
+    workspace = tmp_workspace!()
+    put_env!(:routines, [%{id: uid("seed"), cron: "@daily", workspace: workspace, prompt: "s"}])
+    :ok
+  end
+
+  test "typed values survive a change that touches a different field" do
+    {:ok, view, _html} = live(build_conn(), "/")
+    render_click(view, "new_agent_open")
+
+    # type an id first (the browser sends every field on each change; the id
+    # rides along when the profile changes -- the bug was the RENDER dropping
+    # it, so assert the rendered value attribute)
+    render_change(view, "new_agent_change", %{"routine" => %{"id" => "sticky-id"}})
+
+    html =
+      render_change(view, "new_agent_change", %{
+        "routine" => %{"id" => "sticky-id", "profile" => "backlog_worker"}
+      })
+
+    assert html =~ ~s(value="sticky-id")
+    assert html =~ ~s(value="backlog_worker" selected)
+    # and the preview reflects both fields together
+    assert html =~ "id = &quot;sticky-id&quot;"
+    assert html =~ "profile = &quot;backlog_worker&quot;"
+  end
+end
