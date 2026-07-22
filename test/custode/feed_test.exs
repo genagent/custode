@@ -39,6 +39,74 @@ defmodule Custode.FeedTest do
     assert entry["response"] == nil
   end
 
+  describe "the schema'd epilogue (#120 slice 2)" do
+    test "prs and issues_touched land on the turn entry as typed arrays" do
+      {:ok, _} =
+        ObanClaude.run(%{"prompt" => "x"},
+          job: job_meta("feed-epi"),
+          query_fun:
+            respond(
+              structured_result(%{
+                "directive" => "none",
+                "summary" => "opened the fix",
+                "prs" => [169, 171],
+                "issues_touched" => [31]
+              })
+            )
+        )
+
+      assert [entry] = Custode.Feed.for_agent("feed-epi")
+      # numbers, not prose: a consumer reads the field instead of the summary
+      assert entry["prs"] == [169, 171]
+      assert entry["issues_touched"] == [31]
+    end
+
+    test "a turn that touched nothing carries neither key" do
+      {:ok, _} =
+        ObanClaude.run(%{"prompt" => "x"},
+          job: job_meta("feed-bare"),
+          query_fun:
+            respond(structured_result(%{"directive" => "none", "summary" => "read only"}))
+        )
+
+      assert [entry] = Custode.Feed.for_agent("feed-bare")
+      refute Map.has_key?(entry, "prs")
+      refute Map.has_key?(entry, "issues_touched")
+    end
+
+    test "an unschema'd turn and a malformed epilogue both keep the old shape" do
+      {:ok, _} =
+        ObanClaude.run(%{"prompt" => "x"},
+          job: job_meta("feed-prose"),
+          query_fun: respond(result(result: "just prose, no structure"))
+        )
+
+      # a model that sends the wrong type must not put junk on the entry, and
+      # must not take the handler down with it
+      {:ok, _} =
+        ObanClaude.run(%{"prompt" => "x"},
+          job: job_meta("feed-junk"),
+          query_fun:
+            respond(
+              structured_result(%{
+                "directive" => "none",
+                "summary" => "wrong types",
+                "prs" => "#169",
+                "issues_touched" => [31, "thirty-two"]
+              })
+            )
+        )
+
+      assert [prose] = Custode.Feed.for_agent("feed-prose")
+      refute Map.has_key?(prose, "prs")
+
+      assert [junk] = Custode.Feed.for_agent("feed-junk")
+      refute Map.has_key?(junk, "prs")
+      assert junk["issues_touched"] == [31]
+      assert junk["summary"] == "wrong types"
+    end
+  end
+
   test "an operator-origin turn persists the full answer on the entry (#138)" do
     answer = "Pros:\n- it fixes the bug\n\nCons:\n- semver surface"
 
