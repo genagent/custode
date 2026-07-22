@@ -127,6 +127,22 @@ defmodule CustodeWeb.AgentLive do
     {:noreply, refresh(socket)}
   end
 
+  # Agent-panel gate (#100): the operator on the dashboard is the authority.
+  def handle_event("approve_panel", _params, socket) do
+    :ok = Custode.Panels.approve(socket.assigns.id)
+    {:noreply, refresh(socket)}
+  end
+
+  def handle_event("reject_panel", _params, socket) do
+    :ok = Custode.Panels.reject(socket.assigns.id)
+    {:noreply, refresh(socket)}
+  end
+
+  def handle_event("revert_panel", _params, socket) do
+    :ok = Custode.Panels.revert(socket.assigns.id)
+    {:noreply, refresh(socket)}
+  end
+
   def handle_event("reject", %{"action" => action_id}, socket) do
     Custode.reject_with_note(socket.assigns.id, action_id, "rejected from dashboard")
     {:noreply, refresh(socket)}
@@ -411,6 +427,38 @@ defmodule CustodeWeb.AgentLive do
         </div>
       </section>
 
+      <section :if={@panel_pending} class="mb-6">
+        <h3 class="mb-2 flex flex-wrap items-center gap-2 text-lg font-semibold text-base-content/70">
+          panel update pending
+          <span class="text-xs font-normal text-base-content/40">
+            this agent proposed a new HTML panel -- preview and decide
+          </span>
+          <span class="ml-auto flex gap-2">
+            <button class="btn btn-success btn-xs" phx-click="approve_panel">approve</button>
+            <button class="btn btn-ghost btn-xs" phx-click="reject_panel">reject</button>
+          </span>
+        </h3>
+        <.sandboxed_panel html={@panel_pending} />
+      </section>
+
+      <section :if={@panel_html} class="mb-6">
+        <h3 class="mb-2 flex items-center gap-2 text-lg font-semibold text-base-content/70">
+          agent panel
+          <span class="text-xs font-normal text-base-content/40">
+            agent-authored, approved (sandboxed)
+          </span>
+          <button
+            :if={@panel_revertable}
+            class="btn btn-ghost btn-xs ml-auto"
+            phx-click="revert_panel"
+            data-confirm="Restore the previous approved panel?"
+          >
+            revert
+          </button>
+        </h3>
+        <.sandboxed_panel html={@panel_html} />
+      </section>
+
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div class="space-y-6">
           <section :if={@routine}>
@@ -674,6 +722,29 @@ defmodule CustodeWeb.AgentLive do
   defp upload_error_text(:not_accepted), do: "not an image"
   defp upload_error_text(error), do: to_string(error)
 
+  attr(:html, :string, required: true)
+
+  # THE security boundary for agent-authored panels (#100). The untrusted
+  # HTML is rendered ONLY here, inside an iframe with an EMPTY sandbox
+  # attribute: no scripts run (no allow-scripts), no same-origin, no forms,
+  # no navigation, no popups. Inline SVG and CSS render fully, which covers
+  # maps/charts/diagrams. HEEx attribute-escapes srcdoc, and the BEAM never
+  # executes the content. This component is the ONLY place agent HTML may
+  # appear -- never interpolate it into the page anywhere else, including
+  # previews (the pending preview reuses THIS component for exactly that
+  # reason).
+  defp sandboxed_panel(assigns) do
+    ~H"""
+    <iframe
+      sandbox=""
+      srcdoc={@html}
+      class="h-64 w-full rounded-lg border border-base-300 bg-base-100"
+      title="agent panel (sandboxed)"
+    >
+    </iframe>
+    """
+  end
+
   attr(:edit, :map, required: true)
   attr(:id, :string, required: true)
 
@@ -884,6 +955,9 @@ defmodule CustodeWeb.AgentLive do
         ),
       memories: Custode.Memory.recall(id),
       panel: panel_of(id),
+      panel_html: Custode.Panels.current(id),
+      panel_pending: Custode.Panels.pending(id),
+      panel_revertable: Custode.Panels.revertable?(id),
       feed: Custode.Feed.for_agent(id, socket.assigns.feed_limit),
       fleet_today: Custode.SpendLedger.fleet_today()
     )

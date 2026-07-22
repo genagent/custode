@@ -279,9 +279,17 @@ defmodule Custode.Routine do
   )
 
   defp mcp_allowlist(:caretaker),
-    do: Enum.map(@worker_mcp_tools ++ @operator_mcp_tools, &("mcp__custode__" <> &1))
+    do: prefix(@worker_mcp_tools ++ @operator_mcp_tools ++ optional_tools())
 
-  defp mcp_allowlist(_role), do: Enum.map(@worker_mcp_tools, &("mcp__custode__" <> &1))
+  defp mcp_allowlist(_role), do: prefix(@worker_mcp_tools ++ optional_tools())
+
+  defp prefix(tools), do: Enum.map(tools, &("mcp__custode__" <> &1))
+
+  # set_panel is verb-gated on the panels mode (#100): :off removes it from
+  # every allowlist entirely, so an agent cannot even propose a panel.
+  defp optional_tools do
+    if Custode.Panels.mode() == :off, do: [], else: ["set_panel"]
+  end
 
   @doc """
   Normalize a single raw entry outside the roster -- the validation seam for

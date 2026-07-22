@@ -43,7 +43,10 @@ defmodule Custode.Routine.Prompts do
       under "panel" renders as a panel on your dashboard page -- use it
       when a curated view (a table of what you watch, a summary that
       outlives one sweep) serves the operator better than prose in the
-      journal. Optional; keep it small and current or leave it unset.
+      journal. Optional; keep it small and current or leave it unset. For a
+      RICHER view -- a chart, a map, a diagram -- set_panel proposes HTML
+      (inline SVG/CSS; no scripts run) that the operator approves before it
+      renders; use it only when a picture genuinely beats the markdown key.
       HYGIENE: your journal and memories are your long-term self, and only
       YOU shrink them -- nothing deletes a journal entry you have not
       distilled. When your journal has grown long, read it and call

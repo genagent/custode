@@ -170,6 +170,15 @@ defmodule Custode.IdentityTest do
       )
 
     assert tool_error(reply) =~ "may not write"
+
+    # a panel proposal is self-scoped as well (#100)
+    reply =
+      NotebookTools.SetPanel.execute(
+        %{routine_id: other, html: "<b>not my page</b>"},
+        frame_for(:routine, own.id)
+      )
+
+    assert tool_error(reply) =~ "may not write"
   end
 
   test "per-routine configs carry bearer headers; sub-agent configs mint on demand" do
