@@ -33,6 +33,32 @@ defmodule Custode.MCP.RepoTools.OpenPr do
   end
 end
 
+defmodule Custode.MCP.RepoTools.OpenIssue do
+  @moduledoc """
+  Open an issue on a served repo (#235) -- the "create a backlog" verb, not
+  just comment on an existing issue. Policy applies: the title must be
+  conventional-commit style. Labels pass through. No shell or git elevation.
+  """
+  use Anubis.Server.Component, type: :tool
+
+  import Custode.MCP.Tools
+
+  schema do
+    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
+    field(:title, :string, required: true, description: "conventional-commit style title")
+    field(:body, :string, description: "issue body markdown")
+    field(:labels, {:list, :string}, description: "labels to apply")
+  end
+
+  @impl true
+  def execute(%{repo: repo} = params, frame) do
+    case Custode.Repository.open_issue(repo, params) do
+      {:ok, issue} -> reply(frame, %{repo: repo, number: issue["number"], url: issue["html_url"]})
+      {:error, message} -> fail(frame, to_string(message))
+    end
+  end
+end
+
 defmodule Custode.MCP.RepoTools.Comment do
   @moduledoc "Comment on an issue or PR of a served repo."
   use Anubis.Server.Component, type: :tool
