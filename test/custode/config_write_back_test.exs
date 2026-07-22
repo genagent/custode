@@ -57,6 +57,13 @@ defmodule Custode.Config.WriteBackTest do
     # the running roster picked it up in the same operation (no restart)
     assert Custode.Routine.get("newbie").role == :backlog_worker
     assert Custode.Routine.get("existing")
+
+    # and the newcomer's MCP config exists NOW (found by codex_wrapper_ex's
+    # first beat: boot-only config writing meant runtime adds failed every
+    # turn until a restart)
+    config = Custode.MCP.config_path("newbie")
+    assert File.exists?(config)
+    assert File.read!(config) =~ "Authorization"
   end
 
   test "renders the literal section a gate card would show" do
