@@ -46,6 +46,9 @@ defmodule Custode.Config.WriteBack do
       # (boot only does this for the roster it saw): without the file, every
       # mcp: true turn dies command_failed until the next restart
       Custode.MCP.write_routine_config!(attrs.id)
+      # ...and its repo server (#221): served?/1 is a Registry lookup, and
+      # boot only starts servers for the roster it saw
+      if is_binary(attrs[:repo]), do: Custode.Repository.ensure_served(attrs.repo, attrs.id)
       {:ok, path}
     end
   end
@@ -72,6 +75,13 @@ defmodule Custode.Config.WriteBack do
       ensure_file!(path)
       splice!(path, id, render_routine(merged))
       {:ok, _path, _routines, _sensors} = Loader.load!()
+      # a repo change serves the new one and retires the old if orphaned (#221)
+      if is_binary(merged[:repo]), do: Custode.Repository.ensure_served(merged.repo, id)
+      old_repo = Map.get(raw, :repo)
+
+      if is_binary(old_repo) and old_repo != merged[:repo],
+        do: Custode.Repository.stop_serving(old_repo)
+
       {:ok, path}
     end
   end
@@ -106,12 +116,14 @@ defmodule Custode.Config.WriteBack do
   operator to prune.
   """
   def remove_routine(id) when is_binary(id) do
-    with {:ok, _raw} <- fetch_raw(id) do
+    with {:ok, raw} <- fetch_raw(id) do
       path = Loader.target_path()
       ensure_file!(path)
+      raw_repo = Map.get(raw, :repo)
       splice!(path, id, nil)
       {:ok, _path, _routines, _sensors} = Loader.load!()
       stop_live_agent(id)
+      if is_binary(raw_repo), do: Custode.Repository.stop_serving(raw_repo)
       {:ok, path}
     end
   end
