@@ -138,6 +138,5 @@ defmodule Custode.MCP do
        do: ClaudeWrapper.McpConfig.add_stdio(config, name, command, args)
 
   @doc "The state atom out of a `ObanClaude.Agent.status/1` payload."
-  def state_of({state, _payload}), do: state
-  def state_of(state) when is_atom(state), do: state
+  defdelegate state_of(status), to: Custode
 end

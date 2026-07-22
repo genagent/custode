@@ -744,8 +744,7 @@ defmodule CustodeWeb.AgentLive do
 
   defp resolve_status(status, _routine, _id), do: status
 
-  defp state_of({state, _payload}), do: state
-  defp state_of(state) when is_atom(state), do: state
+  defp state_of(status), do: Custode.state_of(status)
 
   defp cadence_words("@daily"), do: "daily"
   defp cadence_words("@weekly"), do: "weekly"

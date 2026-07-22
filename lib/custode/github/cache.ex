@@ -52,7 +52,11 @@ defmodule Custode.GitHub.Cache do
       {:noreply, state}
     else
       cache = self()
-      Task.start(fn -> send(cache, {:fetched, repo, Custode.GitHub.fetcher().fetch(repo)}) end)
+
+      Task.Supervisor.start_child(Custode.TaskSupervisor, fn ->
+        send(cache, {:fetched, repo, Custode.GitHub.fetcher().fetch(repo)})
+      end)
+
       {:noreply, %{state | in_flight: MapSet.put(state.in_flight, repo)}}
     end
   end

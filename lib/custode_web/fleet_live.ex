@@ -724,6 +724,5 @@ defmodule CustodeWeb.FleetLive do
   defp tile_ring(:paused), do: "ring-2 ring-error"
   defp tile_ring(_state), do: nil
 
-  defp state_of({state, _payload}), do: state
-  defp state_of(state) when is_atom(state), do: state
+  defp state_of(status), do: Custode.state_of(status)
 end

@@ -414,7 +414,9 @@ defmodule Custode.Feed do
       title = "custode: #{entry.agent} #{entry.event}"
       url = dashboard_url(entry)
 
-      Task.start(fn -> deliver_notification(title, body, url, entry.agent) end)
+      Task.Supervisor.start_child(Custode.TaskSupervisor, fn ->
+        deliver_notification(title, body, url, entry.agent)
+      end)
     end
 
     :ok

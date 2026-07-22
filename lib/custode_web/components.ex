@@ -44,8 +44,7 @@ defmodule CustodeWeb.Components do
   def status_class(status), do: Map.get(@status_classes, status_state(status), "badge-outline")
 
   @doc "The status an agent is in, whether it arrives bare or gated."
-  def status_state({state, _payload}), do: state
-  def status_state(state) when is_atom(state), do: state
+  defdelegate status_state(status), to: Custode, as: :state_of
 
   attr(:status, :any, required: true)
   attr(:size, :string, default: nil)
