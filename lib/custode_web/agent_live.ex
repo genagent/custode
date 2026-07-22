@@ -212,7 +212,7 @@ defmodule CustodeWeb.AgentLive do
               name="text"
               rows="2"
               placeholder="your answer..."
-              class="textarea textarea-bordered textarea-sm flex-1 resize-y"
+              class="textarea textarea-sm flex-1 resize-y"
               autocomplete="off"
             ></textarea>
             <button class="btn btn-primary btn-sm">answer</button>
@@ -230,7 +230,7 @@ defmodule CustodeWeb.AgentLive do
           name="text"
           rows="2"
           placeholder={"prompt #{@id}..."}
-          class="textarea textarea-bordered textarea-sm flex-1 resize-y font-mono"
+          class="textarea textarea-sm flex-1 resize-y font-mono"
           autocomplete="off"
         ></textarea>
         <button class="btn btn-primary btn-sm">
