@@ -75,11 +75,13 @@ config :custode,
     # custode working on custode (the ouroboros): a backlog worker against
     # custode's own issue queue, same loop as every other repo -- gh-driven
     # issue selection, one gated slice per sweep, approved implementations
-    # in an isolated worktree behind CI and the review floor. Stays @daily
-    # from the profile; drive it by hand with Custode.beat("custode-dev").
+    # in an isolated worktree behind CI and the review floor. CRANKED to
+    # */15 (2026-07-21 night, operator-supervised queue): with #142's
+    # dynamic scheduler this cadence is live-tunable from now on.
     %{
       id: "custode-dev",
       profile: :backlog_worker,
+      cron: "*/15 * * * *",
       workspace: "dev-workspace",
       working_dir: ".",
       repo: "genagent/custode",
