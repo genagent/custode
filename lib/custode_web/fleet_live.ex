@@ -445,6 +445,20 @@ defmodule CustodeWeb.FleetLive do
             {@id}
           </.link>
           <.status_badge status={@tile.status} size="badge-sm" />
+          <span
+            :if={@tile.state == :paused && paused_reason(@tile.spend_today, @tile.budget)}
+            class="text-xs text-error/80"
+          >
+            {paused_reason(@tile.spend_today, @tile.budget)}
+          </span>
+          <.link
+            :if={@tile.failing_checks > 0}
+            navigate={"/agents/#{@id}"}
+            class="badge badge-error badge-sm gap-1"
+            title="an open PR by this agent has failing checks"
+          >
+            {@tile.failing_checks} red check(s)
+          </.link>
           <button
             :if={@tile.routine}
             class="btn btn-ghost btn-xs ml-auto"
@@ -557,7 +571,8 @@ defmodule CustodeWeb.FleetLive do
            open_todos: length(Custode.Notebook.todos(id)),
            series: Map.get(series_by_agent, id),
            last: Custode.Feed.last_message(id, needs_attention?(status)),
-           last_activity: Custode.Feed.last_activity_at(id)
+           last_activity: Custode.Feed.last_activity_at(id),
+           failing_checks: failing_checks(routine)
          }}
       end
 
@@ -579,7 +594,8 @@ defmodule CustodeWeb.FleetLive do
            open_todos: 0,
            series: nil,
            last: Custode.Feed.last_for(id),
-           last_activity: Custode.Feed.last_activity_at(id)
+           last_activity: Custode.Feed.last_activity_at(id),
+           failing_checks: 0
          }}
       end
 
@@ -663,6 +679,22 @@ defmodule CustodeWeb.FleetLive do
   end
 
   defp suggestion_changes(field, _value), do: {:error, {:unsupported_field, field}}
+
+  # Rank-1 promotion (#31): failing checks on an agent's own open PR were
+  # the quietest signal on the page (a dot inside a panel two clicks away).
+  # Reads the cached overview only -- the cache refreshes on its own cadence
+  # and broadcasts, so tiles cost no extra API calls.
+  defp failing_checks(%{repo: repo}) when is_binary(repo) do
+    case Custode.GitHub.overview(repo) do
+      {:ok, overview} ->
+        Enum.count(overview.open_prs.items, &(&1[:checks] in ["FAILURE", "ERROR"]))
+
+      :loading ->
+        0
+    end
+  end
+
+  defp failing_checks(_routine), do: 0
 
   # sub-agents and ghosts carry no routine, so they are never meta
   defp meta?(%{routine: nil}), do: false

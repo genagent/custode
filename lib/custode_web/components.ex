@@ -19,15 +19,17 @@ defmodule CustodeWeb.Components do
     ended: "ended"
   }
 
+  # The palette (guides/ui-hierarchy.md): red=blocked-on-you,
+  # yellow=wants-you, blue=working. Ambient states carry NO badge color --
+  # they render as muted text, because the absence of alarm is the signal.
   @status_classes %{
     running: "badge-info",
-    idle: "badge-ghost",
     awaiting_permission: "badge-warning",
-    waiting_for_user: "badge-accent",
-    paused: "badge-error",
-    offline: "badge-outline",
-    ended: "badge-outline"
+    waiting_for_user: "badge-warning",
+    paused: "badge-error"
   }
+
+  @ambient_states [:idle, :offline, :ended]
 
   @doc "Every status this dashboard has a word for."
   def statuses, do: Map.keys(@status_labels)
@@ -48,12 +50,32 @@ defmodule CustodeWeb.Components do
   attr(:status, :any, required: true)
   attr(:size, :string, default: nil)
 
-  @doc "The one status badge. Fleet tile, agent header and feed all render through it."
+  @doc """
+  The one status badge. Fleet tile, agent header and feed all render
+  through it. Ambient states (idle/offline/ended) demote to muted text --
+  rank-4 state never wears a badge (guides/ui-hierarchy.md).
+  """
   def status_badge(assigns) do
+    assigns = assign(assigns, :ambient, status_state(assigns.status) in @ambient_states)
+
     ~H"""
-    <span class={["badge", @size, status_class(@status)]}>{status_label(@status)}</span>
+    <span :if={@ambient} class="text-xs text-base-content/40">{status_label(@status)}</span>
+    <span :if={!@ambient} class={["badge", @size, status_class(@status)]}>
+      {status_label(@status)}
+    </span>
     """
   end
+
+  @doc """
+  Why an agent is paused, when the evidence says so: spend at or past the
+  daily rail reads "daily rail" (a pause must say why, #31). nil when the
+  reason is not mechanical (manual pause, or no rail configured).
+  """
+  def paused_reason(spend, budget) when is_number(spend) and is_number(budget) do
+    if spend >= budget, do: "daily rail"
+  end
+
+  def paused_reason(_spend, _budget), do: nil
 
   # Feed events that report a status rather than an activity: they render the
   # status vocabulary so the card and the tile that produced it agree.

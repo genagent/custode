@@ -284,9 +284,16 @@ defmodule CustodeWeb.AgentLive do
         </div>
       </div>
 
-      <div :if={match?({:waiting_for_user, _}, @status)} class="alert alert-info mb-4">
+      <div
+        :if={match?({:waiting_for_user, _}, @status)}
+        class="mb-4 rounded-lg border-l-4 border-warning bg-base-100 p-4 shadow-sm"
+      >
         <div class="w-full">
-          <p class="font-semibold">asks: {elem(@status, 1)}</p>
+          <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-warning">
+            needs answer
+          </p>
+          <div class="whitespace-pre-wrap text-sm leading-relaxed">{elem(@status, 1)}</div>
+          <div class="divider my-2"></div>
           <form
             phx-submit="answer"
             phx-change="validate_prompt"
