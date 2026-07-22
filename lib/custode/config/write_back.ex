@@ -42,6 +42,10 @@ defmodule Custode.Config.WriteBack do
       ensure_file!(path)
       File.write!(path, render_routine(attrs), [:append])
       {:ok, _path, _routines, _sensors} = Loader.load!()
+      # a runtime add must also mint the newcomer's identity and MCP config
+      # (boot only does this for the roster it saw): without the file, every
+      # mcp: true turn dies command_failed until the next restart
+      Custode.MCP.write_routine_config!(attrs.id)
       {:ok, path}
     end
   end

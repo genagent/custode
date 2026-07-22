@@ -77,13 +77,7 @@ defmodule Custode.MCP do
     File.mkdir_p!(Path.dirname(config_path()))
 
     for routine <- Custode.Routine.all() do
-      token = Identity.mint(:routine, routine.id)
-
-      ClaudeWrapper.McpConfig.new()
-      |> ClaudeWrapper.McpConfig.add_http("custode", url(),
-        headers: %{"Authorization" => "Bearer " <> token}
-      )
-      |> ClaudeWrapper.McpConfig.write!(config_path(routine.id))
+      write_routine_config!(routine.id)
     end
 
     case external_servers() do
@@ -97,6 +91,23 @@ defmodule Custode.MCP do
     end
 
     :ok
+  end
+
+  @doc """
+  Mint (or re-mint) a routine's identity and write its per-routine MCP config
+  file. Boot calls this for every roster entry; runtime adds (#75's
+  write-back) call it for the newcomer so "beatable immediately" holds for
+  mcp: true routines too -- a routine without this file fails every turn
+  with command_failed until someone writes it.
+  """
+  def write_routine_config!(routine_id) do
+    token = Identity.mint(:routine, routine_id)
+
+    ClaudeWrapper.McpConfig.new()
+    |> ClaudeWrapper.McpConfig.add_http("custode", url(),
+      headers: %{"Authorization" => "Bearer " <> token}
+    )
+    |> ClaudeWrapper.McpConfig.write!(config_path(routine_id))
   end
 
   @doc "Mint an identity and write the memory-tier config for one sub-agent."
