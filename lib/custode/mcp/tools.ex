@@ -163,8 +163,19 @@ defmodule Custode.MCP.Tools.StartAgent do
       ]
 
       case ObanClaude.Agent.start_agent(agent_id, config) do
-        {:ok, _pid} -> reply(frame, %{agent_id: agent_id, state: "idle", workspace: workspace})
-        {:error, reason} -> fail(frame, "start failed: #{inspect(reason)}")
+        {:ok, _pid} ->
+          # the row is the sub-agent's spec (#5): after a restart the parent
+          # gets an orphan notice with a revival handle instead of silence
+          Custode.SubAgents.record_spawn!(agent_id, Custode.MCP.caller(frame).id, %{
+            workspace: workspace,
+            system_prompt: params[:system_prompt],
+            model: params[:model]
+          })
+
+          reply(frame, %{agent_id: agent_id, state: "idle", workspace: workspace})
+
+        {:error, reason} ->
+          fail(frame, "start failed: #{inspect(reason)}")
       end
     else
       fail(frame, "workspace is not an existing directory: #{workspace}")

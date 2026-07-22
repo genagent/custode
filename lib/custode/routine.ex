@@ -78,7 +78,11 @@ defmodule Custode.Routine do
 
     janitor_entries = [{"@daily", Custode.Janitor, args: %{}, queue: :sensors}]
 
-    sensor_entries ++ janitor_entries
+    # advisors (#125) ride the same static lane as the janitor: always-on,
+    # deterministic, zero tokens -- one daily look at the fleet's economics
+    advisor_entries = [{"@daily", Custode.Advisors.Cadence, args: %{}, queue: :sensors}]
+
+    sensor_entries ++ janitor_entries ++ advisor_entries
   end
 
   @doc """
