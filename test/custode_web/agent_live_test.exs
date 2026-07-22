@@ -104,7 +104,7 @@ defmodule CustodeWeb.AgentLiveTest do
     assert html =~ "which env?"
 
     view
-    |> form(".alert form[phx-submit=answer]", %{"text" => "staging"})
+    |> form("form[phx-submit=answer]", %{"text" => "staging"})
     |> render_submit()
 
     assert_receive {:enqueued, %{"prompt" => "staging"}, _meta}

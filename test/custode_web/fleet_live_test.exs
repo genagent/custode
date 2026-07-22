@@ -298,6 +298,131 @@ defmodule CustodeWeb.FleetLiveBrakeTest do
   end
 end
 
+defmodule CustodeWeb.HierarchyPassTest do
+  # The #31 visibility pass: one palette meaning per color, ambient states
+  # demoted to muted text, pauses saying why, and failing PR checks
+  # promoted to the tile (rank 1). guides/ui-hierarchy.md is the contract.
+  use ExUnit.Case, async: false
+
+  import Custode.TestHelpers
+  import Phoenix.ConnTest
+  import Phoenix.LiveViewTest
+
+  alias Custode.Test.FakeGitHubFetcher
+  alias ObanClaude.Agent
+
+  @endpoint CustodeWeb.Endpoint
+
+  setup do
+    path = Path.join(System.tmp_dir!(), uid("hier-feed") <> ".jsonl")
+    put_env!(:feed_path, path)
+    on_exit(fn -> File.rm(path) end)
+    :ok
+  end
+
+  test "wants-you states share the warning family; ambient states carry no badge" do
+    import CustodeWeb.Components
+
+    assert status_class(:awaiting_permission) == status_class(:waiting_for_user)
+    assert status_class(:awaiting_permission) =~ "warning"
+    assert status_class(:running) =~ "info"
+    assert status_class(:paused) =~ "error"
+  end
+
+  test "an idle tile renders its state as muted text, not a badge box", %{} do
+    workspace = tmp_workspace!()
+    id = uid("calm")
+    put_env!(:routines, [%{id: id, cron: "@daily", workspace: workspace, prompt: "s"}])
+    {:ok, _pid} = Agent.start_agent(id, enqueue_fun: fn _a, _m -> {:ok, :q} end)
+    on_exit(fn -> Agent.stop_agent(id) end)
+
+    {:ok, view, _html} = live(build_conn(), "/")
+    tile = element(view, "#tile-#{id}") |> render()
+    assert tile =~ "idle"
+    # the word is there; the badge box is not (rank-4 never shouts)
+    refute tile =~ ~r/badge[^>]*>\s*idle/
+  end
+
+  test "a budget pause says why on the tile" do
+    workspace = tmp_workspace!()
+    id = uid("broke")
+
+    put_env!(:routines, [
+      %{id: id, cron: "@daily", workspace: workspace, prompt: "s", daily_budget_usd: 0.05}
+    ])
+
+    {:ok, _pid} = Agent.start_agent(id, enqueue_fun: fn _a, _m -> {:ok, :q} end)
+    on_exit(fn -> Agent.stop_agent(id) end)
+    :ok = Custode.SpendLedger.record(id, 0.10)
+    :ok = Agent.emergency_pause(id)
+    {:ok, :paused} = Agent.await(id, :paused, 1_000)
+
+    {:ok, view, _html} = live(build_conn(), "/")
+    tile = element(view, "#tile-#{id}") |> render()
+    assert tile =~ "paused"
+    assert tile =~ "daily rail"
+  end
+
+  test "failing checks on an agent PR surface on its tile as a rank-1 chip" do
+    repo = "acme/" <> uid("red")
+
+    overview =
+      FakeGitHubFetcher.overview(repo, %{
+        open_prs: %{
+          total: 2,
+          items: [
+            %{
+              number: 9,
+              title: "red",
+              url: "https://x",
+              at: nil,
+              draft: false,
+              checks: "FAILURE"
+            },
+            %{
+              number: 8,
+              title: "green",
+              url: "https://x",
+              at: nil,
+              draft: false,
+              checks: "SUCCESS"
+            }
+          ]
+        }
+      })
+
+    overviews = Application.get_env(:custode, :fake_repo_overviews, %{})
+    put_env!(:fake_repo_overviews, Map.put(overviews, repo, {:ok, overview}))
+
+    workspace = tmp_workspace!()
+    id = uid("checked")
+
+    put_env!(:routines, [
+      %{id: id, cron: "@daily", workspace: workspace, prompt: "s", repo: repo}
+    ])
+
+    {:ok, _pid} = Agent.start_agent(id, enqueue_fun: fn _a, _m -> {:ok, :q} end)
+    on_exit(fn -> Agent.stop_agent(id) end)
+
+    # warm the cache so the tile's read is a hit (the page itself reads
+    # cache-only and fills in on the broadcast)
+    Custode.PubSubBridge.subscribe()
+    {:ok, view, _html} = live(build_conn(), "/")
+
+    first = render(view)
+
+    tile =
+      if first =~ "red check" do
+        first
+      else
+        assert_receive {:repo_overview, _repo}, 1_000
+        render(view)
+      end
+
+    assert tile =~ "1 red check(s)"
+  end
+end
+
 defmodule CustodeWeb.FleetMetaRailTest do
   # The caretaker's rail (#178): the meta agent has a place, not a slot, and
   # the fleet-level readouts moved out of the shared header into it.
