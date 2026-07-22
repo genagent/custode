@@ -6,6 +6,8 @@ defmodule Custode.AdvisorTest do
 
   import Custode.TestHelpers
 
+  alias Custode.Advisors.Cadence
+
   setup do
     path = Path.join(System.tmp_dir!(), uid("advisor-feed") <> ".jsonl")
     put_env!(:feed_path, path)
@@ -78,7 +80,7 @@ defmodule Custode.AdvisorTest do
     for _i <- 1..25, do: Custode.Feed.record(%{event: "turn", agent: earner, summary: "work"})
     for _i <- 1..20, do: Custode.Feed.record(%{event: "repo_verb", agent: earner, summary: "ok"})
 
-    suggestions = Custode.Advisors.Cadence.observe() |> Custode.Advisors.Cadence.suggest()
+    suggestions = Cadence.observe() |> Cadence.suggest()
 
     assert [only] = suggestions
     assert only.routine_id == noisy
@@ -103,8 +105,8 @@ defmodule Custode.AdvisorTest do
     for _i <- 1..30, do: Custode.Feed.record(%{event: "turn", agent: daily, summary: "nothing"})
 
     ids =
-      Custode.Advisors.Cadence.observe()
-      |> Custode.Advisors.Cadence.suggest()
+      Cadence.observe()
+      |> Cadence.suggest()
       |> Enum.map(& &1.routine_id)
 
     refute sparse in ids
