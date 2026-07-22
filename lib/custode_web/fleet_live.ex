@@ -116,7 +116,7 @@ defmodule CustodeWeb.FleetLive do
           <.link navigate={"/agents/#{@id}"} class="font-mono font-bold hover:underline">
             {@id}
           </.link>
-          <span class={["badge badge-sm", state_badge(@tile.state)]}>{@tile.state}</span>
+          <.status_badge status={@tile.status} size="badge-sm" />
           <button
             :if={@tile.routine}
             class="btn btn-ghost btn-xs ml-auto"
@@ -159,9 +159,7 @@ defmodule CustodeWeb.FleetLive do
 
         <div :if={@tile.last} class="rounded-lg bg-base-200/60 p-2 text-sm">
           <div class="mb-1 flex items-center gap-2 text-xs text-base-content/50">
-            <span class={["badge badge-xs", feed_badge(@tile.last["event"])]}>
-              {@tile.last["event"]}
-            </span>
+            <.event_badge entry={@tile.last} />
             <span class="font-mono"><.ago at={@tile.last["at"]} /></span>
           </div>
           <p class="line-clamp-3 text-base-content/80">

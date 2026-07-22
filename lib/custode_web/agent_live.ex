@@ -82,12 +82,12 @@ defmodule CustodeWeb.AgentLive do
     <.page fleet_today={@fleet_today} active={:fleet}>
       <div class="mb-4 flex items-center gap-3">
         <h2 class="font-mono text-2xl font-bold">{@id}</h2>
-        <span class={["badge", state_badge(@state)]}>{@state}</span>
+        <.status_badge status={@status} />
         <span :if={@routine} class="font-mono text-xs text-base-content/50">{@routine.cron}</span>
         <div class="ml-auto flex gap-2">
           <button :if={@routine} class="btn btn-xs" phx-click="beat">beat</button>
           <button
-            :if={@state not in [:offline, :paused]}
+            :if={@state not in [:offline, :ended, :paused]}
             class="btn btn-outline btn-error btn-xs"
             phx-click="pause"
           >
@@ -135,10 +135,10 @@ defmodule CustodeWeb.AgentLive do
         </div>
       </div>
 
-      <p :if={@state == :offline and @routine} class="mb-4 text-sm text-base-content/50">
+      <p :if={@state == :offline} class="mb-4 text-sm text-base-content/50">
         offline -- the next beat starts it
       </p>
-      <p :if={@state == :offline and !@routine} class="mb-4 text-sm text-base-content/50">
+      <p :if={@state == :ended} class="mb-4 text-sm text-base-content/50">
         ended -- this was an ephemeral agent; its memory and activity trail
         persist below (ghost tiles keep it on the fleet page for
         {div(Application.get_env(:custode, :ghost_window_s, 3_600), 60)}m)
@@ -221,7 +221,7 @@ defmodule CustodeWeb.AgentLive do
       </div>
 
       <form
-        :if={@state not in [:offline, :paused]}
+        :if={@state not in [:offline, :ended, :paused]}
         phx-submit="prompt"
         class="mb-1 flex gap-2"
         id={"prompt-form-#{@prompt_gen}"}
@@ -399,6 +399,7 @@ defmodule CustodeWeb.AgentLive do
     routine = Custode.Routine.get(id)
     repo = routine && routine.repo
     {:ok, status} = Agent.status(id)
+    status = resolve_status(status, routine, id)
 
     info =
       case Agent.info(id) do
@@ -431,6 +432,17 @@ defmodule CustodeWeb.AgentLive do
       fleet_today: Custode.SpendLedger.fleet_today()
     )
   end
+
+  # A stopped agent with no routine but with a trail has ended, not gone
+  # offline: offline means "the next beat starts it", which an ephemeral will
+  # never get. This is the fleet page's ghost rule (#11) minus its display
+  # window, so both pages say the same word about the same agent. An id with no
+  # trail at all stays offline -- nothing has ended.
+  defp resolve_status(:offline, nil, id) do
+    if Custode.Feed.last_activity_at(id), do: :ended, else: :offline
+  end
+
+  defp resolve_status(status, _routine, _id), do: status
 
   defp state_of({state, _payload}), do: state
   defp state_of(state) when is_atom(state), do: state
