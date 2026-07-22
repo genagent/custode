@@ -77,6 +77,21 @@ defmodule Custode.Config.WriteBack do
   end
 
   @doc """
+  Render the before/after TOML sections an edit would produce, without
+  writing anything (#174 slice 3): a caretaker puts BOTH in its
+  request_permission action so the human approves the literal change.
+  Validates exactly like `update_routine/2`.
+  """
+  def preview_update(id, changes) when is_binary(id) and is_map(changes) do
+    with :ok <- validate_changes(changes),
+         {:ok, raw} <- fetch_raw(id),
+         merged = merge_changes(raw, changes),
+         :ok <- validate_entry(merged) do
+      {:ok, %{before: render_routine(raw), after: render_routine(merged)}}
+    end
+  end
+
+  @doc """
   Remove a routine from the roster (#174 slice 1): splice its section out of
   the file, reload, and stop the live agent if one is running. The notebook
   and workspace are deliberately kept -- records outlive routines (design
