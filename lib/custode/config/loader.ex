@@ -61,6 +61,7 @@ defmodule Custode.Config.Loader do
     "role" => :role,
     "model" => :model,
     "effort" => :effort,
+    "agent" => :agent,
     "mcp" => :mcp,
     "hermetic" => :hermetic,
     "max_budget_usd" => :max_budget_usd,
