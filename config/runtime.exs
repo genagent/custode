@@ -25,4 +25,37 @@ if config_env() != :test do
     :no_file ->
       :ok
   end
+
+  # Tailnet exposure (#65): CUSTODE_PUBLIC_HOST is the ts.net hostname that
+  # `tailscale serve --bg http://127.0.0.1:4646` publishes. The endpoint
+  # stays bound to loopback exactly as before -- tailscale is the proxy and
+  # the tailnet is the auth boundary -- but the LiveView websocket must
+  # accept the proxied origin, links must generate against the public host,
+  # and phone notifications must deep-link somewhere the phone can reach.
+  if public_host = System.get_env("CUSTODE_PUBLIC_HOST") do
+    demo_key? = System.get_env("CUSTODE_SECRET_KEY_BASE") in [nil, ""]
+
+    if demo_key? do
+      raise """
+      CUSTODE_PUBLIC_HOST is set but CUSTODE_SECRET_KEY_BASE is not.
+      The checked-in demo secret_key_base signs the LiveView session and
+      must never leave localhost. Generate one (mix phx.gen.secret) and
+      export CUSTODE_SECRET_KEY_BASE before exposing the dashboard.
+      """
+    end
+
+    config :custode, CustodeWeb.Endpoint,
+      url: [host: public_host, scheme: "https", port: 443],
+      check_origin: [
+        "https://#{public_host}",
+        "http://localhost:4646",
+        "http://127.0.0.1:4646"
+      ]
+
+    config :custode, dashboard_base_url: "https://#{public_host}"
+  end
+
+  if secret_key_base = System.get_env("CUSTODE_SECRET_KEY_BASE") do
+    config :custode, CustodeWeb.Endpoint, secret_key_base: secret_key_base
+  end
 end
