@@ -292,8 +292,12 @@ defmodule Custode.Routine do
       # caretaker; a repo caretaker runs at the repo root while its notebook
       # lives in a subdirectory. Relative paths root under Custode.Home
       # (#41 slice 5): cwd in source-repo mode, $CUSTODE_HOME installed.
-      workspace: Custode.Home.resolve(workspace),
-      working_dir: Custode.Home.resolve(Map.get(routine, :working_dir, workspace)),
+      workspace: Custode.Home.resolve_in(&Custode.Home.data_dir/0, workspace),
+      working_dir:
+        Custode.Home.resolve_in(
+          &Custode.Home.data_dir/0,
+          Map.get(routine, :working_dir, workspace)
+        ),
       prompt: Map.fetch!(routine, :prompt),
       role: role,
       model: Map.get(routine, :model, Application.fetch_env!(:custode, :model)),

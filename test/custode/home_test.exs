@@ -70,6 +70,23 @@ defmodule Custode.HomeTest do
     File.rm(Path.join(Home.root(), "routines.toml"))
   end
 
+  test "the four dirs collapse to CUSTODE_HOME when set, and cwd in source mode" do
+    System.delete_env("CUSTODE_HOME")
+
+    assert Enum.uniq([Home.config_dir(), Home.data_dir(), Home.runtime_dir(), Home.cache_dir()]) ==
+             [File.cwd!()]
+
+    home = Path.join(System.tmp_dir!(), uid("home"))
+    System.put_env("CUSTODE_HOME", home)
+
+    assert Enum.uniq([Home.config_dir(), Home.data_dir(), Home.runtime_dir(), Home.cache_dir()]) ==
+             [home]
+
+    # resolve_in binds a path to a specific dir; absolute stays absolute
+    assert Home.resolve_in(&Home.data_dir/0, "custode.db") == Path.join(home, "custode.db")
+    assert Home.resolve_in(&Home.runtime_dir/0, "/abs/x") == "/abs/x"
+  end
+
   test "resolve! creates the parent so first boot needs no manual mkdir" do
     home = Path.join(System.tmp_dir!(), uid("home"))
     System.put_env("CUSTODE_HOME", home)
