@@ -20,7 +20,12 @@ defmodule CustodeWeb.FleetLive do
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
-    if connected?(socket), do: Custode.PubSubBridge.subscribe()
+    if connected?(socket) do
+      Custode.PubSubBridge.subscribe()
+      # the in-flight clock ticks even mid-turn, when no other event fires --
+      # so a long-running (or stuck) turn's elapsed keeps climbing (#211)
+      :timer.send_interval(5_000, self(), :inflight_tick)
+    end
 
     {:ok,
      socket
@@ -32,6 +37,8 @@ defmodule CustodeWeb.FleetLive do
   def handle_info({:status_changed, _agent_id}, socket), do: {:noreply, refresh(socket)}
   def handle_info({:feed_entry, _entry}, socket), do: {:noreply, refresh(socket)}
   def handle_info({:notebook_changed, _routine_id}, socket), do: {:noreply, refresh(socket)}
+  # a cheap tick: re-read only the in-flight clock, not the whole fleet
+  def handle_info(:inflight_tick, socket), do: {:noreply, assign(socket, in_flight: in_flight())}
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl Phoenix.LiveView
@@ -237,6 +244,7 @@ defmodule CustodeWeb.FleetLive do
           suggestions={@suggestions}
           presence={@presence}
           rail_warnings={@rail_warnings}
+          in_flight={@in_flight}
         />
         <div class="min-w-0 flex-1">
           <p class="mb-2 text-xs text-base-content/40">sorted by recent activity</p>
@@ -254,6 +262,7 @@ defmodule CustodeWeb.FleetLive do
   attr(:suggestions, :list, required: true)
   attr(:presence, :any, required: true)
   attr(:rail_warnings, :list, required: true)
+  attr(:in_flight, :list, required: true)
 
   # The caretaker's rail (#178). The meta agent is not a peer of the workers,
   # so activity sorting hid it exactly when it was quiet -- backwards for the
@@ -283,6 +292,23 @@ defmodule CustodeWeb.FleetLive do
         <span class="ml-auto font-mono text-sm text-base-content/70">
           fleet today ${usd(@fleet_today)}
         </span>
+      </div>
+      <div :if={@in_flight != []} id="in-flight" class="flex flex-col gap-1">
+        <span class="text-xs uppercase tracking-wide text-base-content/40">
+          in flight ({length(@in_flight)})
+        </span>
+        <div
+          :for={run <- @in_flight}
+          class="flex items-center gap-2 rounded bg-base-100 px-2 py-1 text-xs shadow-sm"
+        >
+          <span class="inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-info"></span>
+          <.link navigate={"/agents/#{run.id}"} class="font-mono hover:underline">
+            {run.id}
+          </.link>
+          <span class={["ml-auto font-mono", run.elapsed_s >= 300 && "text-warning"]}>
+            {elapsed(run.elapsed_s)}
+          </span>
+        </div>
       </div>
       <.attention_chip wrap />
       <div
@@ -700,6 +726,7 @@ defmodule CustodeWeb.FleetLive do
       meta_tiles: Enum.sort_by(meta_tiles, fn {id, _tile} -> id end),
       suggestions: advisor_suggestions(),
       presence: Custode.Presence.status(),
+      in_flight: in_flight(),
       rail_warnings: rail_warnings(tiles ++ meta_tiles),
       all_tags: all_tags,
       any_pausable: Enum.any?(states, &(&1 not in [:paused, :offline])),
@@ -772,6 +799,28 @@ defmodule CustodeWeb.FleetLive do
   # rail'); the reset time names the configured timezone because that is
   # the day the rails roll on (#164).
   @rail_warning_pct 0.8
+
+  # What is executing right now (#211), longest-running first so a stuck
+  # turn floats to the top. Elapsed is computed at render, and the 5s tick
+  # keeps it climbing when nothing else re-renders the page.
+  # compact elapsed: "12s", "3m", "1h04" -- a turn running past a few minutes
+  # is the signal the panel exists to surface
+  defp elapsed(seconds) when seconds < 60, do: "#{seconds}s"
+  defp elapsed(seconds) when seconds < 3600, do: "#{div(seconds, 60)}m"
+
+  defp elapsed(seconds) do
+    "#{div(seconds, 3600)}h#{seconds |> rem(3600) |> div(60) |> Integer.to_string() |> String.pad_leading(2, "0")}"
+  end
+
+  defp in_flight do
+    now = DateTime.utc_now()
+
+    Custode.RunClock.running()
+    |> Enum.map(fn {id, started_at} ->
+      %{id: id, elapsed_s: max(DateTime.diff(now, started_at), 0)}
+    end)
+    |> Enum.sort_by(& &1.elapsed_s, :desc)
+  end
 
   defp rail_warnings(tiles) do
     tz = Application.get_env(:custode, :timezone, "Etc/UTC")

@@ -22,10 +22,14 @@ defmodule Custode.Application do
     Custode.Gates.attach()
     Custode.SubAgents.attach()
     Custode.WorktreeBreadcrumb.attach()
+    Custode.RunClock.attach()
     Custode.Routine.ensure_workspaces!()
 
     children = [
       {Phoenix.PubSub, name: Custode.PubSub},
+      # the in-flight clock (#211): owns its ETS table, so start it before
+      # any run telemetry can fire
+      Custode.RunClock,
       Custode.Repo,
       {Ecto.Migrator, repos: [Custode.Repo], log_migrations_sql: false},
       # single-instance guard (#77): claim the heartbeat row BEFORE Oban
