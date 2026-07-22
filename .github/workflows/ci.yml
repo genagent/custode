@@ -39,3 +39,29 @@ jobs:
       - run: mix compile --warnings-as-errors
       - run: mix credo --strict
       - run: mix test
+
+  # The conventional_commits policy as a CI guarantee, not just a prompt.
+  # repo_open_pr already forces conventional PR TITLES; this checks every
+  # BRANCH commit too, so nothing unconventional can ride a rebase merge
+  # into history (squash merges hide branch commits, rebase merges keep
+  # them verbatim -- both stay clean this way).
+  commit-lint:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Every commit first line is conventional
+        run: |
+          pattern='^(feat|fix|docs|test|chore|refactor|build|ci|perf|style|revert)(\([a-z0-9._/-]+\))?!?: .+'
+          bad=0
+          while IFS= read -r line; do
+            sha="${line%% *}"
+            subject="${line#* }"
+            if ! echo "$subject" | grep -qE "$pattern"; then
+              echo "::error::not conventional: $sha $subject"
+              bad=1
+            fi
+          done < <(git log --format='%H %s' "origin/${{ github.base_ref }}..HEAD" --no-merges)
+          exit $bad
