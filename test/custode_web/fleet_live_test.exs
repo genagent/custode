@@ -467,6 +467,45 @@ defmodule CustodeWeb.FleetMetaRailTest do
       refute has_element?(view, card, "long forgotten")
     end
 
+    test "apply writes the change through the roster write-back and clears the card (#192)" do
+      roster = Path.join(System.tmp_dir!(), uid("apply-roster") <> ".toml")
+      System.put_env("CUSTODE_CONFIG", roster)
+      previous = Application.get_env(:custode, :routines)
+
+      on_exit(fn ->
+        System.delete_env("CUSTODE_CONFIG")
+        File.rm(roster)
+        Application.put_env(:custode, :routines, previous)
+      end)
+
+      workspace = tmp_workspace!()
+      worker = uid("worker")
+      put_env!(:routines, [%{id: worker, cron: "@daily", workspace: workspace, prompt: "s"}])
+
+      Custode.Repo.query!("DELETE FROM feed_entries WHERE event = 'advisor_suggestion'")
+      suggest!(worker, "model", advisor: "advisor-model", current: "opus", proposed: "sonnet")
+
+      {:ok, view, _html} = live(build_conn(), "/")
+      assert has_element?(view, "#advisor-suggestions button", "apply")
+
+      view
+      |> element("#advisor-suggestions button[phx-value-field=model]")
+      |> render_click()
+
+      # the write landed: file created (the mode switch), entry edited, live
+      assert File.read!(roster) =~ ~s(model = "sonnet")
+      assert Custode.Routine.get(worker).model == "sonnet"
+
+      # the card left the rail even though the suggestion entry remains
+      refute has_element?(view, "#advisor-suggestions", "sonnet")
+
+      # and the application is on the record
+      assert Enum.any?(
+               Custode.Feed.for_agent(worker),
+               &(&1["event"] == "advisor_applied" and &1["proposed"] == "sonnet")
+             )
+    end
+
     test "no suggestions means no section at all" do
       workspace = tmp_workspace!()
 
