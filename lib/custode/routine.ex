@@ -263,6 +263,7 @@ defmodule Custode.Routine do
 
   @operator_mcp_tools ~w(
     beat drop_note list_gates feed_tail pause_agent resume_agent spend_today
+    preview_routine add_routine
   )
 
   defp mcp_allowlist(:caretaker),
@@ -289,9 +290,10 @@ defmodule Custode.Routine do
       # :workspace is the notebook home (inbox/, rendered journal.md/TODO.md);
       # :working_dir is where claude runs. They coincide for a plain
       # caretaker; a repo caretaker runs at the repo root while its notebook
-      # lives in a subdirectory.
-      workspace: workspace,
-      working_dir: Map.get(routine, :working_dir, workspace),
+      # lives in a subdirectory. Relative paths root under Custode.Home
+      # (#41 slice 5): cwd in source-repo mode, $CUSTODE_HOME installed.
+      workspace: Custode.Home.resolve(workspace),
+      working_dir: Custode.Home.resolve(Map.get(routine, :working_dir, workspace)),
       prompt: Map.fetch!(routine, :prompt),
       role: role,
       model: Map.get(routine, :model, Application.fetch_env!(:custode, :model)),

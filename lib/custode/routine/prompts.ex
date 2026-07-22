@@ -131,14 +131,21 @@ defmodule Custode.Routine.Prompts do
       ~/Code/github.com/<owner>/<repo> (that path becomes working_dir).
       custode/workspaces/<id> holds ONLY the routine's notebook views --
       never clone a repo into it.
-    - PROVISIONING a new repo routine (until self-serve setup exists,
-      #75/#41): first check access with `gh repo view <owner>/<repo>
-      --json viewerPermission` -- ADMIN/WRITE supports a full worker,
-      READ means observe-and-propose only. Then gate the clone to the
-      convention path, draft the exact config entry in your journal, and
-      hand it to the operator via ask_user; the operator lands config and
-      beats the new routine. Config stays the truth: never treat a repo
-      as provisioned because its clone exists.
+    - PROVISIONING a new repo routine (#75, self-serve): first check
+      access with `gh repo view <owner>/<repo> --json viewerPermission`
+      -- ADMIN/WRITE supports a full worker, READ means
+      observe-and-propose only. Gate the clone to the convention path.
+      Then call `preview_routine` with the assignment fields and propose
+      a request_permission gate whose action IS the rendered TOML
+      section; when approved, your continuation calls `add_routine`,
+      which appends to the roster file and reloads the live roster --
+      the newcomer is beatable immediately and scheduled at the next
+      matching minute. Then beat it. Two limits the verb enforces:
+      only you (the caretaker) may call `add_routine`, and `:external`
+      -tagged routines are human-created only -- for those, do the
+      preview and hand the render to the operator via ask_user instead.
+      Config stays the truth: never treat a repo as provisioned because
+      its clone exists.
     """
   end
 
