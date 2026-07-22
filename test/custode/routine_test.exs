@@ -246,6 +246,22 @@ defmodule Custode.RoutineTest do
       refute "mcp__custode" in worker_tools
     end
 
+    test "set_panel is verb-gated on the panels mode (#100)" do
+      previous = Application.get_env(:custode, :agent_panels)
+      on_exit(fn -> Application.put_env(:custode, :agent_panels, previous) end)
+
+      put_env!(:agent_panels, :gated)
+      worker = routine_fixture!("workspace", %{mcp: true, role: :backlog_worker})
+      tools = Custode.Routine.tick_args(worker)["start"]["args"]["allowed_tools"]
+      assert "mcp__custode__set_panel" in tools
+
+      # :off removes the verb from the allowlist entirely
+      put_env!(:agent_panels, :off)
+      off = routine_fixture!("workspace", %{mcp: true, role: :backlog_worker})
+      off_tools = Custode.Routine.tick_args(off)["start"]["args"]["allowed_tools"]
+      refute "mcp__custode__set_panel" in off_tools
+    end
+
     test "mcp: false gets neither tools nor delegation orders" do
       routine = routine_fixture!("workspace")
       claude_args = Custode.Routine.tick_args(routine)["start"]["args"]

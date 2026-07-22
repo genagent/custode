@@ -49,6 +49,40 @@ defmodule Custode.MCP.NotebookTools.JournalAppend do
   end
 end
 
+defmodule Custode.MCP.NotebookTools.SetPanel do
+  @moduledoc """
+  Propose an HTML panel for your OWN dashboard page (#100). The operator
+  approves it before it renders, and it renders only inside a locked-down
+  iframe (no scripts run). Inline SVG and CSS work, so this is for a real
+  view -- a table of what you watch, a chart, a diagram -- that prose in the
+  journal cannot give. Self-scoped; refused when panels are turned off.
+  """
+  use Anubis.Server.Component, type: :tool
+
+  import Custode.MCP.Tools
+
+  schema do
+    field(:routine_id, :string, required: true)
+
+    field(:html, :string,
+      required: true,
+      description: "the panel markup -- inline SVG/CSS only, no scripts (they will not run)"
+    )
+  end
+
+  @impl true
+  def execute(%{routine_id: routine_id, html: html}, frame) do
+    with :ok <- check_self(frame, routine_id),
+         {:ok, row} <- Custode.Panels.set(routine_id, html) do
+      reply(frame, %{status: row.status})
+    else
+      {:error, :too_large} -> fail(frame, "panel too large (20KB max)")
+      {:error, :panels_off} -> fail(frame, "agent panels are turned off")
+      {:error, message} -> fail(frame, message)
+    end
+  end
+end
+
 defmodule Custode.MCP.NotebookTools.CompactJournal do
   @moduledoc """
   Distill your OWN journal (#214): pass a summary that captures what your

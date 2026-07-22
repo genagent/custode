@@ -168,6 +168,56 @@ defmodule CustodeWeb.AgentLiveTest do
     assert html =~ "flat slot table"
   end
 
+  describe "agent-authored panels, gated (#100 v1)" do
+    setup %{routine: routine} do
+      previous = Application.get_env(:custode, :agent_panels)
+      on_exit(fn -> Application.put_env(:custode, :agent_panels, previous) end)
+      put_env!(:agent_panels, :gated)
+      stub_routine_agent!(routine)
+      :ok
+    end
+
+    test "a pending proposal shows a preview + approve; approve makes it current",
+         %{conn: conn, routine: routine} do
+      {:ok, _} = Custode.Panels.set(routine.id, "<b>proposed watchlist</b>")
+
+      {:ok, view, html} = live(conn, "/agents/#{routine.id}")
+      assert html =~ "panel update pending"
+      assert has_element?(view, "button", "approve")
+
+      view |> element("button", "approve") |> render_click()
+      html = render(view)
+      assert html =~ "agent-authored, approved"
+      refute html =~ "panel update pending"
+    end
+
+    test "panel HTML renders ONLY inside a sandboxed iframe, never as live markup",
+         %{conn: conn, routine: routine} do
+      # a script tag in the panel must never become a live tag in the page
+      {:ok, _} = Custode.Panels.set(routine.id, "<script>alert(1)</script><b>x</b>")
+      :ok = Custode.Panels.approve(routine.id)
+
+      {:ok, _view, html} = live(conn, "/agents/#{routine.id}")
+
+      # the iframe exists with an EMPTY sandbox (maximal restriction)
+      assert html =~ ~s(sandbox="")
+      # the panel content lives in srcdoc, HTML-attribute-escaped, so the
+      # raw <script> never appears as a parseable tag in the page DOM
+      refute html =~ "<script>alert(1)</script>"
+      assert html =~ "srcdoc="
+    end
+
+    test "reject clears the pending proposal", %{conn: conn, routine: routine} do
+      {:ok, _} = Custode.Panels.set(routine.id, "<b>nope</b>")
+
+      {:ok, view, _html} = live(conn, "/agents/#{routine.id}")
+      view |> element("button", "reject") |> render_click()
+
+      refute render(view) =~ "panel update pending"
+      assert Custode.Panels.current(routine.id) == nil
+    end
+  end
+
   describe "the working-state strip (#211)" do
     test "the latest worktree breadcrumb renders; a running turn shows in-flight",
          %{conn: conn, routine: routine} do
