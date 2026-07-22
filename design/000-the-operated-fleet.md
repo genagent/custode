@@ -287,6 +287,15 @@ survival trait across the family is explicit non-goals; the repeated
 cause of death was building a bespoke world instead of borrowing the
 one that already existed.
 
+In that spirit, one non-goal deserves stating before anyone asks for
+it: **parallel work within a repo is not planned.** One agent per repo,
+one gated item per sweep, sequential merges. Concurrent PRs against one
+repo buy a conflict cascade (three helpers landing in one evening spent
+their savings rebasing each other), while a sequential worker that runs
+all day and all night -- which is exactly what the guardrails exist to
+permit -- gets the same throughput without the churn. Slow, steady, and
+sequential is the design, not a limitation awaiting fixing.
+
 The family also settled the platform question by experiment. Rust built
 the best unit-scale tool (roba) and remains the right home for CLIs.
 The fleet belongs on the BEAM, and not as a matter of taste: every hot
