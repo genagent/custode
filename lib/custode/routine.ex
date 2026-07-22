@@ -262,7 +262,7 @@ defmodule Custode.Routine do
   @worker_mcp_tools ~w(
     list_routines agent_status start_agent prompt_agent await_agent
     agent_history approve_action reject_action run_job
-    journal_append todo_add todo_list todo_complete inbox_list inbox_mark_filed
+    journal_append compact_journal todo_add todo_list todo_complete inbox_list inbox_mark_filed
     remember recall forget
     repo_open_pr repo_comment repo_ready_pr repo_merge_pr
     repo_mark_issue_ready repo_mark_issue_blocked repo_review_pr

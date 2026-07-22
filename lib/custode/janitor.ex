@@ -7,9 +7,11 @@ defmodule Custode.Janitor do
     * feed entries past retention (the db is authoritative since #44)
     * FILED inbox notes past retention (unfiled notes are never touched)
 
-  Journals and memories are deliberately NOT here: they are the agents'
-  long-term selves and only shrink through semantic compaction (an agent
-  distilling before anything is deleted) -- the other half of #39.
+  Journals shrink only through the two-phase rule (#214): the agent
+  distills entries into a summary (marking them `compacted_at`), and only
+  THEN, once they also age out, does this sweep retire them. A journal
+  entry the agent has not distilled is immortal here. Memories are never
+  touched mechanically at all -- the agent's own `forget` is the only path.
 
   Retention is config (`config :custode, janitor: [...]`, days); a nil
   value disables that line. Every run that removes anything feeds a
@@ -28,7 +30,8 @@ defmodule Custode.Janitor do
     feed_days: 90,
     filed_notes_days: 30,
     ledger_detail_days: 90,
-    uploads_days: 30
+    uploads_days: 30,
+    journal_compacted_days: 30
   ]
 
   @impl Oban.Worker
@@ -41,7 +44,8 @@ defmodule Custode.Janitor do
         {"filed notes", prune_filed_notes()},
         {"idle sub-agents", reap_subagents()},
         {"ledger rows rolled up", rollup_ledger()},
-        {"stale uploads", prune_uploads()}
+        {"stale uploads", prune_uploads()},
+        {"compacted journal entries", prune_compacted_journal()}
       ]
       |> Enum.reject(fn {_what, count} -> count == 0 end)
 
@@ -68,6 +72,20 @@ defmodule Custode.Janitor do
   defp prune_feed do
     delete(retention(:feed_days), fn cutoff ->
       from(f in Custode.Feed.Entry, where: f.at < ^cutoff)
+    end)
+  end
+
+  # The two-phase rule (#214): journals shrink ONLY through the agent's own
+  # distillation. A journal entry is deleted here only if it is BOTH
+  # compacted (the agent folded it into a summary) AND aged out -- the
+  # summary carries its meaning forward, and the retention window keeps the
+  # raw entry available on the dashboard until then. Live (never-distilled)
+  # entries are immortal to this sweep by construction.
+  defp prune_compacted_journal do
+    delete(retention(:journal_compacted_days), fn cutoff ->
+      from(e in Custode.Notebook.JournalEntry,
+        where: not is_nil(e.compacted_at) and e.compacted_at < ^cutoff
+      )
     end)
   end
 

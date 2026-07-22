@@ -63,6 +63,7 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.OperatorTools.SpendToday, name: "spend_today")
 
   component(Custode.MCP.NotebookTools.JournalAppend, name: "journal_append")
+  component(Custode.MCP.NotebookTools.CompactJournal, name: "compact_journal")
   component(Custode.MCP.NotebookTools.TodoAdd, name: "todo_add")
   component(Custode.MCP.NotebookTools.TodoList, name: "todo_list")
   component(Custode.MCP.NotebookTools.TodoComplete, name: "todo_complete")
