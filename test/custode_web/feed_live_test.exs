@@ -46,4 +46,28 @@ defmodule CustodeWeb.FeedLiveTest do
     assert html =~ "beta backlog"
     assert html =~ "beta live"
   end
+
+  test "the category filter narrows by event kind and gates live inserts (#211)", %{conn: conn} do
+    Custode.Feed.record(%{event: "sensor", agent: "s", summary: "ci: nothing new"})
+    Custode.Feed.record(%{event: "needs_approval", agent: "w", action: "prune the notes"})
+    Custode.Feed.record(%{event: "turn", agent: "w", summary: "swept the yard"})
+
+    {:ok, view, html} = live(conn, "/feed?kind=attention")
+    assert html =~ "prune the notes"
+    refute html =~ "ci: nothing new"
+    refute html =~ "swept the yard"
+
+    # a live sensor entry stays out of the attention view
+    Custode.Feed.record(%{event: "sensor", agent: "s", summary: "ci: still nothing"})
+    refute render(view) =~ "ci: still nothing"
+
+    # a live attention entry lands
+    Custode.Feed.record(%{event: "needs_input", agent: "w", question: "which env?"})
+    assert render(view) =~ "which env?"
+
+    # the two axes compose: kind + agent
+    html = render_patch(view, "/feed?kind=turns&agent=w")
+    assert html =~ "swept the yard"
+    refute html =~ "prune the notes"
+  end
 end

@@ -87,6 +87,30 @@ defmodule CustodeWeb.Components do
   @doc "The status a feed event reports, or nil for activity events."
   def status_for_event(event), do: Map.get(@event_statuses, event)
 
+  # Feed categories (#211): the operator's cross-cutting lenses over the
+  # event vocabulary, ranked by guides/ui-hierarchy.md. "attention" is the
+  # rank-1/2 needs-a-human set; "turns" is the work; "sensors" is the noise
+  # you often want to hide. Everything not named here still shows under
+  # "all".
+  @feed_categories %{
+    "attention" => ~w(needs_approval needs_input paused budget_paused turn_failed doctor_failed),
+    "turns" => ~w(turn prompted),
+    "sensors" => ~w(sensor)
+  }
+
+  @doc "The feed filter categories, in display order (#211)."
+  def feed_categories, do: ~w(attention turns sensors)
+
+  @doc """
+  Does a feed event fall in `category`? `nil` (or "all") matches everything;
+  an unknown category matches nothing.
+  """
+  def feed_category_match?(_event, category) when category in [nil, "all"], do: true
+
+  def feed_category_match?(event, category) do
+    event in Map.get(@feed_categories, category, [])
+  end
+
   attr(:entry, :map, required: true)
   attr(:size, :string, default: "badge-xs")
 
