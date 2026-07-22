@@ -6,6 +6,8 @@ defmodule Custode.GitHub.Fetcher do
   and kept in `:persistent_term` -- routine refreshes must not shell out).
   """
 
+  @behaviour Custode.GitHub.FetcherBehaviour
+
   @query """
   query($owner: String!, $name: String!) {
     repository(owner: $owner, name: $name) {

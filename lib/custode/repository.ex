@@ -313,8 +313,34 @@ defmodule Custode.Repository do
   defp ops, do: Application.get_env(:custode, :repo_ops, Custode.Repository.Ops)
 end
 
+defmodule Custode.Repository.OpsBehaviour do
+  @moduledoc """
+  The contract behind the `:repo_ops` seam (#92): every GitHub read and
+  write verb the Repository server dispatches. Fakes implement this so a
+  drifted fake fails at compile time instead of mid-test.
+  """
+
+  @type owner :: String.t()
+  @type repo :: String.t()
+  @type result :: {:ok, term()} | {:error, term()}
+
+  @callback open_pr(owner, repo, map()) :: result
+  @callback comment(owner, repo, pos_integer(), String.t()) :: result
+  @callback ready_pr(owner, repo, pos_integer()) :: result
+  @callback merge_pr(owner, repo, pos_integer()) :: result
+  @callback list_issues(owner, repo, keyword() | map()) :: result
+  @callback view_issue(owner, repo, pos_integer()) :: result
+  @callback list_prs(owner, repo, keyword() | map()) :: result
+  @callback view_pr(owner, repo, pos_integer()) :: result
+  @callback pr_checks(owner, repo, pos_integer()) :: result
+  @callback pr_diff(owner, repo, pos_integer()) :: result
+  @callback review_state(owner, repo, pos_integer()) :: result
+end
+
 defmodule Custode.Repository.Ops do
   @moduledoc "The real GitHub reads and writes behind the verbs (gh_ex, operator token)."
+
+  @behaviour Custode.Repository.OpsBehaviour
 
   def open_pr(owner, repo, attrs) do
     with {:ok, client} <- client() do

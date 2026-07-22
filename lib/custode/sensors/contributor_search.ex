@@ -83,9 +83,18 @@ defmodule Custode.Sensors.ContributorSearch do
   end
 end
 
+defmodule Custode.Sensors.GhRunnerBehaviour do
+  @moduledoc "The `:gh_runner` contract (#92): argv list in, stdout out."
+
+  @callback run(argv :: [String.t()]) :: {:ok, String.t()} | {:error, String.t()}
+end
+
 defmodule Custode.Sensors.GhRunner do
   @moduledoc "The real gh invocation: argv list in, stdout out. Swapped in tests."
 
+  @behaviour Custode.Sensors.GhRunnerBehaviour
+
+  @impl true
   def run(argv) do
     case System.cmd("gh", argv, stderr_to_stdout: true) do
       {out, 0} -> {:ok, out}

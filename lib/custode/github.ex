@@ -26,3 +26,9 @@ defmodule Custode.GitHub do
   @doc "The configured fetcher module (the test seam)."
   def fetcher, do: Application.get_env(:custode, :github_fetcher, Custode.GitHub.Fetcher)
 end
+
+defmodule Custode.GitHub.FetcherBehaviour do
+  @moduledoc "The `:github_fetcher` contract (#92): one repo overview fetch."
+
+  @callback fetch(repo :: String.t()) :: {:ok, map()} | {:error, term()}
+end
