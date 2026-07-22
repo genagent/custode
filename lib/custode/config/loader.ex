@@ -117,6 +117,19 @@ defmodule Custode.Config.Loader do
     end
   end
 
+  @doc """
+  The path a write-back should target: `$CUSTODE_CONFIG` when set (whether or
+  not the file exists yet -- the first write CREATES it there), else the cwd
+  default. Contrast `file_path/0`, the READ resolution, where a set-but-absent
+  `CUSTODE_CONFIG` is a loud error.
+  """
+  def target_path do
+    case System.get_env("CUSTODE_CONFIG") do
+      path when is_binary(path) and path != "" -> path
+      _unset -> "routines.toml"
+    end
+  end
+
   @doc "The resolved routines file path, or nil when none is configured/present."
   def file_path do
     case System.get_env("CUSTODE_CONFIG") do
