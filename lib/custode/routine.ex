@@ -264,7 +264,7 @@ defmodule Custode.Routine do
     agent_history approve_action reject_action run_job
     journal_append compact_journal todo_add todo_list todo_complete inbox_list inbox_mark_filed
     remember recall forget
-    repo_open_pr repo_comment repo_ready_pr repo_merge_pr
+    repo_open_pr repo_open_issue repo_comment repo_ready_pr repo_merge_pr
     repo_mark_issue_ready repo_mark_issue_blocked repo_review_pr
     repo_list_issues repo_view_issue repo_list_prs repo_view_pr
     repo_pr_checks repo_pr_diff

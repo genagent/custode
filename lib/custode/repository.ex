@@ -131,6 +131,13 @@ defmodule Custode.Repository do
   """
   def open_pr(name, attrs), do: call(name, {:open_pr, attrs})
 
+  @doc """
+  Open an ISSUE (#235): the fleet's "create a backlog" primitive, not just
+  comment on one. `attrs`: title (conventional-commit style, enforced),
+  body, labels (list). Policy-checked like open_pr.
+  """
+  def open_issue(name, attrs), do: call(name, {:open_issue, attrs})
+
   @doc "Comment on an issue or PR by number."
   def comment(name, number, body), do: call(name, {:comment, number, body})
 
@@ -234,6 +241,22 @@ defmodule Custode.Repository do
     end
   end
 
+  def handle_call({:open_issue, attrs}, _from, state) do
+    title = to_string(get(attrs, :title) || "")
+
+    case check(state, :open_issue, title) do
+      :ok ->
+        issue_attrs =
+          %{title: title, body: get(attrs, :body) || ""}
+          |> maybe_labels(get(attrs, :labels))
+
+        state |> ops_result(:open_issue, [state.owner, state.repo, issue_attrs]) |> reply(state)
+
+      refusal ->
+        reply(refusal, state)
+    end
+  end
+
   def handle_call({:comment, number, body}, _from, state) do
     state |> ops_result(:comment, [state.owner, state.repo, number, body]) |> reply(state)
   end
@@ -307,6 +330,11 @@ defmodule Custode.Repository do
   # MCP params arrive atom-keyed, direct callers may pass strings
   defp get(attrs, key), do: attrs[key] || attrs[to_string(key)]
 
+  defp maybe_labels(attrs, labels) when is_list(labels) and labels != [],
+    do: Map.put(attrs, :labels, labels)
+
+  defp maybe_labels(attrs, _none), do: attrs
+
   defp ops_result(state, verb, args) do
     case apply(ops(), verb, args) do
       {:ok, data} ->
@@ -344,10 +372,10 @@ defmodule Custode.Repository do
         {:error,
          "policy merge: humans merge PR ##{subject} on #{state.name}; ask through a gate instead"}
 
-      verb == :open_pr and MapSet.member?(ids, :conventional_commits) and
+      verb in [:open_pr, :open_issue] and MapSet.member?(ids, :conventional_commits) and
           not conventional?(subject) ->
         {:error,
-         "policy conventional_commits: PR title #{inspect(subject)} must start with " <>
+         "policy conventional_commits: title #{inspect(subject)} must start with " <>
            "feat:/fix:/docs:/test:/chore:/refactor:/perf:/ci:/build: (scope and ! allowed)"}
 
       true ->
@@ -383,6 +411,7 @@ defmodule Custode.Repository.OpsBehaviour do
   @type result :: {:ok, term()} | {:error, term()}
 
   @callback open_pr(owner, repo, map()) :: result
+  @callback open_issue(owner, repo, map()) :: result
   @callback comment(owner, repo, pos_integer(), String.t()) :: result
   @callback ready_pr(owner, repo, pos_integer()) :: result
   @callback merge_pr(owner, repo, pos_integer()) :: result
@@ -403,6 +432,12 @@ defmodule Custode.Repository.Ops do
   def open_pr(owner, repo, attrs) do
     with {:ok, client} <- client() do
       unwrap(GhEx.PullRequests.create(client, owner, repo, attrs))
+    end
+  end
+
+  def open_issue(owner, repo, attrs) do
+    with {:ok, client} <- client() do
+      unwrap(GhEx.Issues.create(client, owner, repo, attrs))
     end
   end
 

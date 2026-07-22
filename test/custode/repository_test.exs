@@ -12,6 +12,11 @@ defmodule Custode.RepositoryTest do
       {:ok, %{"number" => 101, "html_url" => "https://x/#{owner}/#{repo}/pull/101"}}
     end
 
+    def open_issue(owner, repo, attrs) do
+      send(pid(), {:open_issue, owner, repo, attrs})
+      {:ok, %{"number" => 202, "html_url" => "https://x/#{owner}/#{repo}/issues/202"}}
+    end
+
     def comment(owner, repo, number, body) do
       send(pid(), {:comment, owner, repo, number, body})
       {:ok, %{"html_url" => "https://x/c/1"}}
@@ -114,6 +119,31 @@ defmodule Custode.RepositoryTest do
     # caller said draft: false; policy says draft anyway
     assert attrs.draft == true
     assert attrs.base == "main"
+  end
+
+  test "open_issue enforces conventional titles and passes labels through", %{repo: repo} do
+    assert {:error, message} = Repository.open_issue(repo, %{title: "do a thing"})
+    assert message =~ "policy conventional_commits"
+    refute_receive {:open_issue, _owner, _repo, _attrs}, 50
+
+    assert {:ok, issue} =
+             Repository.open_issue(repo, %{
+               title: "feat: do a thing",
+               body: "the details",
+               labels: ["workable"]
+             })
+
+    assert issue["number"] == 202
+    assert_receive {:open_issue, "acme", _bare, attrs}
+    assert attrs.title == "feat: do a thing"
+    assert attrs.body == "the details"
+    assert attrs.labels == ["workable"]
+  end
+
+  test "open_issue omits labels when none are given", %{repo: repo} do
+    assert {:ok, _issue} = Repository.open_issue(repo, %{title: "fix: a bug"})
+    assert_receive {:open_issue, "acme", _bare, attrs}
+    refute Map.has_key?(attrs, :labels)
   end
 
   test "merge_pr refuses with the policy named; nothing reaches GitHub", %{repo: repo} do

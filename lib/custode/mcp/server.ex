@@ -36,6 +36,7 @@ defmodule Custode.MCP.Server do
 
   # the repo verbs (issue #10): typed, policy-checked GitHub writes
   component(Custode.MCP.RepoTools.OpenPr, name: "repo_open_pr")
+  component(Custode.MCP.RepoTools.OpenIssue, name: "repo_open_issue")
   component(Custode.MCP.RepoTools.Comment, name: "repo_comment")
   component(Custode.MCP.RepoTools.ReadyPr, name: "repo_ready_pr")
   component(Custode.MCP.RepoTools.MergePr, name: "repo_merge_pr")
