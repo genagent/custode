@@ -61,6 +61,18 @@ defmodule Custode.Feed do
     from(f in Entry, where: f.agent == ^agent_id, order_by: [desc: f.id], limit: ^n) |> load()
   end
 
+  @doc "Distinct agent ids that have any feed entry, sorted (feed filter, #21)."
+  def agents do
+    Repo.all(
+      from(f in Entry,
+        where: not is_nil(f.agent) and f.agent != "?",
+        distinct: true,
+        order_by: f.agent,
+        select: f.agent
+      )
+    )
+  end
+
   @doc "Agents with any feed entry in the last `seconds` (ghost-tile source, #11)."
   def recent_agents(seconds) do
     cutoff = DateTime.add(DateTime.utc_now(), -seconds)
