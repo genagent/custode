@@ -524,8 +524,47 @@ defmodule CustodeWeb.FleetMetaRailTest do
 
     {:ok, view, _html} = live(build_conn(), "/")
 
-    assert has_element?(view, "#meta-rail .badge-warning", "#{gated} needs approval")
+    assert has_element?(view, "#meta-rail a[href='/']", "#{gated} needs approval")
     refute has_element?(view, "header .badge-warning")
+  end
+
+  test "the caretaker is a rail resident with a standing prompt box" do
+    workspace = tmp_workspace!()
+    keeper = uid("keeper")
+    test_pid = self()
+
+    put_env!(:routines, [
+      %{id: keeper, cron: "@daily", workspace: workspace, prompt: "tend", tags: [:meta]}
+    ])
+
+    {:ok, _pid} =
+      ObanClaude.Agent.start_agent(keeper,
+        enqueue_fun: fn args, meta ->
+          send(test_pid, {:enqueued, args, meta})
+          {:ok, :queued}
+        end
+      )
+
+    on_exit(fn -> ObanClaude.Agent.stop_agent(keeper) end)
+
+    {:ok, view, html} = live(build_conn(), "/")
+
+    # the rail holds a prompt form for the caretaker, not a bare tile
+    assert has_element?(view, "#meta-rail form[phx-submit=rail_prompt]")
+    assert html =~ "tell #{keeper}"
+
+    view
+    |> form("#meta-rail form[phx-submit=rail_prompt]", %{"text" => "how goes the fleet?"})
+    |> render_submit()
+
+    assert_receive {:enqueued, %{"prompt" => "how goes the fleet?"}, _meta}
+
+    # blank never sends
+    view
+    |> form("#meta-rail form[phx-submit=rail_prompt]", %{"text" => "   "})
+    |> render_submit()
+
+    refute_receive {:enqueued, _args, _meta}, 100
   end
 
   describe "advisor suggestion cards" do

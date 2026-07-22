@@ -180,12 +180,33 @@ defmodule CustodeWeb.Components do
 
   attr(:class, :string, default: nil)
 
-  @doc "Who is waiting on a human, or nothing at all when the fleet is calm."
+  @doc """
+  Who is waiting on a human, or nothing at all when the fleet is calm.
+  A badge stays a one-liner; long attention lists (several agents at
+  once) need `wrap` -- a soft warning block that wraps instead of
+  spilling out of its pill (#31's rail).
+  """
+  attr(:wrap, :boolean, default: false)
+
   def attention_chip(assigns) do
     assigns = assign(assigns, :attention, attention())
 
     ~H"""
-    <.link :if={@attention != []} navigate="/" class={["badge badge-warning gap-1", @class]}>
+    <.link
+      :if={@attention != [] && @wrap}
+      navigate="/"
+      class={[
+        "block rounded-lg bg-warning/20 px-2 py-1 text-xs font-medium text-warning-content/80",
+        @class
+      ]}
+    >
+      {attention_text(@attention)}
+    </.link>
+    <.link
+      :if={@attention != [] && !@wrap}
+      navigate="/"
+      class={["badge badge-warning gap-1 whitespace-nowrap", @class]}
+    >
       {attention_text(@attention)}
     </.link>
     """
