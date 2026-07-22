@@ -178,6 +178,33 @@ defmodule Custode.Config.WriteBackTest do
     end
   end
 
+  test "a runtime add serves its repo immediately; removal retires an orphaned server (#221)",
+       %{path: path} do
+    workspace = tmp_workspace!()
+
+    Application.put_env(:custode, :routines, [
+      %{id: "existing", cron: "@daily", workspace: workspace, prompt: "sweep"}
+    ])
+
+    Application.put_env(:custode, :sensors, [])
+    repo = "acme/" <> uid("served")
+    refute Custode.Repository.served?(repo)
+
+    {:ok, ^path} =
+      WriteBack.add_routine(%{
+        id: "server-check",
+        profile: :backlog_worker,
+        repo: repo,
+        working_dir: "/tmp/x"
+      })
+
+    # the newcomer's repo_* verbs would pass the served? gate right now
+    assert Custode.Repository.served?(repo)
+
+    {:ok, ^path} = WriteBack.remove_routine("server-check")
+    refute Custode.Repository.served?(repo)
+  end
+
   test "an edit in exs mode creates the file: the design 001 mode switch", %{path: path} do
     workspace = tmp_workspace!()
 

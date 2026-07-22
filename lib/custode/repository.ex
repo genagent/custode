@@ -62,6 +62,45 @@ defmodule Custode.Repository do
   @doc "Is this repo served? (Only served repos can be written to at all.)"
   def served?(name), do: match?([{_pid, _value}], Registry.lookup(@registry, name))
 
+  @doc """
+  Start the server for a repo added at runtime (#221): boot starts one per
+  served repo, but a conversational add_routine lands after boot -- without
+  this, the newcomer's repo_* verbs refuse "not served" until a restart.
+  Idempotent; a no-op when the repo is already served.
+  """
+  def ensure_served(name, routine_id) when is_binary(name) do
+    if served?(name) do
+      :ok
+    else
+      spec =
+        Elixir.Supervisor.child_spec({__MODULE__, %{name: name, routine_id: routine_id}},
+          id: {__MODULE__, name}
+        )
+
+      case Elixir.Supervisor.start_child(__MODULE__.Supervisor, spec) do
+        {:ok, _pid} -> :ok
+        {:error, {:already_started, _pid}} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  @doc """
+  Stop serving a repo when its last routine leaves the roster (#221's
+  inverse). A no-op when other routines still serve it or no server runs.
+  """
+  def stop_serving(name) when is_binary(name) do
+    still_served? = Enum.any?(served_repos(), &(&1.name == name))
+
+    if still_served? or not served?(name) do
+      :ok
+    else
+      _terminated = Elixir.Supervisor.terminate_child(__MODULE__.Supervisor, {__MODULE__, name})
+      _deleted = Elixir.Supervisor.delete_child(__MODULE__.Supervisor, {__MODULE__, name})
+      :ok
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # verbs
   # ---------------------------------------------------------------------------
