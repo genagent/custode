@@ -50,6 +50,29 @@ defmodule CustodeWeb.FleetLive do
     {:noreply, refresh(socket)}
   end
 
+  def handle_event("apply_suggestion", params, socket) do
+    %{"agent" => id, "field" => field, "proposed" => proposed} = params
+
+    with {:ok, changes} <- suggestion_changes(field, proposed),
+         {:ok, _path} <- WriteBack.update_routine(id, changes) do
+      Custode.Feed.record(%{
+        event: "advisor_applied",
+        agent: id,
+        field: field,
+        proposed: proposed,
+        summary: "operator applied suggestion: #{field} -> #{proposed}"
+      })
+
+      {:noreply,
+       socket
+       |> put_flash(:info, "#{id}: #{field} -> #{proposed} applied, live now")
+       |> refresh()}
+    else
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "apply refused: #{inspect(reason)}")}
+    end
+  end
+
   def handle_event("pause_all", _params, socket) do
     {:ok, _ids} = Custode.pause_all()
     {:noreply, refresh(socket)}
@@ -239,9 +262,11 @@ defmodule CustodeWeb.FleetLive do
   attr(:suggestion, :map, required: true)
 
   # An advisor's standing proposal (#124/#125) as a card in the rail: the
-  # change it wants, the evidence behind it, and how sure it is. Read-only on
-  # purpose -- advisors suggest and the operator is the actuator, so there is
-  # no accept button here until a gated write-back exists to sit behind it.
+  # change it wants, the evidence behind it, and how sure it is. The apply
+  # button (#192) writes through WriteBack.update_routine -- the operator
+  # clicking the dashboard is their own authority, same as the new-agent
+  # form; agents proposing the same change still go through the caretaker's
+  # gate. Only whitelisted fields render the button.
   defp suggestion_card(assigns) do
     ~H"""
     <div class="rounded-lg bg-base-100 p-2 text-xs shadow">
@@ -256,6 +281,16 @@ defmodule CustodeWeb.FleetLive do
         </.link>
         <span class="font-mono">{@suggestion["field"]}</span>
         {@suggestion["current"]} &rarr; <b>{@suggestion["proposed"]}</b>
+        <button
+          :if={applicable_field?(@suggestion["field"])}
+          class="btn btn-primary btn-xs ml-1"
+          phx-click="apply_suggestion"
+          phx-value-agent={@suggestion["agent"]}
+          phx-value-field={@suggestion["field"]}
+          phx-value-proposed={@suggestion["proposed"]}
+        >
+          apply
+        </button>
       </p>
       <p :if={@suggestion["evidence"]} class="mt-1 line-clamp-3 text-base-content/50">
         {@suggestion["evidence"]}
@@ -573,11 +608,36 @@ defmodule CustodeWeb.FleetLive do
   @suggestion_limit 3
 
   defp advisor_suggestions do
+    # an applied suggestion leaves the rail immediately: the advisor's
+    # seen-set stops the re-suggest, and the advisor_applied entry masks
+    # the already-recorded feed row for the rest of the window (#192)
+    applied =
+      "advisor_applied"
+      |> Custode.Feed.recent_by_event(limit: 50, since: @suggestion_window_s)
+      |> MapSet.new(&{&1["agent"], &1["field"], &1["proposed"]})
+
     "advisor_suggestion"
     |> Custode.Feed.recent_by_event(limit: 20, since: @suggestion_window_s)
+    |> Enum.reject(&({&1["agent"], &1["field"], &1["proposed"]} in applied))
     |> Enum.uniq_by(&{&1["advisor"], &1["agent"], &1["field"]})
     |> Enum.take(@suggestion_limit)
   end
+
+  # the three fields the advisor trio proposes, each with a typed parse;
+  # anything else renders read-only until an advisor exists to propose it
+  defp applicable_field?(field), do: field in ["model", "cron", "daily_budget_usd"]
+
+  defp suggestion_changes("model", value) when is_binary(value), do: {:ok, %{model: value}}
+  defp suggestion_changes("cron", value) when is_binary(value), do: {:ok, %{cron: value}}
+
+  defp suggestion_changes("daily_budget_usd", value) do
+    case Float.parse(value) do
+      {usd, ""} -> {:ok, %{daily_budget_usd: usd}}
+      _other -> {:error, {:unparseable_budget, value}}
+    end
+  end
+
+  defp suggestion_changes(field, _value), do: {:error, {:unsupported_field, field}}
 
   # sub-agents and ghosts carry no routine, so they are never meta
   defp meta?(%{routine: nil}), do: false
