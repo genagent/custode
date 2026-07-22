@@ -24,7 +24,7 @@ defmodule CustodeWeb.FleetLive do
 
     {:ok,
      socket
-     |> assign(tag_filter: nil, new_agent: %{open: false, preview: nil, error: nil})
+     |> assign(tag_filter: nil, new_agent: %{open: false, preview: nil, error: nil, params: %{}})
      |> refresh()}
   end
 
@@ -64,21 +64,21 @@ defmodule CustodeWeb.FleetLive do
   # (D5) driving the same WriteBack every other surface uses -- file + live
   # roster in one operation, the preview being the literal text appended.
   def handle_event("new_agent_open", _params, socket) do
-    {:noreply, assign(socket, new_agent: %{open: true, preview: nil, error: nil})}
+    {:noreply, assign(socket, new_agent: %{open: true, preview: nil, error: nil, params: %{}})}
   end
 
   def handle_event("new_agent_close", _params, socket) do
-    {:noreply, assign(socket, new_agent: %{open: false, preview: nil, error: nil})}
+    {:noreply, assign(socket, new_agent: %{open: false, preview: nil, error: nil, params: %{}})}
   end
 
   def handle_event("new_agent_change", %{"routine" => params}, socket) do
     new_agent =
       case form_attrs(params) do
         {:ok, attrs} ->
-          %{open: true, preview: WriteBack.render_routine(attrs), error: nil}
+          %{open: true, preview: WriteBack.render_routine(attrs), error: nil, params: params}
 
         {:error, message} ->
-          %{open: true, preview: nil, error: message}
+          %{open: true, preview: nil, error: message, params: params}
       end
 
     {:noreply, assign(socket, new_agent: new_agent)}
@@ -95,7 +95,7 @@ defmodule CustodeWeb.FleetLive do
 
       {:noreply,
        socket
-       |> assign(new_agent: %{open: false, preview: nil, error: nil})
+       |> assign(new_agent: %{open: false, preview: nil, error: nil, params: %{}})
        |> put_flash(:info, "#{attrs.id} added -- live now, scheduled at its next cron minute")
        |> refresh()}
     else
@@ -208,34 +208,69 @@ defmodule CustodeWeb.FleetLive do
           <div class="grid grid-cols-2 gap-2">
             <label class="form-control">
               <span class="label-text text-xs">id (required)</span>
-              <input name="routine[id]" class="input input-bordered input-sm" placeholder="my-worker" />
+              <input
+                name="routine[id]"
+                value={@new_agent.params["id"]}
+                class="input input-bordered input-sm"
+                placeholder="my-worker"
+              />
             </label>
             <label class="form-control">
               <span class="label-text text-xs">profile</span>
               <select name="routine[profile]" class="select select-bordered select-sm">
                 <option value="">(none -- bespoke)</option>
-                <option :for={p <- @profiles} value={p}>{p}</option>
+                <option
+                  :for={p <- @profiles}
+                  value={p}
+                  selected={to_string(p) == @new_agent.params["profile"]}
+                >
+                  {p}
+                </option>
               </select>
             </label>
             <label class="form-control">
               <span class="label-text text-xs">repo (owner/name)</span>
-              <input name="routine[repo]" class="input input-bordered input-sm" placeholder="owner/repo" />
+              <input
+                name="routine[repo]"
+                value={@new_agent.params["repo"]}
+                class="input input-bordered input-sm"
+                placeholder="owner/repo"
+              />
             </label>
             <label class="form-control">
               <span class="label-text text-xs">working_dir (absolute path)</span>
-              <input name="routine[working_dir]" class="input input-bordered input-sm" placeholder="/path/to/checkout" />
+              <input
+                name="routine[working_dir]"
+                value={@new_agent.params["working_dir"]}
+                class="input input-bordered input-sm"
+                placeholder="/path/to/checkout"
+              />
             </label>
             <label class="form-control">
               <span class="label-text text-xs">tags (comma separated)</span>
-              <input name="routine[tags]" class="input input-bordered input-sm" placeholder="rust, external" />
+              <input
+                name="routine[tags]"
+                value={@new_agent.params["tags"]}
+                class="input input-bordered input-sm"
+                placeholder="rust, external"
+              />
             </label>
             <label class="form-control">
               <span class="label-text text-xs">cron (profile default if blank)</span>
-              <input name="routine[cron]" class="input input-bordered input-sm" placeholder="@daily" />
+              <input
+                name="routine[cron]"
+                value={@new_agent.params["cron"]}
+                class="input input-bordered input-sm"
+                placeholder="@daily"
+              />
             </label>
             <label class="form-control col-span-2">
               <span class="label-text text-xs">prompt (profile default if blank)</span>
-              <input name="routine[prompt]" class="input input-bordered input-sm" />
+              <input
+                name="routine[prompt]"
+                value={@new_agent.params["prompt"]}
+                class="input input-bordered input-sm"
+              />
             </label>
           </div>
           <div :if={@new_agent.error} class="mt-2 text-sm text-error">{@new_agent.error}</div>
