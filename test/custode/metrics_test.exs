@@ -76,19 +76,24 @@ defmodule Custode.MetricsTest do
 
   test "by_model groups cost/tokens/outcomes per model (#111 display)" do
     agent = uid("bym")
+    # by_model/1 aggregates fleet-wide (that IS the display), so real model
+    # names collide with rows other tests push through the ledger; unique
+    # names keep this test about grouping, not suite ordering
+    big = uid("model-big")
+    small = uid("model-small")
 
     :ok =
       Custode.SpendLedger.record(agent, 1.0, "turn",
-        model: "opus",
+        model: big,
         usage: %{input: 100, output: 50}
       )
 
-    :ok = Custode.SpendLedger.record(agent, 0.1, "failed", model: "sonnet")
+    :ok = Custode.SpendLedger.record(agent, 0.1, "failed", model: small)
     :ok = Custode.SpendLedger.record(agent, 0.2, "turn")
 
     by_model = Custode.Metrics.by_model(2)
-    assert %{usd: 1.0, tokens: 150, turns: 1, failed: 0} = by_model["opus"]
-    assert %{turns: 1, failed: 1} = by_model["sonnet"]
+    assert %{usd: 1.0, tokens: 150, turns: 1, failed: 0} = by_model[big]
+    assert %{turns: 1, failed: 1} = by_model[small]
     assert by_model["(unrecorded)"].turns >= 1
   end
 
