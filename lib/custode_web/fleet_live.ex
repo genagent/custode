@@ -450,9 +450,14 @@ defmodule CustodeWeb.FleetLive do
           apply
         </button>
       </p>
-      <p :if={@suggestion["evidence"]} class="mt-1 line-clamp-3 text-base-content/50">
-        {@suggestion["evidence"]}
-      </p>
+      <details :if={@suggestion["evidence"]} class="group mt-1 text-base-content/50">
+        <summary
+          class="line-clamp-3 cursor-pointer list-none group-open:line-clamp-none"
+          title="click to expand the advisor's full reasoning"
+        >
+          {@suggestion["evidence"]}
+        </summary>
+      </details>
     </div>
     """
   end
