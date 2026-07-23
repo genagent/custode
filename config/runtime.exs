@@ -35,16 +35,22 @@ if config_env() != :test do
   end
 
   # custode.toml (#267 / design 003 slice 2): the operator config beyond the
-  # roster. Per-section wins-outright over the exs defaults; absent file is a
-  # no-op. Scalar sections only for now ([fleet]/[janitor]).
-  case Custode.Config.CustodeToml.load() do
-    {:ok, custode_path, custode_config} when custode_config != [] ->
-      IO.puts("custode: config loaded from #{custode_path}")
-      config :custode, custode_config
+  # roster -- [fleet], [janitor], [advisors], [server] and [ambient].
+  # Per-section wins-outright over the exs defaults; absent file is a no-op.
+  custode_config =
+    case Custode.Config.CustodeToml.load() do
+      {:ok, custode_path, [_ | _] = custode_config} ->
+        IO.puts("custode: config loaded from #{custode_path}")
+        config :custode, custode_config
+        custode_config
 
-    _none ->
-      :ok
-  end
+      _none ->
+        []
+    end
+
+  # The port the endpoint actually binds: config.exs's default unless
+  # [server] dashboard_port moved it. #65's check_origin below must name it.
+  dashboard_port = Custode.Config.CustodeToml.dashboard_port(custode_config, 4646)
 
   # Tailnet exposure (#65): CUSTODE_PUBLIC_HOST is the ts.net hostname that
   # `tailscale serve --bg http://127.0.0.1:4646` publishes. The endpoint
@@ -68,8 +74,8 @@ if config_env() != :test do
       url: [host: public_host, scheme: "https", port: 443],
       check_origin: [
         "https://#{public_host}",
-        "http://localhost:4646",
-        "http://127.0.0.1:4646"
+        "http://localhost:#{dashboard_port}",
+        "http://127.0.0.1:#{dashboard_port}"
       ]
 
     config :custode, dashboard_base_url: "https://#{public_host}"
