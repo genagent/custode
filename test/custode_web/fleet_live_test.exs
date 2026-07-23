@@ -43,6 +43,48 @@ defmodule CustodeWeb.FleetLiveTest do
     assert html =~ "beat"
   end
 
+  describe "role tiles and repo grouping (#243)" do
+    setup do
+      previous = Application.get_env(:custode, :routines)
+      on_exit(fn -> Application.put_env(:custode, :routines, previous) end)
+      ws = tmp_workspace!()
+      repo = "acme/" <> uid("grp")
+
+      solo = uid("solo")
+
+      Application.put_env(:custode, :routines, [
+        %{id: "wkr", profile: :backlog_worker, repo: repo, working_dir: "/tmp/g", tags: [:x]},
+        %{id: "wkr-steward", profile: :steward, repo: repo, working_dir: "/tmp/g", tags: [:x]},
+        %{id: solo, cron: "@daily", workspace: ws, prompt: "sweep"}
+      ])
+
+      %{repo: repo, solo: solo}
+    end
+
+    test "a repo's worker+steward pair renders grouped under a repo header",
+         %{conn: conn, repo: repo} do
+      {:ok, _view, html} = live(conn, "/")
+
+      # the repo header names the repo and both agents are present
+      assert html =~ repo
+      assert html =~ "2 agents"
+      assert html =~ "tile-wkr"
+      assert html =~ "tile-wkr-steward"
+
+      # each tile wears its role chip (leaning into roles)
+      assert html =~ "backlog_worker"
+      assert html =~ "steward"
+    end
+
+    test "a non-repo routine stays a solo tile (no group header)",
+         %{conn: conn, solo: solo} do
+      {:ok, _view, html} = live(conn, "/")
+      assert html =~ "tile-#{solo}"
+      # the solo's role chip is the assistant default it normalizes to
+      assert html =~ "assistant"
+    end
+  end
+
   test "the tile shows the agent's last message and live status",
        %{conn: conn, routine: routine} do
     stub_routine_agent!(routine)

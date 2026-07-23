@@ -259,7 +259,14 @@ defmodule CustodeWeb.FleetLive do
         <div class="min-w-0 flex-1">
           <p class="mb-2 text-xs text-base-content/40">sorted by recent activity</p>
           <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3">
-            <.tile :for={{id, tile} <- @tiles} id={id} tile={tile} />
+            <%= for row <- @tile_rows do %>
+              <%= case row do %>
+                <% {:solo, {id, tile}} -> %>
+                  <.tile id={id} tile={tile} />
+                <% {:group, repo, members} -> %>
+                  <.tile_group repo={repo} members={members} />
+              <% end %>
+            <% end %>
           </div>
         </div>
       </div>
@@ -532,6 +539,29 @@ defmodule CustodeWeb.FleetLive do
     """
   end
 
+  attr(:repo, :string, required: true)
+  attr(:members, :list, required: true)
+
+  # A repo's agents grouped under one header (#243): the worker+steward pair
+  # sits together as a single grid cell so the fleet page does not turn to
+  # soup. A tile is still a phone number -- this groups them, it does not
+  # merge them.
+  defp tile_group(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-base-300/60 bg-base-200/20 p-2">
+      <div class="mb-2 flex items-center gap-2 px-1">
+        <.link navigate={"/repos"} class="font-mono text-xs font-semibold text-base-content/50 hover:underline">
+          {@repo}
+        </.link>
+        <span class="text-xs text-base-content/30">{length(@members)} agents</span>
+      </div>
+      <div class="flex flex-col gap-2">
+        <.tile :for={{id, tile} <- @members} id={id} tile={tile} />
+      </div>
+    </div>
+    """
+  end
+
   attr(:id, :string, required: true)
   attr(:tile, :map, required: true)
 
@@ -539,7 +569,8 @@ defmodule CustodeWeb.FleetLive do
     ~H"""
     <div
       class={[
-        "card bg-base-100 shadow transition hover:shadow-lg",
+        "card shadow transition hover:shadow-lg",
+        tile_cadence_bg(@tile.routine),
         tile_ring(@tile.state)
       ]}
       id={"tile-#{@id}"}
@@ -578,6 +609,12 @@ defmodule CustodeWeb.FleetLive do
           :if={@tile.routine}
           class="-mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-base-content/40"
         >
+          <span
+            class="badge badge-outline badge-xs"
+            title={Custode.Roles.summary(@tile.routine.role)}
+          >
+            {@tile.routine.role}
+          </span>
           <span class="font-mono">{@tile.routine.cron}</span>
           <span :for={tag <- @tile.routine.tags} class="badge badge-ghost badge-xs">{tag}</span>
         </div>
@@ -651,6 +688,44 @@ defmodule CustodeWeb.FleetLive do
     </div>
     """
   end
+
+  # Fold the activity-sorted tiles into rows (#243): a repo with two or more
+  # agents (the worker+steward pressure design/006 names) becomes ONE grouped
+  # row so its agents sit adjacent under a repo header; everything else --
+  # single-agent repos, non-repo routines, ghosts -- stays a solo tile exactly
+  # as before. A group lands at its most-active member's position (the tiles
+  # come in pre-sorted), so activity ordering across groups is preserved and
+  # the pair stays together inside.
+  defp group_tiles(tiles) do
+    grouped =
+      tiles
+      |> Enum.frequencies_by(&tile_repo/1)
+      |> Enum.filter(fn {repo, count} -> is_binary(repo) and count >= 2 end)
+      |> Enum.map(fn {repo, _count} -> repo end)
+      |> MapSet.new()
+
+    {rows, _emitted} =
+      Enum.reduce(tiles, {[], MapSet.new()}, fn {_id, _tile} = entry, {rows, emitted} ->
+        repo = tile_repo(entry)
+
+        cond do
+          not MapSet.member?(grouped, repo) ->
+            {[{:solo, entry} | rows], emitted}
+
+          MapSet.member?(emitted, repo) ->
+            {rows, emitted}
+
+          true ->
+            members = Enum.filter(tiles, &(tile_repo(&1) == repo))
+            {[{:group, repo, members} | rows], MapSet.put(emitted, repo)}
+        end
+      end)
+
+    Enum.reverse(rows)
+  end
+
+  defp tile_repo({_id, %{routine: %{repo: repo}}}) when is_binary(repo), do: repo
+  defp tile_repo(_entry), do: nil
 
   defp refresh(socket) do
     routines = Routine.all()
@@ -733,6 +808,7 @@ defmodule CustodeWeb.FleetLive do
 
     assign(socket,
       tiles: tiles,
+      tile_rows: group_tiles(tiles),
       meta_tiles: Enum.sort_by(meta_tiles, fn {id, _tile} -> id end),
       suggestions: advisor_suggestions(),
       presence: Custode.Presence.status(),
@@ -867,6 +943,15 @@ defmodule CustodeWeb.FleetLive do
   # sort. nil stamps share a constant, leaving id as the tiebreak.
   defp activity_key(%DateTime{} = at), do: {0, -DateTime.to_unix(at, :microsecond)}
   defp activity_key(nil), do: {1, 0}
+
+  # Quiet-cadence roles (the steward, watchers, tutor) get a subtler card so a
+  # loud worker and a mostly-green @daily steward read differently (#243). The
+  # cadence comes from the role registry, not the view.
+  defp tile_cadence_bg(%{role: role}) do
+    if Custode.Roles.cadence(role) == :quiet, do: "bg-base-100/60", else: "bg-base-100"
+  end
+
+  defp tile_cadence_bg(_no_routine), do: "bg-base-100"
 
   defp tile_ring(:ended), do: "opacity-60"
   defp tile_ring(:awaiting_permission), do: "ring-2 ring-warning"
