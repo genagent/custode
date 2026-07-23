@@ -362,19 +362,103 @@ defmodule CustodeWeb.Components do
   Rendered expanded -- the operator asked, so the answer leads.
   """
   def prompt_answer(assigns) do
+    agent = assigns.entry["agent"]
+    {response, response_images} = attachments(assigns.entry["response"], agent)
+    {prompt, prompt_images} = attachments(prompt_text(assigns.entry), agent)
+
+    assigns =
+      assign(assigns,
+        response: response,
+        response_images: response_images,
+        prompt: prompt,
+        prompt_images: prompt_images
+      )
+
     ~H"""
     <div
-      :if={@entry["response"]}
+      :if={@response || @response_images != []}
       class="agent-md mt-2 rounded border-l-2 border-primary/40 bg-base-200/60 p-2 text-sm"
     >
-      <.markdown text={@entry["response"]} />
+      <.markdown :if={@response} text={@response} />
+      <.image_thumbnails images={@response_images} />
     </div>
     <div
-      :if={@entry["event"] == "prompted" && @entry["prompt"]}
-      class="mt-2 whitespace-pre-wrap rounded border-l-2 border-primary/40 bg-base-200/60 p-2 font-mono text-sm"
-    >{@entry["prompt"]}</div>
+      :if={@prompt || @prompt_images != []}
+      class="mt-2 rounded border-l-2 border-primary/40 bg-base-200/60 p-2 text-sm"
+    >
+      <div :if={@prompt} class="whitespace-pre-wrap font-mono">{@prompt}</div>
+      <.image_thumbnails images={@prompt_images} />
+    </div>
     """
   end
+
+  attr(:images, :list, required: true)
+
+  @doc """
+  The images that rode along with a prompt (#180 slice 3), as thumbnails.
+
+  Each links to the full-size file on the agent's own upload route. An image
+  the janitor has already aged out of `uploads/` (`:uploads_days`, 30 by
+  default, while the feed entry naming it lives 90) renders as a filename
+  chip instead -- the attachment happened either way, and a chip says so
+  where a broken image would not.
+  """
+  def image_thumbnails(assigns) do
+    ~H"""
+    <div :if={@images != []} class="mt-2 flex flex-wrap items-center gap-2">
+      <a
+        :for={image <- @images}
+        :if={image.url}
+        href={image.url}
+        target="_blank"
+        rel="noopener"
+        title={image.path}
+      >
+        <img
+          src={image.url}
+          alt={image.name}
+          class="h-24 w-24 rounded border border-base-300 object-cover"
+        />
+      </a>
+      <span
+        :for={image <- @images}
+        :if={is_nil(image.url)}
+        class="badge badge-ghost badge-sm font-mono"
+        title={image.path}
+      >
+        {image.name}
+      </span>
+    </div>
+    """
+  end
+
+  # Only a `prompted` entry carries the operator's own words; every other
+  # event's `prompt`, if any, is not the thing this block shows.
+  defp prompt_text(%{"event" => "prompted"} = entry), do: entry["prompt"]
+  defp prompt_text(_entry), do: nil
+
+  # The line agent_live composes onto a prompt when an image rides along
+  # (#180): `attached image: <absolute path> -- Read it before answering`.
+  # It is plumbing addressed to the agent, so once the picture renders the
+  # sentence is noise -- the text keeps the operator's words, the thumbnail
+  # carries the attachment.
+  @attachment_line ~r/^attached image: (\S+)(?: -- [^\n]*)?$/m
+
+  defp attachments(text, agent) when is_binary(text) do
+    images =
+      @attachment_line
+      |> Regex.scan(text)
+      |> Enum.map(fn [_line, path] ->
+        %{path: path, name: Path.basename(path), url: Custode.Uploads.url(agent, path)}
+      end)
+
+    case text |> String.replace(@attachment_line, "") |> String.trim() do
+      "" -> {nil, images}
+      remaining -> {remaining, images}
+    end
+  end
+
+  defp attachments(_text, _agent), do: {nil, []}
 
   attr(:overview, :any, required: true)
 
