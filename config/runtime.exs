@@ -20,7 +20,15 @@ if config_env() != :test do
   case Custode.Config.Loader.load() do
     {:ok, path, routines, sensors, profiles} ->
       IO.puts("custode: roster loaded from #{path}")
-      config :custode, routines: routines, sensors: sensors, profiles: profiles
+      config :custode, routines: routines, sensors: sensors
+
+      # profiles ride the same file (#236), but only override the config.exs
+      # defaults when the file actually declares a [[profiles]] section. A
+      # legacy roster (routines only, no profiles) must NOT wipe the config
+      # profiles its routines inherit from -- that would crash the boot.
+      if map_size(profiles) > 0 do
+        config :custode, profiles: profiles
+      end
 
     :no_file ->
       :ok

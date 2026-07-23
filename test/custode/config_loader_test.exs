@@ -51,6 +51,58 @@ defmodule Custode.Config.LoaderTest do
     assert sensor.cron == "*/15 * * * *"
   end
 
+  test "a routines-only file parses to an empty profile map (no [[profiles]] section)" do
+    {_routines, _sensors, profiles} = Loader.parse!(@toml)
+    assert profiles == %{}
+  end
+
+  test "a [[profiles]] section parses into the %{name => envelope} shape" do
+    toml =
+      @toml <>
+        """
+
+        [[profiles]]
+        name = "steward"
+        cron = "@daily"
+        role = "steward"
+        model = "sonnet"
+        tags = ["repo", "upkeep"]
+        sensors = ["ci"]
+        [profiles.approved_args]
+        permission_mode = "bypass_permissions"
+        """
+
+    {_routines, _sensors, profiles} = Loader.parse!(toml)
+    assert profiles.steward.role == :steward
+    assert profiles.steward.tags == [:repo, :upkeep]
+    assert profiles.steward.sensors == [:ci]
+    assert profiles.steward.approved_args == %{"permission_mode" => "bypass_permissions"}
+  end
+
+  test "apply_profiles/1 leaves config profiles intact for a profile-less file (#236 regression)" do
+    # the bug: a legacy routines.toml (routines only, no [[profiles]]) parsed
+    # to %{} and, applied strictly, wiped every config.exs profile the running
+    # routines inherit from -- crashing the boot with "key :prompt not found".
+    previous = Application.get_env(:custode, :profiles)
+
+    try do
+      Application.put_env(:custode, :profiles, %{backlog_worker: %{role: :backlog_worker}})
+
+      # a profile-less file must NOT override
+      :ok = Loader.apply_profiles(%{})
+
+      assert Application.get_env(:custode, :profiles) == %{
+               backlog_worker: %{role: :backlog_worker}
+             }
+
+      # a file that DOES declare profiles wins outright (D1)
+      Loader.apply_profiles(%{steward: %{role: :steward}})
+      assert Application.get_env(:custode, :profiles) == %{steward: %{role: :steward}}
+    after
+      Application.put_env(:custode, :profiles, previous)
+    end
+  end
+
   test "a parsed worker entry survives Routine.normalize with the profile applied" do
     previous = Application.get_env(:custode, :routines)
     {[worker, _manual], _sensors, _} = Loader.parse!(@toml)
