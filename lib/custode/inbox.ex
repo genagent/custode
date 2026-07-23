@@ -2,10 +2,13 @@ defmodule Custode.Inbox do
   @moduledoc """
   The single funnel for programmatic inbox notes -- the console's `note/1`,
   one-shot job reports, gate restart notices, and sensors all drop through
-  here. Dropping a note does two things:
+  here. Dropping a note does three things:
 
     1. writes the note file into the routine's `inbox/`
-    2. fires the EVENT KICKOFF: for a routine with `on_note: :beat` (the
+    2. records an `inbox_note` feed entry (#261): a dropped note is a fleet
+       event, and until this it left no trace but a file on disk, so the
+       Digest and every advisor reading the feed were blind to inbox volume
+    3. fires the EVENT KICKOFF: for a routine with `on_note: :beat` (the
        default), a debounced Tick is scheduled (~20s out, Oban-unique per
        agent), so a burst of notes wakes the agent exactly once, shortly
        after the last one lands
@@ -14,7 +17,7 @@ defmodule Custode.Inbox do
   judgment) and makes job reports and restart notices wake their agents
   promptly instead of at the next cron boundary. Notes dropped by hand
   (files created outside the BEAM) are not detected -- beat manually, or
-  wait for the schedule.
+  wait for the schedule, and no feed entry is recorded for them either.
   """
 
   alias ObanClaude.Agent.Tick
@@ -33,6 +36,7 @@ defmodule Custode.Inbox do
       path = routine.workspace |> Path.expand() |> Path.join("inbox") |> Path.join(name)
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, content)
+      record(routine.id, name, "note dropped in #{routine.id}'s inbox: #{name}")
       maybe_beat(routine)
       {:ok, path}
     end
@@ -82,11 +86,26 @@ defmodule Custode.Inbox do
     File.write!(path, content)
 
     case owner_of(inbox_dir) do
-      nil -> :ok
-      routine -> maybe_beat(routine)
+      nil ->
+        # no routine owns this directory, so the entry is the fleet's rather
+        # than an agent's, and it names the directory it landed in
+        record("custode", name, "note dropped in #{inbox_dir}: #{name}")
+
+      routine ->
+        record(routine.id, name, "note dropped in #{routine.id}'s inbox: #{name}")
+        maybe_beat(routine)
     end
 
     {:ok, path}
+  end
+
+  defp record(agent_id, name, summary) do
+    Custode.Feed.record(%{
+      event: "inbox_note",
+      agent: agent_id,
+      note: name,
+      summary: summary
+    })
   end
 
   defp owner_of(inbox_dir) do
