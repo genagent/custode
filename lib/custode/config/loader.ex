@@ -83,6 +83,34 @@ defmodule Custode.Config.Loader do
     "args" => :args
   }
 
+  # Keys allowed on a PROFILE entry (#236): the envelope a routine inherits.
+  # A superset of the routine overrides (minus id/profile, which are
+  # instance-level) plus `sensors` (a profile derives per-routine sensors).
+  # `name` is the map key, handled specially. Same loud-on-typo contract.
+  @profile_keys %{
+    "cron" => :cron,
+    "prompt" => :prompt,
+    "role" => :role,
+    "mcp" => :mcp,
+    "model" => :model,
+    "effort" => :effort,
+    "agent" => :agent,
+    "workspace" => :workspace,
+    "working_dir" => :working_dir,
+    "hermetic" => :hermetic,
+    "max_budget_usd" => :max_budget_usd,
+    "daily_budget_usd" => :daily_budget_usd,
+    "daily_budget_tokens" => :daily_budget_tokens,
+    "timeout_ms" => :timeout_ms,
+    "max_turns" => :max_turns,
+    "tags" => :tags,
+    "sensors" => :sensors,
+    "system_prompt" => :system_prompt,
+    "system_prompt_file" => :system_prompt_file,
+    "extra_allowed_tools" => :extra_allowed_tools,
+    "approved_args" => :approved_args
+  }
+
   # values that are atoms in the exs shape and strings in TOML
   @atom_valued [:profile, :role, :effort]
 
@@ -100,8 +128,8 @@ defmodule Custode.Config.Loader do
         :no_file
 
       path ->
-        {routines, sensors} = parse!(File.read!(path), path)
-        {:ok, path, routines, sensors}
+        {routines, sensors, profiles} = parse!(File.read!(path), path)
+        {:ok, path, routines, sensors, profiles}
     end
   end
 
@@ -112,10 +140,14 @@ defmodule Custode.Config.Loader do
   shape as `load/0`.
   """
   def load! do
-    with {:ok, path, routines, sensors} <- load() do
+    with {:ok, path, routines, sensors, profiles} <- load() do
       Application.put_env(:custode, :routines, routines)
       Application.put_env(:custode, :sensors, sensors)
-      {:ok, path, routines, sensors}
+      # D1 for profiles too (#236): once a file exists it owns the profile
+      # map outright; WriteBack.ensure_file! renders the config.exs profiles
+      # into the first file so nothing is dropped on the exs -> file switch.
+      Application.put_env(:custode, :profiles, profiles)
+      {:ok, path, routines, sensors, profiles}
     end
   end
 
@@ -162,7 +194,24 @@ defmodule Custode.Config.Loader do
 
     sensors = for entry <- Map.get(doc, "sensors", []), do: convert(entry, @sensor_keys, source)
 
-    {routines, Enum.map(sensors, &resolve_sensor_module(&1, source))}
+    profiles =
+      for entry <- Map.get(doc, "profiles", []), into: %{}, do: convert_profile(entry, source)
+
+    {routines, Enum.map(sensors, &resolve_sensor_module(&1, source)), profiles}
+  end
+
+  # A [[profiles]] entry: `name` becomes the map key (an atom, the same shape
+  # config.exs uses), the rest converts through @profile_keys. A profile with
+  # no name is a boot error -- an unkeyable envelope is drift.
+  defp convert_profile(entry, source) do
+    case Map.fetch(entry, "name") do
+      {:ok, name} when is_binary(name) and name != "" ->
+        envelope = convert(Map.delete(entry, "name"), @profile_keys, source)
+        {String.to_atom(name), envelope}
+
+      _missing ->
+        raise "#{source}: a [[profiles]] entry has no name"
+    end
   end
 
   defp convert(entry, allowed, source) do
@@ -179,6 +228,8 @@ defmodule Custode.Config.Loader do
   defp convert_value(:cron, cron), do: cron
   # tags are an open vocabulary the operator owns; the file is trusted input
   defp convert_value(:tags, tags), do: Enum.map(tags, &String.to_atom/1)
+  # sensors in a profile are atoms (e.g. [:ci]) the same as tags
+  defp convert_value(:sensors, sensors), do: Enum.map(sensors, &String.to_atom/1)
 
   defp convert_value(key, value) when key in @atom_valued and is_binary(value),
     do: String.to_atom(value)

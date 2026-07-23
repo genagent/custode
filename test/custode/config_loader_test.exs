@@ -31,7 +31,7 @@ defmodule Custode.Config.LoaderTest do
   """
 
   test "parses assignments into the exs shape normalize/1 consumes" do
-    {[worker, manual], [sensor]} = Loader.parse!(@toml)
+    {[worker, manual], [sensor], _} = Loader.parse!(@toml)
 
     assert worker == %{
              id: "redisctl",
@@ -53,7 +53,7 @@ defmodule Custode.Config.LoaderTest do
 
   test "a parsed worker entry survives Routine.normalize with the profile applied" do
     previous = Application.get_env(:custode, :routines)
-    {[worker, _manual], _sensors} = Loader.parse!(@toml)
+    {[worker, _manual], _sensors, _} = Loader.parse!(@toml)
 
     try do
       # drive it through the real choke point: the profile supplies the loop
@@ -86,7 +86,7 @@ defmodule Custode.Config.LoaderTest do
     system_prompt_file = "#{orders}"
     """
 
-    {[worker], []} = Loader.parse!(toml)
+    {[worker], [], _} = Loader.parse!(toml)
 
     # the loader keeps it a string path -- no read, no body in the roster
     assert worker.system_prompt_file == orders
@@ -135,7 +135,7 @@ defmodule Custode.Config.LoaderTest do
     System.put_env("CUSTODE_CONFIG", path)
 
     try do
-      assert {:ok, ^path, [_, _], [_]} = Loader.load()
+      assert {:ok, ^path, [_, _], [_], _} = Loader.load()
     after
       System.delete_env("CUSTODE_CONFIG")
       File.rm(path)

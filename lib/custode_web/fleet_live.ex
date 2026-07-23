@@ -175,7 +175,7 @@ defmodule CustodeWeb.FleetLive do
     else
       attrs =
         %{id: id}
-        |> form_put(params, "profile", fn v -> String.to_existing_atom(v) end)
+        |> form_put(params, "profile", &known_profile!/1)
         |> form_put(params, "cron")
         |> form_put(params, "repo")
         |> form_put(params, "working_dir")
@@ -193,6 +193,16 @@ defmodule CustodeWeb.FleetLive do
     end
   rescue
     ArgumentError -> {:error, "unknown profile #{inspect(params["profile"])}"}
+  end
+
+  # An unknown profile is one that is not a KEY in the profile map -- not
+  # merely a string that fails to be an existing atom. Checking membership
+  # (not just to_existing_atom raising) makes the guard robust to unrelated
+  # atoms that happen to share the name. Either way it raises ArgumentError,
+  # which the caller's rescue turns into the "unknown profile" message.
+  defp known_profile!(value) do
+    atom = String.to_existing_atom(value)
+    if Map.has_key?(Custode.Routine.profiles(), atom), do: atom, else: raise(ArgumentError)
   end
 
   defp form_put(attrs, params, key, convert \\ & &1) do

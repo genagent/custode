@@ -6,6 +6,7 @@ defmodule CustodeWeb.AgentLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
+  alias Custode.Config.Loader
   alias Custode.Test.FakeGitHubFetcher
   alias ObanClaude.Agent
 
@@ -32,6 +33,13 @@ defmodule CustodeWeb.AgentLiveTest do
     {:ok, _pid} = Agent.start_agent(routine.id, enqueue_fun: enqueue_fun)
     on_exit(fn -> Agent.stop_agent(routine.id) end)
     :ok
+  end
+
+  # The routine's own raw entry parsed out of the roster file -- so an
+  # assertion about a routine's baked fields ignores the [[profiles]] dump.
+  defp raw_entry(roster, id) do
+    {routines, _sensors, _profiles} = Loader.parse!(File.read!(roster), roster)
+    Enum.find(routines, &(&1.id == id))
   end
 
   test "renders the whole picture: notebook, memory, activity, machine log",
@@ -442,8 +450,10 @@ defmodule CustodeWeb.AgentLiveTest do
 
       assert File.read!(roster) =~ ~s(daily_budget_usd = 75.5)
       assert Custode.Routine.get(routine.id).daily_budget_usd == 75.5
-      # the raw entry stayed raw: no baked-in profile defaults
-      refute File.read!(roster) =~ "max_turns"
+      # the raw entry stayed raw: no baked-in profile defaults. Checked on
+      # the routine's own raw entry, not the whole file -- the file now also
+      # carries the [[profiles]] dump (#236), which has its own max_turns.
+      refute Map.has_key?(raw_entry(roster, routine.id), :max_turns)
 
       # re-open (fresh raw) and clear the override
       view |> element("button", "edit") |> render_click()
@@ -452,7 +462,7 @@ defmodule CustodeWeb.AgentLiveTest do
       |> form("#edit-agent-modal form", %{"routine" => %{"daily_budget_usd" => ""}})
       |> render_submit()
 
-      refute File.read!(roster) =~ "daily_budget_usd"
+      refute Map.has_key?(raw_entry(roster, routine.id), :daily_budget_usd)
     end
 
     test "a bad value is refused in place, typed fields intact", %{conn: conn, routine: routine} do
