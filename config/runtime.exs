@@ -18,9 +18,9 @@ if config_env() != :test do
   # merged). `config/2` (not put_env) so the values land through the normal
   # runtime-config merge.
   case Custode.Config.Loader.load() do
-    {:ok, path, routines, sensors} ->
+    {:ok, path, routines, sensors, profiles} ->
       IO.puts("custode: roster loaded from #{path}")
-      config :custode, routines: routines, sensors: sensors
+      config :custode, routines: routines, sensors: sensors, profiles: profiles
 
     :no_file ->
       :ok

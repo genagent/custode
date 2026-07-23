@@ -276,6 +276,8 @@ defmodule Custode.Routine do
     beat drop_note list_gates feed_tail pause_agent resume_agent spend_today
     preview_routine add_routine preview_routine_edit update_routine
     remove_routine
+    preview_profile define_profile preview_profile_edit update_profile
+    remove_profile
   )
 
   defp mcp_allowlist(:caretaker),

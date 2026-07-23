@@ -13,12 +13,14 @@ defmodule Custode.Config.WriteBackTest do
     System.put_env("CUSTODE_CONFIG", path)
     previous_routines = Application.get_env(:custode, :routines)
     previous_sensors = Application.get_env(:custode, :sensors)
+    previous_profiles = Application.get_env(:custode, :profiles)
 
     on_exit(fn ->
       System.delete_env("CUSTODE_CONFIG")
       File.rm(path)
       Application.put_env(:custode, :routines, previous_routines)
       Application.put_env(:custode, :sensors, previous_sensors)
+      Application.put_env(:custode, :profiles, previous_profiles)
     end)
 
     %{path: path}
@@ -51,7 +53,7 @@ defmodule Custode.Config.WriteBackTest do
 
     # the file now exists, carries BOTH routines, and the env was reloaded
     assert File.exists?(path)
-    {:ok, ^path, routines, _sensors} = Loader.load()
+    {:ok, ^path, routines, _sensors, _profiles} = Loader.load()
     assert Enum.map(routines, & &1.id) == ["existing", "newbie"]
 
     # the running roster picked it up in the same operation (no restart)
@@ -73,7 +75,7 @@ defmodule Custode.Config.WriteBackTest do
     assert text =~ ~s(profile = "backlog_worker")
     assert text =~ ~s(tags = ["rust", "external"])
     # and the rendered text is valid TOML the loader accepts
-    {[parsed], []} = Loader.parse!(text)
+    {[parsed], [], _} = Loader.parse!(text)
     assert parsed.id == "shown"
     assert parsed.profile == :backlog_worker
   end
@@ -108,7 +110,7 @@ defmodule Custode.Config.WriteBackTest do
     test "edits swap fields on the RAW entry; profile defaults stay unbaked", %{path: path} do
       assert {:ok, ^path} = WriteBack.update_routine("newbie", %{daily_budget_usd: 75.0})
 
-      {[_existing, raw], []} = Loader.parse!(File.read!(path), path)
+      {[_existing, raw], [], _} = Loader.parse!(File.read!(path), path)
       assert raw.daily_budget_usd == 75.0
       # the assignment stayed an assignment: no profile-supplied default
       # (model, cron, prompt...) got baked into the file by the rewrite
@@ -121,11 +123,11 @@ defmodule Custode.Config.WriteBackTest do
 
     test "a nil change drops the override so the profile serves again", %{path: path} do
       {:ok, ^path} = WriteBack.update_routine("newbie", %{model: "opus"})
-      {[_, raw], []} = Loader.parse!(File.read!(path), path)
+      {[_, raw], [], _} = Loader.parse!(File.read!(path), path)
       assert raw.model == "opus"
 
       {:ok, ^path} = WriteBack.update_routine("newbie", %{model: nil})
-      {[_, raw], []} = Loader.parse!(File.read!(path), path)
+      {[_, raw], [], _} = Loader.parse!(File.read!(path), path)
       refute Map.has_key?(raw, :model)
     end
 
@@ -146,7 +148,7 @@ defmodule Custode.Config.WriteBackTest do
       {:ok, ^path} = WriteBack.update_routine("newbie", %{max_turns: 99})
       after_edit = File.read!(path)
       assert after_edit =~ "# hands off: pinned by the operator"
-      {[_, raw], []} = Loader.parse!(after_edit, path)
+      {[_, raw], [], _} = Loader.parse!(after_edit, path)
       assert raw.max_turns == 99
     end
 
@@ -169,7 +171,7 @@ defmodule Custode.Config.WriteBackTest do
     test "remove_routine splices the section out and the roster forgets it", %{path: path} do
       assert {:ok, ^path} = WriteBack.remove_routine("newbie")
 
-      {[only], []} = Loader.parse!(File.read!(path), path)
+      {[only], [], _} = Loader.parse!(File.read!(path), path)
       assert only.id == "existing"
       assert Custode.Routine.get("newbie") == nil
       assert Custode.Routine.get("existing")
@@ -219,8 +221,114 @@ defmodule Custode.Config.WriteBackTest do
 
     # the file was born from the whole live roster with the edit applied
     assert File.exists?(path)
-    {[raw], []} = Loader.parse!(File.read!(path), path)
+    {[raw], [], _} = Loader.parse!(File.read!(path), path)
     assert raw.id == "solo"
     assert raw.max_turns == 20
+  end
+
+  # --- profiles (#236) ---
+
+  defp seed_profiles(path) do
+    Application.put_env(:custode, :routines, [])
+    Application.put_env(:custode, :sensors, [])
+
+    Application.put_env(:custode, :profiles, %{
+      tutor: %{cron: "@daily", role: :tutor, model: "sonnet", max_turns: 15}
+    })
+
+    refute File.exists?(path)
+  end
+
+  defp new_envelope do
+    %{
+      cron: "@daily",
+      prompt: "do your sweep",
+      role: :backlog_worker,
+      model: "sonnet",
+      tags: [:repo],
+      sensors: [:ci],
+      extra_allowed_tools: ["Bash(git log:*)"],
+      approved_args: %{"permission_mode" => "bypass_permissions", "model" => "opus"}
+    }
+  end
+
+  test "add_profile round-trips a new profile through the real loader", %{path: path} do
+    seed_profiles(path)
+
+    assert {:ok, ^path} = WriteBack.add_profile("reviewer", new_envelope())
+
+    # the file exists, carries BOTH profiles, and the env reloaded (D1)
+    {:ok, ^path, _routines, _sensors, profiles} = Loader.load()
+    assert Map.has_key?(profiles, :tutor)
+    assert profiles.reviewer.role == :backlog_worker
+    assert profiles.reviewer.sensors == [:ci]
+    assert profiles.reviewer.approved_args["permission_mode"] == "bypass_permissions"
+
+    # a routine can inherit it right now, no restart
+    assert Application.get_env(:custode, :profiles).reviewer.model == "sonnet"
+  end
+
+  test "add_profile refuses a duplicate name", %{path: path} do
+    seed_profiles(path)
+    assert {:ok, ^path} = WriteBack.add_profile("reviewer", new_envelope())
+
+    assert {:error, {:duplicate_profile, "reviewer"}} =
+             WriteBack.add_profile("reviewer", new_envelope())
+  end
+
+  test "add_profile refuses an unknown envelope key", %{path: path} do
+    seed_profiles(path)
+    assert {:error, {:unknown_keys, [:bogus]}} = WriteBack.add_profile("x", %{bogus: 1})
+  end
+
+  test "update_profile merges changes and drops nil keys", %{path: path} do
+    seed_profiles(path)
+    assert {:ok, ^path} = WriteBack.add_profile("reviewer", new_envelope())
+
+    assert {:ok, ^path} =
+             WriteBack.update_profile("reviewer", %{model: "opus", extra_allowed_tools: nil})
+
+    {:ok, ^path, _routines, _sensors, profiles} = Loader.load()
+    assert profiles.reviewer.model == "opus"
+    refute Map.has_key?(profiles.reviewer, :extra_allowed_tools)
+    # the other profile survives the splice byte-for-byte
+    assert profiles.tutor.role == :tutor
+  end
+
+  test "remove_profile refuses while a routine wears it, allows once orphaned", %{path: path} do
+    seed_profiles(path)
+    assert {:ok, ^path} = WriteBack.add_profile("reviewer", new_envelope())
+
+    workspace = tmp_workspace!()
+
+    assert {:ok, ^path} =
+             WriteBack.add_routine(%{
+               id: "wearer",
+               profile: :reviewer,
+               workspace: workspace,
+               repo: "example/wearer",
+               working_dir: "/tmp/wearer"
+             })
+
+    assert {:error, {:profile_in_use, ["wearer"]}} = WriteBack.remove_profile("reviewer")
+
+    {:ok, ^path} = WriteBack.remove_routine("wearer")
+    assert {:ok, ^path} = WriteBack.remove_profile("reviewer")
+
+    {:ok, ^path, _routines, _sensors, profiles} = Loader.load()
+    refute Map.has_key?(profiles, :reviewer)
+  end
+
+  test "preview_profile surfaces the dangerous grants for the gate card" do
+    {:ok, %{toml: toml, grants: grants}} =
+      WriteBack.preview_new_profile("reviewer", new_envelope())
+
+    assert toml =~ ~s([[profiles]])
+    assert toml =~ ~s(name = "reviewer")
+    assert toml =~ ~s([profiles.approved_args])
+
+    assert "approved_args grants bypass_permissions" in grants
+    assert "role: backlog_worker" in grants
+    assert Enum.any?(grants, &String.contains?(&1, "extra_allowed_tools"))
   end
 end

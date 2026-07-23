@@ -29,6 +29,11 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.RosterTools.PreviewRoutineEdit, name: "preview_routine_edit")
   component(Custode.MCP.RosterTools.UpdateRoutine, name: "update_routine")
   component(Custode.MCP.RosterTools.RemoveRoutine, name: "remove_routine")
+  component(Custode.MCP.ProfileTools.PreviewProfile, name: "preview_profile")
+  component(Custode.MCP.ProfileTools.DefineProfile, name: "define_profile")
+  component(Custode.MCP.ProfileTools.PreviewProfileEdit, name: "preview_profile_edit")
+  component(Custode.MCP.ProfileTools.UpdateProfile, name: "update_profile")
+  component(Custode.MCP.ProfileTools.RemoveProfile, name: "remove_profile")
 
   # graceful drain (#132): operator-only, async -- pause now, reply now,
   # stop when the executing turns finish

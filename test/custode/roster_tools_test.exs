@@ -181,12 +181,15 @@ defmodule Custode.RosterToolsTest do
       assert refused =~ "only the caretaker writes the roster"
     end
 
-    test "drop removes an override so the profile serves again", %{path: path} do
+    test "drop removes an override so the profile serves again" do
       tool_json(UpdateRoutine.execute(%{id: "existing", model: "opus"}, @operator))
-      assert File.read!(path) =~ ~s(model = "opus")
+      assert Custode.Routine.get("existing").model == "opus"
 
+      # asserted on the live routine, not the file text: the file now also
+      # carries the [[profiles]] dump (#236), whose backlog_worker profile
+      # has its own model = "opus" line
       tool_json(UpdateRoutine.execute(%{id: "existing", drop: ["model"]}, @operator))
-      refute File.read!(path) =~ ~s(model = "opus")
+      refute Custode.Routine.get("existing").model == "opus"
     end
 
     test "the whole roster vocabulary is editable through the verbs (operator ask, 2026-07-22)" do

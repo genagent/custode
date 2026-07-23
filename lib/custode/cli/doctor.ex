@@ -121,8 +121,10 @@ defmodule Custode.CLI.Doctor do
 
   defp roster_check do
     case Loader.load() do
-      {:ok, path, routines, sensors} ->
-        {:ok, "#{path}: #{length(routines)} routine(s), #{length(sensors)} sensor(s)"}
+      {:ok, path, routines, sensors, profiles} ->
+        {:ok,
+         "#{path}: #{length(routines)} routine(s), #{length(sensors)} sensor(s), " <>
+           "#{map_size(profiles)} profile(s)"}
 
       :no_file ->
         {:ok, "no routines.toml; the config.exs roster serves"}

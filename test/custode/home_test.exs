@@ -64,7 +64,7 @@ defmodule Custode.HomeTest do
     prompt = "sweep"
     """)
 
-    assert {:ok, ^roster, [entry], []} = Loader.load()
+    assert {:ok, ^roster, [entry], [], _} = Loader.load()
     assert entry.id == "homedworker"
   after
     File.rm(Path.join(Home.root(), "routines.toml"))
