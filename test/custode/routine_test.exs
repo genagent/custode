@@ -377,6 +377,29 @@ defmodule Custode.RoutineTest do
       assert routine_fixture!("workspace").on_note == :beat
       assert routine_fixture!("workspace", %{on_note: :ignore}).on_note == :ignore
     end
+
+    test "advisors are config-driven: cron overrides, false disables, unknown raises (#260)" do
+      previous = Application.get_env(:custode, :advisors)
+      on_exit(fn -> Application.put_env(:custode, :advisors, previous) end)
+      put_env!(:routines, [])
+      put_env!(:sensors, [])
+
+      # a cron override + one disabled
+      put_env!(:advisors, cadence: "0 9 * * *", model: false, budget: "@daily", retro: "@weekly")
+      crontab = Custode.Routine.crontab()
+
+      cadence = Enum.find(crontab, &(elem(&1, 1) == Custode.Advisors.Cadence))
+      assert elem(cadence, 0) == "0 9 * * *"
+      refute Enum.any?(crontab, &(elem(&1, 1) == Custode.Advisors.Model))
+      assert Enum.any?(crontab, &(elem(&1, 1) == Custode.Advisors.Budget))
+
+      # an unknown advisor name fails the boot loudly
+      put_env!(:advisors, bogus: "@daily")
+
+      assert_raise ArgumentError, ~r/unknown advisor :bogus/, fn ->
+        Custode.Routine.crontab()
+      end
+    end
   end
 
   describe "the role library" do

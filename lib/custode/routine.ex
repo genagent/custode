@@ -78,18 +78,42 @@ defmodule Custode.Routine do
 
     janitor_entries = [{"@daily", Custode.Janitor, args: %{}, queue: :sensors}]
 
-    # advisors (#125) ride the same static lane as the janitor: always-on,
-    # zero-token deterministic reads of the fleet's economics -- plus one
-    # weekly JUDGMENT advisor (#262) that reads the Digest and thinks for one
-    # bounded moment
-    advisor_entries = [
-      {"@daily", Custode.Advisors.Cadence, args: %{}, queue: :sensors},
-      {"@daily", Custode.Advisors.Model, args: %{}, queue: :sensors},
-      {"@daily", Custode.Advisors.Budget, args: %{}, queue: :sensors},
-      {"@weekly", Custode.Advisors.Retro, args: %{}, queue: :sensors}
-    ]
+    sensor_entries ++ janitor_entries ++ advisor_entries()
+  end
 
-    sensor_entries ++ janitor_entries ++ advisor_entries
+  # The advisors ride the same static lane as the janitor (#125). Which ones
+  # run, and how often, is CONFIG now (#260 / design 004 D4): a name -> cron
+  # map (`false` or omission disables one), toggleable via custode.toml's
+  # [advisors] section without a code edit. Defaults match today's behavior.
+  @advisor_modules %{
+    cadence: Custode.Advisors.Cadence,
+    model: Custode.Advisors.Model,
+    budget: Custode.Advisors.Budget,
+    retro: Custode.Advisors.Retro
+  }
+
+  @default_advisors [cadence: "@daily", model: "@daily", budget: "@daily", retro: "@weekly"]
+
+  @doc "The configured advisors as `[name: cron]`, defaulting to the always-on set."
+  def advisors, do: Application.get_env(:custode, :advisors, @default_advisors)
+
+  defp advisor_entries do
+    for {name, cron} <- advisors(), cron != false do
+      module = advisor_module(name)
+      {cron, module, args: %{}, queue: :sensors}
+    end
+  end
+
+  defp advisor_module(name) do
+    case Map.fetch(@advisor_modules, name) do
+      {:ok, module} ->
+        module
+
+      :error ->
+        raise ArgumentError,
+              "unknown advisor #{inspect(name)} in config :custode, :advisors " <>
+                "(known: #{@advisor_modules |> Map.keys() |> Enum.join(", ")})"
+    end
   end
 
   @doc """
