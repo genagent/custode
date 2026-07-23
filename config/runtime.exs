@@ -34,6 +34,18 @@ if config_env() != :test do
       :ok
   end
 
+  # custode.toml (#267 / design 003 slice 2): the operator config beyond the
+  # roster. Per-section wins-outright over the exs defaults; absent file is a
+  # no-op. Scalar sections only for now ([fleet]/[janitor]).
+  case Custode.Config.CustodeToml.load() do
+    {:ok, custode_path, custode_config} when custode_config != [] ->
+      IO.puts("custode: config loaded from #{custode_path}")
+      config :custode, custode_config
+
+    _none ->
+      :ok
+  end
+
   # Tailnet exposure (#65): CUSTODE_PUBLIC_HOST is the ts.net hostname that
   # `tailscale serve --bg http://127.0.0.1:4646` publishes. The endpoint
   # stays bound to loopback exactly as before -- tailscale is the proxy and
