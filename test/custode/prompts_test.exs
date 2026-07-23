@@ -11,6 +11,7 @@ defmodule Custode.Routine.PromptsTest do
     :contributor_watch,
     :quake_watch,
     :reviewer,
+    :steward,
     :consistency_auditor
   ]
 
@@ -54,6 +55,13 @@ defmodule Custode.Routine.PromptsTest do
     assert Prompts.consistency_auditor() =~ "cohort"
     assert Prompts.consistency_auditor() =~ "AT MOST ONE alignment"
 
+    # the steward (#239): fills the board, never fixes what it files
+    assert Prompts.steward() =~ "THE BATTERY"
+    assert Prompts.steward() =~ "upkeep"
+    assert Prompts.steward() =~ "SEEN-SET WITH COOLDOWN"
+    assert Prompts.steward() =~ "NEVER FIX WHAT YOU FILE"
+    assert Prompts.steward() =~ "repo_open_issue"
+
     # charter phrases must not leak into role bodies (drift guard)
     for body <- [
           Prompts.caretaker(),
@@ -62,6 +70,7 @@ defmodule Custode.Routine.PromptsTest do
           Prompts.star_tracker(),
           Prompts.contributor_watch(),
           Prompts.reviewer(),
+          Prompts.steward(),
           Prompts.consistency_auditor()
         ] do
       refute body =~ "## Charter"
