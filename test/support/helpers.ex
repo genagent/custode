@@ -82,6 +82,37 @@ defmodule Custode.TestHelpers do
     text
   end
 
+  @doc """
+  Retry `fun` until it stops raising, re-raising the last failure once
+  `timeout` passes. Returns whatever `fun` returns.
+
+  For assertions on state another process writes (#257).
+  `ObanClaude.Agent.Instance.sync_transition/3` updates the registry BEFORE
+  it emits `[:oban_claude, :agent, :transition]`, and
+  `ObanClaude.Agent.await/3` polls that registry from the test process --
+  so `await` returning proves the state changed, not that the gate row, the
+  feed card or the metric a telemetry handler writes exists yet. Whenever
+  the transition came from a cast (`job_finished/2`, `emergency_pause/1`),
+  poll for the row itself. Transitions driven by a call
+  (`submit_prompt/3`, `approve_action/3`, `reject_action/3`) reply after
+  `sync_transition`, so those reads need no retry.
+  """
+  def eventually(fun, timeout \\ 2_000) do
+    do_eventually(fun, System.monotonic_time(:millisecond) + timeout)
+  end
+
+  defp do_eventually(fun, deadline) do
+    fun.()
+  rescue
+    exception ->
+      if System.monotonic_time(:millisecond) < deadline do
+        Process.sleep(10)
+        do_eventually(fun, deadline)
+      else
+        reraise(exception, __STACKTRACE__)
+      end
+  end
+
   @doc "All oban_jobs rows for a worker, args/meta decoded."
   def jobs_for(worker) do
     import Ecto.Query, only: [from: 2]

@@ -228,14 +228,10 @@ defmodule CustodeWeb.AgentLiveTest do
 
   describe "the working-state strip (#211)" do
     test "the latest worktree breadcrumb renders; a running turn shows in-flight",
-         %{conn: conn, routine: routine} do
+         %{conn: conn} do
       repo = "acme/" <> uid("ws")
-      overviews = Application.get_env(:custode, :fake_repo_overviews, %{})
-
-      put_env!(
-        :fake_repo_overviews,
-        Map.put(overviews, repo, {:ok, FakeGitHubFetcher.overview(repo)})
-      )
+      # the whole map, not a merge onto whatever an earlier test left behind
+      put_env!(:fake_repo_overviews, %{repo => {:ok, FakeGitHubFetcher.overview(repo)}})
 
       routine = routine_fixture!(tmp_workspace!(), %{repo: repo})
       stub_routine_agent!(routine)
@@ -267,17 +263,15 @@ defmodule CustodeWeb.AgentLiveTest do
         sha: "abc1234567def"
       })
 
-      assert render(view) =~ "working"
+      # the strip arrives over the :feed_entry broadcast, and the GitHub
+      # cache's own {:repo_overview, repo} refresh lands whenever its task
+      # finishes -- neither is ordered against this read
+      eventually(fn -> assert render(view) =~ "working" end)
     end
 
-    test "an absent worktree shows no strip", %{conn: conn, routine: routine} do
+    test "an absent worktree shows no strip", %{conn: conn} do
       repo = "acme/" <> uid("ws2")
-      overviews = Application.get_env(:custode, :fake_repo_overviews, %{})
-
-      put_env!(
-        :fake_repo_overviews,
-        Map.put(overviews, repo, {:ok, FakeGitHubFetcher.overview(repo)})
-      )
+      put_env!(:fake_repo_overviews, %{repo => {:ok, FakeGitHubFetcher.overview(repo)}})
 
       routine = routine_fixture!(tmp_workspace!(), %{repo: repo})
       stub_routine_agent!(routine)

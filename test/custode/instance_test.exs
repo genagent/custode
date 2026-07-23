@@ -75,7 +75,7 @@ defmodule Custode.InstanceTest do
 
       first = Instance.holder(key).beat_at
       # the periodic beat advances the timestamp
-      assert eventually(fn -> DateTime.compare(Instance.holder(key).beat_at, first) == :gt end)
+      eventually(fn -> assert DateTime.compare(Instance.holder(key).beat_at, first) == :gt end)
 
       GenServer.stop(pid)
     end
@@ -138,12 +138,5 @@ defmodule Custode.InstanceTest do
       GenServer.stop(pid)
       assert %Row{os_pid: "usurper"} = Instance.holder(key)
     end
-  end
-
-  defp eventually(fun, attempts \\ 50) do
-    Enum.find(1..attempts, fn _ ->
-      Process.sleep(10)
-      fun.()
-    end)
   end
 end

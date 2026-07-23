@@ -58,9 +58,16 @@ defmodule Custode.SpendLedgerTest do
     run!(routine.id, 0.3)
     assert {:ok, :paused} = Agent.await(routine.id, :paused, 1_000)
 
-    assert [entry] =
-             Custode.Feed.for_agent(routine.id)
-             |> Enum.filter(&(&1["event"] == "budget_paused"))
+    # SpendLedger casts the pause and THEN records the entry, so :paused can
+    # be visible before the feed row exists (#257)
+    entry =
+      eventually(fn ->
+        assert [entry] =
+                 Custode.Feed.for_agent(routine.id)
+                 |> Enum.filter(&(&1["event"] == "budget_paused"))
+
+        entry
+      end)
 
     assert entry["agent"] == routine.id
     assert entry["action"] =~ "daily budget hit"
@@ -148,10 +155,12 @@ defmodule Custode.SpendLedgerTest do
 
     {:ok, :paused} = Agent.await(routine.id, :paused, 1_000)
 
-    assert Enum.any?(
-             Custode.Feed.for_agent(routine.id),
-             &(&1["event"] == "budget_paused" and &1["action"] =~ "token rail")
-           )
+    eventually(fn ->
+      assert Enum.any?(
+               Custode.Feed.for_agent(routine.id),
+               &(&1["event"] == "budget_paused" and &1["action"] =~ "token rail")
+             )
+    end)
   end
 end
 
