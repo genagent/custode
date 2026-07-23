@@ -103,6 +103,12 @@ defmodule CustodeWeb.FleetLive do
     end
   end
 
+  def handle_event("dismiss_suggestion", params, socket) do
+    %{"agent" => id, "field" => field, "proposed" => proposed} = params
+    {:ok, message} = Custode.Suggestions.dismiss(id, field, proposed)
+    {:noreply, socket |> put_flash(:info, message) |> refresh()}
+  end
+
   def handle_event("pause_all", _params, socket) do
     {:ok, _ids} = Custode.pause_all()
     {:noreply, refresh(socket)}
@@ -451,6 +457,15 @@ defmodule CustodeWeb.FleetLive do
           phx-value-proposed={@suggestion["proposed"]}
         >
           apply
+        </button>
+        <button
+          class="btn btn-ghost btn-xs"
+          phx-click="dismiss_suggestion"
+          phx-value-agent={@suggestion["agent"]}
+          phx-value-field={@suggestion["field"]}
+          phx-value-proposed={@suggestion["proposed"]}
+        >
+          dismiss
         </button>
       </p>
       <details :if={@suggestion["evidence"]} class="group mt-1 text-base-content/50">

@@ -15,17 +15,26 @@ defmodule Custode.Suggestions do
 
   @window_s 7 * 24 * 60 * 60
 
-  @doc "Every standing suggestion in the window, deduped, newest first (uncapped)."
+  @doc """
+  Every standing suggestion in the window, deduped, newest first (uncapped).
+  A suggestion masked by an APPLIED or a DISMISSED entry (same change
+  identity) is dropped -- so a dismissed one stays gone for the window even if
+  the advisor re-proposes it.
+  """
   def standing do
-    applied =
-      "advisor_applied"
-      |> Feed.recent_by_event(limit: 50, since: @window_s)
-      |> MapSet.new(&{&1["agent"], &1["field"], &1["proposed"]})
+    resolved = resolved_keys(["advisor_applied", "advisor_dismissed"])
 
     "advisor_suggestion"
     |> Feed.recent_by_event(limit: 50, since: @window_s)
-    |> Enum.reject(&({&1["agent"], &1["field"], &1["proposed"]} in applied))
+    |> Enum.reject(&({&1["agent"], &1["field"], &1["proposed"]} in resolved))
     |> Enum.uniq_by(&{&1["advisor"], &1["agent"], &1["field"]})
+  end
+
+  defp resolved_keys(events) do
+    for event <- events,
+        entry <- Feed.recent_by_event(event, limit: 50, since: @window_s),
+        into: MapSet.new(),
+        do: {entry["agent"], entry["field"], entry["proposed"]}
   end
 
   @doc "The three fields the advisor trio proposes and the dashboard can apply."
@@ -50,6 +59,23 @@ defmodule Custode.Suggestions do
 
       {:ok, "#{agent}: #{field} -> #{proposed} applied, live now"}
     end
+  end
+
+  @doc """
+  Dismiss a suggestion (#290): records an `advisor_dismissed` entry so it
+  leaves the list and stays gone for the window, keyed by the change identity
+  so a re-proposal of the same change stays masked too.
+  """
+  def dismiss(agent, field, proposed) do
+    Feed.record(%{
+      event: "advisor_dismissed",
+      agent: agent,
+      field: field,
+      proposed: proposed,
+      summary: "operator dismissed suggestion: #{field} -> #{proposed}"
+    })
+
+    {:ok, "#{agent}: #{field} -> #{proposed} dismissed"}
   end
 
   defp changes("model", value) when is_binary(value), do: {:ok, %{model: value}}

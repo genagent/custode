@@ -12,7 +12,7 @@ defmodule Custode.SuggestionsTest do
     put_env!(:feed_path, feed)
 
     Custode.Repo.query!(
-      "DELETE FROM feed_entries WHERE event IN ('advisor_suggestion','advisor_applied')"
+      "DELETE FROM feed_entries WHERE event IN ('advisor_suggestion','advisor_applied','advisor_dismissed')"
     )
 
     on_exit(fn -> File.rm(feed) end)
@@ -77,5 +77,18 @@ defmodule Custode.SuggestionsTest do
 
   test "apply/3 refuses an unapplicable field" do
     assert {:error, {:unapplicable_field, "repo"}} = Suggestions.apply("x", "repo", "a/b")
+  end
+
+  test "dismiss/3 masks the suggestion for the window, even a re-proposal (#290)" do
+    a = uid("r")
+    suggest!(a, "cron", "@daily")
+    assert Enum.any?(Suggestions.standing(), &(&1["agent"] == a))
+
+    assert {:ok, _} = Suggestions.dismiss(a, "cron", "@daily")
+    refute Enum.any?(Suggestions.standing(), &(&1["agent"] == a))
+
+    # the advisor re-proposes the same change -> still masked
+    suggest!(a, "cron", "@daily")
+    refute Enum.any?(Suggestions.standing(), &(&1["agent"] == a))
   end
 end
