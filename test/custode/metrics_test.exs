@@ -108,5 +108,8 @@ defmodule Custode.MetricsTest do
     assert html =~ "gate latency"
     assert html =~ "by model"
     assert html =~ agent
+    # the fleet digest panel (the design/004 D2 human reader)
+    assert html =~ "fleet digest"
+    assert html =~ "Sweeps"
   end
 end
