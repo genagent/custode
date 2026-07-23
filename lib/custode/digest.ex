@@ -71,7 +71,7 @@ defmodule Custode.Digest do
       gates: %{count: length(gates), median_minutes: median_minutes, recent: gates},
       failures: %{total: failures_total(failed), by_kind: failures_by_kind(since)},
       suggestions: standing_suggestions(),
-      anomalies: anomalies(failed)
+      anomalies: anomalies(failed) ++ rail_hits(since)
     }
   end
 
@@ -230,13 +230,25 @@ defmodule Custode.Digest do
     end)
   end
 
-  # cheap, honest anomalies: agents whose failures cluster in the window.
-  # Rail hits and silent sensors arrive with slice 4's telemetry (#261).
+  # agents whose failures cluster in the window
   defp anomalies(failed_by_agent) do
     failed_by_agent
     |> Enum.filter(fn {_agent, n} -> n >= 2 end)
     |> Enum.sort_by(fn {_agent, n} -> -n end)
     |> Enum.map(fn {agent, n} -> "#{agent}: #{n} failed turns in the window" end)
+  end
+
+  # rail hits (#261): routines that crossed their daily budget rail and paused
+  # in the window. The budget_paused events already exist (SpendLedger); the
+  # digest just surfaces them. Deduped per agent (one pause is the signal).
+  defp rail_hits(since) do
+    seconds = DateTime.diff(DateTime.utc_now(), since)
+
+    "budget_paused"
+    |> Feed.recent_by_event(limit: 50, since: seconds)
+    |> Enum.map(& &1["agent"])
+    |> Enum.uniq()
+    |> Enum.map(&"#{&1}: hit its daily budget rail and paused")
   end
 
   # the last N calendar days including today (matches the pre-#263 window)

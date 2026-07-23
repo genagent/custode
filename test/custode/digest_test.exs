@@ -82,6 +82,14 @@ defmodule Custode.DigestTest do
     assert md =~ agent
   end
 
+  test "anomalies surface a rail hit from a budget_paused event (#261)" do
+    agent = uid("railed")
+    Custode.Feed.record(%{event: "budget_paused", agent: agent, action: "over its daily rail"})
+
+    d = Digest.build(7)
+    assert Enum.any?(d.anomalies, &(&1 =~ agent and &1 =~ "daily budget rail"))
+  end
+
   test "build_since summarizes a precise window and labels it 'since ...'" do
     agent = uid("since")
     :ok = SpendLedger.record(agent, 0.40, "turn", model: "sonnet")
