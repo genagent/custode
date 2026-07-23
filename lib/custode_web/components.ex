@@ -189,6 +189,9 @@ defmodule CustodeWeb.Components do
         <nav class="flex gap-3 text-sm">
           <.link navigate="/" class={nav_class(@active == :fleet)}>fleet</.link>
           <.link navigate="/repos" class={nav_class(@active == :repos)}>repos</.link>
+          <.link navigate="/suggestions" class={nav_class(@active == :suggestions)}>
+            suggestions
+          </.link>
           <.link navigate="/feed" class={nav_class(@active == :feed)}>feed</.link>
           <.link navigate="/metrics" class={nav_class(@active == :metrics)}>metrics</.link>
         </nav>

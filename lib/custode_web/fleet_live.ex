@@ -18,6 +18,9 @@ defmodule CustodeWeb.FleetLive do
   alias Custode.Routine
   alias ObanClaude.Agent
 
+  # the rail shows the top few suggestions; the rest live on /suggestions (#284)
+  @suggestion_limit 3
+
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
     if connected?(socket) do
@@ -91,21 +94,10 @@ defmodule CustodeWeb.FleetLive do
   def handle_event("apply_suggestion", params, socket) do
     %{"agent" => id, "field" => field, "proposed" => proposed} = params
 
-    with {:ok, changes} <- suggestion_changes(field, proposed),
-         {:ok, _path} <- WriteBack.update_routine(id, changes) do
-      Custode.Feed.record(%{
-        event: "advisor_applied",
-        agent: id,
-        field: field,
-        proposed: proposed,
-        summary: "operator applied suggestion: #{field} -> #{proposed}"
-      })
+    case Custode.Suggestions.apply(id, field, proposed) do
+      {:ok, message} ->
+        {:noreply, socket |> put_flash(:info, message) |> refresh()}
 
-      {:noreply,
-       socket
-       |> put_flash(:info, "#{id}: #{field} -> #{proposed} applied, live now")
-       |> refresh()}
-    else
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "apply refused: #{inspect(reason)}")}
     end
@@ -259,6 +251,7 @@ defmodule CustodeWeb.FleetLive do
           tiles={@meta_tiles}
           fleet_today={@fleet_today}
           suggestions={@suggestions}
+          suggestion_count={@suggestion_count}
           presence={@presence}
           rail_warnings={@rail_warnings}
           in_flight={@in_flight}
@@ -285,6 +278,7 @@ defmodule CustodeWeb.FleetLive do
   attr(:tiles, :list, required: true)
   attr(:fleet_today, :float, required: true)
   attr(:suggestions, :list, required: true)
+  attr(:suggestion_count, :integer, default: 0)
   attr(:presence, :any, required: true)
   attr(:rail_warnings, :list, required: true)
   attr(:in_flight, :list, required: true)
@@ -364,7 +358,16 @@ defmodule CustodeWeb.FleetLive do
         no :meta agent configured
       </p>
       <div :if={@suggestions != []} id="advisor-suggestions" class="flex flex-col gap-2">
-        <span class="text-xs uppercase tracking-wide text-base-content/40">suggestions</span>
+        <div class="flex items-baseline gap-2">
+          <span class="text-xs uppercase tracking-wide text-base-content/40">suggestions</span>
+          <.link
+            :if={@suggestion_count > length(@suggestions)}
+            navigate="/suggestions"
+            class="ml-auto text-xs text-primary hover:underline"
+          >
+            see all {@suggestion_count} &rarr;
+          </.link>
+        </div>
         <.suggestion_card :for={suggestion <- @suggestions} suggestion={suggestion} />
       </div>
     </aside>
@@ -846,12 +849,14 @@ defmodule CustodeWeb.FleetLive do
       |> Enum.sort()
 
     states = Enum.map(running, fn {_id, status} -> state_of(status) end)
+    standing_suggestions = Custode.Suggestions.standing()
 
     assign(socket,
       tiles: tiles,
       tile_rows: group_tiles(tiles),
       meta_tiles: Enum.sort_by(meta_tiles, fn {id, _tile} -> id end),
-      suggestions: advisor_suggestions(),
+      suggestions: Enum.take(standing_suggestions, @suggestion_limit),
+      suggestion_count: length(standing_suggestions),
       presence: Custode.Presence.status(),
       away_digest: away_digest(socket),
       in_flight: in_flight(),
@@ -863,47 +868,9 @@ defmodule CustodeWeb.FleetLive do
     )
   end
 
-  # The rail's suggestion cards (#178). Advisors record one feed entry per
-  # fresh suggestion and hold a seen-set so a standing one does not re-nag, so
-  # the feed already holds the honest list -- this only bounds it. The window
-  # is the stand-in for a dismiss button: with no accept/dismiss yet, an old
-  # suggestion has to age out of the rail on its own rather than sit there
-  # forever. Deduped by what a suggestion IS (advisor, target, field) so a
-  # repeat after the cooldown replaces its predecessor instead of stacking.
-  @suggestion_window_s 7 * 24 * 60 * 60
-  @suggestion_limit 3
-
-  defp advisor_suggestions do
-    # an applied suggestion leaves the rail immediately: the advisor's
-    # seen-set stops the re-suggest, and the advisor_applied entry masks
-    # the already-recorded feed row for the rest of the window (#192)
-    applied =
-      "advisor_applied"
-      |> Custode.Feed.recent_by_event(limit: 50, since: @suggestion_window_s)
-      |> MapSet.new(&{&1["agent"], &1["field"], &1["proposed"]})
-
-    "advisor_suggestion"
-    |> Custode.Feed.recent_by_event(limit: 20, since: @suggestion_window_s)
-    |> Enum.reject(&({&1["agent"], &1["field"], &1["proposed"]} in applied))
-    |> Enum.uniq_by(&{&1["advisor"], &1["agent"], &1["field"]})
-    |> Enum.take(@suggestion_limit)
-  end
-
-  # the three fields the advisor trio proposes, each with a typed parse;
-  # anything else renders read-only until an advisor exists to propose it
-  defp applicable_field?(field), do: field in ["model", "cron", "daily_budget_usd"]
-
-  defp suggestion_changes("model", value) when is_binary(value), do: {:ok, %{model: value}}
-  defp suggestion_changes("cron", value) when is_binary(value), do: {:ok, %{cron: value}}
-
-  defp suggestion_changes("daily_budget_usd", value) do
-    case Float.parse(value) do
-      {usd, ""} -> {:ok, %{daily_budget_usd: usd}}
-      _other -> {:error, {:unparseable_budget, value}}
-    end
-  end
-
-  defp suggestion_changes(field, _value), do: {:error, {:unsupported_field, field}}
+  # the rail shows the top few (Custode.Suggestions holds the standing list +
+  # apply); the full list lives on /suggestions (#284)
+  defp applicable_field?(field), do: Custode.Suggestions.applicable_field?(field)
 
   # Rank-1 promotion (#31): failing checks on an agent's own open PR were
   # the quietest signal on the page (a dot inside a panel two clicks away).
