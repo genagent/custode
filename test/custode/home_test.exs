@@ -9,8 +9,75 @@ defmodule Custode.HomeTest do
   alias Custode.Home
 
   setup do
-    on_exit(fn -> System.delete_env("CUSTODE_HOME") end)
+    on_exit(fn ->
+      System.delete_env("CUSTODE_HOME")
+      Application.delete_env(:custode, :mode)
+    end)
+
     :ok
+  end
+
+  describe "the four dirs resolve by mode (#266)" do
+    test "source mode (default): every dir is the cwd" do
+      System.delete_env("CUSTODE_HOME")
+      Application.delete_env(:custode, :mode)
+
+      for dir <- [&Home.config_dir/0, &Home.data_dir/0, &Home.runtime_dir/0, &Home.cache_dir/0] do
+        assert dir.() == File.cwd!()
+      end
+    end
+
+    test "CUSTODE_HOME collapses every dir under it, even in binary mode" do
+      home = Path.join(System.tmp_dir!(), uid("home"))
+      System.put_env("CUSTODE_HOME", home)
+      Application.put_env(:custode, :mode, :binary)
+
+      for dir <- [&Home.config_dir/0, &Home.data_dir/0, &Home.runtime_dir/0, &Home.cache_dir/0] do
+        assert dir.() == home
+      end
+    end
+
+    test "binary mode: the XDG split, from env vars" do
+      System.delete_env("CUSTODE_HOME")
+      Application.put_env(:custode, :mode, :binary)
+
+      System.put_env("XDG_CONFIG_HOME", "/x/config")
+      System.put_env("XDG_DATA_HOME", "/x/data")
+      System.put_env("XDG_CACHE_HOME", "/x/cache")
+      System.put_env("XDG_RUNTIME_DIR", "/x/run")
+
+      on_exit(fn ->
+        for v <- ~w(XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR),
+            do: System.delete_env(v)
+      end)
+
+      assert Home.config_dir() == "/x/config/custode"
+      assert Home.data_dir() == "/x/data/custode"
+      assert Home.cache_dir() == "/x/cache/custode"
+      assert Home.runtime_dir() == "/x/run/custode"
+    end
+
+    test "binary mode: runtime falls back to cache when XDG_RUNTIME_DIR is unset" do
+      System.delete_env("CUSTODE_HOME")
+      System.delete_env("XDG_RUNTIME_DIR")
+      System.put_env("XDG_CACHE_HOME", "/x/cache")
+      Application.put_env(:custode, :mode, :binary)
+      on_exit(fn -> System.delete_env("XDG_CACHE_HOME") end)
+
+      assert Home.runtime_dir() == "/x/cache/custode"
+    end
+
+    test "binary mode: XDG homes default to the ~ bases when unset" do
+      System.delete_env("CUSTODE_HOME")
+
+      for v <- ~w(XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME), do: System.delete_env(v)
+
+      Application.put_env(:custode, :mode, :binary)
+
+      assert Home.config_dir() == Path.join(System.user_home!(), ".config/custode")
+      assert Home.data_dir() == Path.join(System.user_home!(), ".local/share/custode")
+      assert Home.cache_dir() == Path.join(System.user_home!(), ".cache/custode")
+    end
   end
 
   test "unset: the root is the cwd and relative paths resolve beneath it" do
