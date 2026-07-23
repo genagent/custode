@@ -271,8 +271,9 @@ defmodule CustodeWeb.AgentLive do
           <div class="flex justify-end">
             <button class="btn btn-ghost btn-xs" phx-click="edit_open">edit</button>
           </div>
+          <p class="text-base-content/60 italic">{Custode.Roles.summary(@routine.role)}</p>
           <div class="flex flex-wrap gap-x-6 gap-y-1 text-base-content/70">
-            <span>role <b>{@routine.role}</b></span>
+            <span>role <b>{@routine.role}</b><span class="text-base-content/40"> &middot; {Custode.Roles.tier(@routine.role)} tier</span></span>
             <span>
               sweeps <b>{@routine.model}</b><span :if={@routine.effort}> at {@routine.effort} effort</span>
             </span>
