@@ -30,6 +30,7 @@ defmodule CustodeWeb.FleetLive do
     {:ok,
      socket
      |> assign(tag_filter: nil, new_agent: %{open: false, preview: nil, error: nil, params: %{}})
+     |> assign(away_dismissed: false)
      |> refresh()}
   end
 
@@ -67,6 +68,12 @@ defmodule CustodeWeb.FleetLive do
     end
 
     {:noreply, refresh(socket)}
+  end
+
+  # dismissing the "while you were away" digest (#263): sticky for this session
+  # so a refresh does not bring it back until the next real absence
+  def handle_event("dismiss_away_digest", _params, socket) do
+    {:noreply, assign(socket, away_dismissed: true, away_digest: nil)}
   end
 
   # the rail's caretaker prompt (a static conversation entry, not a tile
@@ -255,6 +262,7 @@ defmodule CustodeWeb.FleetLive do
           presence={@presence}
           rail_warnings={@rail_warnings}
           in_flight={@in_flight}
+          away_digest={@away_digest}
         />
         <div class="min-w-0 flex-1">
           <p class="mb-2 text-xs text-base-content/40">sorted by recent activity</p>
@@ -280,6 +288,7 @@ defmodule CustodeWeb.FleetLive do
   attr(:presence, :any, required: true)
   attr(:rail_warnings, :list, required: true)
   attr(:in_flight, :list, required: true)
+  attr(:away_digest, :any, default: nil)
 
   # The caretaker's rail (#178). The meta agent is not a peer of the workers,
   # so activity sorting hid it exactly when it was quiet -- backwards for the
@@ -309,6 +318,19 @@ defmodule CustodeWeb.FleetLive do
         <span class="ml-auto font-mono text-sm text-base-content/70">
           fleet today ${usd(@fleet_today)}
         </span>
+      </div>
+      <div
+        :if={@away_digest}
+        id="away-digest"
+        class="rounded-lg border border-info/30 bg-info/5 p-2"
+      >
+        <div class="mb-1 flex items-center gap-2">
+          <span class="text-xs font-semibold text-info">while you were away</span>
+          <button class="btn btn-ghost btn-xs ml-auto" phx-click="dismiss_away_digest">
+            dismiss
+          </button>
+        </div>
+        <pre class="max-h-64 overflow-auto whitespace-pre-wrap text-xs text-base-content/80">{@away_digest}</pre>
       </div>
       <div :if={@in_flight != []} id="in-flight" class="flex flex-col gap-1">
         <span class="text-xs uppercase tracking-wide text-base-content/40">
@@ -727,6 +749,20 @@ defmodule CustodeWeb.FleetLive do
   defp tile_repo({_id, %{routine: %{repo: repo}}}) when is_binary(repo), do: repo
   defp tile_repo(_entry), do: nil
 
+  # the "while you were away" digest (#263): built only on return from a real
+  # absence and only until dismissed for the session -- so it greets the
+  # operator once and stays quiet on refreshes
+  defp away_digest(socket) do
+    if socket.assigns[:away_dismissed] do
+      nil
+    else
+      case Custode.Presence.away_window() do
+        {:since, since} -> since |> Custode.Digest.build_since() |> Custode.Digest.to_markdown()
+        :none -> nil
+      end
+    end
+  end
+
   defp refresh(socket) do
     routines = Routine.all()
     routine_ids = Enum.map(routines, & &1.id)
@@ -812,6 +848,7 @@ defmodule CustodeWeb.FleetLive do
       meta_tiles: Enum.sort_by(meta_tiles, fn {id, _tile} -> id end),
       suggestions: advisor_suggestions(),
       presence: Custode.Presence.status(),
+      away_digest: away_digest(socket),
       in_flight: in_flight(),
       rail_warnings: rail_warnings(tiles ++ meta_tiles),
       all_tags: all_tags,

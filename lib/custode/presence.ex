@@ -84,6 +84,81 @@ defmodule Custode.Presence do
   end
 
   @doc """
+  The away window on operator return (#263): `{:since, dt}` when the operator
+  is present now but just came back from an absence of at least the presence
+  window, else `:none`. The "while you were away" digest reads this.
+
+  Gap-inferred (the operator's call): it walks the recent operator-action
+  timeline (gate resolves, operator turns, presence toggles) newest-first and
+  finds the first gap >= the presence window -- the older side of that gap is
+  when the operator left. No explicit "away" toggle required, and it never
+  fires when the operator has been continuously present.
+  """
+  def away_window(now \\ DateTime.utc_now()) do
+    case status(now) do
+      {:present, _at} -> away_from(recent_operator_actions(now), window_seconds(), now)
+      _away -> :none
+    end
+  end
+
+  @doc """
+  Pure gap-finder (#263), exposed for testing: given operator-action
+  timestamps newest-first, the presence `window` in seconds, and `now`, return
+  `{:since, dt}` for the most recent absence >= the window whose RETURN is
+  itself recent (within the window), else `:none`.
+  """
+  def away_from([newer, older | rest], window, now) do
+    cond do
+      DateTime.diff(newer, older) < window -> away_from([older | rest], window, now)
+      DateTime.diff(now, newer) <= window -> {:since, older}
+      true -> :none
+    end
+  end
+
+  def away_from(_too_few, _window, _now), do: :none
+
+  @doc "Operator-action timestamps over the last 48h, newest first (#263)."
+  def recent_operator_actions(now \\ DateTime.utc_now()) do
+    since = DateTime.add(now, -48 * 3600, :second)
+
+    (gate_touches(since) ++ operator_turns(since) ++ presence_toggles(since))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.sort({:desc, DateTime})
+  end
+
+  defp window_seconds, do: Application.get_env(:custode, :presence_window_minutes, 45) * 60
+
+  defp gate_touches(since) do
+    Custode.Repo.all(
+      from(g in Custode.Gates.Gate,
+        where: g.status != "open" and g.updated_at >= ^since,
+        select: g.updated_at
+      )
+    )
+    |> Enum.map(&to_utc/1)
+  end
+
+  defp operator_turns(since) do
+    Custode.Repo.all(
+      from(f in Custode.Feed.Entry,
+        where: f.at >= ^since and not is_nil(fragment("json_extract(?, '$.response')", f.entry)),
+        select: f.at
+      )
+    )
+    |> Enum.map(&to_utc/1)
+  end
+
+  defp presence_toggles(since) do
+    Custode.Repo.all(
+      from(f in Custode.Feed.Entry,
+        where: f.at >= ^since and f.event == "presence",
+        select: f.at
+      )
+    )
+    |> Enum.map(&to_utc/1)
+  end
+
+  @doc """
   The newest operator action timestamp across the evidence sources, or nil.
   Never raises: presence rides inside tick composition, and a db hiccup must
   degrade to "no evidence" (away), not break the sweep.
