@@ -61,6 +61,9 @@ defmodule Custode.Routine.PromptsTest do
     assert Prompts.steward() =~ "SEEN-SET WITH COOLDOWN"
     assert Prompts.steward() =~ "NEVER FIX WHAT YOU FILE"
     assert Prompts.steward() =~ "repo_open_issue"
+    # the doorknob rule (#242): one small fix PR per sweep, disjoint from filings
+    assert Prompts.steward() =~ "DOORKNOB RULE"
+    assert Prompts.steward() =~ "ONE small fix PR per sweep"
 
     # charter phrases must not leak into role bodies (drift guard)
     for body <- [
