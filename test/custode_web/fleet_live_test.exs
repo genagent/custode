@@ -477,14 +477,14 @@ defmodule CustodeWeb.HierarchyPassTest do
     first = render(view)
 
     tile =
-      if first =~ "red check" do
+      if first =~ "red" do
         first
       else
         assert_receive {:repo_overview, _repo}, 1_000
         render(view)
       end
 
-    assert tile =~ "1 red check(s)"
+    assert tile =~ "1 red"
   end
 end
 

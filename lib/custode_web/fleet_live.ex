@@ -606,7 +606,7 @@ defmodule CustodeWeb.FleetLive do
       id={"tile-#{@id}"}
     >
       <div class="card-body gap-2 p-4">
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
           <.link navigate={"/agents/#{@id}"} class="font-mono font-bold hover:underline">
             {@id}
           </.link>
@@ -620,10 +620,10 @@ defmodule CustodeWeb.FleetLive do
           <.link
             :if={@tile.failing_checks > 0}
             navigate={"/agents/#{@id}"}
-            class="badge badge-error badge-sm gap-1"
+            class="badge badge-error badge-sm gap-1 whitespace-nowrap"
             title="an open PR by this agent has failing checks"
           >
-            {@tile.failing_checks} red check(s)
+            {@tile.failing_checks} red
           </.link>
           <button
             :if={@tile.routine}

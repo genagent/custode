@@ -59,7 +59,7 @@ defmodule CustodeWeb.Components do
 
     ~H"""
     <span :if={@ambient} class="text-xs text-base-content/40">{status_label(@status)}</span>
-    <span :if={!@ambient} class={["badge", @size, status_class(@status)]}>
+    <span :if={!@ambient} class={["badge whitespace-nowrap", @size, status_class(@status)]}>
       {status_label(@status)}
     </span>
     """
