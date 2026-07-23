@@ -14,7 +14,7 @@ defmodule CustodeWeb.SuggestionsLiveTest do
     put_env!(:feed_path, feed)
 
     Custode.Repo.query!(
-      "DELETE FROM feed_entries WHERE event IN ('advisor_suggestion','advisor_applied')"
+      "DELETE FROM feed_entries WHERE event IN ('advisor_suggestion','advisor_applied','advisor_dismissed')"
     )
 
     on_exit(fn -> File.rm(feed) end)

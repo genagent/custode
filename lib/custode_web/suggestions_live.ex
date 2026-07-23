@@ -34,6 +34,13 @@ defmodule CustodeWeb.SuggestionsLive do
   end
 
   @impl Phoenix.LiveView
+  def handle_event("dismiss_suggestion", params, socket) do
+    %{"agent" => id, "field" => field, "proposed" => proposed} = params
+    {:ok, message} = Custode.Suggestions.dismiss(id, field, proposed)
+    {:noreply, socket |> put_flash(:info, message) |> refresh()}
+  end
+
+  @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
     <.page fleet_today={@fleet_today} active={:suggestions}>
@@ -69,6 +76,15 @@ defmodule CustodeWeb.SuggestionsLive do
               phx-value-proposed={s["proposed"]}
             >
               apply
+            </button>
+            <button
+              class="btn btn-ghost btn-xs"
+              phx-click="dismiss_suggestion"
+              phx-value-agent={s["agent"]}
+              phx-value-field={s["field"]}
+              phx-value-proposed={s["proposed"]}
+            >
+              dismiss
             </button>
           </p>
           <p :if={s["evidence"]} class="mt-2 text-sm text-base-content/60">{s["evidence"]}</p>

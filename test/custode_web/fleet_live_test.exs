@@ -775,7 +775,7 @@ defmodule CustodeWeb.FleetMetaRailTest do
       assert has_element?(view, "#advisor-suggestions button", "apply")
 
       view
-      |> element("#advisor-suggestions button[phx-value-field=model]")
+      |> element("#advisor-suggestions button[phx-click=apply_suggestion][phx-value-field=model]")
       |> render_click()
 
       # the write landed: file created (the mode switch), entry edited, live
