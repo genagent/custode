@@ -280,10 +280,13 @@ defmodule Custode.Routine do
     remove_profile
   )
 
-  defp mcp_allowlist(:caretaker),
-    do: prefix(@worker_mcp_tools ++ @operator_mcp_tools ++ optional_tools())
-
-  defp mcp_allowlist(_role), do: prefix(@worker_mcp_tools ++ optional_tools())
+  # The tool bundle follows the role's tier in the hierarchy (Custode.Roles):
+  # the :custode tier (the fleet agent) also gets the operator tools; every
+  # specialist gets the worker set. The permission model IS the hierarchy.
+  defp mcp_allowlist(role) do
+    operator = if Custode.Roles.grants(role) == :operator, do: @operator_mcp_tools, else: []
+    prefix(@worker_mcp_tools ++ operator ++ optional_tools())
+  end
 
   defp prefix(tools), do: Enum.map(tools, &("mcp__custode__" <> &1))
 
