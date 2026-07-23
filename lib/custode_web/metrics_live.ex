@@ -144,6 +144,13 @@ defmodule CustodeWeb.MetricsLive do
             </table>
           </div>
         </section>
+
+        <section class="rounded-lg bg-base-100 p-4 shadow-sm xl:col-span-2">
+          <h3 class="mb-3 font-semibold text-base-content/70">
+            fleet digest &middot; last 7 days
+          </h3>
+          <pre class="overflow-x-auto whitespace-pre-wrap text-xs text-base-content/80">{@digest}</pre>
+        </section>
       </div>
     </.page>
     """
@@ -169,6 +176,7 @@ defmodule CustodeWeb.MetricsLive do
 
     assign(socket,
       by_model: Custode.Metrics.by_model(@days),
+      digest: Custode.Digest.build(7) |> Custode.Digest.to_markdown(),
       tokens_today: Custode.SpendLedger.fleet_today_tokens(),
       turns_today: Map.get(turns, today, %{ok: 0, failed: 0}),
       days_shown: @days,
