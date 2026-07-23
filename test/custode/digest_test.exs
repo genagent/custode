@@ -82,6 +82,19 @@ defmodule Custode.DigestTest do
     assert md =~ agent
   end
 
+  test "build_since summarizes a precise window and labels it 'since ...'" do
+    agent = uid("since")
+    :ok = SpendLedger.record(agent, 0.40, "turn", model: "sonnet")
+
+    since = DateTime.add(DateTime.utc_now(), -3600, :second)
+    d = Digest.build_since(since)
+
+    assert d.since == since
+    refute Map.has_key?(d, :window_days)
+    assert d.spend.by_agent[agent].usd == 0.4
+    assert Digest.to_markdown(d) =~ "since "
+  end
+
   test "to_markdown renders the empty fallbacks (quiet spend, no suggestions/anomalies)" do
     # a literal empty digest -- deterministic, unlike build/1 against a shared DB
     empty = %{

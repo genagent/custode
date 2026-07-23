@@ -43,6 +43,29 @@ defmodule CustodeWeb.FleetLiveTest do
     assert html =~ "beat"
   end
 
+  test "the 'while you were away' digest greets the operator on return, then dismisses",
+       %{conn: conn} do
+    previous = Application.get_env(:custode, :presence_override)
+    Application.put_env(:custode, :presence_override, nil)
+    on_exit(fn -> Application.put_env(:custode, :presence_override, previous) end)
+
+    now = DateTime.utc_now()
+    # a recent return (1m ago) after a 3h absence, as presence-toggle actions
+    for secs <- [60, 60 + 3 * 3600] do
+      Custode.Repo.insert!(%Custode.Feed.Entry{
+        event: "presence",
+        entry: "{}",
+        at: DateTime.add(now, -secs, :second)
+      })
+    end
+
+    {:ok, view, html} = live(conn, "/")
+    assert html =~ "while you were away"
+
+    view |> element("#away-digest button", "dismiss") |> render_click()
+    refute render(view) =~ "while you were away"
+  end
+
   describe "role tiles and repo grouping (#243)" do
     setup do
       previous = Application.get_env(:custode, :routines)

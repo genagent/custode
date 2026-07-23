@@ -6,10 +6,12 @@ defmodule Custode.Digest do
   gates table, the feed -- and renders to both a MAP (for code, e.g. a
   judgment advisor's observation) and MARKDOWN (for prompts and humans).
 
-  Pure queries, ZERO tokens: `build/1` composes `Custode.Metrics` (which
-  already holds the windowed spend/turn/gate reads) plus one small
-  failure-kind query. It never keeps bespoke counters -- telemetry is the
-  only substrate (D1).
+  Pure queries, ZERO tokens: everything is a direct read over a `since`
+  timestamp. `build/1` summarizes the last N UTC days; `build_since/1`
+  summarizes a precise `[since, now]` window (#263 -- the presence-return
+  "while you were away" view wants exactly this, an arbitrary gap rather than
+  whole days). It never keeps bespoke counters -- telemetry is the only
+  substrate (D1).
 
   The point is to keep LLM eyes OFF raw telemetry. A judgment call reads two
   hundred lines of curated summary here, never two hundred thousand events.
@@ -28,7 +30,7 @@ defmodule Custode.Digest do
 
   import Ecto.Query, only: [from: 2]
 
-  alias Custode.{Feed, Metrics, Repo}
+  alias Custode.{Feed, Repo}
   alias Custode.SpendLedger.Entry
 
   @default_days 7
@@ -38,18 +40,27 @@ defmodule Custode.Digest do
   map; every section is present even when the window is quiet.
   """
   def build(days \\ @default_days) when is_integer(days) and days > 0 do
-    by_agent = aggregate_agents(Metrics.daily_by_agent(days))
-    turns = turn_totals(Metrics.turns_by_day(days))
-    {gates, median_minutes} = Metrics.gate_latencies()
-    failed = failed_by_agent(days)
+    days |> days_ago() |> build_since() |> Map.put(:window_days, days)
+  end
+
+  @doc """
+  Build the digest for the precise window `[since, now]` (#263). Same typed
+  map as `build/1`, carrying `:since` instead of `:window_days` -- used for an
+  operator's away window, which is an arbitrary gap, not whole days.
+  """
+  def build_since(%DateTime{} = since) do
+    by_agent = spend_by_agent(since)
+    turns = turn_totals(since)
+    failed = failed_by_agent(since)
+    {gates, median_minutes} = gates_since(since)
 
     %{
-      window_days: days,
+      since: since,
       spend: %{
-        total_usd: by_agent |> Enum.map(fn {_a, m} -> m.usd end) |> sum() |> round2(),
-        total_tokens: by_agent |> Enum.map(fn {_a, m} -> m.tokens end) |> sum(),
+        total_usd: by_agent |> Enum.map(fn {_a, m} -> m.usd end) |> Enum.sum() |> round2(),
+        total_tokens: by_agent |> Enum.map(fn {_a, m} -> m.tokens end) |> Enum.sum(),
         by_agent: by_agent,
-        by_model: Metrics.by_model(days)
+        by_model: spend_by_model(since)
       },
       sweeps: %{
         total: turns.ok + turns.failed,
@@ -58,7 +69,7 @@ defmodule Custode.Digest do
         yield_pct: pct(turns.ok, turns.ok + turns.failed)
       },
       gates: %{count: length(gates), median_minutes: median_minutes, recent: gates},
-      failures: %{total: failures_total(failed), by_kind: failures_by_kind(days)},
+      failures: %{total: failures_total(failed), by_kind: failures_by_kind(since)},
       suggestions: standing_suggestions(),
       anomalies: anomalies(failed)
     }
@@ -67,7 +78,7 @@ defmodule Custode.Digest do
   @doc "Render a digest map as compact markdown for prompts, reports, and humans."
   def to_markdown(%{} = d) do
     """
-    ## Fleet digest -- last #{d.window_days}d
+    ## Fleet digest -- #{window_label(d)}
 
     **Spend** $#{d.spend.total_usd} / #{d.spend.total_tokens} tokens
     #{agent_lines(d.spend.by_agent)}
@@ -88,32 +99,67 @@ defmodule Custode.Digest do
     |> Kernel.<>("\n")
   end
 
-  # --- queries ---------------------------------------------------------
+  defp window_label(%{window_days: days}), do: "last #{days}d"
+  defp window_label(%{since: since}), do: "since #{ago(since)}"
 
-  # sum the per-day, per-agent spend into one row per agent over the window
-  defp aggregate_agents(daily) do
-    Enum.reduce(daily, %{}, fn {_date, by_agent}, acc -> merge_day(acc, by_agent) end)
+  # --- queries (all over a since timestamp) ----------------------------
+
+  defp spend_by_agent(since) do
+    Repo.all(
+      from(s in Entry,
+        where: s.inserted_at >= ^since,
+        group_by: s.agent_id,
+        select: {
+          s.agent_id,
+          sum(s.cost_usd),
+          coalesce(sum(s.input_tokens), 0) + coalesce(sum(s.output_tokens), 0) +
+            coalesce(sum(s.cache_creation_tokens), 0)
+        }
+      )
+    )
+    |> Map.new(fn {agent, usd, tokens} -> {agent, %{usd: usd || 0.0, tokens: tokens || 0}} end)
   end
 
-  defp merge_day(acc, by_agent) do
-    Enum.reduce(by_agent, acc, fn {agent, %{usd: usd, tokens: tokens}}, inner ->
-      Map.update(inner, agent, %{usd: usd, tokens: tokens}, &add_spend(&1, usd, tokens))
+  defp spend_by_model(since) do
+    Repo.all(
+      from(s in Entry,
+        where: s.inserted_at >= ^since,
+        group_by: s.model,
+        select: {
+          s.model,
+          sum(s.cost_usd),
+          coalesce(sum(s.input_tokens), 0) + coalesce(sum(s.output_tokens), 0) +
+            coalesce(sum(s.cache_creation_tokens), 0),
+          count(s.id),
+          fragment("SUM(CASE WHEN ? != 'turn' THEN 1 ELSE 0 END)", s.outcome)
+        }
+      )
+    )
+    |> Map.new(fn {model, usd, tokens, turns, failed} ->
+      {model || "(unrecorded)",
+       %{usd: usd || 0.0, tokens: tokens || 0, turns: turns, failed: failed || 0}}
     end)
   end
 
-  defp add_spend(cur, usd, tokens), do: %{usd: cur.usd + usd, tokens: cur.tokens + tokens}
-
-  defp turn_totals(by_day) do
-    Enum.reduce(by_day, %{ok: 0, failed: 0}, fn {_date, %{ok: ok, failed: failed}}, acc ->
-      %{ok: acc.ok + ok, failed: acc.failed + failed}
+  defp turn_totals(since) do
+    Repo.all(
+      from(s in Entry,
+        where: s.inserted_at >= ^since,
+        group_by: s.outcome,
+        select: {s.outcome, count(s.id)}
+      )
+    )
+    |> Enum.reduce(%{ok: 0, failed: 0}, fn {outcome, n}, acc ->
+      key = if outcome == "turn", do: :ok, else: :failed
+      Map.update(acc, key, n, &(&1 + n))
     end)
   end
 
   # failed turns grouped by agent over the window (for anomalies)
-  defp failed_by_agent(days) do
+  defp failed_by_agent(since) do
     Repo.all(
       from(s in Entry,
-        where: s.inserted_at >= ^since(days) and s.outcome != "turn",
+        where: s.inserted_at >= ^since and s.outcome != "turn",
         group_by: s.agent_id,
         select: {s.agent_id, count(s.id)}
       )
@@ -122,15 +168,48 @@ defmodule Custode.Digest do
   end
 
   # failed turns grouped by their stop_reason -- the failure KINDS
-  defp failures_by_kind(days) do
+  defp failures_by_kind(since) do
     Repo.all(
       from(s in Entry,
-        where: s.inserted_at >= ^since(days) and s.outcome != "turn",
+        where: s.inserted_at >= ^since and s.outcome != "turn",
         group_by: s.stop_reason,
         select: {s.stop_reason, count(s.id)}
       )
     )
     |> Map.new(fn {kind, count} -> {kind || "(unknown)", count} end)
+  end
+
+  # gates resolved within the window: open -> resolved latency in minutes
+  defp gates_since(since) do
+    rows =
+      Repo.all(
+        from(g in Custode.Gates.Gate,
+          where: g.status != "open" and g.updated_at >= ^since,
+          order_by: [desc: g.id],
+          limit: 15,
+          select: %{
+            agent: g.agent_id,
+            detail: g.detail,
+            status: g.status,
+            opened: g.inserted_at,
+            closed: g.updated_at
+          }
+        )
+      )
+
+    gates =
+      for row <- rows do
+        minutes = row.closed |> diff_minutes(row.opened) |> max(0)
+
+        %{
+          agent: row.agent,
+          detail: String.slice(row.detail || "(no description)", 0, 80),
+          minutes: minutes,
+          status: row.status
+        }
+      end
+
+    {gates, median(Enum.map(gates, & &1.minutes))}
   end
 
   defp failures_total(failed_by_agent), do: failed_by_agent |> Map.values() |> Enum.sum()
@@ -151,8 +230,8 @@ defmodule Custode.Digest do
     end)
   end
 
-  # cheap, honest anomalies for slice 1: agents whose failures cluster in the
-  # window. Rail hits and silent sensors arrive with slice 4's telemetry.
+  # cheap, honest anomalies: agents whose failures cluster in the window.
+  # Rail hits and silent sensors arrive with slice 4's telemetry (#261).
   defp anomalies(failed_by_agent) do
     failed_by_agent
     |> Enum.filter(fn {_agent, n} -> n >= 2 end)
@@ -160,8 +239,8 @@ defmodule Custode.Digest do
     |> Enum.map(fn {agent, n} -> "#{agent}: #{n} failed turns in the window" end)
   end
 
-  # match daily_by_agent's window (days calendar days including today)
-  defp since(days) do
+  # the last N calendar days including today (matches the pre-#263 window)
+  defp days_ago(days) do
     Date.utc_today()
     |> Date.add(-(days - 1))
     |> DateTime.new!(~T[00:00:00], "Etc/UTC")
@@ -197,10 +276,35 @@ defmodule Custode.Digest do
   defp anomaly_lines([]), do: "  (none)"
   defp anomaly_lines(anomalies), do: Enum.map_join(anomalies, "\n", &"  - #{&1}")
 
-  # --- number helpers --------------------------------------------------
+  # --- number/time helpers ---------------------------------------------
 
-  defp sum(list), do: Enum.sum(list)
   defp pct(_n, 0), do: 0
   defp pct(n, total), do: round(n / total * 100)
   defp round2(x), do: Float.round(x * 1.0, 2)
+
+  defp median([]), do: 0
+
+  defp median(values) do
+    sorted = Enum.sort(values)
+    Enum.at(sorted, div(length(sorted), 2))
+  end
+
+  defp diff_minutes(%DateTime{} = closed, %DateTime{} = opened),
+    do: div(DateTime.diff(closed, opened), 60)
+
+  defp diff_minutes(closed, opened),
+    do: div(NaiveDateTime.diff(to_naive(closed), to_naive(opened)), 60)
+
+  defp to_naive(%DateTime{} = dt), do: DateTime.to_naive(dt)
+  defp to_naive(%NaiveDateTime{} = ndt), do: ndt
+
+  defp ago(%DateTime{} = at) do
+    minutes = div(DateTime.diff(DateTime.utc_now(), at), 60)
+
+    cond do
+      minutes < 1 -> "just now"
+      minutes < 60 -> "#{minutes}m ago"
+      true -> "#{div(minutes, 60)}h #{rem(minutes, 60)}m ago"
+    end
+  end
 end
