@@ -68,6 +68,29 @@ config :custode,
       timeout_ms: 200_000,
       max_turns: 15,
       tags: [:personal]
+    },
+    # The steward (design/006): a repo's groundskeeper. Where the backlog
+    # worker drains a board, the steward FILLS one -- it runs the health
+    # battery in-turn (cargo/mix by detection, real exit codes), judges what
+    # is drifting, and files findings as `upkeep` issues via repo_open_issue.
+    # @daily and cheap (mostly battery + one bounded judgment call); worker
+    # and steward stay TWO routines per repo (pairing, not merging). Add one
+    # with: id "<repo>-steward", profile "steward", repo/working_dir of the
+    # served checkout.
+    steward: %{
+      cron: "@daily",
+      prompt: "Do your stewardship sweep now.",
+      role: :steward,
+      mcp: true,
+      model: "sonnet",
+      effort: "low",
+      max_budget_usd: 5.0,
+      daily_budget_usd: 10.0,
+      # the battery runs real suites (cargo test, mix dialyzer): 15 minutes
+      timeout_ms: 900_000,
+      max_turns: 40,
+      tags: [:repo, :upkeep],
+      sensors: [:ci]
     }
   },
   routines: [
@@ -185,6 +208,18 @@ config :custode,
     %{
       id: "redisctl",
       profile: :backlog_worker,
+      repo: "redis/redisctl",
+      working_dir: "/Users/joshrotenberg/Code/github.com/redis/redisctl",
+      tags: [:rust, :external]
+    },
+    # redisctl's steward (design/006 slice 1): the first repo to get a
+    # groundskeeper, since it just became a product. Paired with the worker
+    # above -- same repo, different phone number (@daily condition-watching
+    # vs */window board-draining). Prove the profile here before the
+    # fleet-wide rollout (design/006 slice 4); every further add is one gate.
+    %{
+      id: "redisctl-steward",
+      profile: :steward,
       repo: "redis/redisctl",
       working_dir: "/Users/joshrotenberg/Code/github.com/redis/redisctl",
       tags: [:rust, :external]
