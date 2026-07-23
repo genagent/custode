@@ -42,6 +42,15 @@ defmodule Custode.Advisor do
   @callback suggest(observations :: [term()]) :: [map()]
   @callback key(suggestion :: map()) :: String.t()
 
+  @doc """
+  The advisor's grade (#262 / design 004 D3): `:deterministic` (observe and
+  suggest are pure Elixir, zero tokens -- the default and the bar every
+  advisor must justify leaving) or `:judgment` (suggest makes ONE bounded LLM
+  call over the Digest). Optional; defaults to `:deterministic`.
+  """
+  @callback grade() :: :deterministic | :judgment
+  @optional_callbacks grade: 0
+
   defmacro __using__(_opts) do
     quote do
       use Oban.Worker, queue: :sensors, max_attempts: 1
@@ -52,7 +61,49 @@ defmodule Custode.Advisor do
       def perform(%Oban.Job{}) do
         Custode.Advisor.run(__MODULE__)
       end
+
+      @impl Custode.Advisor
+      def grade, do: :deterministic
+      defoverridable grade: 0
     end
+  end
+
+  @doc """
+  A judgment advisor's one bounded LLM call (#262): a single `ObanClaude.run`
+  with a small model, a hard cost cap, `max_turns: 1`, and an inline
+  `--json-schema` forcing structured output. Returns the parsed structured map
+  (`ObanClaude.structured/1`), or `nil` if the run errored or the schema was
+  not honored -- a judgment advisor must never crash the sensor lane.
+
+  `opts`: `:model` (default "haiku"), `:max_budget_usd` (default 0.10),
+  `:system` (append-system-prompt), `:agent_id` (spend attribution, default
+  "advisor-judgment"). The `:custode, :advisor_query_fun` env is the test
+  seam -- set it to a canned response and no real call is made.
+  """
+  def judgment_call(prompt, schema, opts \\ []) when is_binary(prompt) and is_binary(schema) do
+    args = %{
+      "prompt" => prompt,
+      "model" => opts[:model] || "haiku",
+      "json_schema" => schema,
+      "max_turns" => 1,
+      "max_budget_usd" => opts[:max_budget_usd] || 0.10
+    }
+
+    args = if opts[:system], do: Map.put(args, "append_system_prompt", opts[:system]), else: args
+    agent_id = opts[:agent_id] || "advisor-judgment"
+
+    run_opts = [job: %Oban.Job{meta: %{"agent_id" => agent_id}}]
+
+    run_opts =
+      case Application.get_env(:custode, :advisor_query_fun) do
+        nil -> run_opts
+        fun -> Keyword.put(run_opts, :query_fun, fun)
+      end
+
+    {_return, result} = ObanClaude.run(args, run_opts)
+    ObanClaude.structured(result)
+  rescue
+    _error -> nil
   end
 
   @doc false

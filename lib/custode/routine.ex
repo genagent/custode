@@ -79,11 +79,14 @@ defmodule Custode.Routine do
     janitor_entries = [{"@daily", Custode.Janitor, args: %{}, queue: :sensors}]
 
     # advisors (#125) ride the same static lane as the janitor: always-on,
-    # deterministic, zero tokens -- one daily look at the fleet's economics
+    # zero-token deterministic reads of the fleet's economics -- plus one
+    # weekly JUDGMENT advisor (#262) that reads the Digest and thinks for one
+    # bounded moment
     advisor_entries = [
       {"@daily", Custode.Advisors.Cadence, args: %{}, queue: :sensors},
       {"@daily", Custode.Advisors.Model, args: %{}, queue: :sensors},
-      {"@daily", Custode.Advisors.Budget, args: %{}, queue: :sensors}
+      {"@daily", Custode.Advisors.Budget, args: %{}, queue: :sensors},
+      {"@weekly", Custode.Advisors.Retro, args: %{}, queue: :sensors}
     ]
 
     sensor_entries ++ janitor_entries ++ advisor_entries
