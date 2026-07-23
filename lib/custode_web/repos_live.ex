@@ -42,11 +42,13 @@ defmodule CustodeWeb.ReposLive do
               {repo}
             </a>
             <.link
-              :for={agent <- agents}
+              :for={{agent, role} <- agents}
               navigate={"/agents/#{agent}"}
-              class="badge badge-ghost badge-sm font-mono"
+              class="badge badge-ghost badge-sm gap-1 font-mono"
+              title={Custode.Roles.summary(role)}
             >
               {agent}
+              <span class="opacity-60">&middot; {role}</span>
             </.link>
             <span
               :if={overview(@overviews, repo) == :loading}
@@ -63,13 +65,21 @@ defmodule CustodeWeb.ReposLive do
 
   defp overview(overviews, repo), do: Map.get(overviews, repo)
 
-  # Dedupe repos across the roster (several agents can work one repo) and
-  # keep the roster's order for the first appearance of each.
+  # active-cadence agents (the loud worker) sort before quiet ones (the
+  # steward), then by id -- the registry supplies the cadence
+  defp agent_order({id, role}) do
+    {if(Custode.Roles.cadence(role) == :active, do: 0, else: 1), id}
+  end
+
+  # Dedupe repos across the roster (several agents can work one repo). Each
+  # agent carries its role so the tile shows the repo's staffing (#255): the
+  # loud worker before the quiet steward, then by id.
   defp refresh(socket) do
     repos =
       Custode.Routine.all()
       |> Enum.filter(& &1.repo)
-      |> Enum.group_by(& &1.repo, & &1.id)
+      |> Enum.group_by(& &1.repo, &{&1.id, &1.role})
+      |> Enum.map(fn {repo, agents} -> {repo, Enum.sort_by(agents, &agent_order/1)} end)
       |> Enum.sort_by(fn {repo, _agents} -> repo end)
 
     overviews =

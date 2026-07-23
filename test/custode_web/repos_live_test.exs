@@ -34,8 +34,8 @@ defmodule CustodeWeb.ReposLiveTest do
     no_repo_id = uid("solo")
 
     put_env!(:routines, [
-      %{id: worker_id, cron: "@daily", workspace: tmp_workspace!(), prompt: "sweep", repo: repo},
-      %{id: steward_id, cron: "@daily", workspace: tmp_workspace!(), prompt: "sweep", repo: repo},
+      %{id: worker_id, profile: :backlog_worker, workspace: tmp_workspace!(), repo: repo},
+      %{id: steward_id, profile: :steward, workspace: tmp_workspace!(), repo: repo},
       %{id: no_repo_id, cron: "@daily", workspace: tmp_workspace!(), prompt: "sweep"}
     ])
 
@@ -46,9 +46,11 @@ defmodule CustodeWeb.ReposLiveTest do
     assert html =~ repo
     refute html =~ "/agents/#{no_repo_id}"
 
-    # both agents ride the same tile as links
+    # both agents ride the same tile as links, each showing its role (#255)
     assert html =~ "/agents/#{worker_id}"
     assert html =~ "/agents/#{steward_id}"
+    assert html =~ "backlog_worker"
+    assert html =~ "steward"
 
     # the panel fills in live off the same cache/broadcast the agent page uses
     html =
