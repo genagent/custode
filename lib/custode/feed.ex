@@ -7,6 +7,17 @@ defmodule Custode.Feed do
   report and spend), failed turns, the two gated states (with the
   action/question the agent is blocked on), and pause/resume.
 
+  ## Emit-from-birth (#261 / design 004 D1)
+
+  The feed (with the spend ledger and gates table) IS the telemetry substrate:
+  everything that adjusts the fleet reads this stream, and nothing keeps
+  bespoke counters. The standing rule: **a mechanism ships with its telemetry
+  or it does not ship.** A new verb, scheduler, or reconciler records its
+  own feed entry (or spend/gate row) from birth -- so the Digest, the
+  advisors, and the operator see it without special-casing. Today's emitters
+  include finished/failed turns, gated states, pause/resume and budget rails
+  (`budget_paused`), drains, sensor and advisor runs, and the repo verbs.
+
   Entries are RECORDS, so they live in the database (storage doctrine, #43):
   queried per agent, paginated, pruned by retention (#39) instead of file
   rotation. A jsonl mirror is still appended to `:feed_path` for `tail -f`
