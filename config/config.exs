@@ -391,6 +391,14 @@ config :custode, Custode.Repo,
 # The MCP endpoint (localhost only) agents use to drive sibling agents/jobs.
 config :custode, mcp_port: 6161
 
+# The fleet-tuning advisors (#125/#260): a name -> cron map naming which run
+# and how often. `false` (or omitting a name) disables one. Toggleable via
+# custode.toml's [advisors] section without a code edit. Cadence/Model/Budget
+# are the zero-token deterministic trio; Retro (#262) is the weekly judgment
+# advisor that reads the Digest.
+config :custode,
+  advisors: [cadence: "@daily", model: "@daily", budget: "@daily", retro: "@weekly"]
+
 # Repo-owned ambient orders (#19): which routines may compose their
 # working_dir's .custode/orders.md into the prompt. Scoped with the same
 # selector language as the policies below. A file in a repo is prompt

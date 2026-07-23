@@ -75,6 +75,13 @@ defmodule Custode.Config.CustodeToml do
   defp convert_section("janitor", table, source),
     do: [{:janitor, convert(table, @janitor, source, "janitor")}]
 
+  # [advisors] (#260): each key is an advisor name, each value a cron string
+  # or `false` to disable. Names are validated at boot when the crontab
+  # resolves them to modules, so the loader passes them through.
+  defp convert_section("advisors", table, _source) do
+    [{:advisors, Enum.map(table, fn {name, cron} -> {String.to_atom(name), cron} end)}]
+  end
+
   defp convert_section(section, _table, _source) when section in @deferred do
     IO.puts("custode: [#{section}] in custode.toml is not applied yet (part of #267)")
     []

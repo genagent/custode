@@ -48,6 +48,20 @@ defmodule Custode.Config.CustodeTomlTest do
     assert kw[:janitor] == [feed_days: 14]
   end
 
+  test "[advisors] maps names to crons or false (#260)" do
+    toml = """
+    [advisors]
+    cadence = "0 9 * * *"
+    model = false
+    retro = "@weekly"
+    """
+
+    kw = CustodeToml.parse!(toml)
+    assert kw[:advisors][:cadence] == "0 9 * * *"
+    assert kw[:advisors][:model] == false
+    assert kw[:advisors][:retro] == "@weekly"
+  end
+
   test "an unknown key fails loudly" do
     toml = """
     [fleet]
