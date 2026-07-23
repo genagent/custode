@@ -19,11 +19,20 @@ defmodule Custode.GatesTest do
 
     {:ok, {:awaiting_permission, %{id: action_id}}} = Agent.await(id, :awaiting_permission, 1_000)
 
-    assert [gate] = Gates.open_gates(id)
+    # the transition came from a cast, so the row the handler writes may not
+    # exist at the instant `await` returns -- see `eventually/2`'s docs (#257)
+    gate =
+      eventually(fn ->
+        assert [gate] = Gates.open_gates(id)
+        gate
+      end)
+
     assert gate.kind == "approval"
     assert gate.action_id == action_id
     assert gate.detail == "prune"
 
+    # reject_action/3 is a call and replies after sync_transition: the resolve
+    # is already written here, so this read needs no retry
     :rejected = Agent.reject_action(id, action_id, "test")
     assert Gates.open_gates(id) == []
   end
@@ -39,10 +48,59 @@ defmodule Custode.GatesTest do
       )
 
     {:ok, {:waiting_for_user, _q}} = Agent.await(id, :waiting_for_user, 1_000)
-    assert [%{kind: "question", detail: "which env?"}] = Gates.open_gates(id)
 
+    eventually(fn ->
+      assert [%{kind: "question", detail: "which env?"}] = Gates.open_gates(id)
+    end)
+
+    # submit_prompt/3 is a call: the answer's transition is written by the
+    # time it replies
     :processing = Agent.submit_prompt(id, "staging")
     assert Gates.open_gates(id) == []
+  end
+
+  # The flake in #257, made permanent rather than accidental. Detaching
+  # `custode-gates` and re-attaching it behind a sleeping handler puts its
+  # insert at the back of the transition's handler chain, so the window
+  # between "the registry says awaiting_permission" and "the gate row
+  # exists" is always wide instead of usually zero. Nothing here is
+  # artificial: it is the ordering CI hits under load.
+  test "the gate row lands after await/3 returns, and the assertion survives it" do
+    slow = "slow-transition-#{System.unique_integer([:positive])}"
+
+    :ok = :telemetry.detach("custode-gates")
+
+    :ok =
+      :telemetry.attach(
+        slow,
+        [:oban_claude, :agent, :transition],
+        fn _event, _measurements, _meta, _config -> Process.sleep(150) end,
+        nil
+      )
+
+    :ok = Custode.Gates.attach()
+
+    on_exit(fn ->
+      :telemetry.detach(slow)
+      :telemetry.detach("custode-gates")
+      Custode.Gates.attach()
+    end)
+
+    id = start_stub_agent!()
+    :processing = Agent.submit_prompt(id, "x")
+
+    :ok =
+      Agent.job_finished(
+        id,
+        {:ok, structured_result(%{"directive" => "request_permission", "action" => "prune"})}
+      )
+
+    {:ok, {:awaiting_permission, _action}} = Agent.await(id, :awaiting_permission, 1_000)
+
+    # the agent process is still inside the sleeping handler here
+    assert Gates.open_gates(id) == []
+
+    eventually(fn -> assert [%{detail: "prune"}] = Gates.open_gates(id) end)
   end
 
   test "reconcile! turns open routine gates into RESTART NOTICE notes, once" do

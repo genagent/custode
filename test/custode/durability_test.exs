@@ -17,10 +17,13 @@ defmodule Custode.DurabilityTest do
 
       {:ok, :paused} = Agent.await(over.id, :paused, 1_000)
 
-      assert Enum.any?(
-               Custode.Feed.for_agent(over.id),
-               &(&1["event"] == "budget_paused" and &1["action"] =~ "no leak turn")
-             )
+      # the pause is a cast and the feed row is written after it (#257)
+      eventually(fn ->
+        assert Enum.any?(
+                 Custode.Feed.for_agent(over.id),
+                 &(&1["event"] == "budget_paused" and &1["action"] =~ "no leak turn")
+               )
+      end)
 
       # a fresh routine under its rail is untouched (stays offline)
       fresh = routine_fixture!(workspace, %{daily_budget_usd: 100.0})

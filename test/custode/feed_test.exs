@@ -316,7 +316,16 @@ defmodule Custode.FeedTest do
     :ok = Agent.cast_prompt(id, "that one")
     {:ok, :running} = Agent.await(id, :running, 1_000)
 
-    assert [question] = Custode.Feed.for_agent(id) |> Enum.filter(&(&1["event"] == "needs_input"))
+    # the answer arrived by cast, so the card is marked resolved by the
+    # transition handler after :running is already visible (#257)
+    question =
+      eventually(fn ->
+        assert [question] =
+                 Custode.Feed.for_agent(id) |> Enum.filter(&(&1["event"] == "needs_input"))
+
+        question
+      end)
+
     assert question["resolved"] == "answered"
   end
 
