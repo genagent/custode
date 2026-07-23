@@ -143,13 +143,25 @@ defmodule Custode.Config.Loader do
     with {:ok, path, routines, sensors, profiles} <- load() do
       Application.put_env(:custode, :routines, routines)
       Application.put_env(:custode, :sensors, sensors)
-      # D1 for profiles too (#236): once a file exists it owns the profile
-      # map outright; WriteBack.ensure_file! renders the config.exs profiles
-      # into the first file so nothing is dropped on the exs -> file switch.
-      Application.put_env(:custode, :profiles, profiles)
+      apply_profiles(profiles)
       {:ok, path, routines, sensors, profiles}
     end
   end
+
+  @doc """
+  Apply file-sourced profiles to the running env, but ONLY when the file
+  actually declares any (#236). A file with a `[[profiles]]` section owns the
+  profile map outright (D1) -- WriteBack.ensure_file! dumps the config.exs
+  profiles into any file it creates, so a custode-written file always carries
+  them. But a file with NO `[[profiles]]` section (every roster written before
+  #236) means "I do not manage profiles here": applying its empty map would
+  wipe the config.exs profiles every routine inherits from and crash the fleet
+  on the next boot. So an empty parse falls through to the config defaults.
+  """
+  def apply_profiles(profiles) when map_size(profiles) > 0,
+    do: Application.put_env(:custode, :profiles, profiles)
+
+  def apply_profiles(_empty), do: :ok
 
   @doc """
   The path a write-back should target: `$CUSTODE_CONFIG` when set (whether or
