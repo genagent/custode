@@ -59,6 +59,86 @@ defmodule Custode.MCP.RepoTools.OpenIssue do
   end
 end
 
+defmodule Custode.MCP.RepoTools.DraftIssues do
+  @moduledoc """
+  Draft a batch of issues for ONE filing gate (#241). Nothing reaches GitHub
+  here: the drafts become rows, you then raise a single request_permission
+  naming the batch, and the operator drops any entry it does not want before
+  approving. The approved continuation calls `repo_file_drafts`, which files
+  exactly what survived. Self-scoped.
+  """
+  use Anubis.Server.Component, type: :tool
+
+  import Custode.MCP.Tools
+
+  schema do
+    field(:routine_id, :string, required: true, description: "your own routine id")
+    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
+
+    embeds_many :issues,
+      required: true,
+      description: "the drafted issues, in the order you want them filed" do
+      field(:title, :string, required: true, description: "conventional-commit style title")
+      field(:body, :string, description: "issue body markdown -- the evidence inline")
+      field(:labels, {:list, :string}, description: "labels to apply")
+    end
+  end
+
+  @impl true
+  def execute(%{routine_id: routine_id, repo: repo, issues: issues}, frame) do
+    with :ok <- check_self(frame, routine_id),
+         {:ok, batch} <- Custode.Drafts.draft(routine_id, repo, issues) do
+      reply(frame, %{
+        batch_id: batch.batch_id,
+        repo: repo,
+        drafted:
+          for entry <- batch.entries do
+            %{id: entry.id, title: entry.title, labels: Custode.Drafts.labels(entry)}
+          end,
+        next:
+          "raise ONE request_permission naming batch #{batch.batch_id} and listing these " <>
+            "titles; on approval call repo_file_drafts with the batch id"
+      })
+    else
+      {:error, :empty} -> fail(frame, "no issues to draft")
+      {:error, :too_many} -> fail(frame, "at most #{Custode.Drafts.max_entries()} per batch")
+      {:error, :missing_title} -> fail(frame, "every drafted issue needs a title")
+      {:error, :body_too_large} -> fail(frame, "issue body too large (20KB max)")
+      {:error, message} -> fail(frame, to_string(message))
+    end
+  end
+end
+
+defmodule Custode.MCP.RepoTools.FileDrafts do
+  @moduledoc """
+  File the kept entries of a drafted batch (#241) -- the approved
+  continuation's verb. Files every entry the operator did not drop, through
+  the same policy checks as `repo_open_issue`; a refusal marks that one
+  entry and the rest of the batch still files. Self-scoped, and idempotent:
+  an already-filed entry is never filed twice.
+  """
+  use Anubis.Server.Component, type: :tool
+
+  import Custode.MCP.Tools
+
+  schema do
+    field(:routine_id, :string, required: true, description: "your own routine id")
+    field(:batch_id, :string, required: true, description: "the batch id draft_issues returned")
+  end
+
+  @impl true
+  def execute(%{routine_id: routine_id, batch_id: batch_id}, frame) do
+    with :ok <- check_self(frame, routine_id),
+         {:ok, result} <- Custode.Drafts.file(routine_id, batch_id) do
+      reply(frame, result)
+    else
+      {:error, :unknown_batch} -> fail(frame, "no such batch: #{batch_id}")
+      {:error, :not_yours} -> fail(frame, "batch #{batch_id} belongs to another routine")
+      {:error, message} -> fail(frame, to_string(message))
+    end
+  end
+end
+
 defmodule Custode.MCP.RepoTools.Comment do
   @moduledoc "Comment on an issue or PR of a served repo."
   use Anubis.Server.Component, type: :tool

@@ -226,6 +226,53 @@ defmodule CustodeWeb.AgentLiveTest do
     end
   end
 
+  describe "the batch filing gate (#241)" do
+    setup %{routine: routine} do
+      stub_routine_agent!(routine)
+
+      {:ok, batch} =
+        Custode.Drafts.draft(routine.id, "acme/thing", [
+          %{title: "chore: bump deps", body: "cargo outdated tail", labels: ["upkeep"]},
+          %{title: "fix: flaky pool test", body: "3 of 20 runs failed"}
+        ])
+
+      %{batch: batch}
+    end
+
+    test "the drafted batch renders with its evidence and a per-entry drop",
+         %{conn: conn, routine: routine} do
+      {:ok, view, html} = live(conn, "/agents/#{routine.id}")
+
+      assert html =~ "drafted issues -- 2 of 2 kept"
+      assert html =~ "chore: bump deps"
+      assert html =~ "cargo outdated tail"
+      assert html =~ "upkeep"
+      assert has_element?(view, "button", "drop")
+    end
+
+    test "dropping an entry is reversible from the page and survives a re-render",
+         %{conn: conn, routine: routine, batch: batch} do
+      [first, _second] = batch.entries
+
+      {:ok, view, _html} = live(conn, "/agents/#{routine.id}")
+
+      view
+      |> element(~s(button[phx-value-id="#{first.id}"][phx-click="drop_draft"]))
+      |> render_click()
+
+      html = render(view)
+      assert html =~ "drafted issues -- 1 of 2 kept"
+      assert Custode.Repo.get(Custode.Drafts.Draft, first.id).status == "dropped"
+
+      view
+      |> element(~s(button[phx-value-id="#{first.id}"][phx-click="keep_draft"]))
+      |> render_click()
+
+      assert render(view) =~ "drafted issues -- 2 of 2 kept"
+      assert Custode.Repo.get(Custode.Drafts.Draft, first.id).status == "drafted"
+    end
+  end
+
   describe "the working-state strip (#211)" do
     test "the latest worktree breadcrumb renders; a running turn shows in-flight",
          %{conn: conn} do

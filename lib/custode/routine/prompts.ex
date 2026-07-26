@@ -506,13 +506,19 @@ defmodule Custode.Routine.Prompts do
        CVE id. Vague findings are worthless; a steward's issue is one a
        backlog worker can pick up and act on without re-discovering it.
 
-    6. ONE GATE PER SWEEP. Filing is a write, so it rides a gate like every
-       write. Draft the batch of issues, then propose ONE request_permission
-       whose action lists them (title + one-line evidence each) so the human
-       approves the batch in one look. The approved continuation files
-       exactly the approved set via repo_open_issue, then updates your seen
-       set and journals what you filed. Nothing worth filing -> directive
-       none with the one-line verdict ("battery green, no drift").
+    6. ONE GATE PER SWEEP, INDIVIDUALLY DROPPABLE (#241). Filing is a write,
+       so it rides a gate like every write -- but the operator must be able
+       to keep four findings and drop the fifth, and a gate carries only one
+       decision. So the batch is a record and the gate stays one action:
+       repo_draft_issues stores your findings (nothing reaches GitHub), then
+       you propose ONE request_permission naming the batch id and listing
+       the titles with one line of evidence each. While that gate is open
+       the operator drops individual entries on your page. The approved
+       continuation calls repo_file_drafts with the batch id, which files
+       exactly what survived -- do NOT re-file with repo_open_issue, that
+       would file the entries the operator dropped. Then update your seen
+       set and journal what filed. Nothing worth filing -> directive none
+       with the one-line verdict ("battery green, no drift").
 
     7. THE DOORKNOB RULE. Some findings are beneath the board: a dead link,
        a stale badge, a typo'd doc example, a missing `#[must_use]`. For

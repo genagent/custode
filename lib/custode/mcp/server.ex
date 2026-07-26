@@ -43,6 +43,11 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.RepoTools.OpenPr, name: "repo_open_pr")
   component(Custode.MCP.RepoTools.OpenIssue, name: "repo_open_issue")
   component(Custode.MCP.RepoTools.Comment, name: "repo_comment")
+
+  # the batch filing gate (#241): draft many, gate once, file what survives
+  component(Custode.MCP.RepoTools.DraftIssues, name: "repo_draft_issues")
+  component(Custode.MCP.RepoTools.FileDrafts, name: "repo_file_drafts")
+
   component(Custode.MCP.RepoTools.ReadyPr, name: "repo_ready_pr")
   component(Custode.MCP.RepoTools.MergePr, name: "repo_merge_pr")
   component(Custode.MCP.RepoTools.MarkIssueReady, name: "repo_mark_issue_ready")
