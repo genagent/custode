@@ -32,15 +32,16 @@ defmodule Custode.Attention do
 
   | # | kind | condition |
   | - | ---- | --------- |
-  | 1 | `:needs_answer` | an open question, blocking or not (#299) |
-  | 2 | `:approval` | a gate is open that only the operator can pass |
-  | 3 | `:red_check` | failing checks on the agent's own open PRs |
-  | 4 | `:rail_hit` | the daily rail is reached |
-  | 5 | `:stalled` | scheduled, running, producing no outcome (NOT IMPLEMENTED) |
-  | 6 | `:working` | a turn is executing right now |
-  | 7 | `:paused` | deliberately stopped |
-  | 8 | `:scheduled` | healthy, next beat known |
-  | 9 | `:quiet` | healthy, nothing found, nothing queued |
+  | 1 | `:red_main` | the repository's default branch is failing (#310) |
+  | 2 | `:needs_answer` | an open question, blocking or not (#299) |
+  | 3 | `:approval` | a gate is open that only the operator can pass |
+  | 4 | `:red_check` | failing checks on the agent's own open PRs |
+  | 5 | `:rail_hit` | the daily rail is reached |
+  | 6 | `:stalled` | scheduled, running, producing no outcome (NOT IMPLEMENTED) |
+  | 7 | `:working` | a turn is executing right now |
+  | 8 | `:paused` | deliberately stopped |
+  | 9 | `:scheduled` | healthy, next beat known |
+  | 10 | `:quiet` | healthy, nothing found, nothing queued |
 
   A question outranks an approval because a question is blocked on a human by
   definition, whereas a gate is a structured hold the agent chose to raise and
@@ -52,6 +53,12 @@ defmodule Custode.Attention do
   outranks a rail hit for a single agent, but it is not something the operator
   owes anyone. See `Custode.Signal` for the `:needs_you` / `:watching` split
   and why a red check sits in the second.
+
+  `:red_main` is the case that shows the split is about OWNERSHIP rather than
+  severity. A red pull request blocks nobody but the agent, so the fleet keeps
+  it. A red default branch makes merging unsafe and can make a restart fail
+  outright, so it invalidates the operator's own next action and is owed to
+  them whether or not an agent is also on it (#310).
 
   ### Two deliberate departures from the design note
 
@@ -82,6 +89,7 @@ defmodule Custode.Attention do
   # Ranked kinds, most urgent first. The index into this list IS the
   # precedence, so the table in the moduledoc and the ordering cannot drift.
   @precedence [
+    :red_main,
     :needs_answer,
     :approval,
     :red_check,
@@ -94,6 +102,7 @@ defmodule Custode.Attention do
   ]
 
   @groups %{
+    red_main: :needs_you,
     needs_answer: :needs_you,
     approval: :needs_you,
     red_check: :watching,
@@ -148,6 +157,10 @@ defmodule Custode.Attention do
       asked_at:}`, or `nil` (#299). Independent of state: an agent with an
       open ask is usually idle or working, because asking did not stop it.
     * `:failing_checks` -- count of red checks on the agent's own open PRs.
+    * `:default_branch` -- the branch build as `%{name:, state:, headline:}`,
+      or `nil` (#310). `nil` means unknown, not green: an empty repository and
+      a rollup that has not reported yet both land here, and only a reported
+      failure is a signal.
     * `:spend_today` / `:budget` -- the daily ledger and the rail.
     * `:running_since` -- when the in-flight turn started, or `nil`.
     * `:cron` -- the schedule, or `nil` for a manual agent.
@@ -163,15 +176,28 @@ defmodule Custode.Attention do
   def resolve(view, context \\ %{}) do
     context = Map.put_new_lazy(context, :now, &DateTime.utc_now/0)
 
-    needs_answer(view, context) ||
-      approval(view, context) ||
-      red_check(view, context) ||
-      rail_hit(view, context) ||
-      stalled(view, context) ||
-      working(view, context) ||
-      paused(view, context) ||
-      scheduled(view, context) ||
-      quiet(view, context)
+    Enum.find_value(resolvers(), & &1.(view, context))
+  end
+
+  # The chain, in precedence order. A list rather than a chain of `||` so that
+  # the order lives in ONE place a reader can see at a glance -- and because
+  # the `||` version had to be kept in sync with @precedence by hand, which is
+  # exactly the kind of duplication this module exists to remove elsewhere.
+  #
+  # `quiet/2` always returns a signal, so the search always terminates.
+  defp resolvers do
+    [
+      &red_main/2,
+      &needs_answer/2,
+      &approval/2,
+      &red_check/2,
+      &rail_hit/2,
+      &stalled/2,
+      &working/2,
+      &paused/2,
+      &scheduled/2,
+      &quiet/2
+    ]
   end
 
   @doc """
@@ -223,6 +249,26 @@ defmodule Custode.Attention do
   # overview cache cannot date) after the ones that have one.
   defp raised_key(%DateTime{} = at), do: {0, DateTime.to_unix(at, :microsecond)}
   defp raised_key(nil), do: {1, 0}
+
+  # The one CI state that is the operator's business even though an agent may
+  # also be working on it (#310): merging onto a red default branch is unsafe
+  # and restarting from it can fail outright, so it invalidates the operator's
+  # OWN next action. That is the test :red_check fails and this one passes.
+  defp red_main(view, _context) do
+    branch = Map.get(view, :default_branch)
+
+    if branch && branch.state in ["FAILURE", "ERROR"] do
+      signal(view, :red_main, :high,
+        headline: "#{branch.name} is red",
+        detail: branch.headline,
+        item: {:branch, branch.name},
+        resolving: [
+          op("Open agent", :open_agent, %{agent: view.id}),
+          op("Re-run checks", :rerun_checks, %{agent: view.id})
+        ]
+      )
+    end
+  end
 
   # Three sources, and the third is the point (#299). An open ask means there
   # is a question whether or not the agent is parked, which is what this kind

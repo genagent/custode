@@ -98,6 +98,7 @@ defmodule Custode.Attention.Fleet do
       # agent with three open questions is owed the first one first.
       ask: sources.asks |> Map.get(id, []) |> List.last() |> ask_view(),
       failing_checks: failing_checks(routine),
+      default_branch: default_branch(routine),
       spend_today: Map.get(sources.spend, id, 0.0),
       budget: routine && routine.daily_budget_usd,
       running_since: Map.get(sources.in_flight, id),
@@ -141,4 +142,15 @@ defmodule Custode.Attention.Fleet do
   end
 
   defp failing_checks(_routine), do: 0
+
+  # Same cached overview, one more field (#310). An agent with no repository
+  # has no branch to be red, which is why this is nil rather than green.
+  defp default_branch(%{repo: repo}) when is_binary(repo) do
+    case Custode.GitHub.overview(repo) do
+      {:ok, overview} -> Map.get(overview, :default_branch)
+      :loading -> nil
+    end
+  end
+
+  defp default_branch(_routine), do: nil
 end

@@ -11,6 +11,16 @@ defmodule Custode.GitHub.Fetcher do
   @query """
   query($owner: String!, $name: String!) {
     repository(owner: $owner, name: $name) {
+      defaultBranchRef {
+        name
+        target {
+          ... on Commit {
+            oid
+            messageHeadline
+            statusCheckRollup { state }
+          }
+        }
+      }
       openIssues: issues(states: OPEN, first: 8, orderBy: {field: UPDATED_AT, direction: DESC}) {
         totalCount
         nodes { number title url updatedAt }
@@ -55,7 +65,23 @@ defmodule Custode.GitHub.Fetcher do
       closed_issues: section(repository["closedIssues"], &item(&1, "closedAt")),
       open_prs: section(repository["openPrs"], &pr_item/1),
       merged_prs: section(repository["mergedPrs"], &item(&1, "mergedAt")),
+      default_branch: default_branch(repository["defaultBranchRef"]),
       fetched_at: DateTime.utc_now()
+    }
+  end
+
+  # The branch build (#310). Rides the query that was already being made, so
+  # watching main costs no extra API call. `nil` when the repository has no
+  # default branch (empty repo) or the rollup has not reported yet -- absent
+  # is not the same as red, and only red is a signal.
+  defp default_branch(nil), do: nil
+
+  defp default_branch(ref) do
+    %{
+      name: ref["name"],
+      state: get_in(ref, ["target", "statusCheckRollup", "state"]),
+      oid: get_in(ref, ["target", "oid"]),
+      headline: get_in(ref, ["target", "messageHeadline"])
     }
   end
 
