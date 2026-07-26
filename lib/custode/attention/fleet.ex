@@ -13,6 +13,7 @@ defmodule Custode.Attention.Fleet do
   in a single grouped query rather than one per agent.
   """
 
+  alias Custode.Asks
   alias Custode.Attention
   alias Custode.Gates
   alias Custode.Routine
@@ -33,6 +34,7 @@ defmodule Custode.Attention.Fleet do
 
     sources = %{
       gates: Gates.open_by_agent(),
+      asks: Asks.open_by_agent(),
       in_flight: Map.new(RunClock.running()),
       spend: SpendLedger.today_by_agent(),
       routines: Map.new(routines, &{&1.id, &1})
@@ -86,6 +88,9 @@ defmodule Custode.Attention.Fleet do
       state: Custode.state_of(status),
       detail: status_detail(status),
       gate: sources.gates |> Map.get(id, []) |> List.first() |> gate_view(),
+      # OLDEST open ask, not newest: staleness is what should surface, and an
+      # agent with three open questions is owed the first one first.
+      ask: sources.asks |> Map.get(id, []) |> List.last() |> ask_view(),
       failing_checks: failing_checks(routine),
       spend_today: Map.get(sources.spend, id, 0.0),
       budget: routine && routine.daily_budget_usd,
@@ -106,6 +111,9 @@ defmodule Custode.Attention.Fleet do
       opened_at: gate.inserted_at
     }
   end
+
+  defp ask_view(nil), do: nil
+  defp ask_view(ask), do: %{id: ask.id, question: ask.question, asked_at: ask.inserted_at}
 
   # The live status payload for a gated agent: the question text, or the
   # pending action's description.

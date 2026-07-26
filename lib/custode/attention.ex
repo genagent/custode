@@ -32,7 +32,7 @@ defmodule Custode.Attention do
 
   | # | kind | condition |
   | - | ---- | --------- |
-  | 1 | `:needs_answer` | the agent asked the operator a question |
+  | 1 | `:needs_answer` | an open question, blocking or not (#299) |
   | 2 | `:approval` | a gate is open that only the operator can pass |
   | 3 | `:red_check` | failing checks on the agent's own open PRs |
   | 4 | `:rail_hit` | the daily rail is reached |
@@ -144,6 +144,9 @@ defmodule Custode.Attention do
     * `:gate` -- the open gate row as `%{kind:, detail:, action_id:,
       opened_at:}`, or `nil`. Supplies the durable `raised_at` that the live
       status cannot: the gen_statem knows it is gated, not since when.
+    * `:ask` -- the oldest open non-blocking question as `%{id:, question:,
+      asked_at:}`, or `nil` (#299). Independent of state: an agent with an
+      open ask is usually idle or working, because asking did not stop it.
     * `:failing_checks` -- count of red checks on the agent's own open PRs.
     * `:spend_today` / `:budget` -- the daily ledger and the rail.
     * `:running_since` -- when the in-flight turn started, or `nil`.
@@ -221,17 +224,39 @@ defmodule Custode.Attention do
   defp raised_key(%DateTime{} = at), do: {0, DateTime.to_unix(at, :microsecond)}
   defp raised_key(nil), do: {1, 0}
 
+  # Three sources, and the third is the point (#299). An open ask means there
+  # is a question whether or not the agent is parked, which is what this kind
+  # was always supposed to mean. A blocking `ask_user` still resolves here so
+  # nothing regresses while the prompt stack still uses it.
   defp needs_answer(view, _context) do
-    if state(view) == :waiting_for_user or gate_kind(view) == "question" do
-      signal(view, :needs_answer, :high,
-        headline: "asked you a question",
-        detail: detail(view),
-        raised_at: gate_opened_at(view),
-        resolving: [
-          op("Answer", :answer, %{agent: view.id}),
-          op("Open agent", :open_agent, %{agent: view.id})
-        ]
-      )
+    cond do
+      ask = Map.get(view, :ask) ->
+        signal(view, :needs_answer, :high,
+          headline: "asked you a question",
+          detail: ask.question,
+          item: {:ask, ask.id},
+          raised_at: ask.asked_at,
+          resolving: [
+            op("Answer", :answer_ask, %{ask: ask.id}),
+            op("Open agent", :open_agent, %{agent: view.id})
+          ]
+        )
+
+      state(view) == :waiting_for_user or gate_kind(view) == "question" ->
+        signal(view, :needs_answer, :high,
+          # An agent parked on a question is a worse state of the world than
+          # one that asked and carried on, so say which it is.
+          headline: "asked you a question and stopped",
+          detail: detail(view),
+          raised_at: gate_opened_at(view),
+          resolving: [
+            op("Answer", :answer, %{agent: view.id}),
+            op("Open agent", :open_agent, %{agent: view.id})
+          ]
+        )
+
+      true ->
+        nil
     end
   end
 

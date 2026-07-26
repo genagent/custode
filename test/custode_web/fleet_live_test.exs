@@ -325,9 +325,19 @@ defmodule CustodeWeb.FleetLiveActivitySortTest do
     # Both are offline with a cron, which is how a cold-start routine RESTS.
     # They belong on schedule, not in a needs-you pile.
     assert html =~ "on schedule"
-    refute html =~ "needs you"
     assert html =~ "tile-#{first}"
     assert html =~ "tile-#{second}"
+
+    # Asserted by POSITION rather than as `refute html =~ "needs you"`: the
+    # suite shares a registry, so an agent left running by another test can
+    # legitimately put a needs-you section on this page. Since needs-you
+    # renders first, a tile below the on-schedule header is not in it.
+    {on_schedule_at, _} = :binary.match(html, "on schedule")
+
+    for id <- [first, second] do
+      {tile_at, _} = :binary.match(html, "tile-#{id}")
+      assert tile_at > on_schedule_at, "#{id} rendered above the ON SCHEDULE header"
+    end
   end
 end
 
