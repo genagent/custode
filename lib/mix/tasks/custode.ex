@@ -35,6 +35,8 @@ defmodule Mix.Tasks.Custode do
     subcommand(Custode.CLI.Doctor)
     subcommand(Custode.CLI.Drain)
     subcommand(Custode.CLI.Gates)
+    subcommand(Custode.CLI.Asks)
+    subcommand(Custode.CLI.Answer)
     subcommand(Custode.CLI.Approve)
     subcommand(Custode.CLI.Reject)
     subcommand(Custode.CLI.Beat)

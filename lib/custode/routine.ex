@@ -286,7 +286,12 @@ defmodule Custode.Routine do
   # mcp: true routine gets delegation over its OWN sub-agents plus its
   # notebook and memory. Allowlist-deep, not identity-deep (that is #2) --
   # but it removes the casual path to a backlog worker pausing the fleet.
+  # ask_operator is worker-tier on purpose (#299): every specialist may raise
+  # a question, because the alternative is an agent that either stays silent
+  # or blocks itself to speak. answer_ask is NOT here -- an agent answering
+  # the operator's questions would be answering on the operator's behalf.
   @worker_mcp_tools ~w(
+    ask_operator
     list_routines agent_status start_agent prompt_agent await_agent
     agent_history approve_action reject_action run_job
     journal_append compact_journal todo_add todo_list todo_complete inbox_list inbox_mark_filed
@@ -301,6 +306,7 @@ defmodule Custode.Routine do
   # set_presence is deliberately absent: whether a human is around is the
   # human's own claim (or inference from their actions), never an agent's
   @operator_mcp_tools ~w(
+    list_asks answer_ask
     beat drop_note list_gates feed_tail pause_agent resume_agent spend_today
     preview_routine add_routine preview_routine_edit update_routine
     remove_routine

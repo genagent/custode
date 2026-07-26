@@ -63,6 +63,12 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.RepoTools.PrChecks, name: "repo_pr_checks")
   component(Custode.MCP.RepoTools.PrDiff, name: "repo_pr_diff")
 
+  # asking without blocking (#299): ask_operator is worker-tier, the two
+  # reading/closing tools are the operator's
+  component(Custode.MCP.AskTools.AskOperator, name: "ask_operator")
+  component(Custode.MCP.AskTools.ListAsks, name: "list_asks")
+  component(Custode.MCP.AskTools.AnswerAsk, name: "answer_ask")
+
   # the operator tier (issue #33): run the fleet, not just delegate into it
   component(Custode.MCP.OperatorTools.Beat, name: "beat")
   component(Custode.MCP.OperatorTools.DropNote, name: "drop_note")

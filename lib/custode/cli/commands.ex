@@ -80,6 +80,52 @@ defmodule Custode.CLI.Gates do
   end
 end
 
+defmodule Custode.CLI.Asks do
+  @moduledoc false
+  use Cheer.Command
+
+  command "asks" do
+    about("Open questions from agents, oldest first. Nothing here is blocked on you.")
+    option(:agent, type: :string, help: "Restrict to one agent.")
+    option(:json, type: :boolean, help: "Raw JSON.")
+  end
+
+  @impl Cheer.Command
+  def run(args, _raw) do
+    arguments = if args[:agent], do: %{agent_id: args[:agent]}, else: %{}
+    Custode.CLI.emit("list_asks", arguments, args[:json] == true, &render/1)
+  end
+
+  defp render(%{"asks" => []}), do: "(no open questions)"
+
+  defp render(%{"asks" => asks}) do
+    Enum.map_join(asks, "\n", fn ask ->
+      "#{String.pad_leading(to_string(ask["id"]), 5)}  " <>
+        "#{String.pad_trailing(ask["agent_id"], 16)} #{String.slice(ask["question"], 0, 90)}"
+    end)
+  end
+end
+
+defmodule Custode.CLI.Answer do
+  @moduledoc false
+  use Cheer.Command
+
+  command "answer" do
+    about("Answer an agent's open question. Closes it and drops the answer in its inbox.")
+    argument(:ask_id, required: true, help: "The ask id (see: mix custode asks).")
+    argument(:answer, required: true, help: "Your answer.")
+  end
+
+  @impl Cheer.Command
+  def run(args, _raw) do
+    arguments = %{ask_id: String.to_integer(args[:ask_id]), answer: args[:answer]}
+    Custode.CLI.emit("answer_ask", arguments, false, &render/1)
+  end
+
+  defp render(%{"agent_id" => agent_id}), do: "answered; #{agent_id} reads it on its next sweep"
+  defp render(other), do: inspect(other)
+end
+
 defmodule Custode.CLI.Approve do
   @moduledoc false
   use Cheer.Command

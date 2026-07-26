@@ -20,8 +20,43 @@ defmodule Custode.AttentionTest do
 
   defp resolve(view), do: Attention.resolve(view, @context)
 
+  describe "needs_answer from a non-blocking ask (#299)" do
+    test "an open ask raises the signal whatever the agent is doing" do
+      ask = %{id: 7, question: "is the uncommitted diff yours?", asked_at: @now}
+
+      # The point of the change: asking did not stop the agent, so it is idle
+      # or working, and the question is still owed.
+      for state <- [:idle, :running, :offline] do
+        signal = resolve(view("adrs", state: state, cron: "*/30 * * * *", ask: ask))
+
+        assert signal.kind == :needs_answer
+        assert signal.group == :needs_you
+        assert signal.headline == "asked you a question"
+        assert signal.detail == "is the uncommitted diff yours?"
+        assert signal.item == {:ask, 7}
+        assert signal.raised_at == @now
+        assert [%{label: "Answer", op: :answer_ask, args: %{ask: 7}} | _rest] = signal.resolving
+      end
+    end
+
+    test "an ask outranks a gate on the same agent, since it came from further back" do
+      ask = %{id: 7, question: "still curious?", asked_at: ~U[2026-07-26 00:00:00Z]}
+      view = view("both", state: :awaiting_permission, gate: gate("approval", @now), ask: ask)
+
+      assert resolve(view).item == {:ask, 7}
+    end
+
+    test "a blocking question says so, because a parked agent is worse" do
+      signal =
+        resolve(view("adrs", state: :waiting_for_user, gate: gate("question", @now)))
+
+      assert signal.kind == :needs_answer
+      assert signal.headline == "asked you a question and stopped"
+    end
+  end
+
   describe "resolve/2 -- one signal per kind" do
-    test "needs_answer when the agent asked a question" do
+    test "needs_answer when the agent asked a question and parked" do
       signal =
         resolve(
           view("adrs",
@@ -33,7 +68,7 @@ defmodule Custode.AttentionTest do
       assert signal.kind == :needs_answer
       assert signal.group == :needs_you
       assert signal.urgency == :high
-      assert signal.headline == "asked you a question"
+      assert signal.headline == "asked you a question and stopped"
       assert signal.detail == "Is this yours to touch?"
       assert signal.raised_at == ~U[2026-07-26 00:53:27Z]
       assert [%{label: "Answer", op: :answer} | _rest] = signal.resolving
