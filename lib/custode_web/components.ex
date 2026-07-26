@@ -177,6 +177,12 @@ defmodule CustodeWeb.Components do
   attr(:fleet_today, :float, required: true)
   attr(:active, :atom, default: :fleet)
   attr(:readouts, :boolean, default: true)
+  # Passed by the pages that already hold the data rather than computed here
+  # (#301): the count comes from a resolver pass, and running a second one on
+  # every page render to decorate a nav link is not worth it. Pages that do
+  # not pass it simply show no badge; `attention_chip` still covers "something
+  # needs you" everywhere.
+  attr(:unread, :integer, default: 0)
 
   @doc """
   The shared page chrome: header with nav, the attention chip, the fleet spend.
@@ -191,11 +197,15 @@ defmodule CustodeWeb.Components do
         <.link navigate="/" class="text-3xl font-bold hover:opacity-70">custode</.link>
         <nav class="flex gap-3 text-sm">
           <.link navigate="/" class={nav_class(@active == :fleet)}>fleet</.link>
+          <.link navigate="/inbox" class={nav_class(@active == :inbox)}>
+            inbox<span :if={@unread > 0} class="ml-1 font-mono text-warning">{@unread}</span>
+          </.link>
           <.link navigate="/repos" class={nav_class(@active == :repos)}>repos</.link>
           <.link navigate="/suggestions" class={nav_class(@active == :suggestions)}>
             suggestions
           </.link>
-          <.link navigate="/feed" class={nav_class(@active == :feed)}>feed</.link>
+          <%!-- /feed leaves the top nav (#301) and keeps its route: a firehose
+                is genuinely useful per-agent and useless as a destination. --%>
           <.link navigate="/metrics" class={nav_class(@active == :metrics)}>metrics</.link>
         </nav>
         <.attention_chip :if={@readouts} />
