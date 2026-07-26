@@ -156,6 +156,29 @@ defmodule CustodeWeb.FleetLiveTest do
     assert render(view) =~ "running"
   end
 
+  test "a gated tile lands under NEEDS YOU and spells the reason out (#298)",
+       %{conn: conn, routine: routine} do
+    stub_routine_agent!(routine)
+    :processing = Agent.submit_prompt(routine.id, "gated work")
+    assert_receive {:enqueued, _args, _meta}
+
+    :ok =
+      Agent.job_finished(
+        routine.id,
+        {:ok,
+         structured_result(%{"directive" => "request_permission", "action" => "prune notes"})}
+      )
+
+    {:ok, {:awaiting_permission, _action}} = Agent.await(routine.id, :awaiting_permission, 1_000)
+
+    {:ok, _view, html} = live(conn, "/")
+
+    assert html =~ "needs you"
+    # the status badge says WHAT state it is in; the headline says why that
+    # state wants a human
+    assert html =~ "wants your approval"
+  end
+
   test "attention sorts first: a gated agent's tile precedes idle tiles, ringed and counted",
        %{conn: conn, routine: routine} do
     # a second routine, configured after the first, which will be the gated one
@@ -280,30 +303,31 @@ defmodule CustodeWeb.FleetLiveActivitySortTest do
     :ok
   end
 
-  test "tiles sort by most recent activity, newest first, ahead of id order (#131)" do
+  # Recency sorting (#131) is gone: the resolver ranks the page now, and
+  # ordering within a group is unit-tested against the real fleet snapshot in
+  # Custode.AttentionTest. What the page owes is the PROJECTION -- that the
+  # groups render, carry their counts, and collapse where they should.
+  test "the page groups by attention rather than sorting by activity (#298)" do
     workspace = tmp_workspace!()
-    # id order (older < recent) is the opposite of the activity order we seed
-    older = uid("aaa")
-    recent = uid("zzz")
+    first = uid("aaa")
+    second = uid("zzz")
 
     put_env!(:routines, [
-      %{id: older, cron: "@daily", workspace: workspace, prompt: "sweep"},
-      %{id: recent, cron: "@daily", workspace: workspace, prompt: "sweep"}
+      %{id: first, cron: "@daily", workspace: workspace, prompt: "sweep"},
+      %{id: second, cron: "@daily", workspace: workspace, prompt: "sweep"}
     ])
-
-    # seed sequentially so `recent` carries the newer feed timestamp
-    Custode.Feed.record(%{event: "turn", agent: older, summary: "old news"})
-    Process.sleep(5)
-    Custode.Feed.record(%{event: "turn", agent: recent, summary: "fresh news"})
 
     {:ok, _view, html} = live(build_conn(), "/")
 
-    {recent_at, _} = :binary.match(html, "tile-#{recent}")
-    {older_at, _} = :binary.match(html, "tile-#{older}")
+    assert html =~ "grouped by attention"
+    refute html =~ "sorted by recent activity"
 
-    # recent activity floats above the id-earlier tile
-    assert recent_at < older_at
-    assert html =~ "sorted by recent activity"
+    # Both are offline with a cron, which is how a cold-start routine RESTS.
+    # They belong on schedule, not in a needs-you pile.
+    assert html =~ "on schedule"
+    refute html =~ "needs you"
+    assert html =~ "tile-#{first}"
+    assert html =~ "tile-#{second}"
   end
 end
 
@@ -355,7 +379,17 @@ defmodule CustodeWeb.FleetLiveBrakeTest do
       not Enum.any?(ObanClaude.Agent.list(), fn {agent_id, _s} -> agent_id == id end)
     end) || flunk("agent never left the registry")
 
-    {:ok, _view, html} = live(build_conn(), "/")
+    {:ok, view, html} = live(build_conn(), "/")
+
+    # An agent that has ENDED wants nothing from the operator, so it collapses
+    # into the quiet line as a name rather than spending a card on itself
+    # (#298). The trail is still one click away.
+    assert html =~ "quiet"
+    assert html =~ id
+    refute html =~ "tile-#{id}"
+
+    html = view |> element("button", "expand") |> render_click()
+
     assert html =~ "tile-#{id}"
     assert html =~ "ended"
     assert html =~ "did one thing"

@@ -5,6 +5,9 @@ defmodule CustodeWeb.Components do
 
   use Phoenix.Component
 
+  alias Custode.Attention
+  alias Custode.Signal
+
   # The one status vocabulary (#31 slice 1). Every surface that shows what an
   # agent is doing -- fleet tile, agent page header, feed card -- reads its word
   # and its color from here, so "awaiting_permission" cannot read as one thing
@@ -614,11 +617,22 @@ defmodule CustodeWeb.Components do
   def needs_attention?({state, _payload}), do: state in @attention_states
   def needs_attention?(state), do: state in @attention_states
 
+  # Reads the resolver rather than filtering statuses itself (#298), so this
+  # chip and the fleet page's NEEDS YOU header cannot disagree. The visible
+  # change: a PAUSED agent stops being counted. `needs_attention?/1` still
+  # includes it, and still should -- it also decides which feed message a tile
+  # shows -- but a deliberate stop is not something waiting on a human.
   defp attention do
-    for {id, status} <- ObanClaude.Agent.list(), needs_attention?(status) do
-      {id, status_label(status)}
+    for signal <- Attention.Fleet.signals(), Signal.needs_you?(signal) do
+      {signal.subject, chip_word(signal.kind)}
     end
   end
+
+  defp chip_word(:needs_answer), do: "asked you"
+  defp chip_word(:approval), do: "needs approval"
+  defp chip_word(:red_check), do: "red check"
+  defp chip_word(:rail_hit), do: "at its rail"
+  defp chip_word(kind), do: to_string(kind)
 
   # "custode paused" reads as the actual situation; a bare count reads as
   # "something somewhere" and goes stale in the operator's head the moment

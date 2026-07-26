@@ -125,6 +125,26 @@ defmodule Custode.SpendLedger do
     ) || 0.0
   end
 
+  @doc """
+  Everyone's spend since the start of the current day, as `%{agent_id =>
+  total}` (#298).
+
+  One grouped query for the whole fleet. Resolving attention costs a spend
+  read per agent, and that now happens on every page render, so the per-agent
+  `today/1` in a loop was the wrong shape. Agents that have not spent today
+  are absent rather than zero: callers default them.
+  """
+  def today_by_agent do
+    Repo.all(
+      from(s in Entry,
+        where: s.inserted_at >= ^start_of_local_day(),
+        group_by: s.agent_id,
+        select: {s.agent_id, sum(s.cost_usd)}
+      )
+    )
+    |> Map.new()
+  end
+
   @doc "Everyone's spend since the start of the current UTC day."
   def fleet_today do
     Repo.aggregate(

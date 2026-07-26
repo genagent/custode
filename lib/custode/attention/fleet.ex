@@ -30,15 +30,17 @@ defmodule Custode.Attention.Fleet do
   def views do
     routines = Routine.all()
     running = Map.new(Agent.list())
-    gates = Gates.open_by_agent()
-    in_flight = Map.new(RunClock.running())
 
-    routines_by_id = Map.new(routines, &{&1.id, &1})
+    sources = %{
+      gates: Gates.open_by_agent(),
+      in_flight: Map.new(RunClock.running()),
+      spend: SpendLedger.today_by_agent(),
+      routines: Map.new(routines, &{&1.id, &1})
+    }
+
     ids = Enum.uniq(Enum.map(routines, & &1.id) ++ Map.keys(running))
 
-    for id <- ids do
-      view(id, routines_by_id[id], Map.get(running, id, :offline), gates, in_flight)
-    end
+    for id <- ids, do: view(id, Map.get(running, id, :offline), sources)
   end
 
   @doc """
@@ -62,16 +64,32 @@ defmodule Custode.Attention.Fleet do
   @spec by_group() :: [{Signal.group(), [Signal.t()]}]
   def by_group, do: signals() |> Attention.by_group()
 
-  defp view(id, routine, status, gates, in_flight) do
+  @doc """
+  Signals keyed by agent id, for a caller that already holds its own per-agent
+  data and only wants the resolved signal to merge into it.
+
+  Ranking is a property of a LIST, so this returns the map unranked. Rank the
+  values with `Custode.Attention.rank/1` when order matters.
+  """
+  @spec signals_by_id() :: %{String.t() => Signal.t()}
+  def signals_by_id do
+    context = %{now: DateTime.utc_now()}
+
+    Map.new(views(), fn view -> {view.id, Attention.resolve(view, context)} end)
+  end
+
+  defp view(id, status, sources) do
+    routine = Map.get(sources.routines, id)
+
     %{
       id: id,
       state: Custode.state_of(status),
       detail: status_detail(status),
-      gate: gates |> Map.get(id, []) |> List.first() |> gate_view(),
+      gate: sources.gates |> Map.get(id, []) |> List.first() |> gate_view(),
       failing_checks: failing_checks(routine),
-      spend_today: SpendLedger.today(id),
+      spend_today: Map.get(sources.spend, id, 0.0),
       budget: routine && routine.daily_budget_usd,
-      running_since: Map.get(in_flight, id),
+      running_since: Map.get(sources.in_flight, id),
       cron: routine && routine.cron
     }
   end
