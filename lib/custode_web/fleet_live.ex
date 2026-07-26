@@ -681,14 +681,9 @@ defmodule CustodeWeb.FleetLive do
           >
             {paused_reason(@tile.spend_today, @tile.budget)}
           </span>
-          <.link
-            :if={@tile.failing_checks > 0}
-            navigate={"/agents/#{@id}"}
-            class="badge badge-error badge-sm gap-1 whitespace-nowrap"
-            title="an open PR by this agent has failing checks"
-          >
-            {@tile.failing_checks} red
-          </.link>
+    <%!-- The "N red" badge (#31) is gone: the signal headline right below says
+              the same thing in words, and the WATCHING group says it a third
+              time. One statement per fact. --%>
           <button
             :if={@tile.routine}
             class="btn btn-ghost btn-xs ml-auto"
@@ -704,7 +699,7 @@ defmodule CustodeWeb.FleetLive do
               operator, which for a red check or a reached rail was previously
               only inferable from a badge colour. --%>
         <p
-          :if={@tile.signal.group == :needs_you}
+          :if={@tile.signal.group in [:needs_you, :watching]}
           class="-mt-1 text-sm font-medium text-base-content/80"
         >
           {@tile.signal.headline}
@@ -831,6 +826,7 @@ defmodule CustodeWeb.FleetLive do
   end
 
   defp group_label(:needs_you), do: "needs you"
+  defp group_label(:watching), do: "watching"
   defp group_label(:working), do: "working now"
   defp group_label(:scheduled), do: "on schedule"
   defp group_label(:quiet), do: "quiet"
@@ -839,6 +835,7 @@ defmodule CustodeWeb.FleetLive do
   defp group_tone(:working), do: "text-success"
   defp group_tone(_group), do: "text-base-content/40"
 
+  defp group_note(:watching), do: "flagged, but nothing is blocked on you"
   defp group_note(:scheduled), do: "nothing wanted"
   defp group_note(:quiet), do: "all green, no work found in window"
   defp group_note(_group), do: nil

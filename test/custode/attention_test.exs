@@ -69,8 +69,11 @@ defmodule Custode.AttentionTest do
 
       signal = resolve(view("mcp-proxy", failing_checks: 3))
       assert signal.kind == :red_check
-      assert signal.group == :needs_you
       assert signal.urgency == :normal
+      # Watching, NOT needs-you: a scheduled agent looks at its own red check
+      # on the next beat, so the operator is not owed anything.
+      assert signal.group == :watching
+      refute Signal.needs_you?(signal)
       assert signal.headline == "3 red checks on its open PRs"
       # The overview cache cannot date a check result. See the moduledoc.
       assert signal.raised_at == nil
@@ -212,15 +215,16 @@ defmodule Custode.AttentionTest do
       assert ranked_ids(shuffled) == ranked_ids(live_fleet())
     end
 
-    test "red checks land in needs-you, below every gate" do
+    test "red checks sit between the gates and the healthy, in their own group" do
       ranked = ranked_ids(live_fleet())
       reds = ["mdbook-lint", "mcp-proxy"]
 
+      # below every gate, because nobody is blocked on the operator for them
       for red <- reds, gated <- ~w(adrs redis-tower redisctl codex_wrapper_ex) do
         assert index(ranked, gated) < index(ranked, red)
       end
 
-      # ...and above everything that does not need a human at all.
+      # and above everything with nothing to report at all
       for red <- reds, calm <- ~w(custode-dev quakes cheer) do
         assert index(ranked, red) < index(ranked, calm)
       end
@@ -247,11 +251,16 @@ defmodule Custode.AttentionTest do
         |> Enum.map(&Attention.resolve(&1, @context))
         |> Attention.by_group()
 
-      assert Enum.map(grouped, &elem(&1, 0)) == [:needs_you, :scheduled, :quiet]
+      assert Enum.map(grouped, &elem(&1, 0)) == [:needs_you, :watching, :scheduled, :quiet]
 
       {:needs_you, needs_you} = List.keyfind(grouped, :needs_you, 0)
-      assert length(needs_you) == 8
+      assert length(needs_you) == 6
       assert Enum.all?(needs_you, &Signal.needs_you?/1)
+
+      # the two red checks, and nothing else, are merely being watched
+      {:watching, watching} = List.keyfind(grouped, :watching, 0)
+      assert Enum.map(watching, & &1.subject) == ["mcp-proxy", "mdbook-lint"]
+      refute Enum.any?(watching, &Signal.needs_you?/1)
     end
 
     test "quiet collapses the deliberately stopped and the genuinely idle together" do

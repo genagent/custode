@@ -630,7 +630,6 @@ defmodule CustodeWeb.Components do
 
   defp chip_word(:needs_answer), do: "asked you"
   defp chip_word(:approval), do: "needs approval"
-  defp chip_word(:red_check), do: "red check"
   defp chip_word(:rail_hit), do: "at its rail"
   defp chip_word(kind), do: to_string(kind)
 

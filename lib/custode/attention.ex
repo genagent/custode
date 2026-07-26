@@ -47,6 +47,12 @@ defmodule Custode.Attention do
   can describe. Both outrank a red check, which may still be the agent's to
   fix.
 
+  Precedence is which kind WINS for one agent. Which group it lands in is a
+  separate question, and `:red_check` is the case that separates them: it
+  outranks a rail hit for a single agent, but it is not something the operator
+  owes anyone. See `Custode.Signal` for the `:needs_you` / `:watching` split
+  and why a red check sits in the second.
+
   ### Two deliberate departures from the design note
 
   `:paused` is checked BEFORE `:scheduled`, not last. A paused routine still
@@ -90,7 +96,7 @@ defmodule Custode.Attention do
   @groups %{
     needs_answer: :needs_you,
     approval: :needs_you,
-    red_check: :needs_you,
+    red_check: :watching,
     rail_hit: :needs_you,
     stalled: :needs_you,
     working: :working,
@@ -99,7 +105,7 @@ defmodule Custode.Attention do
     paused: :quiet
   }
 
-  @group_order [:needs_you, :working, :scheduled, :quiet]
+  @group_order [:needs_you, :watching, :working, :scheduled, :quiet]
   @urgency_order [:high, :normal, :low]
 
   # A rail is "hit" at 100%; the fleet page's own 80% banner (#211) stays a
