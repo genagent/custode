@@ -20,6 +20,53 @@ defmodule Custode.AttentionTest do
 
   defp resolve(view), do: Attention.resolve(view, @context)
 
+  describe "red_main (#310)" do
+    defp branch(state), do: %{name: "main", state: state, headline: "the merge that broke it"}
+
+    test "a failing default branch outranks everything, including a question" do
+      signal =
+        resolve(
+          view("custode-dev",
+            state: :waiting_for_user,
+            gate: gate("question", @now),
+            default_branch: branch("FAILURE")
+          )
+        )
+
+      assert signal.kind == :red_main
+      assert signal.group == :needs_you
+      assert signal.urgency == :high
+      assert signal.headline == "main is red"
+      assert signal.detail == "the merge that broke it"
+      assert signal.item == {:branch, "main"}
+    end
+
+    test "ERROR counts as red too" do
+      assert resolve(view("a", default_branch: branch("ERROR"))).kind == :red_main
+    end
+
+    test "a green branch is not a signal" do
+      assert resolve(view("a", default_branch: branch("SUCCESS"))).kind != :red_main
+    end
+
+    test "unknown is not red -- an empty repo and an unreported rollup both land here" do
+      for state <- [nil, "PENDING", "EXPECTED"] do
+        refute resolve(view("a", default_branch: branch(state))).kind == :red_main
+      end
+
+      refute resolve(view("a", default_branch: nil)).kind == :red_main
+    end
+
+    test "it ranks above a question on another agent" do
+      signals = [
+        resolve(view("asker", state: :waiting_for_user, gate: gate("question", @now))),
+        resolve(view("broken", default_branch: branch("FAILURE")))
+      ]
+
+      assert Attention.rank(signals) |> Enum.map(& &1.subject) == ["broken", "asker"]
+    end
+  end
+
   describe "needs_answer from a non-blocking ask (#299)" do
     test "an open ask raises the signal whatever the agent is doing" do
       ask = %{id: 7, question: "is the uncommitted diff yours?", asked_at: @now}

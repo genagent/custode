@@ -276,12 +276,14 @@ defmodule CustodeWeb.InboxLive do
     "since you last looked, " <> ago_text(at)
   end
 
+  defp kind_label(:red_main), do: "red branch"
   defp kind_label(:needs_answer), do: "question"
   defp kind_label(:approval), do: "approval"
   defp kind_label(:rail_hit), do: "rail"
   defp kind_label(:suggestion), do: "suggestion"
   defp kind_label(kind), do: to_string(kind)
 
+  defp kind_class(:red_main), do: "badge-error"
   defp kind_class(:needs_answer), do: "badge-accent"
   defp kind_class(:approval), do: "badge-warning"
   defp kind_class(:rail_hit), do: "badge-error"

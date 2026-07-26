@@ -31,8 +31,8 @@ defmodule Custode.Signal do
   site, so the fleet page, the inbox and the CLI cannot disagree about what
   counts as needing a human.
 
-      :needs_answer  :approval  :rail_hit  :stalled  -> :needs_you
-      :red_check                                     -> :watching
+      :red_main  :needs_answer  :approval  :rail_hit  :stalled  -> :needs_you
+      :red_check                                                -> :watching
       :working                                       -> :working
       :scheduled                                     -> :scheduled
       :quiet         :paused                         -> :quiet
@@ -45,6 +45,12 @@ defmodule Custode.Signal do
   beat, so counting it as a thing the operator owes is how a needs-you group
   stops being believed.
 
+  `:red_main` shows the split is about OWNERSHIP rather than severity. A red
+  pull request blocks nobody but the agent, so the fleet keeps it. A red
+  default branch makes merging unsafe and can make a restart fail outright, so
+  it invalidates the operator's own next action and is owed to them whether or
+  not an agent is also working on it (#310).
+
   `:paused` sits in `:quiet`. An agent the operator stopped on purpose is not
   a problem to be solved, and the fleet page used to treat it as one
   (`CustodeWeb.Components.needs_attention?/1` counts `:paused`), which put a
@@ -53,7 +59,8 @@ defmodule Custode.Signal do
 
   @typedoc "What the agent's state is, most-urgent first. See `Custode.Attention`."
   @type kind ::
-          :needs_answer
+          :red_main
+          | :needs_answer
           | :approval
           | :red_check
           | :rail_hit

@@ -23,6 +23,9 @@ defmodule Custode.Test.FakeGitHubFetcher do
         closed_issues: %{total: 0, items: []},
         open_prs: %{total: 0, items: []},
         merged_prs: %{total: 0, items: []},
+        # green by default (#310): a fixture that is red unless told otherwise
+        # would put every unrelated test's repo in the needs-you group
+        default_branch: %{name: "main", state: "SUCCESS", oid: "abc1234", headline: "a commit"},
         fetched_at: DateTime.utc_now()
       },
       extra
