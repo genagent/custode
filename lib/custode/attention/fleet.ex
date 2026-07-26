@@ -1,0 +1,130 @@
+defmodule Custode.Attention.Fleet do
+  @moduledoc """
+  The impure half of the attention resolver (#296): reads the fleet's state
+  and builds the plain view maps `Custode.Attention.resolve/2` consumes.
+
+  Kept separate and deliberately thin. Everything that touches the registry,
+  the database or the clock lives here, so the ranking itself stays a pure
+  function that a test can drive with hand-written facts. If this module grows
+  a decision, the decision is in the wrong module.
+
+  No new data sources: every read here is one the fleet page already performs
+  in `CustodeWeb.FleetLive.refresh/1`. Gates are the one improvement, fetched
+  in a single grouped query rather than one per agent.
+  """
+
+  alias Custode.Attention
+  alias Custode.Gates
+  alias Custode.Routine
+  alias Custode.RunClock
+  alias Custode.Signal
+  alias Custode.SpendLedger
+  alias ObanClaude.Agent
+
+  @doc """
+  Every agent's view: the configured routines, plus any live agent not in the
+  roster (sub-agents and one-shots, which have no cron and resolve to
+  `:quiet`).
+  """
+  @spec views() :: [map()]
+  def views do
+    routines = Routine.all()
+    running = Map.new(Agent.list())
+
+    sources = %{
+      gates: Gates.open_by_agent(),
+      in_flight: Map.new(RunClock.running()),
+      spend: SpendLedger.today_by_agent(),
+      routines: Map.new(routines, &{&1.id, &1})
+    }
+
+    ids = Enum.uniq(Enum.map(routines, & &1.id) ++ Map.keys(running))
+
+    for id <- ids, do: view(id, Map.get(running, id, :offline), sources)
+  end
+
+  @doc """
+  Every agent's signal, ranked. The one call a surface needs.
+
+      Custode.Attention.Fleet.signals()
+      |> Enum.filter(&Custode.Signal.needs_you?/1)
+  """
+  @spec signals() :: [Signal.t()]
+  def signals do
+    context = %{now: DateTime.utc_now()}
+
+    views()
+    |> Enum.map(&Attention.resolve(&1, context))
+    |> Attention.rank()
+  end
+
+  @doc """
+  Ranked signals bucketed by group, in page order and without empty groups.
+  """
+  @spec by_group() :: [{Signal.group(), [Signal.t()]}]
+  def by_group, do: signals() |> Attention.by_group()
+
+  @doc """
+  Signals keyed by agent id, for a caller that already holds its own per-agent
+  data and only wants the resolved signal to merge into it.
+
+  Ranking is a property of a LIST, so this returns the map unranked. Rank the
+  values with `Custode.Attention.rank/1` when order matters.
+  """
+  @spec signals_by_id() :: %{String.t() => Signal.t()}
+  def signals_by_id do
+    context = %{now: DateTime.utc_now()}
+
+    Map.new(views(), fn view -> {view.id, Attention.resolve(view, context)} end)
+  end
+
+  defp view(id, status, sources) do
+    routine = Map.get(sources.routines, id)
+
+    %{
+      id: id,
+      state: Custode.state_of(status),
+      detail: status_detail(status),
+      gate: sources.gates |> Map.get(id, []) |> List.first() |> gate_view(),
+      failing_checks: failing_checks(routine),
+      spend_today: Map.get(sources.spend, id, 0.0),
+      budget: routine && routine.daily_budget_usd,
+      running_since: Map.get(sources.in_flight, id),
+      cron: routine && routine.cron
+    }
+  end
+
+  # The gen_statem knows it is gated; only the durable row knows since when,
+  # which is exactly the field the ranking needs.
+  defp gate_view(nil), do: nil
+
+  defp gate_view(gate) do
+    %{
+      kind: gate.kind,
+      detail: gate.detail,
+      action_id: gate.action_id,
+      opened_at: gate.inserted_at
+    }
+  end
+
+  # The live status payload for a gated agent: the question text, or the
+  # pending action's description.
+  defp status_detail({:waiting_for_user, question}) when is_binary(question), do: question
+  defp status_detail({:awaiting_permission, %{description: description}}), do: description
+  defp status_detail(_status), do: nil
+
+  # Reads the cached overview only, exactly as the fleet page does: the cache
+  # refreshes on its own cadence and broadcasts, so resolving attention costs
+  # no GitHub calls.
+  defp failing_checks(%{repo: repo}) when is_binary(repo) do
+    case Custode.GitHub.overview(repo) do
+      {:ok, overview} ->
+        Enum.count(overview.open_prs.items, &(&1[:checks] in ["FAILURE", "ERROR"]))
+
+      :loading ->
+        0
+    end
+  end
+
+  defp failing_checks(_routine), do: 0
+end

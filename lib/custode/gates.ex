@@ -82,6 +82,20 @@ defmodule Custode.Gates do
     Repo.all(from(g in Gate, where: g.agent_id == ^agent_id and g.status == "open"))
   end
 
+  @doc """
+  Every open gate, newest first, grouped by agent id (#296).
+
+  One query for the whole fleet, so a page resolving attention for every
+  agent does not issue one `open_gates/1` per tile. Unbounded on purpose: a
+  limit here would silently drop agents from the needs-you group, which is
+  the one group that must never under-report.
+  """
+  def open_by_agent do
+    from(g in Gate, where: g.status == "open", order_by: [desc: g.id])
+    |> Repo.all()
+    |> Enum.group_by(& &1.agent_id)
+  end
+
   @doc "Recent gates fleet-wide, newest first, optionally filtered by status."
   def recent(limit \\ 20, status \\ nil) do
     query = from(g in Gate, order_by: [desc: g.id], limit: ^limit)

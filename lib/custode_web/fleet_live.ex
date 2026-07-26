@@ -15,6 +15,7 @@ defmodule CustodeWeb.FleetLive do
 
   import CustodeWeb.Components
 
+  alias Custode.Attention
   alias Custode.Routine
   alias ObanClaude.Agent
 
@@ -33,7 +34,7 @@ defmodule CustodeWeb.FleetLive do
     {:ok,
      socket
      |> assign(tag_filter: nil, new_agent: %{open: false, preview: nil, error: nil, params: %{}})
-     |> assign(away_dismissed: false)
+     |> assign(away_dismissed: false, quiet_open: false)
      |> refresh()}
   end
 
@@ -59,6 +60,12 @@ defmodule CustodeWeb.FleetLive do
   def handle_event("reject", %{"id" => id, "action" => action_id}, socket) do
     Custode.reject_with_note(id, action_id, "rejected from dashboard")
     {:noreply, refresh(socket)}
+  end
+
+  # the quiet group collapses to a line of names (#298); expanding it is a
+  # per-session view preference, so it lives in the socket and not in config
+  def handle_event("toggle_quiet", _params, socket) do
+    {:noreply, assign(socket, quiet_open: !socket.assigns.quiet_open)}
   end
 
   # present -> pin away; away -> back to inference (the toggle itself counts
@@ -264,16 +271,58 @@ defmodule CustodeWeb.FleetLive do
           away_digest={@away_digest}
         />
         <div class="min-w-0 flex-1">
-          <p class="mb-2 text-xs text-base-content/40">sorted by recent activity</p>
-          <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3">
-            <%= for row <- @tile_rows do %>
-              <%= case row do %>
-                <% {:solo, {id, tile}} -> %>
-                  <.tile id={id} tile={tile} />
-                <% {:group, repo, members} -> %>
-                  <.tile_group repo={repo} members={members} />
-              <% end %>
-            <% end %>
+          <p class="mb-2 text-xs text-base-content/40">grouped by attention</p>
+          <div class="flex flex-col gap-6">
+            <section :for={{group, members, rows} <- @attention_rows}>
+              <div class="mb-2 flex flex-wrap items-baseline gap-2">
+                <h2 class={[
+                  "font-mono text-xs font-semibold uppercase tracking-wider",
+                  group_tone(group)
+                ]}>
+                  {group_label(group)}
+                </h2>
+                <span class="font-mono text-xs text-base-content/40">{length(members)}</span>
+                <span :if={group_note(group)} class="text-xs text-base-content/30">
+                  {group_note(group)}
+                </span>
+                <button
+                  :if={group == :quiet}
+                  class="btn btn-ghost btn-xs ml-auto"
+                  phx-click="toggle_quiet"
+                >
+                  {(@quiet_open && "collapse") || "expand"}
+                </button>
+              </div>
+              <%!-- Quiet agents collapse to a line of names: page length should
+                    track how much needs the operator, not how many agents
+                    exist. Expandable, because "show me the one that has been
+                    silent for a week" is a real question. --%>
+              <div
+                :if={group == :quiet && !@quiet_open}
+                class="flex flex-wrap gap-x-3 gap-y-1 rounded-lg bg-base-200/40 px-3 py-2"
+              >
+                <.link
+                  :for={{id, _tile} <- members}
+                  navigate={"/agents/#{id}"}
+                  class="font-mono text-xs text-base-content/40 hover:underline"
+                >
+                  {id}
+                </.link>
+              </div>
+              <div
+                :if={group != :quiet || @quiet_open}
+                class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3"
+              >
+                <%= for row <- rows do %>
+                  <%= case row do %>
+                    <% {:solo, {id, tile}} -> %>
+                      <.tile id={id} tile={tile} />
+                    <% {:group, repo, members} -> %>
+                      <.tile_group repo={repo} members={members} />
+                  <% end %>
+                <% end %>
+              </div>
+            </section>
           </div>
         </div>
       </div>
@@ -632,14 +681,9 @@ defmodule CustodeWeb.FleetLive do
           >
             {paused_reason(@tile.spend_today, @tile.budget)}
           </span>
-          <.link
-            :if={@tile.failing_checks > 0}
-            navigate={"/agents/#{@id}"}
-            class="badge badge-error badge-sm gap-1 whitespace-nowrap"
-            title="an open PR by this agent has failing checks"
-          >
-            {@tile.failing_checks} red
-          </.link>
+    <%!-- The "N red" badge (#31) is gone: the signal headline right below says
+              the same thing in words, and the WATCHING group says it a third
+              time. One statement per fact. --%>
           <button
             :if={@tile.routine}
             class="btn btn-ghost btn-xs ml-auto"
@@ -649,6 +693,17 @@ defmodule CustodeWeb.FleetLive do
             beat
           </button>
         </div>
+
+        <%!-- The reason, as a sentence (#298). The status badge says what
+              state the agent is in; this says why that state wants the
+              operator, which for a red check or a reached rail was previously
+              only inferable from a badge colour. --%>
+        <p
+          :if={@tile.signal.group in [:needs_you, :watching]}
+          class="-mt-1 text-sm font-medium text-base-content/80"
+        >
+          {@tile.signal.headline}
+        </p>
 
         <div
           :if={@tile.routine}
@@ -734,7 +789,58 @@ defmodule CustodeWeb.FleetLive do
     """
   end
 
-  # Fold the activity-sorted tiles into rows (#243): a repo with two or more
+  # A ghost (a recently-ended ephemeral) is in neither the roster nor the
+  # registry, so the fleet-wide resolver pass has no signal for it. Resolve
+  # one from the little that is known, which lands it in :quiet.
+  defp signal_for(signals, id, status, now) do
+    Map.get_lazy(signals, id, fn ->
+      Attention.resolve(%{id: id, state: state_of(status)}, %{now: now})
+    end)
+  end
+
+  # Order tiles by their signals. Ranking is a property of a LIST, so rank the
+  # signals once and index the tiles by where each one landed.
+  defp rank_tiles(tiles) do
+    position =
+      tiles
+      |> Enum.map(fn {_id, tile} -> tile.signal end)
+      |> Attention.rank()
+      |> Enum.with_index()
+      |> Map.new(fn {signal, index} -> {signal.subject, index} end)
+
+    Enum.sort_by(tiles, fn {id, _tile} -> Map.fetch!(position, id) end)
+  end
+
+  # The ranked tiles bucketed into the resolver's groups, in page order, empty
+  # groups dropped. Repo grouping (#243) applies WITHIN a group rather than
+  # across the whole grid: a repo's two agents stay adjacent while they share a
+  # group, and separate correctly the moment one of them needs a human.
+  defp attention_rows(tiles) do
+    bucketed = Enum.group_by(tiles, fn {_id, tile} -> tile.signal.group end)
+
+    for group <- Attention.groups(),
+        members = Map.get(bucketed, group, []),
+        members != [] do
+      {group, members, group_tiles(members)}
+    end
+  end
+
+  defp group_label(:needs_you), do: "needs you"
+  defp group_label(:watching), do: "watching"
+  defp group_label(:working), do: "working now"
+  defp group_label(:scheduled), do: "on schedule"
+  defp group_label(:quiet), do: "quiet"
+
+  defp group_tone(:needs_you), do: "text-warning"
+  defp group_tone(:working), do: "text-success"
+  defp group_tone(_group), do: "text-base-content/40"
+
+  defp group_note(:watching), do: "flagged, but nothing is blocked on you"
+  defp group_note(:scheduled), do: "nothing wanted"
+  defp group_note(:quiet), do: "all green, no work found in window"
+  defp group_note(_group), do: nil
+
+  # Fold the ranked tiles into rows (#243): a repo with two or more
   # agents (the worker+steward pressure design/006 names) becomes ONE grouped
   # row so its agents sit adjacent under a repo header; everything else --
   # single-agent repos, non-repo routines, ghosts -- stays a solo tile exactly
@@ -794,6 +900,14 @@ defmodule CustodeWeb.FleetLive do
     routines_by_id = Map.new(routines, &{&1.id, &1})
 
     series_by_agent = Custode.Metrics.spend_series_by_agent(7)
+    spend_by_agent = Custode.SpendLedger.today_by_agent()
+
+    # One resolver pass for the fleet (#298). The page no longer decides what
+    # needs a human or in what order; it reads Custode.Attention and renders
+    # the answer. Ghosts are not in the roster or the registry, so they get a
+    # signal resolved from what little is known about them (which is :quiet).
+    signals = Attention.Fleet.signals_by_id()
+    now = DateTime.utc_now()
 
     tiles =
       for id <- all_ids do
@@ -804,13 +918,13 @@ defmodule CustodeWeb.FleetLive do
          %{
            status: status,
            state: state_of(status),
+           signal: signal_for(signals, id, status, now),
            routine: routine,
            budget: routine && routine.daily_budget_usd,
-           spend_today: Custode.SpendLedger.today(id),
+           spend_today: Map.get(spend_by_agent, id, 0.0),
            open_todos: length(Custode.Notebook.todos(id)),
            series: Map.get(series_by_agent, id),
            last: Custode.Feed.last_message(id, needs_attention?(status)),
-           last_activity: Custode.Feed.last_activity_at(id),
            failing_checks: failing_checks(routine)
          }}
       end
@@ -827,13 +941,13 @@ defmodule CustodeWeb.FleetLive do
          %{
            status: :ended,
            state: :ended,
+           signal: signal_for(signals, id, :ended, now),
            routine: nil,
            budget: nil,
-           spend_today: Custode.SpendLedger.today(id),
+           spend_today: Map.get(spend_by_agent, id, 0.0),
            open_todos: 0,
            series: nil,
            last: Custode.Feed.last_for(id),
-           last_activity: Custode.Feed.last_activity_at(id),
            failing_checks: 0
          }}
       end
@@ -843,16 +957,14 @@ defmodule CustodeWeb.FleetLive do
     {meta_tiles, worker_tiles} =
       Enum.split_with(tiles ++ ghosts, fn {_id, tile} -> meta?(tile) end)
 
-    # anything needing a human sorts first; ended ghosts always last; the
-    # living rest surfaces by most recent activity (#131), newest first, with
-    # never-active agents after the active ones and id as the stable tiebreak
+    # Ranked by the resolver (#298): group, then kind precedence, then
+    # urgency, then oldest-first. The page used to sort itself, binary
+    # attention ahead of recency, which put the oldest unanswered question
+    # last among the agents that needed one.
     tiles =
       worker_tiles
       |> filter_tiles(socket.assigns[:tag_filter])
-      |> Enum.sort_by(fn {id, tile} ->
-        {if(needs_attention?(tile.status), do: 0, else: 1),
-         if(tile.state == :ended, do: 1, else: 0), activity_key(tile.last_activity), id}
-      end)
+      |> rank_tiles()
 
     # the chips filter the grid, so they come from the routines the grid holds
     all_tags =
@@ -868,7 +980,7 @@ defmodule CustodeWeb.FleetLive do
 
     assign(socket,
       tiles: tiles,
-      tile_rows: group_tiles(tiles),
+      attention_rows: attention_rows(tiles),
       meta_tiles: Enum.sort_by(meta_tiles, fn {id, _tile} -> id end),
       suggestions: Enum.take(standing_suggestions, @suggestion_limit),
       suggestion_count: length(standing_suggestions),
@@ -965,8 +1077,6 @@ defmodule CustodeWeb.FleetLive do
   # (present timestamp) sort ahead of never-active ones, and within the
   # active set a negated unix stamp puts the newest first under an ascending
   # sort. nil stamps share a constant, leaving id as the tiebreak.
-  defp activity_key(%DateTime{} = at), do: {0, -DateTime.to_unix(at, :microsecond)}
-  defp activity_key(nil), do: {1, 0}
 
   # Quiet-cadence roles (the steward, watchers, tutor) get a subtler card so a
   # loud worker and a mostly-green @daily steward read differently (#243). The
