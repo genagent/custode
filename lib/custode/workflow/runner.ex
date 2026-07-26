@@ -62,8 +62,14 @@ defmodule Custode.Workflow.Runner do
   @digest_limit 2_000
 
   @doc """
-  Open a run and enqueue its first stage. `workflow` is a catalog name or a
-  `%Custode.Workflow{}`; `repo` is the `owner/name` the nodes read.
+  Open a run and enqueue its first stage. `workflow` is a CATALOG NAME and
+  `repo` the `owner/name` the nodes read.
+
+  A name rather than a definition because a run has to be resolvable from its
+  own record: the row stores the name, and every later advance looks the
+  definition back up. A run launched from a definition nothing can find again
+  would walk one stage and then stall. `:extra_workflows` is the seam for a
+  definition that is not in the built-in catalog.
 
   Options:
 
@@ -433,7 +439,6 @@ defmodule Custode.Workflow.Runner do
   # odds and ends
   # ---------------------------------------------------------------------------
 
-  defp resolve(%Workflow{} = definition), do: {:ok, definition}
   defp resolve(name) when is_binary(name), do: Catalog.fetch(name)
   defp resolve(name) when is_atom(name), do: Catalog.fetch(to_string(name))
 
@@ -466,6 +471,5 @@ defmodule Custode.Workflow.Runner do
 
   defp default_budget, do: Application.fetch_env!(:custode, :max_budget_usd)
 
-  defp text_of(%{result: text}) when is_binary(text), do: text
-  defp text_of(_), do: "(no text)"
+  defp text_of(%ClaudeWrapper.Result{result: text}), do: text
 end

@@ -44,6 +44,13 @@ defmodule Custode.Workflow.NodeJob do
 
   alias Custode.Workflow.Runner
 
+  @doc """
+  The args pinned over every node job. They are merged in `perform/1`, not at
+  enqueue time, so they are not in a stored job's args -- this is where the
+  "nodes do not write" guarantee is actually readable.
+  """
+  def pinned_args, do: @oban_claude_pinned_args
+
   @impl ObanClaude.Worker
   def handle_result(result, %Oban.Job{meta: %{"workflow_run" => _} = meta}) do
     Runner.node_finished(meta, result)
