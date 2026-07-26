@@ -301,12 +301,13 @@ defmodule Custode.Routine do
     repo_mark_issue_ready repo_mark_issue_blocked repo_review_pr
     repo_list_issues repo_view_issue repo_list_prs repo_view_pr
     repo_pr_checks repo_pr_diff
+    repo_disown_pr repo_reclaim_pr
   )
 
   # set_presence is deliberately absent: whether a human is around is the
   # human's own claim (or inference from their actions), never an agent's
   @operator_mcp_tools ~w(
-    list_asks answer_ask
+    list_asks answer_ask list_disowned
     beat drop_note list_gates feed_tail pause_agent resume_agent spend_today
     preview_routine add_routine preview_routine_edit update_routine
     remove_routine

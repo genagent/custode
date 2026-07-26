@@ -63,6 +63,12 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.RepoTools.PrChecks, name: "repo_pr_checks")
   component(Custode.MCP.RepoTools.PrDiff, name: "repo_pr_diff")
 
+  # "not mine, do not touch" as a fact rather than panel prose (#313):
+  # worker-tier, because the judgment belongs to the agent that read the diff
+  component(Custode.MCP.DisownTools.DisownPr, name: "repo_disown_pr")
+  component(Custode.MCP.DisownTools.ReclaimPr, name: "repo_reclaim_pr")
+  component(Custode.MCP.DisownTools.ListDisowned, name: "list_disowned")
+
   # asking without blocking (#299): ask_operator is worker-tier, the two
   # reading/closing tools are the operator's
   component(Custode.MCP.AskTools.AskOperator, name: "ask_operator")

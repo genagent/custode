@@ -472,7 +472,12 @@ defmodule CustodeWeb.HierarchyPassTest do
     assert tile =~ "daily rail"
   end
 
-  test "failing checks on an agent PR surface on its tile as a rank-1 chip" do
+  # #31 promoted failing checks onto the tile. #298 replaced the "N red" badge
+  # with the signal headline, and this assertion kept passing by COINCIDENCE:
+  # the headline read "1 red check on its open PRs" and happened to contain
+  # the badge's text. #313 names the PRs instead, which broke the coincidence
+  # and exposed that the test had stopped checking what it claimed to.
+  test "failing checks on an agent PR surface on its tile, naming the PR" do
     repo = "acme/" <> uid("red")
 
     overview =
@@ -528,7 +533,10 @@ defmodule CustodeWeb.HierarchyPassTest do
         render(view)
       end
 
-    assert tile =~ "1 red"
+    # the failing PR by number, and the GREEN one absent: a tile that says
+    # "#9 red" tells the operator which tab to open
+    assert tile =~ "#9 red"
+    refute tile =~ "#8 red"
   end
 end
 

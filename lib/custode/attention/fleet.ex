@@ -15,6 +15,7 @@ defmodule Custode.Attention.Fleet do
 
   alias Custode.Asks
   alias Custode.Attention
+  alias Custode.Disowned
   alias Custode.Gates
   alias Custode.Routine
   alias Custode.RunClock
@@ -37,6 +38,7 @@ defmodule Custode.Attention.Fleet do
       asks: Asks.open_by_agent(),
       in_flight: Map.new(RunClock.running()),
       spend: SpendLedger.today_by_agent(),
+      disowned: Disowned.by_repo(),
       routines: Map.new(routines, &{&1.id, &1})
     }
 
@@ -97,7 +99,7 @@ defmodule Custode.Attention.Fleet do
       # OLDEST open ask, not newest: staleness is what should surface, and an
       # agent with three open questions is owed the first one first.
       ask: sources.asks |> Map.get(id, []) |> List.last() |> ask_view(),
-      failing_checks: failing_checks(routine),
+      failing_prs: failing_prs(routine, sources.disowned),
       default_branch: default_branch(routine),
       spend_today: Map.get(sources.spend, id, 0.0),
       budget: routine && routine.daily_budget_usd,
@@ -131,17 +133,25 @@ defmodule Custode.Attention.Fleet do
   # Reads the cached overview only, exactly as the fleet page does: the cache
   # refreshes on its own cadence and broadcasts, so resolving attention costs
   # no GitHub calls.
-  defp failing_checks(%{repo: repo}) when is_binary(repo) do
+  #
+  # Marks each failing PR as disowned or not HERE (#313), so the resolver only
+  # partitions a list of facts. Deciding it in both places would be one
+  # judgment made twice, which is how two surfaces start disagreeing.
+  defp failing_prs(%{repo: repo}, disowned) when is_binary(repo) do
     case Custode.GitHub.overview(repo) do
       {:ok, overview} ->
-        Enum.count(overview.open_prs.items, &(&1[:checks] in ["FAILURE", "ERROR"]))
+        numbers = Map.get(disowned, repo, MapSet.new())
+
+        for pr <- overview.open_prs.items, pr[:checks] in ["FAILURE", "ERROR"] do
+          %{number: pr.number, disowned?: MapSet.member?(numbers, pr.number)}
+        end
 
       :loading ->
-        0
+        []
     end
   end
 
-  defp failing_checks(_routine), do: 0
+  defp failing_prs(_routine, _disowned), do: []
 
   # Same cached overview, one more field (#310). An agent with no repository
   # has no branch to be red, which is why this is nil rather than green.

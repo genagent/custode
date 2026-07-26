@@ -35,13 +35,14 @@ defmodule Custode.Attention do
   | 1 | `:red_main` | the repository's default branch is failing (#310) |
   | 2 | `:needs_answer` | an open question, blocking or not (#299) |
   | 3 | `:approval` | a gate is open that only the operator can pass |
-  | 4 | `:red_check` | failing checks on the agent's own open PRs |
-  | 5 | `:rail_hit` | the daily rail is reached |
-  | 6 | `:stalled` | scheduled, running, producing no outcome (NOT IMPLEMENTED) |
-  | 7 | `:working` | a turn is executing right now |
-  | 8 | `:paused` | deliberately stopped |
-  | 9 | `:scheduled` | healthy, next beat known |
-  | 10 | `:quiet` | healthy, nothing found, nothing queued |
+  | 4 | `:disowned_check` | a red check the agent declared not its work (#313) |
+  | 5 | `:red_check` | failing checks on the agent's own open PRs |
+  | 6 | `:rail_hit` | the daily rail is reached |
+  | 7 | `:stalled` | scheduled, running, producing no outcome (NOT IMPLEMENTED) |
+  | 8 | `:working` | a turn is executing right now |
+  | 9 | `:paused` | deliberately stopped |
+  | 10 | `:scheduled` | healthy, next beat known |
+  | 11 | `:quiet` | healthy, nothing found, nothing queued |
 
   A question outranks an approval because a question is blocked on a human by
   definition, whereas a gate is a structured hold the agent chose to raise and
@@ -92,6 +93,7 @@ defmodule Custode.Attention do
     :red_main,
     :needs_answer,
     :approval,
+    :disowned_check,
     :red_check,
     :rail_hit,
     :stalled,
@@ -105,6 +107,7 @@ defmodule Custode.Attention do
     red_main: :needs_you,
     needs_answer: :needs_you,
     approval: :needs_you,
+    disowned_check: :needs_you,
     red_check: :watching,
     rail_hit: :needs_you,
     stalled: :needs_you,
@@ -156,7 +159,10 @@ defmodule Custode.Attention do
     * `:ask` -- the oldest open non-blocking question as `%{id:, question:,
       asked_at:}`, or `nil` (#299). Independent of state: an agent with an
       open ask is usually idle or working, because asking did not stop it.
-    * `:failing_checks` -- count of red checks on the agent's own open PRs.
+    * `:failing_prs` -- the agent's open PRs with failing checks, each as
+      `%{number:, disowned?:}` (#313). The gatherer marks them; the resolver
+      only partitions, so which side of the line a PR falls on is a fact
+      rather than a judgment made twice.
     * `:default_branch` -- the branch build as `%{name:, state:, headline:}`,
       or `nil` (#310). `nil` means unknown, not green: an empty repository and
       a rollup that has not reported yet both land here, and only a reported
@@ -190,6 +196,7 @@ defmodule Custode.Attention do
       &red_main/2,
       &needs_answer/2,
       &approval/2,
+      &disowned_check/2,
       &red_check/2,
       &rail_hit/2,
       &stalled/2,
@@ -324,23 +331,58 @@ defmodule Custode.Attention do
     end
   end
 
-  defp red_check(view, _context) do
-    count = Map.get(view, :failing_checks, 0)
+  # A red check on a PR the agent DISOWNED (#313). Nothing in the fleet will
+  # touch it -- the agent looked, decided it was not its work, and recorded
+  # that -- so the operator is the only one who can clear it. This is
+  # design/000's "a failing check the crew has declared not theirs", which
+  # design/007 could not honour because the declaration was only ever prose in
+  # a panel.
+  defp disowned_check(view, _context) do
+    case Enum.filter(failing_prs(view), & &1.disowned?) do
+      [] ->
+        nil
 
-    if count > 0 do
-      signal(view, :red_check, :normal,
-        headline: "#{count} red #{pluralise(count, "check")} on its open PRs",
-        # The overview cache cannot date a check result, so this signal has no
-        # raised_at and ranks after any dated red check. Better than inventing
-        # a timestamp that would then sort against real ones.
-        raised_at: nil,
-        resolving: [
-          op("Inspect", :open_agent, %{agent: view.id}),
-          op("Re-run checks", :rerun_checks, %{agent: view.id})
-        ]
-      )
+      disowned ->
+        signal(view, :disowned_check, :normal,
+          headline: "#{numbers(disowned)} red, and not its work",
+          detail: "the agent disowned #{pluralise(length(disowned), "it")}; nobody else will",
+          item: {:prs, Enum.map(disowned, & &1.number)},
+          raised_at: nil,
+          resolving: [
+            op("Inspect", :open_agent, %{agent: view.id}),
+            op("Re-run checks", :rerun_checks, %{agent: view.id})
+          ]
+        )
     end
   end
+
+  defp red_check(view, _context) do
+    case Enum.reject(failing_prs(view), & &1.disowned?) do
+      [] ->
+        nil
+
+      failing ->
+        signal(view, :red_check, :normal,
+          headline: "#{numbers(failing)} red on its open PRs",
+          # The overview cache cannot date a check result, so this signal has
+          # no raised_at and ranks after any dated signal. Better than
+          # inventing a timestamp that would then sort against real ones.
+          raised_at: nil,
+          resolving: [
+            op("Inspect", :open_agent, %{agent: view.id}),
+            op("Re-run checks", :rerun_checks, %{agent: view.id})
+          ]
+        )
+    end
+  end
+
+  # Named PRs rather than a bare count: "#400 red" tells the operator which
+  # tab to open, and a count tells them to go and find out.
+  defp numbers([one]), do: "##{one.number}"
+
+  defp numbers(prs), do: Enum.map_join(prs, ", ", &"##{&1.number}")
+
+  defp failing_prs(view), do: Map.get(view, :failing_prs, [])
 
   defp rail_hit(view, _context) do
     budget = Map.get(view, :budget)

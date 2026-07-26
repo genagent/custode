@@ -8,6 +8,7 @@ for table <- [
       "memories",
       "spend",
       "gates",
+      "disowned_prs",
       "asks",
       "feed_entries",
       "issue_drafts",
