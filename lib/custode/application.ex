@@ -111,8 +111,18 @@ defmodule Custode.Application do
       # all run concurrently (a delegating parent occupies a slot while its
       # children need their own). :ticks is withheld here and started by
       # Custode.MCP.Probe once the MCP surface answers (#4).
+      # workflows: 1 (#271, design/005) -- a deep dig runs its whole DAG on its
+      # own queue at concurrency 1, so it is exactly as sequential as the rest
+      # of the fleet and can never starve the sweeps. The DAG says what depends
+      # on what; the queue says how many run at once, and raising this is a
+      # per-machine knob rather than a structural change.
       queues:
-        Application.get_env(:custode, :oban_queues, agents: 5, ticks: 1, sensors: 2)
+        Application.get_env(:custode, :oban_queues,
+          agents: 5,
+          ticks: 1,
+          sensors: 2,
+          workflows: 1
+        )
         |> Keyword.delete(:ticks)
     ]
   end

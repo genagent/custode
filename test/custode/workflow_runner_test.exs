@@ -1,0 +1,322 @@
+defmodule Custode.WorkflowRunnerTest do
+  use ExUnit.Case, async: false
+
+  import Custode.TestHelpers, only: [uid: 1]
+  import Ecto.Query, only: [from: 2]
+
+  alias Custode.Repo
+  alias Custode.Workflow
+  alias Custode.Workflow.Catalog
+  alias Custode.Workflow.Node
+  alias Custode.Workflow.NodeJob
+  alias Custode.Workflow.Results
+  alias Custode.Workflow.Run
+  alias Custode.Workflow.Runner
+  alias Custode.Workflow.Stage
+
+  # The test env runs with no executing queues, so a node's job inserts and
+  # sits there. That is exactly the seam these tests want: they assert what was
+  # enqueued, then hand the runner the result the node WOULD have produced.
+
+  setup do
+    Repo.delete_all(Results.Result)
+    Repo.delete_all(Run.Row)
+    Repo.delete_all(from(j in Oban.Job, where: j.worker == "Custode.Workflow.NodeJob"))
+    on_exit(fn -> Application.delete_env(:custode, :extra_workflows) end)
+    :ok
+  end
+
+  defp node_fixture(name, prompt \\ "do <%= @repo %>") do
+    %Node{name: name, prompt: prompt, schema: %{"type" => "object"}}
+  end
+
+  # mine (two nodes) -> merge (one) -> check (per_item)
+  defp toy_workflow(name) do
+    Workflow.new!(name, [
+      %Stage{name: :mine, nodes: [node_fixture(:spec), node_fixture(:code)]},
+      %Stage{
+        name: :merge,
+        nodes: [node_fixture(:merge, "merge <%= @repo %>\n<%= @digests %>")]
+      },
+      %Stage{
+        name: :check,
+        per_item: true,
+        nodes: [node_fixture(:check, "check <%= @item %>")]
+      }
+    ])
+  end
+
+  defp register(workflow) do
+    Application.put_env(:custode, :extra_workflows, %{workflow.name => workflow})
+    workflow
+  end
+
+  defp jobs(run_id) do
+    from(j in Oban.Job,
+      where: j.worker == "Custode.Workflow.NodeJob",
+      where: fragment("json_extract(?, '$.workflow_run')", j.meta) == ^run_id,
+      order_by: [asc: j.id]
+    )
+    |> Repo.all()
+  end
+
+  defp node_names(run_id), do: Enum.map(jobs(run_id), & &1.meta["node_name"])
+
+  # the shape ObanClaude.structured/1 reads a --json-schema result out of
+  defp result(structured, text \\ "ran") do
+    %ClaudeWrapper.Result{result: text, extra: %{"structured_output" => structured}}
+  end
+
+  defp finish(run_id, node_name, structured) do
+    job = Enum.find(jobs(run_id), &(&1.meta["node_name"] == node_name))
+    refute is_nil(job), "no job enqueued for #{node_name}"
+    Runner.node_finished(job.meta, result(structured))
+  end
+
+  describe "launch (#271)" do
+    test "opens a run and enqueues exactly the first stage" do
+      workflow = register(toy_workflow(uid("toy")))
+
+      assert {:ok, run} = Runner.launch(workflow.name, "genagent/custode", run_id: uid("run"))
+      assert run.status == "running"
+      assert run.stage == "mine"
+      assert run.workflow == workflow.name
+      assert run.repo == "genagent/custode"
+
+      # the merge node is NOT enqueued: stages are barriers
+      assert node_names(run.run_id) == ["spec", "code"]
+    end
+
+    test "a definition the catalog cannot find again is refused, not half-run" do
+      # a run resolves its definition from its own record on every advance, so
+      # launching one nothing can look up would walk a stage and then stall
+      orphan = toy_workflow(uid("orphan"))
+
+      assert :error = Runner.launch(orphan.name, "genagent/custode")
+      assert Enum.all?(Run.list(), &(&1.workflow != orphan.name))
+    end
+
+    test "the node's job carries the run identity and the node's schema" do
+      workflow = register(toy_workflow(uid("toy")))
+      {:ok, run} = Runner.launch(workflow.name, "genagent/custode", run_id: uid("run"))
+
+      [spec | _] = jobs(run.run_id)
+
+      assert spec.queue == "workflows"
+      assert spec.meta["workflow_run"] == run.run_id
+      assert spec.meta["stage"] == "mine"
+      assert spec.meta["node_name"] == "spec"
+      assert is_binary(spec.meta["args_hash"])
+      # spend is attributable to the run, which is what the gate's estimate
+      # (slice 2) calibrates against
+      assert spec.meta["agent_id"] == "workflow-" <> run.run_id
+
+      assert spec.args["json_schema"] == ~s({"type":"object"})
+      # the prompt is RENDERED, not the template
+      assert spec.args["prompt"] =~ "do genagent/custode"
+    end
+
+    test "nodes cannot write: the tools are pinned off the worker, not the job" do
+      # pinned args win over a job's own args and are merged at perform time,
+      # so a stored job cannot ask the writing tools back
+      assert NodeJob.pinned_args()["disallowed_tools"] ==
+               ["Write", "Edit", "NotebookEdit"]
+    end
+  end
+
+  describe "the walk (#271)" do
+    setup do
+      workflow = register(toy_workflow(uid("toy")))
+      {:ok, run} = Runner.launch(workflow.name, "genagent/custode", run_id: uid("run"))
+      %{workflow: workflow, run: run}
+    end
+
+    test "a stage advances only when ALL its nodes have landed", %{run: run} do
+      finish(run.run_id, "spec", %{"items" => [%{"title" => "a"}]})
+
+      # one of two: the cursor stays put and nothing new is enqueued
+      assert Run.get(run.run_id).stage == "mine"
+      assert node_names(run.run_id) == ["spec", "code"]
+
+      finish(run.run_id, "code", %{"items" => [%{"title" => "b"}]})
+
+      assert Run.get(run.run_id).stage == "merge"
+      assert node_names(run.run_id) == ["spec", "code", "merge"]
+    end
+
+    test "a downstream prompt carries the previous stage's digests", %{run: run} do
+      finish(run.run_id, "spec", %{"items" => [%{"title" => "from spec"}]})
+      finish(run.run_id, "code", %{"items" => [%{"title" => "from code"}]})
+
+      merge = Enum.find(jobs(run.run_id), &(&1.meta["node_name"] == "merge"))
+
+      assert merge.args["prompt"] =~ "### spec"
+      assert merge.args["prompt"] =~ "from spec"
+      assert merge.args["prompt"] =~ "### code"
+      assert merge.args["prompt"] =~ "from code"
+    end
+
+    test "a per_item stage fans out one node per upstream item", %{run: run} do
+      finish(run.run_id, "spec", %{"items" => []})
+      finish(run.run_id, "code", %{"items" => []})
+
+      finish(run.run_id, "merge", %{
+        "items" => [%{"title" => "first"}, %{"title" => "second"}, %{"title" => "third"}]
+      })
+
+      assert Run.get(run.run_id).stage == "check"
+      assert node_names(run.run_id) == ["spec", "code", "merge", "check_1", "check_2", "check_3"]
+
+      check_2 = Enum.find(jobs(run.run_id), &(&1.meta["node_name"] == "check_2"))
+      assert check_2.args["prompt"] =~ "second"
+      refute check_2.args["prompt"] =~ "third"
+    end
+
+    test "the run completes when the last stage lands", %{run: run} do
+      finish(run.run_id, "spec", %{"items" => []})
+      finish(run.run_id, "code", %{"items" => []})
+      finish(run.run_id, "merge", %{"items" => [%{"title" => "only"}]})
+      finish(run.run_id, "check_1", %{"verdict" => "keep"})
+
+      done = Run.get(run.run_id)
+      assert done.status == "complete"
+      assert is_nil(done.stage)
+      refute is_nil(done.finished_at)
+    end
+
+    test "an empty fan-out cascades to completion and says so on the run", %{run: run} do
+      finish(run.run_id, "spec", %{"items" => []})
+      finish(run.run_id, "code", %{"items" => []})
+      # the merge found nothing, so the per_item stage has nothing to fan over
+      finish(run.run_id, "merge", %{"items" => []})
+
+      done = Run.get(run.run_id)
+      assert done.status == "complete"
+      # a stage that quietly did nothing must not read like a stage with
+      # nothing to do
+      assert Enum.any?(done.notes, &(&1 =~ "check fanned out over 0 items"))
+    end
+
+    test "advance is idempotent -- it never re-enqueues a node in flight", %{run: run} do
+      before = node_names(run.run_id)
+
+      assert {:ok, _} = Runner.advance(run.run_id)
+      assert {:ok, _} = Runner.advance(run.run_id)
+
+      assert node_names(run.run_id) == before
+    end
+
+    test "resume walks a run whose last node landed while nothing was listening", %{run: run} do
+      # both nodes' results are on the record but no callback ran (the app was
+      # down when the stage barrier completed)
+      for node <- ["spec", "code"] do
+        job = Enum.find(jobs(run.run_id), &(&1.meta["node_name"] == node))
+
+        Results.put(%{
+          workflow_run: run.run_id,
+          workflow: job.meta["workflow"],
+          stage: job.meta["stage"],
+          node_name: job.meta["node_name"],
+          args_hash: job.meta["args_hash"],
+          result: %{"items" => []}
+        })
+      end
+
+      assert Run.get(run.run_id).stage == "mine"
+      assert {:ok, _} = Runner.resume(run.run_id)
+      assert Run.get(run.run_id).stage == "merge"
+    end
+
+    test "resume_all picks up every running run", %{run: run} do
+      finish(run.run_id, "spec", %{"items" => []})
+      finish(run.run_id, "code", %{"items" => []})
+
+      resumed = Runner.resume_all()
+      assert Enum.any?(resumed, fn {id, _result} -> id == run.run_id end)
+    end
+  end
+
+  describe "results the runner did not expect (#271)" do
+    setup do
+      workflow = register(toy_workflow(uid("toy")))
+      {:ok, run} = Runner.launch(workflow.name, "genagent/custode", run_id: uid("run"))
+      %{run: run}
+    end
+
+    test "a node whose result missed its schema is stored as text and noted", %{run: run} do
+      job = Enum.find(jobs(run.run_id), &(&1.meta["node_name"] == "spec"))
+
+      Runner.node_finished(job.meta, %ClaudeWrapper.Result{result: "prose, no schema", extra: %{}})
+
+      [stored] = Results.for_stage(run.run_id, "mine")
+      assert stored.result == %{"text" => "prose, no schema"}
+      assert Enum.any?(Run.get(run.run_id).notes, &(&1 =~ "no schema-shaped result"))
+
+      # and the stage still counts it as landed, so the run is not wedged
+      finish(run.run_id, "code", %{"items" => []})
+      assert Run.get(run.run_id).stage == "merge"
+    end
+
+    test "a terminally failed node fails the run, keeping the cursor", %{run: run} do
+      job = Enum.find(jobs(run.run_id), &(&1.meta["node_name"] == "spec"))
+      Runner.node_failed(job.meta, {:cancel, :rail_hit})
+
+      failed = Run.get(run.run_id)
+      assert failed.status == "failed"
+      assert failed.error =~ "spec"
+      # how far it got stays readable
+      assert failed.stage == "mine"
+
+      # and a failed run does not keep walking
+      assert {:ok, %{status: "failed"}} = Runner.advance(run.run_id)
+    end
+
+    test "a report for a run that does not exist is ignored, not a crash" do
+      assert :ok = Runner.node_finished(%{"node_name" => "x"}, result(%{}))
+      assert :ok = Runner.node_failed(%{}, :whatever)
+      assert {:error, :no_such_run} = Runner.advance("no-such-run")
+    end
+  end
+
+  describe "the catalog (#271)" do
+    test "backlog-sweep is defined and valid" do
+      assert {:ok, sweep} = Catalog.fetch("backlog-sweep")
+      assert :ok = Workflow.validate(sweep)
+
+      assert Enum.map(sweep.stages, & &1.name) == [:mine, :merge, :verify, :draft, :critique]
+
+      assert Enum.map(Workflow.stage(sweep, :mine).nodes, & &1.name) ==
+               [:spec, :docs, :code, :issues, :gaps]
+
+      # verify runs before draft: adversarial verification kills items before
+      # any drafting effort is spent on them
+      verify = Enum.find_index(sweep.stages, &(&1.name == :verify))
+      draft = Enum.find_index(sweep.stages, &(&1.name == :draft))
+      assert verify < draft
+
+      # it fans out, so its node count is not knowable at launch
+      assert Workflow.node_count(sweep) == :unknown
+    end
+
+    test "every stage feeding a per_item stage produces the items it fans over" do
+      sweep = Catalog.fetch!("backlog-sweep")
+
+      for {stage, index} <- Enum.with_index(sweep.stages),
+          index > 0,
+          stage.per_item do
+        upstream = Enum.at(sweep.stages, index - 1)
+
+        for node <- upstream.nodes do
+          assert get_in(node.schema, ["properties", "items"]),
+                 "#{node.name} feeds the per_item stage #{stage.name} but produces no items"
+        end
+      end
+    end
+
+    test "an unknown name is an :error, and fetch! says which" do
+      assert :error = Catalog.fetch("nope")
+      assert_raise ArgumentError, ~r/nope/, fn -> Catalog.fetch!("nope") end
+      assert "backlog-sweep" in Catalog.names()
+    end
+  end
+end
