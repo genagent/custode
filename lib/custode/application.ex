@@ -12,6 +12,7 @@ defmodule Custode.Application do
   use Application
 
   alias Custode.Feed
+  alias Custode.Workflow
 
   @impl Application
   def start(_type, _args) do
@@ -59,6 +60,14 @@ defmodule Custode.Application do
       # over-budget routines boot paused instead of leaking one turn (#6)
       Supervisor.child_spec({Task, &Custode.SpendLedger.reconcile_pauses!/0},
         id: :budget_reconcile
+      ),
+      # a workflow run whose last node landed while the app was down has
+      # nothing to call it forward (#271). Slice 1b left this unwired on the
+      # grounds that an enqueue-on-boot side effect belongs with the rail that
+      # bounds it -- the rail is here now, and a budget_paused run is not
+      # `running`, so this never restarts one the operator has not let go.
+      Supervisor.child_spec({Task, fn -> Workflow.Runner.resume_all() end},
+        id: :workflow_resume
       ),
       # start: true is load-bearing: anubis otherwise guesses whether to boot
       # its session machinery by sniffing for Phoenix config, and the

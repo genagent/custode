@@ -51,10 +51,13 @@ defmodule Custode.Workflow.Runner do
   did nothing otherwise reads exactly like a stage that had nothing to do.
   """
 
+  import Ecto.Query, only: [from: 2]
+
   require Logger
 
   alias Custode.Workflow
   alias Custode.Workflow.Catalog
+  alias Custode.Workflow.Launch
   alias Custode.Workflow.NodeJob
   alias Custode.Workflow.Results
   alias Custode.Workflow.Run
@@ -77,8 +80,11 @@ defmodule Custode.Workflow.Runner do
       routine serving `repo`, else the current directory.
     * `:context` -- extra render bindings, available to prompts as `@context`.
       Stored on the run, so a resume renders what the launch rendered.
-    * `:max_budget_usd` -- per-node cost ceiling. The RUN-level rail is slice 2;
-      this is the per-call cap every claude run in the fleet already carries.
+    * `:max_budget_usd` -- per-node cost ceiling, the per-call cap every claude
+      run in the fleet already carries.
+    * `:budget_usd` -- the RUN's rail (slice 2): total spend across every node,
+      after which the run parks at `budget_paused`. nil is unbounded, which is
+      what an iex launch gets; the launch gate always sets one.
     * `:run_id` -- override the minted id (tests, and re-running a known run).
 
   Returns `{:ok, run}` or `{:error, reason}`.
@@ -96,7 +102,17 @@ defmodule Custode.Workflow.Runner do
         |> Map.put("working_dir", working_dir(repo, opts))
         |> Map.put("max_budget_usd", per_node_budget(opts))
 
-      Run.start(run_id, definition.name, repo, first.name, context)
+      run =
+        Run.start(
+          run_id,
+          definition.name,
+          repo,
+          first.name,
+          context,
+          Keyword.get(opts, :budget_usd)
+        )
+
+      record(run, "workflow_launched", launch_summary(definition, run))
       advance(run_id)
     end
   end
@@ -127,10 +143,9 @@ defmodule Custode.Workflow.Runner do
   Advance every run still marked running. The restart path -- a run whose last
   node landed while the app was down has no other way to move.
 
-  Not wired into the supervision tree this slice: launching is iex-only until
-  the gate lands, so there is no unattended run to rescue, and an
-  enqueue-on-boot side effect belongs with the run-level budget rail that
-  bounds it (slice 2).
+  Wired into the supervision tree as of slice 2, now that the run-level rail
+  bounds what a boot can restart. A `budget_paused` run is not `running`, so
+  this never wakes one the operator has not let go.
   """
   def resume_all do
     for run <- Run.list(status: "running"), do: {run.run_id, advance(run.run_id)}
@@ -178,7 +193,10 @@ defmodule Custode.Workflow.Runner do
   cursor and every result so far stay on the record.
   """
   def node_failed(%{"workflow_run" => run_id} = meta, reason) do
-    Run.fail(run_id, "node #{meta["node_name"]} failed: #{inspect(reason)}")
+    detail = "node #{meta["node_name"]} failed: #{inspect(reason)}"
+    failed = Run.fail(run_id, detail)
+    if failed, do: record(failed, "workflow_failed", detail)
+    failed
   end
 
   def node_failed(_meta, _reason), do: :ok
@@ -206,11 +224,10 @@ defmodule Custode.Workflow.Runner do
       planned = plan_stage(run, definition, stage)
       pending = Enum.reject(planned, &landed?(run, &1))
 
-      if pending == [] do
-        next_stage(run, definition, stage)
-      else
-        Enum.each(pending, &enqueue(run, definition, stage, &1))
-        {:ok, Run.get(run.run_id)}
+      cond do
+        pending == [] -> next_stage(run, definition, stage)
+        Launch.over_rail?(run) -> park(run, pending)
+        true -> enqueue_all(run, definition, stage, pending)
       end
     else
       :error ->
@@ -223,10 +240,53 @@ defmodule Custode.Workflow.Runner do
     end
   end
 
+  defp enqueue_all(run, definition, stage, pending) do
+    Enum.each(pending, &enqueue(run, definition, stage, &1))
+    {:ok, Run.get(run.run_id)}
+  end
+
+  # The rail is reached. The stage's outstanding nodes are cancelled rather
+  # than left available, because a paused run with jobs still in the queue
+  # would keep spending -- and NodeJob's unique key excludes cancelled, so a
+  # resume re-enqueues exactly these.
+  defp park(run, pending) do
+    names = Enum.map(pending, & &1.node_name)
+    cancel_pending(run.run_id)
+
+    spend = Launch.spend(run)
+
+    reason =
+      "run budget rail hit: $#{usd(spend.spent_usd)} of $#{usd(spend.budget_usd)}"
+
+    Run.budget_pause(run.run_id, reason, names)
+
+    record(
+      run,
+      "workflow_budget_paused",
+      reason <> " -- #{length(names)} node(s) not run: #{Enum.join(names, ", ")}"
+    )
+
+    {:ok, Run.get(run.run_id)}
+  end
+
+  defp cancel_pending(run_id) do
+    Oban.cancel_all_jobs(
+      from(j in Oban.Job,
+        where: j.worker == "Custode.Workflow.NodeJob",
+        where: j.state in ["available", "scheduled", "retryable"],
+        where: fragment("json_extract(?, '$.workflow_run')", j.meta) == ^run_id
+      )
+    )
+  end
+
   defp next_stage(run, definition, stage) do
+    record(run, "workflow_stage_complete", "stage #{stage.name} complete")
+
     case after_stage(definition, stage) do
       nil ->
-        {:ok, Run.complete(run.run_id)}
+        finished = Run.complete(run.run_id)
+        record(finished, "workflow_complete", complete_summary(finished))
+        {:ok, finished}
 
       %Workflow.Stage{} = next ->
         Run.set_stage(run.run_id, next.name)
@@ -470,6 +530,56 @@ defmodule Custode.Workflow.Runner do
   defp per_node_budget(opts), do: Keyword.get(opts, :max_budget_usd) || default_budget()
 
   defp default_budget, do: Application.fetch_env!(:custode, :max_budget_usd)
+
+  # ---------------------------------------------------------------------------
+  # the feed (design/005 point 6)
+  # ---------------------------------------------------------------------------
+
+  # A run's milestones go into the same feed everything else does -- launch,
+  # each stage barrier, the finish, the rail. No bespoke counters: the
+  # checklist card, the Digest and any future advisor read this stream
+  # (emit-from-birth, design/004 D1).
+  #
+  # `agent` stays nil rather than naming the run's spend agent id: the feed's
+  # agent column is the click-through to an agent page, and a workflow run has
+  # no such page. The run id rides its own field.
+  defp record(run, event, summary) do
+    Custode.Feed.record(%{
+      event: event,
+      agent: nil,
+      run: run.run_id,
+      workflow: run.workflow,
+      repo: run.repo,
+      summary: "#{run.workflow} [#{run.run_id}] #{summary}"
+    })
+  end
+
+  defp launch_summary(definition, run) do
+    {known, fans_out} = Workflow.node_floor(definition)
+    count = if fans_out, do: "at least #{known} nodes", else: "#{known} nodes"
+
+    rail =
+      case run.budget_usd do
+        nil -> "no rail"
+        budget -> "rail $#{usd(budget)}"
+      end
+
+    "launched on #{run.repo}: #{count}, #{rail}"
+  end
+
+  defp complete_summary(run) do
+    results = length(Results.for_run(run.run_id))
+    notes = length(run.notes)
+    spent = usd(Run.spent(run.run_id))
+
+    # the notes count rides the summary so a run that skipped something never
+    # reads, at a glance, like one that did not
+    "complete: #{results} node results, $#{spent}" <>
+      if(notes > 0, do: ", #{notes} note(s) on what it did not do", else: "")
+  end
+
+  defp usd(nil), do: "none"
+  defp usd(amount) when is_number(amount), do: :erlang.float_to_binary(amount / 1, decimals: 2)
 
   defp text_of(%ClaudeWrapper.Result{result: text}), do: text
 end

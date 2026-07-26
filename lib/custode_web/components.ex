@@ -137,6 +137,10 @@ defmodule CustodeWeb.Components do
   def feed_badge("needs_approval"), do: "badge-warning"
   def feed_badge("needs_input"), do: "badge-accent"
   def feed_badge("budget_paused"), do: "badge-error"
+  def feed_badge("workflow_launch_proposed"), do: "badge-warning"
+  def feed_badge("workflow_budget_paused"), do: "badge-warning"
+  def feed_badge("workflow_complete"), do: "badge-success"
+  def feed_badge("workflow_failed"), do: "badge-error"
   def feed_badge("doctor_failed"), do: "badge-error"
   def feed_badge(_event), do: "badge-ghost"
 
@@ -183,6 +187,9 @@ defmodule CustodeWeb.Components do
   # not pass it simply show no badge; `attention_chip` still covers "something
   # needs you" everywhere.
   attr(:unread, :integer, default: 0)
+  # standing workflow launch gates (#271): a gate nobody sees is a stalled
+  # pathway, so the count rides the nav on the pages the operator starts from
+  attr(:launch_gates, :integer, default: 0)
 
   @doc """
   The shared page chrome: header with nav, the attention chip, the fleet spend.
@@ -203,6 +210,11 @@ defmodule CustodeWeb.Components do
           <.link navigate="/repos" class={nav_class(@active == :repos)}>repos</.link>
           <.link navigate="/suggestions" class={nav_class(@active == :suggestions)}>
             suggestions
+          </.link>
+          <.link navigate="/workflows" class={nav_class(@active == :workflows)}>
+            workflows<span :if={@launch_gates > 0} class="ml-1 font-mono text-warning">
+              {@launch_gates}
+            </span>
           </.link>
           <%!-- /feed leaves the top nav (#301) and keeps its route: a firehose
                 is genuinely useful per-agent and useless as a destination. --%>

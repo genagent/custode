@@ -365,6 +365,12 @@ config :custode,
   # (resume is a human override; a restart leaks at most one turn). nil
   # disables. Per-routine override: daily_budget_usd in the routine map.
   daily_budget_usd: 25.0,
+  # The default rail a workflow run carries (#271, design/005): a deep dig is
+  # many nodes deep and can fan out wider than the launch estimate could know,
+  # so it gets its OWN ceiling on top of the per-node cap. Crossing it parks
+  # the run at budget_paused with a note naming what it did not run; letting it
+  # go on is a human override. The launch gate quotes this and can override it.
+  workflow_budget_usd: 20.0,
   # The activity feed (one JSON line per noteworthy event; see Custode.Feed).
   feed_path: "feed.jsonl",
   # macOS desktop notifications for events that need a human
