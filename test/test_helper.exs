@@ -9,6 +9,7 @@ for table <- [
       "spend",
       "gates",
       "feed_entries",
+      "issue_drafts",
       "instance"
     ] do
   Custode.Repo.query!("DELETE FROM #{table}")

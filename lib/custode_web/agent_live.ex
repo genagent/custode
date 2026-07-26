@@ -143,6 +143,20 @@ defmodule CustodeWeb.AgentLive do
     {:noreply, refresh(socket)}
   end
 
+  # The batch filing gate (#241): the gate itself is one action, so the
+  # per-entry decision lands on the draft rows instead. Both directions are
+  # available while the batch is unfiled -- a drop is a judgment, not a
+  # commitment, until the approved continuation runs.
+  def handle_event("drop_draft", %{"id" => id}, socket) do
+    _ = Custode.Drafts.drop(String.to_integer(id), "dropped from dashboard")
+    {:noreply, refresh(socket)}
+  end
+
+  def handle_event("keep_draft", %{"id" => id}, socket) do
+    _ = Custode.Drafts.restore(String.to_integer(id))
+    {:noreply, refresh(socket)}
+  end
+
   def handle_event("reject", %{"action" => action_id}, socket) do
     Custode.reject_with_note(socket.assigns.id, action_id, "rejected from dashboard")
     {:noreply, refresh(socket)}
@@ -325,6 +339,59 @@ defmodule CustodeWeb.AgentLive do
           </button>
         </div>
       </div>
+
+      <section
+        :if={@draft_batch}
+        class="mb-4 rounded-lg border-l-4 border-warning bg-base-100 p-4 shadow-sm"
+      >
+        <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-warning">
+          drafted issues -- {kept_count(@draft_batch)} of {length(@draft_batch)} kept
+        </p>
+        <p class="mb-3 text-xs text-base-content/50">
+          drop what you do not want, then approve the gate above -- only the kept entries file
+        </p>
+        <ul class="space-y-2">
+          <li :for={draft <- @draft_batch} class="rounded bg-base-200/60 p-2 text-sm">
+            <div class="flex items-start gap-2">
+              <div class="flex-1">
+                <span class={[
+                  "font-medium",
+                  draft.status == "dropped" && "line-through text-base-content/40"
+                ]}>
+                  {draft.title}
+                </span>
+                <span class="ml-2 font-mono text-xs text-base-content/40">{draft.repo}</span>
+                <span
+                  :for={label <- Custode.Drafts.labels(draft)}
+                  class="badge badge-ghost badge-xs ml-1"
+                >
+                  {label}
+                </span>
+              </div>
+              <button
+                :if={draft.status == "drafted"}
+                class="btn btn-ghost btn-xs"
+                phx-click="drop_draft"
+                phx-value-id={draft.id}
+              >
+                drop
+              </button>
+              <button
+                :if={draft.status == "dropped"}
+                class="btn btn-ghost btn-xs"
+                phx-click="keep_draft"
+                phx-value-id={draft.id}
+              >
+                keep
+              </button>
+            </div>
+            <details :if={draft.body not in [nil, ""]} class="mt-1">
+              <summary class="cursor-pointer text-xs text-base-content/50">evidence</summary>
+              <pre class="mt-1 max-h-60 overflow-y-auto whitespace-pre-wrap text-xs">{draft.body}</pre>
+            </details>
+          </li>
+        </ul>
+      </section>
 
       <div
         :if={match?({:waiting_for_user, _}, @status)}
@@ -881,6 +948,8 @@ defmodule CustodeWeb.AgentLive do
   # own memory key "panel"; the escape-before-parse markdown component
   # keeps any raw HTML inert, which is why this rung needs no gate. The
   # forget button on the memory row is the kill switch.
+  defp kept_count(drafts), do: Enum.count(drafts, &(&1.status == "drafted"))
+
   defp panel_of(id) do
     case Custode.Memory.recall(id, "panel") do
       {:ok, value} -> value
@@ -955,6 +1024,7 @@ defmodule CustodeWeb.AgentLive do
           search: socket.assigns.journal_search
         ),
       memories: Custode.Memory.recall(id),
+      draft_batch: Custode.Drafts.pending_batch(id),
       panel: panel_of(id),
       panel_html: Custode.Panels.current(id),
       panel_pending: Custode.Panels.pending(id),
