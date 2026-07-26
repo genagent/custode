@@ -20,6 +20,21 @@ defmodule Custode.CLI.Doctor do
       there)
     * the roster parses: a broken `routines.toml` should fail HERE, not at
       boot
+    * migration versions are unique, and how many are pending (#311) -- a
+      duplicate version makes Ecto refuse the whole run, which otherwise
+      surfaces as a supervision-tree crash on a fleet that has already stopped
+    * the checkout is not behind its upstream, which is the state where a
+      merged fix and the running code have never met
+
+  ## The restart protocol
+
+      mix custode drain     # stop gracefully
+      git pull              # the checkout check exists because this gets missed
+      mix custode doctor    # this
+      mix phx.server
+
+  The last two checks are what make step 3 worth running after step 2 rather
+  than instead of it.
   """
 
   use Cheer.Command
@@ -67,8 +82,52 @@ defmodule Custode.CLI.Doctor do
       {"gh binary + auth", gh_check()},
       {"timezone #{configured_tz()}", tz_check()},
       {"home #{Home.root()} writable", home_check()},
-      {"roster", roster_check()}
+      {"roster", roster_check()},
+      {"migrations", migrations_check()},
+      {"pending migrations", pending_check()},
+      {"checkout", checkout_check()}
     ]
+  end
+
+  # Hard failure, because Ecto refuses the ENTIRE migration run on a duplicate
+  # version rather than just the offending pair -- so this is never survivable
+  # at boot, and it is detectable from filenames alone (#311).
+  defp migrations_check do
+    case Custode.Migrations.duplicates(Custode.Migrations.files()) do
+      [] ->
+        {:ok, "#{length(Custode.Migrations.files())} migration(s), versions unique"}
+
+      dupes ->
+        {:error,
+         Enum.map_join(dupes, "; ", fn {version, files} ->
+           "version #{version} claimed by #{Enum.join(files, " and ")}"
+         end)}
+    end
+  end
+
+  # Informational: a restart that is about to change the schema should say so
+  # first. A fresh install has no database, which is an answer and not a
+  # failure -- it is the normal case for design/003's binary target.
+  defp pending_check do
+    case Custode.Migrations.pending() do
+      {:ok, 0} -> {:ok, "none; schema is current"}
+      {:ok, count} -> {:ok, "#{count} will run on the next boot"}
+      {:fresh, count} -> {:ok, "no database yet; all #{count} run on first boot"}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Behind upstream is a hard failure: it is the state in which a merged fix
+  # and the running code have never met, and every other check passes anyway
+  # because the environment really is clean (#311).
+  defp checkout_check do
+    status = Custode.Checkout.status()
+    description = Custode.Checkout.describe(status)
+
+    case status do
+      {:behind, _count, _fetched} -> {:error, description}
+      _current_or_skipped -> {:ok, description}
+    end
   end
 
   # A missing binary is doctor's bread-and-butter failure, and the wrapper's
