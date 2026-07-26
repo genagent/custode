@@ -40,7 +40,13 @@ defmodule Custode.Attention.Fleet do
       routines: Map.new(routines, &{&1.id, &1})
     }
 
-    ids = Enum.uniq(Enum.map(routines, & &1.id) ++ Map.keys(running))
+    # Agents with an OPEN ASK are included even when they are neither in the
+    # roster nor in the registry (#301). An ask outlives the agent that filed
+    # it: a routine removed from the roster mid-question would otherwise leave
+    # a row nobody can see and nobody can answer, which is a leak rather than
+    # a tidy-up. Something is owed, so something is shown.
+    ids =
+      Enum.uniq(Enum.map(routines, & &1.id) ++ Map.keys(running) ++ Map.keys(sources.asks))
 
     for id <- ids, do: view(id, Map.get(running, id, :offline), sources)
   end

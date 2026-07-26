@@ -40,6 +40,7 @@ defmodule CustodeWeb.Router do
     live("/suggestions", CustodeWeb.SuggestionsLive)
     live("/agents/:id", CustodeWeb.AgentLive)
     live("/feed", CustodeWeb.FeedLive)
+    live("/inbox", CustodeWeb.InboxLive)
     live("/metrics", CustodeWeb.MetricsLive)
   end
 

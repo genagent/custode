@@ -6,6 +6,11 @@ defmodule Custode.AsksTest do
   alias Custode.Asks
 
   setup do
+    # Asks contribute to the fleet-wide attention count, which the chip in
+    # CustodeWeb.Components reads. Leaving rows behind inflates that count for
+    # every later test and breaks assertions that have nothing to do with
+    # asks, so this module cleans up after itself.
+    on_exit(fn -> Custode.Repo.query!("DELETE FROM asks") end)
     workspace = tmp_workspace!()
     routine = routine_fixture!(workspace)
     %{routine: routine, workspace: workspace}
