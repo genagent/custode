@@ -14,7 +14,7 @@ defmodule CustodeWeb.SuggestionsLive do
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
     if connected?(socket), do: Custode.PubSubBridge.subscribe()
-    {:ok, refresh(socket)}
+    {:ok, socket |> assign(dismissing: nil) |> refresh()}
   end
 
   @impl Phoenix.LiveView
@@ -33,12 +33,27 @@ defmodule CustodeWeb.SuggestionsLive do
     end
   end
 
+  # Which card is asking for a reason. View state, so it lives in the socket.
   @impl Phoenix.LiveView
+  def handle_event("dismiss_open", %{"agent" => id, "field" => field}, socket) do
+    {:noreply, assign(socket, dismissing: {id, field})}
+  end
+
+  def handle_event("dismiss_cancel", _params, socket) do
+    {:noreply, assign(socket, dismissing: nil)}
+  end
+
   def handle_event("dismiss_suggestion", params, socket) do
     %{"agent" => id, "field" => field, "proposed" => proposed} = params
-    {:ok, message} = Custode.Suggestions.dismiss(id, field, proposed)
-    {:noreply, socket |> put_flash(:info, message) |> refresh()}
+    {:ok, message} = Custode.Suggestions.dismiss(id, field, proposed, params["reason"])
+
+    {:noreply, socket |> assign(dismissing: nil) |> put_flash(:info, message) |> refresh()}
   end
+
+  defp dismissing?(nil, _suggestion), do: false
+
+  defp dismissing?({id, field}, suggestion),
+    do: suggestion["agent"] == id and suggestion["field"] == field
 
   @impl Phoenix.LiveView
   def render(assigns) do
@@ -78,15 +93,34 @@ defmodule CustodeWeb.SuggestionsLive do
               apply
             </button>
             <button
+              :if={!dismissing?(@dismissing, s)}
               class="btn btn-ghost btn-xs"
-              phx-click="dismiss_suggestion"
+              phx-click="dismiss_open"
               phx-value-agent={s["agent"]}
               phx-value-field={s["field"]}
-              phx-value-proposed={s["proposed"]}
             >
               dismiss
             </button>
           </p>
+
+          <%!-- The reasons appear on click rather than sitting on every card
+                (#303): three buttons per suggestion would make the page read
+                as a form, and the common path is still one click. --%>
+          <div :if={dismissing?(@dismissing, s)} class="mt-2 flex flex-wrap items-center gap-2">
+            <span class="text-xs text-base-content/50">why?</span>
+            <button
+              :for={{reason, label} <- Custode.Suggestions.dismiss_reasons()}
+              class="btn btn-outline btn-xs"
+              phx-click="dismiss_suggestion"
+              phx-value-agent={s["agent"]}
+              phx-value-field={s["field"]}
+              phx-value-proposed={s["proposed"]}
+              phx-value-reason={reason}
+            >
+              {label}
+            </button>
+            <button class="btn btn-ghost btn-xs" phx-click="dismiss_cancel">cancel</button>
+          </div>
           <p :if={s["evidence"]} class="mt-2 text-sm text-base-content/60">{s["evidence"]}</p>
         </div>
       </div>
