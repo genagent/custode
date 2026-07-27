@@ -143,6 +143,61 @@ defmodule Custode.Metrics do
     end
   end
 
+  @doc """
+  Per-agent gate outcomes over the last `days`: how often a proposal was
+  approved, rejected, or was a question that got answered.
+
+  The closest thing custode has to "was the work any good", measured at the
+  moment of judgment rather than inferred afterwards. A proposal the operator
+  declines is the fleet's own quality gate reporting a miss.
+
+  Read with care, and the live numbers say why: across the fleet's history
+  the split is roughly 309 approved to 4 rejected. A 1% rejection rate can
+  mean the proposals are excellent, or it can mean the approvals are
+  reflexive, and this number alone cannot tell those apart. It is most useful
+  COMPARATIVELY -- one agent rejected far more often than its siblings is a
+  signal about that agent, whatever the fleet-wide rate means.
+  """
+  def gate_outcomes(days) do
+    since = DateTime.add(DateTime.utc_now(), -days * 24 * 60 * 60, :second)
+
+    from(f in Custode.Feed.Entry,
+      where: f.at >= ^since,
+      where: not is_nil(fragment("json_extract(?, '$.resolved')", f.entry)),
+      select: {f.agent, fragment("json_extract(?, '$.resolved')", f.entry)}
+    )
+    |> Repo.all()
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    |> Map.new(fn {agent, resolutions} -> {agent, Enum.frequencies(resolutions)} end)
+  end
+
+  @doc """
+  Pull requests each agent OPENED over the last `days`, by number.
+
+  Not the same as landed work, and the difference is the point. Custode
+  records the verbs it performs, and merging is not one of them: the fleet
+  opens and readies pull requests, and the operator merges them on GitHub,
+  outside anything custode can see.
+
+  So this answers "what did the fleet put up" and deliberately does not claim
+  to answer "what shipped". Joining these numbers against the merged pull
+  requests the repo overview already fetches is what would close that gap,
+  and it is not attempted here rather than being half-attempted.
+  """
+  def prs_opened(days) do
+    since = DateTime.add(DateTime.utc_now(), -days * 24 * 60 * 60, :second)
+
+    from(f in Custode.Feed.Entry,
+      where: f.event == "repo_verb" and f.at >= ^since,
+      where: fragment("json_extract(?, '$.verb')", f.entry) == "open_pr",
+      select:
+        {f.agent, fragment("json_extract(?, '$.repo')", f.entry),
+         fragment("json_extract(?, '$.number')", f.entry)}
+    )
+    |> Repo.all()
+    |> Enum.group_by(&elem(&1, 0), fn {_agent, repo, number} -> {repo, number} end)
+  end
+
   @doc "The last `days` of one agent's daily spend, oldest first (tile sparkline)."
   def spend_series(agent_id, days) do
     daily = daily_by_agent(days)
