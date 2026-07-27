@@ -186,6 +186,33 @@ defmodule Custode.Repository do
   @doc "List issues (defaults to open, oldest first). `opts`: `:state`."
   def list_issues(name, opts \\ %{}), do: call(name, {:list_issues, opts})
 
+  @doc """
+  The label that withholds an issue from the fleet's survey (#334).
+
+  A GitHub label rather than custode config, on purpose: the operator marks
+  it where they are already reading the issue, it needs no roster edit and no
+  restart, and it survives anything that happens to this machine. It is also
+  visible to collaborators, which is a feature when a repo has any and worth
+  knowing when it does not.
+  """
+  def ignore_label, do: Application.get_env(:custode, :ignore_label, "custode:ignore")
+
+  @doc """
+  Split issues into `{kept, ignored}` by the ignore label (#334).
+
+  Pure, and public so the decision is tested directly rather than mirrored in
+  a test that can drift from it.
+
+      iex> Custode.Repository.partition_ignored(
+      ...>   [%{number: 1, labels: []}, %{number: 2, labels: ["custode:ignore"]}],
+      ...>   "custode:ignore"
+      ...> )
+      {[%{number: 1, labels: []}], [%{number: 2, labels: ["custode:ignore"]}]}
+  """
+  def partition_ignored(issues, label) do
+    Enum.split_with(issues, &(label not in (&1[:labels] || [])))
+  end
+
   @doc "View one issue: title, state, labels, body, and its comments."
   def view_issue(name, number), do: call(name, {:view_issue, number})
 
