@@ -104,7 +104,8 @@ defmodule Custode.Routine do
     end
   end
 
-  defp advisor_module(name) do
+  @doc "The module implementing `name`, raising for an unknown advisor."
+  def advisor_module(name) do
     case Map.fetch(@advisor_modules, name) do
       {:ok, module} ->
         module

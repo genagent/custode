@@ -52,6 +52,7 @@ defmodule Custode.Suggestions do
       Feed.record(%{
         event: "advisor_applied",
         agent: agent,
+        advisor: advisor_for(agent, field, proposed),
         field: field,
         proposed: proposed,
         summary: "operator applied suggestion: #{field} -> #{proposed}"
@@ -102,6 +103,7 @@ defmodule Custode.Suggestions do
     Feed.record(%{
       event: "advisor_dismissed",
       agent: agent,
+      advisor: advisor_for(agent, field, proposed),
       field: field,
       proposed: proposed,
       reason: reason,
@@ -112,6 +114,22 @@ defmodule Custode.Suggestions do
 
     {:ok,
      "#{agent}: #{field} -> #{proposed} dismissed" <> if(label, do: " -- #{label}", else: "")}
+  end
+
+  # Which advisor proposed this change (#304). An apply or a dismiss records
+  # only the change, so without this the outcome record cannot attribute
+  # anything to the advisor that earned it -- and an advisor's reputation is
+  # exactly what its dismissals are evidence about.
+  #
+  # Read from the raw suggestion entries rather than standing/0: by the time
+  # a second decision is made on the same change, the first has masked it.
+  defp advisor_for(agent, field, proposed) do
+    "advisor_suggestion"
+    |> Feed.recent_by_event(limit: 50, since: @window_s)
+    |> Enum.find_value(fn entry ->
+      (entry["agent"] == agent and entry["field"] == field and
+         entry["proposed"] == proposed) && entry["advisor"]
+    end)
   end
 
   defp changes("model", value) when is_binary(value), do: {:ok, %{model: value}}

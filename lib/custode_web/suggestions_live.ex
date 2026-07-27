@@ -11,6 +11,7 @@ defmodule CustodeWeb.SuggestionsLive do
 
   import CustodeWeb.Components
 
+  alias Custode.Advisors.Record
   alias Custode.Suggestions.Outcome
 
   @impl Phoenix.LiveView
@@ -126,6 +127,22 @@ defmodule CustodeWeb.SuggestionsLive do
           <p :if={s["evidence"]} class="mt-2 text-sm text-base-content/60">{s["evidence"]}</p>
         </div>
       </div>
+      <%!-- Which advisor is worth listening to (#304). The decisions below
+            are individual outcomes; this is the reputation they add up to. --%>
+      <h2 :if={@advisors != []} class="mt-8 mb-2 font-mono text-xs font-semibold uppercase tracking-wider text-base-content/40">
+        advisors
+      </h2>
+      <ul :if={@advisors != []} class="flex flex-col divide-y divide-base-300/60 text-sm">
+        <li :for={a <- @advisors} class="flex flex-wrap items-baseline gap-x-2 py-2">
+          <span class="font-mono font-semibold">{a.advisor}</span>
+          <span :if={a.grade == :judgment} class="badge badge-ghost badge-xs">judgment</span>
+          <span :if={a.standing > 0} class="text-xs text-base-content/50">
+            {a.standing} standing
+          </span>
+          <span class="ml-auto text-xs text-base-content/50">{Record.describe(a)}</span>
+        </li>
+      </ul>
+
       <%!-- The record of judgment (#303). A suggestion used to have two
             states, standing and gone, so the system never learned whether
             the advice was any good and neither did the advisor. --%>
@@ -158,6 +175,7 @@ defmodule CustodeWeb.SuggestionsLive do
     assign(socket,
       suggestions: Custode.Suggestions.standing(),
       decisions: Outcome.history(),
+      advisors: Record.all(),
       fleet_today: Custode.SpendLedger.fleet_today()
     )
   end
