@@ -35,14 +35,18 @@ defmodule CustodeWeb.Router do
   scope "/" do
     pipe_through(:browser)
 
-    live("/", CustodeWeb.FleetLive)
-    live("/repos", CustodeWeb.ReposLive)
-    live("/suggestions", CustodeWeb.SuggestionsLive)
-    live("/workflows", CustodeWeb.WorkflowsLive)
-    live("/agents/:id", CustodeWeb.AgentLive)
-    live("/feed", CustodeWeb.FeedLive)
-    live("/inbox", CustodeWeb.InboxLive)
-    live("/metrics", CustodeWeb.MetricsLive)
+    # The live layout is set here rather than per-page so a page added later
+    # cannot forget it and silently lose its flash messages (#337).
+    live_session :dashboard, layout: {CustodeWeb.Layouts, :app} do
+      live("/", CustodeWeb.FleetLive)
+      live("/repos", CustodeWeb.ReposLive)
+      live("/suggestions", CustodeWeb.SuggestionsLive)
+      live("/workflows", CustodeWeb.WorkflowsLive)
+      live("/agents/:id", CustodeWeb.AgentLive)
+      live("/feed", CustodeWeb.FeedLive)
+      live("/inbox", CustodeWeb.InboxLive)
+      live("/metrics", CustodeWeb.MetricsLive)
+    end
   end
 
   scope "/" do

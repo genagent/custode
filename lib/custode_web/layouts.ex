@@ -53,4 +53,58 @@ defmodule CustodeWeb.Layouts do
     </html>
     """
   end
+
+  @doc """
+  The live layout every dashboard page renders inside (#337).
+
+  It exists for one reason: the flash. The root layout above is rendered
+  once, by the plug pipeline, and never again -- LiveView's docs are explicit
+  that it "has no LiveView related functionality". Every `put_flash/3` in
+  this app fires from a `handle_event`, long after that render, so a flash
+  container in the root `<body>` would never show a single one of them. This
+  layout IS inside the diff, so it updates.
+  """
+  def app(assigns) do
+    ~H"""
+    <.flash_group flash={@flash} />
+    {@inner_content}
+    """
+  end
+
+  @doc """
+  The flash messages, as a toast in the top-right corner.
+
+  Click dismisses: `lv:clear-flash` is LiveView's own event, so no page needs
+  a handler for it.
+  """
+  def flash_group(assigns) do
+    ~H"""
+    <div class="toast toast-top toast-end z-50">
+      <.flash kind={:info} message={Phoenix.Flash.get(@flash, :info)} />
+      <.flash kind={:error} message={Phoenix.Flash.get(@flash, :error)} />
+    </div>
+    """
+  end
+
+  attr(:kind, :atom, required: true)
+  attr(:message, :string, default: nil)
+
+  defp flash(assigns) do
+    ~H"""
+    <div
+      :if={@message}
+      id={"flash-#{@kind}"}
+      role="alert"
+      class={[
+        "alert cursor-pointer max-w-md whitespace-pre-wrap",
+        @kind == :info && "alert-info",
+        @kind == :error && "alert-error"
+      ]}
+      phx-click="lv:clear-flash"
+      phx-value-key={@kind}
+    >
+      <span>{@message}</span>
+    </div>
+    """
+  end
 end
