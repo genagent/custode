@@ -342,6 +342,28 @@ queue and call it speed.
 Slow, steady and sequential remains the design *for landing*. What is
 now permitted is being unhurried in parallel.
 
+**Correction, same day: fan-out spends next week's budget.** The paragraph
+above says concurrency trades money for speed and leaves quality alone. That
+holds only when the money is available *concurrently*, and it is not: the
+fleet's agents share one rate limit and one weekly cap. Five parallel
+investigations do not finish five times sooner while contending for the same
+quota -- they finish at roughly the same aggregate rate and exhaust the cap
+earlier.
+
+So under a cap, fan-out converts **future capacity into present speed**. That
+is a worse trade than the one described above, and the operator feels it a
+week later rather than at the moment of choosing.
+
+This does not reverse the amendment; it bounds it. Fan-out is worth it when
+work is latency-critical and the cap is not the binding constraint -- five
+bug reports on a quiet week. It is not worth it as a standing cadence, since
+a permanently fanned-out fleet simply reaches the cap earlier each week and
+then stops entirely. Which makes fan-out a posture chosen per situation
+rather than a setting, exactly as #339 concluded for effort.
+
+The ordering survives with a second reason behind it: gate posture removes a
+wall for free, where fan-out borrows against next week to go faster today.
+
 The family also settled the platform question by experiment. Rust built
 the best unit-scale tool (roba) and remains the right home for CLIs.
 The fleet belongs on the BEAM, and not as a matter of taste: every hot
