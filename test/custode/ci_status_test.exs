@@ -41,6 +41,93 @@ defmodule Custode.Sensors.CiStatusTest do
     Path.wildcard(Path.join([workspace, "inbox", "sensor-*"]))
   end
 
+  defp fake_branch!(repo, state, extra_prs \\ []) do
+    overviews = Application.get_env(:custode, :fake_repo_overviews, %{})
+
+    overview =
+      FakeGitHubFetcher.overview(repo, %{
+        open_prs: %{total: length(extra_prs), items: extra_prs},
+        default_branch: %{
+          name: "main",
+          state: state,
+          oid: "abc1234",
+          headline: "the merge that broke it"
+        }
+      })
+
+    put_env!(:fake_repo_overviews, Map.put(overviews, repo, {:ok, overview}))
+  end
+
+  describe "the default branch (#310)" do
+    test "a red default branch drops a note that outranks the backlog",
+         %{workspace: workspace, routine: routine, repo: repo, args: args} do
+      fake_branch!(repo, "FAILURE")
+
+      :ok = perform!(args)
+
+      assert [note] = inbox_notes(workspace)
+      content = File.read!(note)
+
+      assert content =~ "DEFAULT BRANCH"
+      assert content =~ "main is red"
+      assert content =~ "the merge that broke it"
+      assert content =~ "outranks everything else"
+      # it may not be the agent's to fix, and a duplicate fix is worse than none
+      assert content =~ "duplicate fix is worse than none"
+
+      assert Enum.any?(jobs_for("ObanClaude.Agent.Tick"), &(&1.args["agent_id"] == routine.id))
+    end
+
+    test "a green default branch is not news", %{workspace: workspace, repo: repo, args: args} do
+      fake_branch!(repo, "SUCCESS")
+      :ok = perform!(args)
+      assert inbox_notes(workspace) == []
+    end
+
+    test "an unreported rollup is not treated as red",
+         %{workspace: workspace, repo: repo, args: args} do
+      for state <- [nil, "PENDING"] do
+        fake_branch!(repo, state)
+        :ok = perform!(args)
+        assert inbox_notes(workspace) == []
+      end
+    end
+
+    test "a branch that stays red notes once; recovering and rebreaking notes again",
+         %{workspace: workspace, repo: repo, args: args} do
+      fake_branch!(repo, "FAILURE")
+      :ok = perform!(args)
+      assert [_note] = inbox_notes(workspace)
+
+      # still red: keyed by NAME, so no second note for the same outage
+      :ok = perform!(args)
+      assert [_note] = inbox_notes(workspace)
+
+      fake_branch!(repo, "SUCCESS")
+      :ok = perform!(args)
+      assert [_note] = inbox_notes(workspace)
+
+      fake_branch!(repo, "FAILURE")
+      :ok = perform!(args)
+      assert [_first, _second] = inbox_notes(workspace)
+    end
+
+    test "a red branch and a red PR share one note, each with its own orders",
+         %{workspace: workspace, repo: repo, args: args} do
+      fake_branch!(repo, "FAILURE", [pr(9, "FAILURE")])
+
+      :ok = perform!(args)
+
+      assert [note] = inbox_notes(workspace)
+      content = File.read!(note)
+
+      assert content =~ "main is red"
+      assert content =~ "PR #9"
+      # the PR half still points at disowning, which the branch half must not
+      assert content =~ "repo_disown_pr"
+    end
+  end
+
   test "a newly failing PR drops a note and fires the kickoff",
        %{workspace: workspace, routine: routine, repo: repo, args: args} do
     fake_prs!(repo, [pr(7, "SUCCESS"), pr(9, "FAILURE")])
