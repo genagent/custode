@@ -11,6 +11,7 @@ defmodule CustodeWeb.AgentLive do
 
   alias Custode.Config.Loader
   alias Custode.Config.WriteBack
+  alias CustodeWeb.WorkflowLaunch
   alias ObanClaude.Agent
 
   @image_types ~w(.png .jpg .jpeg .gif .webp)
@@ -204,6 +205,13 @@ defmodule CustodeWeb.AgentLive do
   def handle_event("todo_done", %{"todo" => todo_id}, socket) do
     Custode.Notebook.todo_complete(String.to_integer(todo_id))
     {:noreply, refresh(socket)}
+  end
+
+  def handle_event("propose_workflow", params, socket) do
+    {:noreply,
+     socket
+     |> WorkflowLaunch.propose(params, "launched by hand from #{socket.assigns.id}'s repo panel")
+     |> refresh()}
   end
 
   @impl Phoenix.LiveView
@@ -451,12 +459,17 @@ defmodule CustodeWeb.AgentLive do
       <div :if={!@prompt_ack} class="mb-5"></div>
 
       <section :if={@repo} class="mb-6">
-        <h3 class="mb-2 text-lg font-semibold text-base-content/70">
+        <h3 class="mb-2 flex flex-wrap items-baseline gap-2 text-lg font-semibold text-base-content/70">
           repository
           <a href={"https://github.com/#{@repo}"} target="_blank" class="link link-hover font-mono text-sm">
             {@repo}
           </a>
           <span :if={@repo_overview == :loading} class="loading loading-dots loading-xs ml-1"></span>
+          <WorkflowLaunch.launch_button
+            repo={@repo}
+            standing={@workflow_gates}
+            class="ml-auto self-center"
+          />
         </h3>
         <div
           :if={@working_state}
@@ -1009,6 +1022,7 @@ defmodule CustodeWeb.AgentLive do
       policies: (routine && Custode.Policy.ids_for(routine)) || [],
       repo: repo,
       repo_overview: repo && repo_overview(repo),
+      workflow_gates: workflow_gates(repo),
       working_state: repo && working_state(id),
       status: status,
       state: state_of(status),
@@ -1060,4 +1074,9 @@ defmodule CustodeWeb.AgentLive do
       :loading -> :loading
     end
   end
+
+  # An agent with no repo has no workflow to launch: workflows are repo-scoped
+  # (design/005), so the button never appears without one.
+  defp workflow_gates(nil), do: %{}
+  defp workflow_gates(repo), do: WorkflowLaunch.standing_for(repo)
 end

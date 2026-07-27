@@ -9,6 +9,9 @@ defmodule Custode.TestHelpers do
   import ExUnit.Callbacks, only: [on_exit: 1]
 
   alias Anubis.Server.Response
+  alias Custode.Workflow
+  alias Custode.Workflow.Node
+  alias Custode.Workflow.Stage
 
   @doc "A unique id with a prefix."
   def uid(prefix), do: prefix <> "-" <> Integer.to_string(System.unique_integer([:positive]))
@@ -52,6 +55,26 @@ defmodule Custode.TestHelpers do
         :error -> Application.delete_env(:custode, key)
       end
     end)
+  end
+
+  @doc """
+  Register a toy workflow in the catalog for this test, removed afterwards.
+  Three cheap stages walk the same shape `backlog-sweep` has (a fan-out at the
+  end) without rendering its prompts.
+  """
+  def workflow_fixture!(name) do
+    node = fn node_name -> %Node{name: node_name, prompt: "do <%= @repo %>", schema: %{}} end
+
+    workflow =
+      Workflow.new!(name, [
+        %Stage{name: :mine, nodes: [node.(:spec), node.(:code)]},
+        %Stage{name: :merge, nodes: [node.(:merge)]},
+        %Stage{name: :check, per_item: true, nodes: [node.(:check)]}
+      ])
+
+    extra = Application.get_env(:custode, :extra_workflows, %{})
+    put_env!(:extra_workflows, Map.put(extra, workflow.name, workflow))
+    workflow
   end
 
   @doc "Configure one routine targeting `workspace` and return its normalized form."

@@ -8,11 +8,16 @@ defmodule CustodeWeb.ReposLive do
   Overviews come from the same `Custode.GitHub` cache the agent page reads,
   so N tiles cost no more than N agent-page visits; the
   `{:repo_overview, repo}` broadcast fills tiles in live as fetches land.
+
+  It is also where the workflow button lives (#273): workflows are repo-scoped,
+  so this is the page that has the repo to scope one to.
   """
 
   use Phoenix.LiveView
 
   import CustodeWeb.Components
+
+  alias CustodeWeb.WorkflowLaunch
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
@@ -23,6 +28,14 @@ defmodule CustodeWeb.ReposLive do
   @impl Phoenix.LiveView
   def handle_info({:repo_overview, _repo}, socket), do: {:noreply, refresh(socket)}
   def handle_info(_message, socket), do: {:noreply, socket}
+
+  @impl Phoenix.LiveView
+  def handle_event("propose_workflow", params, socket) do
+    {:noreply,
+     socket
+     |> WorkflowLaunch.propose(params, "launched by hand from the repositories page")
+     |> refresh()}
+  end
 
   @impl Phoenix.LiveView
   def render(assigns) do
@@ -55,6 +68,11 @@ defmodule CustodeWeb.ReposLive do
               class="loading loading-dots loading-xs"
             >
             </span>
+            <WorkflowLaunch.launch_button
+              repo={repo}
+              standing={Map.get(@standing, repo, %{})}
+              class="ml-auto"
+            />
           </h3>
           <.repo_overview_panel overview={overview(@overviews, repo)} />
         </section>
@@ -93,7 +111,8 @@ defmodule CustodeWeb.ReposLive do
     assign(socket,
       fleet_today: Custode.SpendLedger.fleet_today(),
       repos: repos,
-      overviews: overviews
+      overviews: overviews,
+      standing: WorkflowLaunch.standing()
     )
   end
 end

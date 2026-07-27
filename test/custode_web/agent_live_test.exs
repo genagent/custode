@@ -8,6 +8,8 @@ defmodule CustodeWeb.AgentLiveTest do
 
   alias Custode.Config.Loader
   alias Custode.Test.FakeGitHubFetcher
+  alias Custode.Workflow.Launch
+  alias Custode.Workflow.Run
   alias ObanClaude.Agent
 
   @endpoint CustodeWeb.Endpoint
@@ -174,6 +176,48 @@ defmodule CustodeWeb.AgentLiveTest do
     assert html =~ "draft"
     assert html =~ "recently merged"
     assert html =~ "flat slot table"
+  end
+
+  # design/005 slice 3 (#273): the same affordance the repositories page has,
+  # on the repo panel of the agent that works the repo.
+  test "the repo panel launches a workflow, and the click opens a gate rather than a run",
+       %{conn: conn} do
+    repo = "acme/" <> uid("wf")
+    workflow = workflow_fixture!(uid("toy"))
+
+    on_exit(fn ->
+      Custode.Repo.query!("DELETE FROM feed_entries WHERE event LIKE 'workflow_%'")
+    end)
+
+    put_env!(
+      :fake_repo_overviews,
+      Map.put(
+        Application.get_env(:custode, :fake_repo_overviews, %{}),
+        repo,
+        {:ok, FakeGitHubFetcher.overview(repo)}
+      )
+    )
+
+    routine = routine_fixture!(tmp_workspace!(), %{repo: repo})
+    stub_routine_agent!(routine)
+
+    {:ok, view, html} = live(conn, "/agents/#{routine.id}")
+    assert html =~ "run a workflow"
+    assert html =~ workflow.name
+
+    html =
+      view
+      |> element("button[phx-value-workflow='#{workflow.name}']")
+      |> render_click()
+
+    # the visible answer to the click: the entry becomes the standing gate
+    assert html =~ "gate already standing"
+
+    assert [entry] = Enum.filter(Launch.pending(), &(&1["repo"] == repo))
+    assert entry["workflow"] == workflow.name
+    assert entry["why"] =~ routine.id
+    # the button proposes; nothing runs until the gate is approved
+    assert Enum.filter(Run.list(), &(&1.workflow == workflow.name)) == []
   end
 
   describe "agent-authored panels, gated (#100 v1)" do

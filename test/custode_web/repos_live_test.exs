@@ -7,6 +7,8 @@ defmodule CustodeWeb.ReposLiveTest do
   import Phoenix.LiveViewTest
 
   alias Custode.Test.FakeGitHubFetcher
+  alias Custode.Workflow.Launch
+  alias Custode.Workflow.Run
 
   @endpoint CustodeWeb.Endpoint
 
@@ -72,6 +74,42 @@ defmodule CustodeWeb.ReposLiveTest do
 
     {:ok, _view, html} = live(conn, "/repos")
     assert html =~ "no repositories in the roster"
+  end
+
+  # design/005 slice 3 (#273): the button is repo-scoped, so it lives on the
+  # page that is repo-scoped -- and it opens the slice-2 gate, never a run.
+  test "each repo carries a workflow button, and the click opens a gate", %{conn: conn} do
+    repo = "acme/" <> uid("launch")
+    workflow = workflow_fixture!(uid("toy"))
+
+    on_exit(fn ->
+      Custode.Repo.query!("DELETE FROM feed_entries WHERE event LIKE 'workflow_%'")
+    end)
+
+    overviews = Application.get_env(:custode, :fake_repo_overviews, %{})
+
+    put_env!(
+      :fake_repo_overviews,
+      Map.put(overviews, repo, {:ok, FakeGitHubFetcher.overview(repo)})
+    )
+
+    put_env!(:routines, [
+      %{id: uid("worker"), profile: :backlog_worker, workspace: tmp_workspace!(), repo: repo}
+    ])
+
+    {:ok, view, html} = live(conn, "/repos")
+    assert html =~ "run a workflow"
+    assert html =~ workflow.name
+    # the floor comes from the definition, so the menu needs no ledger read
+    assert html =~ "3+ nodes"
+
+    html = view |> element("button[phx-value-workflow='#{workflow.name}']") |> render_click()
+
+    # the visible answer to the click: the entry becomes the standing gate
+    assert html =~ "gate already standing"
+    assert [entry] = Enum.filter(Launch.pending(), &(&1["repo"] == repo))
+    assert entry["why"] =~ "repositories page"
+    assert Enum.filter(Run.list(), &(&1.workflow == workflow.name)) == []
   end
 
   test "the shared chrome carries the repos nav on every page", %{conn: conn} do
