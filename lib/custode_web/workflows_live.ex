@@ -25,6 +25,7 @@ defmodule CustodeWeb.WorkflowsLive do
 
   alias Custode.Workflow.Catalog
   alias Custode.Workflow.Launch
+  alias Custode.Workflow.Results
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
@@ -204,6 +205,13 @@ defmodule CustodeWeb.WorkflowsLive do
 
         <p :if={@entry.run.error} class="text-xs text-error">{@entry.run.error}</p>
 
+        <div :if={@entry.artifacts != []} class="rounded bg-base-200/60 p-2">
+          <span class="text-xs uppercase tracking-wide text-base-content/40">report</span>
+          <ul class="font-mono text-xs text-base-content/70">
+            <li :for={artifact <- @entry.artifacts}>{artifact}</li>
+          </ul>
+        </div>
+
         <div :if={@entry.run.notes != []} class="rounded bg-base-200/60 p-2">
           <span class="text-xs uppercase tracking-wide text-base-content/40">
             what it did not do
@@ -249,7 +257,14 @@ defmodule CustodeWeb.WorkflowsLive do
   defp refresh(socket) do
     runs =
       for run <- Launch.recent() do
-        %{run: run, checklist: Launch.checklist(run), spend: Launch.spend(run)}
+        %{
+          run: run,
+          checklist: Launch.checklist(run),
+          spend: Launch.spend(run),
+          # a deep-report run's whole output is a file; a card that shows the
+          # stages green and nothing else leaves the operator hunting for it
+          artifacts: Results.artifacts(run.run_id)
+        }
       end
 
     assign(socket,

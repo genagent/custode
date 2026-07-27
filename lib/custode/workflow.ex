@@ -42,19 +42,35 @@ defmodule Custode.Workflow do
   It cannot be the first stage (nothing upstream to fan out over) and it
   carries exactly one node. The instantiated node names are the runner's to
   derive; the definition only says "one per item".
+
+  ## report
+
+  A workflow whose output is a document rather than a list of items declares
+  where that document is:
+
+      report: %{node: :report, key: "report", filename: "report.md"}
+
+  The named node's result carries markdown under `key`, and the run writes it
+  to a file when it completes (`Custode.Workflow.Report`). It is a
+  DECLARATION rather than a node that writes: design/005's "nodes that write"
+  non-goal holds, and the file lands where custode chose rather than where a
+  turn decided to put it.
   """
 
   alias Custode.Workflow.Node
   alias Custode.Workflow.Stage
 
   @enforce_keys [:name, :stages]
-  defstruct [:name, :stages, model: nil, effort: nil]
+  defstruct [:name, :stages, model: nil, effort: nil, report: nil]
+
+  @type report :: %{node: atom(), key: String.t(), filename: String.t()}
 
   @type t :: %__MODULE__{
           name: String.t(),
           stages: [Stage.t()],
           model: String.t() | nil,
-          effort: String.t() | nil
+          effort: String.t() | nil,
+          report: report() | nil
         }
 
   defmodule Node do
@@ -109,7 +125,8 @@ defmodule Custode.Workflow do
       name: name,
       stages: stages,
       model: Keyword.get(opts, :model),
-      effort: Keyword.get(opts, :effort)
+      effort: Keyword.get(opts, :effort),
+      report: Keyword.get(opts, :report)
     }
 
     case validate(workflow) do
@@ -136,7 +153,8 @@ defmodule Custode.Workflow do
          :ok <- validate_stages(workflow.stages),
          :ok <- validate_first_stage(workflow.stages),
          :ok <- validate_unique(Enum.map(workflow.stages, & &1.name), "stage"),
-         :ok <- validate_unique(Enum.map(nodes(workflow), & &1.name), "node") do
+         :ok <- validate_unique(Enum.map(nodes(workflow), & &1.name), "node"),
+         :ok <- validate_report(workflow) do
       each(workflow.stages, &validate_stage/1, &"stage #{inspect(&1.name)}")
     end
   end
@@ -208,6 +226,39 @@ defmodule Custode.Workflow do
     do: {:error, "stage #{inspect(name)}: the first stage cannot be per_item"}
 
   defp validate_first_stage(_), do: :ok
+
+  # A report naming a node the workflow does not have would run the whole
+  # workflow and then find nothing to write, so it is refused at definition
+  # time with everything else. A per_item node is refused for the same
+  # reason it cannot be a report source: the runner instantiates it as
+  # `<name>_1`, `<name>_2`, ..., and there is no one result to write.
+  defp validate_report(%__MODULE__{report: nil}), do: :ok
+
+  defp validate_report(
+         %__MODULE__{report: %{node: node, key: key, filename: filename}} = workflow
+       )
+       when is_atom(node) and is_binary(key) and is_binary(filename) do
+    cond do
+      key == "" or filename == "" ->
+        {:error, "report key and filename must be non-empty"}
+
+      filename != Path.basename(filename) ->
+        {:error, "report filename must be a bare filename, not a path"}
+
+      node not in Enum.map(fixed_nodes(workflow), & &1.name) ->
+        {:error, "report names #{inspect(node)}, which is not a node of a fixed stage"}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_report(%__MODULE__{}),
+    do: {:error, "report must be %{node: atom, key: string, filename: string} or nil"}
+
+  defp fixed_nodes(%__MODULE__{stages: stages}) do
+    stages |> Enum.reject(& &1.per_item) |> Enum.flat_map(& &1.nodes)
+  end
 
   defp validate_stage(%Stage{} = stage) do
     with :ok <- validate_stage_name(stage.name),

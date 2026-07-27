@@ -79,6 +79,36 @@ defmodule Custode.Workflow.Results do
   end
 
   @doc """
+  Point an existing result at the file its content was written to
+  (`Custode.Workflow.Report`). Returns the updated result, or nil when there
+  is no such row.
+
+  Separate from `put/1` because the artifact is written AFTER the result is
+  stored: the node returns its markdown inside the result, the run completes,
+  and only then does anything decide where the file goes. Re-putting the whole
+  row to add a path would rewrite a result that has not changed.
+  """
+  def set_artifact(workflow_run, node_name, args_hash, artifact) do
+    case Repo.one(
+           from(r in Result,
+             where:
+               r.workflow_run == ^to_string(workflow_run) and
+                 r.node_name == ^to_string(node_name) and
+                 r.args_hash == ^args_hash
+           )
+         ) do
+      nil ->
+        nil
+
+      row ->
+        row
+        |> Ecto.Changeset.change(artifact: artifact)
+        |> Repo.update!()
+        |> load()
+    end
+  end
+
+  @doc """
   One node's persisted result, or nil. The runner's "has this already run?"
   read: nil means enqueue it.
   """

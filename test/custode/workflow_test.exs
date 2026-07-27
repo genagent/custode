@@ -152,6 +152,76 @@ defmodule Custode.WorkflowTest do
     end
   end
 
+  describe "the report declaration (#275)" do
+    test "a workflow may declare which node's result carries its markdown" do
+      assert {:ok, workflow} =
+               Workflow.new(
+                 "deep-report",
+                 [
+                   stage_fixture(:search, [node_fixture(:look)]),
+                   stage_fixture(:synthesis, [node_fixture(:report)])
+                 ],
+                 report: %{node: :report, key: "report", filename: "report.md"}
+               )
+
+      assert workflow.report.node == :report
+    end
+
+    test "a workflow with no report declaration is the ordinary case" do
+      assert {:ok, workflow} =
+               Workflow.new("backlog-sweep", [stage_fixture(:mine, [node_fixture(:spec)])])
+
+      assert workflow.report == nil
+    end
+
+    test "a report naming a node the workflow does not have is refused" do
+      assert {:error, reason} =
+               Workflow.new(
+                 "deep-report",
+                 [stage_fixture(:search, [node_fixture(:look)])],
+                 report: %{node: :report, key: "report", filename: "report.md"}
+               )
+
+      assert reason =~ "not a node of a fixed stage"
+    end
+
+    test "a report naming a per_item node is refused: the runner instantiates many of it" do
+      assert {:error, reason} =
+               Workflow.new(
+                 "deep-report",
+                 [
+                   stage_fixture(:search, [node_fixture(:look)]),
+                   stage_fixture(:each, [node_fixture(:report)], per_item: true)
+                 ],
+                 report: %{node: :report, key: "report", filename: "report.md"}
+               )
+
+      assert reason =~ "not a node of a fixed stage"
+    end
+
+    test "a report filename may not climb out of the artifact directory" do
+      assert {:error, reason} =
+               Workflow.new(
+                 "deep-report",
+                 [stage_fixture(:synthesis, [node_fixture(:report)])],
+                 report: %{node: :report, key: "report", filename: "../../report.md"}
+               )
+
+      assert reason =~ "bare filename"
+    end
+
+    test "a malformed report declaration is refused rather than ignored" do
+      assert {:error, reason} =
+               Workflow.new(
+                 "deep-report",
+                 [stage_fixture(:synthesis, [node_fixture(:report)])],
+                 report: :report
+               )
+
+      assert reason =~ "report must be"
+    end
+  end
+
   describe "node results (#271)" do
     setup do
       %{run: uid("run")}
