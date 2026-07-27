@@ -61,21 +61,57 @@ defmodule Custode.Suggestions do
     end
   end
 
+  # The three answers a dismissal actually carries (#303). They are not
+  # severities: they say something different about the advisor each time, and
+  # only the last is a judgment failure.
+  #
+  #   wrong_evidence -- the advisor read the fleet incorrectly
+  #   not_now        -- correct, badly timed. A scheduling problem, not a
+  #                     judgment one, and the most common real answer
+  #   disagree       -- the operator rejects the reasoning itself
+  #
+  # A silent dismissal cannot tell them apart, which is why an advisor that
+  # is right but early looks identical to one that is simply wrong.
+  @dismiss_reasons [
+    {"wrong_evidence", "wrong evidence"},
+    {"not_now", "right, but not now"},
+    {"disagree", "I disagree with this"}
+  ]
+
+  @doc "The offered dismissal reasons as `{key, label}`, in display order."
+  def dismiss_reasons, do: @dismiss_reasons
+
+  @doc "The human label for a dismissal reason key, or nil for an unknown one."
+  def dismiss_reason_label(key) do
+    Enum.find_value(@dismiss_reasons, fn {reason, label} -> reason == key && label end)
+  end
+
   @doc """
   Dismiss a suggestion (#290): records an `advisor_dismissed` entry so it
   leaves the list and stays gone for the window, keyed by the change identity
   so a re-proposal of the same change stays masked too.
+
+  `reason` is one of `dismiss_reasons/0`'s keys, or nil (#303). It costs the
+  operator one click and is the only feedback an advisor gets that does not
+  need an observation window to arrive, so the reason is recorded on the
+  entry where an advisor's record can read it back.
   """
-  def dismiss(agent, field, proposed) do
+  def dismiss(agent, field, proposed, reason \\ nil) do
+    label = dismiss_reason_label(reason)
+
     Feed.record(%{
       event: "advisor_dismissed",
       agent: agent,
       field: field,
       proposed: proposed,
-      summary: "operator dismissed suggestion: #{field} -> #{proposed}"
+      reason: reason,
+      summary:
+        "operator dismissed suggestion: #{field} -> #{proposed}" <>
+          if(label, do: " (#{label})", else: "")
     })
 
-    {:ok, "#{agent}: #{field} -> #{proposed} dismissed"}
+    {:ok,
+     "#{agent}: #{field} -> #{proposed} dismissed" <> if(label, do: " -- #{label}", else: "")}
   end
 
   defp changes("model", value) when is_binary(value), do: {:ok, %{model: value}}
