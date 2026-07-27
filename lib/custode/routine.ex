@@ -89,10 +89,17 @@ defmodule Custode.Routine do
     cadence: Custode.Advisors.Cadence,
     model: Custode.Advisors.Model,
     budget: Custode.Advisors.Budget,
-    retro: Custode.Advisors.Retro
+    retro: Custode.Advisors.Retro,
+    dryness: Custode.Advisors.Dryness
   }
 
-  @default_advisors [cadence: "@daily", model: "@daily", budget: "@daily", retro: "@weekly"]
+  @default_advisors [
+    cadence: "@daily",
+    model: "@daily",
+    budget: "@daily",
+    retro: "@weekly",
+    dryness: "@daily"
+  ]
 
   @doc "The configured advisors as `[name: cron]`, defaulting to the always-on set."
   def advisors, do: Application.get_env(:custode, :advisors, @default_advisors)

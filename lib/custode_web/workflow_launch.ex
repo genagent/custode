@@ -26,23 +26,21 @@ defmodule CustodeWeb.WorkflowLaunch do
   alias Custode.Workflow.Launch
 
   @doc """
-  Every standing gate as `%{repo => %{workflow => proposal_id}}`. A second
-  proposal for a pair that already has one is noise -- the operator has one
-  decision to make, not two -- so the button offers the standing gate instead.
+  Every standing gate as `%{repo => %{workflow => proposal_id}}`, so a pair
+  that already has a gate offers that gate instead of minting a second one.
 
   One read for the whole page: the repositories page renders N tiles and a
   per-tile query would multiply by N for an answer that is the same list.
+
+  The grouping lives in `Custode.Workflow.Launch` because the dryness advisor
+  (slice 4) suppresses itself on the same answer -- a button and a cron that
+  disagreed about "already proposed" would double-bill the operator's
+  attention.
   """
-  def standing do
-    Launch.pending()
-    |> Enum.group_by(& &1["repo"])
-    |> Map.new(fn {repo, entries} ->
-      {repo, Map.new(entries, &{&1["workflow"], &1["proposal"]})}
-    end)
-  end
+  defdelegate standing(), to: Launch
 
   @doc "The standing gates for one repo, as `%{workflow => proposal_id}`."
-  def standing_for(repo), do: Map.get(standing(), to_string(repo), %{})
+  defdelegate standing_for(repo), to: Launch
 
   @doc """
   Handle a `propose_workflow` click. Both pages delegate here; `why` names the

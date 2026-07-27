@@ -143,6 +143,44 @@ defmodule Custode.Workflow.Launch do
   end
 
   @doc """
+  Every standing gate as `%{repo => %{workflow => proposal_id}}`.
+
+  A second proposal for a pair that already has one is noise -- the operator
+  has one decision to make, not two. The button (slice 3) offers the standing
+  gate instead of minting a duplicate, and the dryness advisor (slice 4) stays
+  quiet; both read this so the two entry points cannot drift into different
+  ideas of what "already proposed" means.
+  """
+  def standing do
+    pending()
+    |> Enum.group_by(& &1["repo"])
+    |> Map.new(fn {repo, entries} ->
+      {repo, Map.new(entries, &{&1["workflow"], &1["proposal"]})}
+    end)
+  end
+
+  @doc "The standing gates for one repo, as `%{workflow => proposal_id}`."
+  def standing_for(repo), do: Map.get(standing(), to_string(repo), %{})
+
+  @doc """
+  Was this workflow/repo pair rejected inside the proposal window?
+
+  The answer an agent-raised proposal needs and a clicked one does not: a
+  human who clicks the button has just decided to ask again, while an advisor
+  firing on a cron would re-propose every day against a "no" that has not
+  aged out. The rejection in the feed IS the cooldown -- no second seen-set to
+  keep in sync with it.
+  """
+  def recently_rejected?(workflow, repo) do
+    workflow = to_string(workflow)
+    repo = to_string(repo)
+
+    @rejected
+    |> Feed.recent_by_event(limit: 50, since: @window_s)
+    |> Enum.any?(&(&1["workflow"] == workflow and &1["repo"] == repo))
+  end
+
+  @doc """
   Approve a standing proposal: record the decision and start the run.
 
   The run is launched with the rail the card quoted, so what the operator
