@@ -26,6 +26,14 @@ defmodule Custode.Test.FakeGitHubFetcher do
         # green by default (#310): a fixture that is red unless told otherwise
         # would put every unrelated test's repo in the needs-you group
         default_branch: %{name: "main", state: "SUCCESS", oid: "abc1234", headline: "a commit"},
+        # freshly released by default (#336): a fixture that reads as overdue
+        # would make every unrelated test's repo look due for a release
+        release: %{
+          tag: "v1.0.0",
+          published_at: DateTime.utc_now(),
+          merged_since: 0,
+          window_full?: false
+        },
         fetched_at: DateTime.utc_now()
       },
       extra
