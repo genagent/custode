@@ -27,6 +27,10 @@ defmodule Custode.Workflow.Results do
   FINISHED and its `finished_at` is past `janitor: [workflow_runs_days: N]`.
   A run still `running` or `budget_paused` keeps every result however old it
   is -- they are what a resume reads instead of re-running the nodes.
+
+  The report ARTIFACT a row points at goes with the row: `artifacts/1` is
+  what the janitor reads first, so the file and the only reference to it
+  retire together rather than the file outliving every trace of the run.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -107,6 +111,24 @@ defmodule Custode.Workflow.Results do
     )
     |> Repo.all()
     |> Enum.map(&load/1)
+  end
+
+  @doc """
+  The artifact paths a run's results point at, oldest first, without the
+  rows that carry them.
+
+  `Custode.Janitor` reads this BEFORE `delete_run/1`: once the rows are gone
+  nothing names the files any more, and a report nobody can reach from a run
+  is exactly the growth #39 is about. Nodes that produced no artifact
+  contribute nothing.
+  """
+  def artifacts(workflow_run) do
+    from(r in Result,
+      where: r.workflow_run == ^to_string(workflow_run) and not is_nil(r.artifact),
+      order_by: [asc: r.id],
+      select: r.artifact
+    )
+    |> Repo.all()
   end
 
   @doc "Delete a run's results (a discarded run leaves nothing behind)."

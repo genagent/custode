@@ -224,6 +224,27 @@ defmodule Custode.WorkflowTest do
       assert Results.for_stage(run, :verify) == []
     end
 
+    test "artifacts/1 names the run's report files and skips the nodes with none", %{run: run} do
+      for {node, artifact} <- [
+            {:spec, "reports/spec.md"},
+            {:code, nil},
+            {:merge, "reports/all.md"}
+          ] do
+        Results.put(%{
+          workflow_run: run,
+          workflow: "backlog-sweep",
+          stage: :mine,
+          node_name: node,
+          args_hash: Results.args_hash(%{node: node}),
+          result: %{},
+          artifact: artifact
+        })
+      end
+
+      assert Results.artifacts(run) == ["reports/spec.md", "reports/all.md"]
+      assert Results.artifacts(uid("run")) == []
+    end
+
     test "delete_run leaves nothing behind", %{run: run} do
       keep = uid("run")
 

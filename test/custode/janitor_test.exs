@@ -206,6 +206,73 @@ defmodule Custode.JanitorTest do
     assert [_immortal] = Results.for_run(paused)
   end
 
+  test "a retired run takes its report artifacts with it; a path outside the run stays (#39)" do
+    alias Custode.Workflow.Results
+    alias Custode.Workflow.Run
+
+    root = tmp_workspace!()
+
+    # a sibling of the run's tree, reachable from it by one `..`
+    outside = Path.join(Path.dirname(root), uid("custode-outside") <> ".md")
+    File.write!(outside, "not the run's to delete")
+    on_exit(fn -> File.rm_rf!(outside) end)
+
+    report = Path.join(root, "reports/dig.md")
+    File.mkdir_p!(Path.dirname(report))
+    File.write!(report, "# findings")
+
+    old = uid("run")
+    fresh = uid("run")
+
+    for {run_id, artifact} <- [{old, "reports/dig.md"}, {fresh, "reports/kept.md"}] do
+      Run.start(run_id, "backlog-sweep", "genagent/custode", "mine", %{"working_dir" => root})
+
+      Results.put(%{
+        workflow_run: run_id,
+        workflow: "backlog-sweep",
+        stage: "mine",
+        node_name: "mine-spec",
+        args_hash: Results.args_hash(%{topic: run_id}),
+        result: %{"findings" => []},
+        artifact: artifact
+      })
+    end
+
+    # two more results on the retiring run, both naming the same file outside
+    # the run's tree: once absolutely, once by climbing out with `..`
+    for {node, artifact} <- [
+          {"escapes-abs", outside},
+          {"escapes-rel", Path.join("..", Path.basename(outside))}
+        ] do
+      Results.put(%{
+        workflow_run: old,
+        workflow: "backlog-sweep",
+        stage: "mine",
+        node_name: node,
+        args_hash: Results.args_hash(%{topic: node}),
+        result: %{},
+        artifact: artifact
+      })
+    end
+
+    Run.complete(old)
+    [[id]] = Custode.Repo.query!("SELECT id FROM workflow_runs WHERE run_id = ?", [old]).rows
+    backdate!("workflow_runs", id, "started_at", 400)
+    backdate!("workflow_runs", id, "finished_at", 400)
+
+    :ok = perform!()
+
+    assert Run.get(old) == nil
+    refute File.exists?(report)
+
+    # containment: neither spelling of the escape is the janitor's to remove
+    assert File.exists?(outside)
+
+    # a live run's artifact is untouched, artifact or not
+    assert Run.get(fresh).status == "running"
+    assert [%{artifact: "reports/kept.md"}] = Results.for_run(fresh)
+  end
+
   test "the janitor rides the crontab" do
     assert Enum.any?(Custode.Routine.crontab(), fn {cron, worker, _opts} ->
              cron == "@daily" and worker == Custode.Janitor

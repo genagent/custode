@@ -6,7 +6,8 @@ defmodule Custode.Janitor do
     * done todos and resolved/requeued/orphaned gates past retention
     * feed entries past retention (the db is authoritative since #44)
     * FILED inbox notes past retention (unfiled notes are never touched)
-    * FINISHED workflow runs past retention, with their node results
+    * FINISHED workflow runs past retention, with their node results and the
+      report artifacts those results point at
 
   Journals shrink only through the two-phase rule (#214): the agent
   distills entries into a summary (marking them `compacted_at`), and only
@@ -40,7 +41,7 @@ defmodule Custode.Janitor do
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
-    {runs, node_results} = prune_workflow_runs()
+    {runs, node_results, artifacts} = prune_workflow_runs()
 
     removed =
       [
@@ -53,7 +54,8 @@ defmodule Custode.Janitor do
         {"stale uploads", prune_uploads()},
         {"compacted journal entries", prune_compacted_journal()},
         {"retired workflow runs", runs},
-        {"workflow node results", node_results}
+        {"workflow node results", node_results},
+        {"workflow report artifacts", artifacts}
       ]
       |> Enum.reject(fn {_what, count} -> count == 0 end)
 
@@ -108,12 +110,17 @@ defmodule Custode.Janitor do
   # The run row goes with its results. A run row whose results have been
   # deleted renders as a stage checklist with nothing in it, which reads like
   # a run that did no work rather than one that aged out; retiring the pair
-  # keeps the page honest. Report ARTIFACTS the rows point at are files in a
-  # workspace and are not touched here.
+  # keeps the page honest.
+  #
+  # The report ARTIFACT a result points at goes too (design/005 names the
+  # files alongside the table). It is read BEFORE the rows are deleted: after
+  # that nothing in the fleet names the file, so a report left behind is
+  # unreachable growth. The one condition is containment -- see
+  # `artifact_removed?/2`.
   defp prune_workflow_runs do
     case retention(:workflow_runs_days) do
       nil ->
-        {0, 0}
+        {0, 0, 0}
 
       days ->
         cutoff = DateTime.add(DateTime.utc_now(), -days, :day)
@@ -124,17 +131,60 @@ defmodule Custode.Janitor do
               where:
                 r.status in ["complete", "failed"] and not is_nil(r.finished_at) and
                   r.finished_at < ^cutoff,
-              select: r.run_id
+              select: [:run_id, :context]
             )
           )
 
-        results = Enum.sum(Enum.map(finished, &Results.delete_run/1))
+        artifacts = Enum.sum(Enum.map(finished, &prune_artifacts/1))
+        run_ids = Enum.map(finished, & &1.run_id)
+        results = Enum.sum(Enum.map(run_ids, &Results.delete_run/1))
 
         {count, _returning} =
-          Repo.delete_all(from(r in Run.Row, where: r.run_id in ^finished))
+          Repo.delete_all(from(r in Run.Row, where: r.run_id in ^run_ids))
 
-        {count, results}
+        {count, results, artifacts}
     end
+  end
+
+  defp prune_artifacts(%Run.Row{run_id: run_id, context: context}) do
+    case working_dir(context) do
+      nil ->
+        0
+
+      root ->
+        run_id
+        |> Results.artifacts()
+        |> Enum.count(&artifact_removed?(root, &1))
+    end
+  end
+
+  defp working_dir(context) do
+    with {:ok, decoded} <- Jason.decode(context || "{}"),
+         dir when is_binary(dir) <- Map.get(decoded, "working_dir") do
+      Path.expand(dir)
+    else
+      _no_working_dir -> nil
+    end
+  end
+
+  # An artifact path is a NODE'S OWN claim about where it put a report -- data
+  # a turn wrote, not a path the fleet chose. So it is resolved against the
+  # run's working_dir and deleted only if it stays inside it: `../../mix.exs`
+  # and an absolute path elsewhere on the disk both resolve out of the run's
+  # tree and are refused. Same doctrine as Custode.Uploads (#180) -- a path
+  # that comes back from a turn buys no reach it did not already have.
+  defp artifact_removed?(root, artifact) do
+    path = Path.expand(artifact, root)
+
+    if inside?(root, path) and File.regular?(path) do
+      File.rm(path) == :ok
+    else
+      false
+    end
+  end
+
+  defp inside?(root, path) do
+    String.starts_with?(path, root <> "/")
   end
 
   defp delete(nil, _query_fun), do: 0
