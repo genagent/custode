@@ -11,10 +11,16 @@ defmodule Custode.Attention.Fleet do
   No new data sources: every read here is one the fleet page already performs
   in `CustodeWeb.FleetLive.refresh/1`. Gates are the one improvement, fetched
   in a single grouped query rather than one per agent.
+
+  Every read is also non-blocking, including the one that consults GitHub:
+  promoting a red check to `:needs_you` verifies it first, and
+  `Custode.Attention.Verify` answers that from its own cache while the live
+  re-check runs behind it (#317).
   """
 
   alias Custode.Asks
   alias Custode.Attention
+  alias Custode.Attention.Verify
   alias Custode.Disowned
   alias Custode.Gates
   alias Custode.Routine
@@ -142,9 +148,10 @@ defmodule Custode.Attention.Fleet do
       {:ok, overview} ->
         numbers = Map.get(disowned, repo, MapSet.new())
 
-        for pr <- overview.open_prs.items, pr[:checks] in ["FAILURE", "ERROR"] do
-          %{number: pr.number, disowned?: MapSet.member?(numbers, pr.number)}
-        end
+        overview.open_prs.items
+        |> Enum.filter(&(&1[:checks] in ["FAILURE", "ERROR"]))
+        |> Enum.map(&pr_fact(repo, &1.number, MapSet.member?(numbers, &1.number)))
+        |> Enum.reject(&is_nil/1)
 
       :loading ->
         []
@@ -152,6 +159,25 @@ defmodule Custode.Attention.Fleet do
   end
 
   defp failing_prs(_routine, _disowned), do: []
+
+  # A red check the agent still owns takes the cached signal as it stands: it
+  # resolves to `:red_check` in `:watching`, where being a cache-cycle behind
+  # costs a row nobody was going to act on this minute.
+  defp pr_fact(_repo, number, false = _disowned?), do: %{number: number, disowned?: false}
+
+  # A disowned one is a promotion to `:needs_you`, so it asks GitHub first
+  # (#317). `:cleared` drops the PR entirely rather than demoting it: the live
+  # checks say nothing is failing, so there is no signal left to file
+  # anywhere, and the cache catches up on its own cadence. `:unverified` means
+  # the answer is still in flight -- fall back to the cached tier, which is
+  # the same row minus the escalation.
+  defp pr_fact(repo, number, true = _disowned?) do
+    case Verify.verdict(repo, number) do
+      :red -> %{number: number, disowned?: true}
+      :cleared -> nil
+      :unverified -> %{number: number, disowned?: false}
+    end
+  end
 
   # Same cached overview, one more field (#310). An agent with no repository
   # has no branch to be red, which is why this is nil rather than green.

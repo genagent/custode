@@ -49,6 +49,10 @@ defmodule Custode.Application do
       Custode.GitHub.Cache,
       # served repos (#10): one process per repo-tied project; verbs are calls
       Custode.Repository.Supervisor,
+      # live check verdicts (#317): the two-tier read behind promoting a red
+      # check to :needs_you. Starts after the Repository supervisor, since a
+      # verification is a read verb on a served repo.
+      Custode.Attention.Verify,
       # boot reconciliation: unresolved gates from before the restart become
       # RESTART NOTICE inbox notes the next sweep re-evaluates
       Supervisor.child_spec({Task, &Custode.Gates.reconcile!/0}, id: :gates_reconcile),
