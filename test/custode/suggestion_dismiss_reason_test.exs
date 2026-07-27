@@ -114,6 +114,19 @@ defmodule Custode.SuggestionDismissReasonTest do
       assert entry["reason"] == "not_now"
     end
 
+    test "a dismissal shows up in the decisions record with its reason",
+         %{conn: conn, routine: routine} do
+      suggest!(routine.id, "cron", "*/30 9-18 * * *")
+
+      {:ok, view, _html} = live(conn, "/suggestions")
+      view |> element("button", "dismiss") |> render_click()
+      html = view |> element("button", "right, but not now") |> render_click()
+
+      # the card leaves the standing list and reappears as a decision
+      assert html =~ "decisions"
+      assert html =~ "dismissed: right, but not now"
+    end
+
     test "cancel backs out without recording anything", %{conn: conn, routine: routine} do
       suggest!(routine.id, "cron", "*/30 9-18 * * *")
 

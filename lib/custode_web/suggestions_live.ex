@@ -11,6 +11,8 @@ defmodule CustodeWeb.SuggestionsLive do
 
   import CustodeWeb.Components
 
+  alias Custode.Suggestions.Outcome
+
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
     if connected?(socket), do: Custode.PubSubBridge.subscribe()
@@ -124,13 +126,38 @@ defmodule CustodeWeb.SuggestionsLive do
           <p :if={s["evidence"]} class="mt-2 text-sm text-base-content/60">{s["evidence"]}</p>
         </div>
       </div>
+      <%!-- The record of judgment (#303). A suggestion used to have two
+            states, standing and gone, so the system never learned whether
+            the advice was any good and neither did the advisor. --%>
+      <h2 :if={@decisions != []} class="mt-8 mb-2 font-mono text-xs font-semibold uppercase tracking-wider text-base-content/40">
+        decisions
+      </h2>
+      <ul :if={@decisions != []} class="flex flex-col divide-y divide-base-300/60 text-sm">
+        <li :for={d <- @decisions} class="flex flex-wrap items-baseline gap-x-2 py-2">
+          <span class={["badge badge-xs", decision_class(d)]}>{d.status}</span>
+          <.link navigate={"/agents/#{d.agent}"} class="font-mono hover:underline">{d.agent}</.link>
+          <span class="font-mono text-base-content/60">{d.field}</span>
+          <span class="text-base-content/70">&rarr; {d.proposed}</span>
+          <span class="ml-auto text-xs text-base-content/50">
+            {Outcome.describe(d)}
+          </span>
+        </li>
+      </ul>
     </.page>
     """
   end
 
+  # Only a reverted change is a bad outcome. Observing is not yet an answer,
+  # and superseded is not a failure -- just not a lesson.
+  defp decision_class(%{status: :reverted}), do: "badge-error"
+  defp decision_class(%{status: :settled}), do: "badge-success"
+  defp decision_class(%{status: :observing}), do: "badge-info"
+  defp decision_class(_other), do: "badge-ghost"
+
   defp refresh(socket) do
     assign(socket,
       suggestions: Custode.Suggestions.standing(),
+      decisions: Outcome.history(),
       fleet_today: Custode.SpendLedger.fleet_today()
     )
   end
