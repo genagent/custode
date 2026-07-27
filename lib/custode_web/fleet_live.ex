@@ -17,6 +17,7 @@ defmodule CustodeWeb.FleetLive do
 
   alias Custode.Attention
   alias Custode.Routine
+  alias Custode.Workflow.Launch
   alias ObanClaude.Agent
 
   # the rail shows the top few suggestions; the rest live on /suggestions (#284)
@@ -227,7 +228,12 @@ defmodule CustodeWeb.FleetLive do
   @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
-    <.page fleet_today={@fleet_today} active={:fleet} readouts={false}>
+    <.page
+      fleet_today={@fleet_today}
+      active={:fleet}
+      readouts={false}
+      launch_gates={@launch_gates}
+    >
       <div class="mb-4 flex flex-wrap items-center gap-2">
         <button
           :for={tag <- @all_tags}
@@ -989,6 +995,7 @@ defmodule CustodeWeb.FleetLive do
       all_tags: all_tags,
       any_pausable: Enum.any?(states, &(&1 not in [:paused, :offline])),
       any_paused: :paused in states,
+      launch_gates: length(Launch.pending()),
       fleet_today: Custode.SpendLedger.fleet_today()
     )
   end

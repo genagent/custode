@@ -145,6 +145,35 @@ defmodule Custode.SpendLedger do
     |> Map.new()
   end
 
+  @doc """
+  The mean cost of one turn across `agent_ids`, as `{mean_usd, sample_size}`,
+  or `nil` when those agents have never spent (#271 slice 2).
+
+  What the workflow launch gate's estimate is built from: a node is one
+  claude turn, so a repo's observed per-turn cost is the only non-invented
+  number available for "what will this dig cost". Free turns count -- a
+  sample that quietly dropped the zeroes would read high.
+
+  `:since` (a DateTime) narrows the window; the default is all of history,
+  because a repo the fleet has not touched this week is exactly the one an
+  estimate matters for.
+  """
+  def mean_turn_cost(agent_ids, opts \\ []) when is_list(agent_ids) do
+    since = Keyword.get(opts, :since, ~U[1970-01-01 00:00:00Z])
+
+    Repo.one(
+      from(s in Entry,
+        where: s.agent_id in ^agent_ids and s.inserted_at >= ^since,
+        select: {avg(s.cost_usd), count(s.id)}
+      )
+    )
+    |> case do
+      {_mean, 0} -> nil
+      {nil, _count} -> nil
+      {mean, count} -> {mean / 1, count}
+    end
+  end
+
   @doc "Everyone's spend since the start of the current UTC day."
   def fleet_today do
     Repo.aggregate(

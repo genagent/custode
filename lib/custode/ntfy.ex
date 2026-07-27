@@ -2,7 +2,8 @@ defmodule Custode.Ntfy do
   @moduledoc """
   The custode feed on a phone (#13): every feed entry can publish to an
   [ntfy.sh](https://ntfy.sh) topic. Attention events (`needs_approval`,
-  `needs_input`, `turn_failed`, `budget_paused`, `doctor_failed`) go out
+  `needs_input`, `turn_failed`, `budget_paused`, `doctor_failed`, and the two
+  workflow ones -- a launch gate waiting and a run parked on its rail) go out
   high-priority (they ring); ordinary turns and sensor lines go out
   min-priority (they accumulate silently in the app -- the feed, in your
   pocket). Tapping a notification opens the agent's dashboard page
@@ -21,7 +22,8 @@ defmodule Custode.Ntfy do
   a slow or down ntfy never blocks the telemetry path.
   """
 
-  @attention ~w(needs_approval needs_input turn_failed budget_paused doctor_failed)
+  @attention ~w(needs_approval needs_input turn_failed budget_paused doctor_failed
+                workflow_launch_proposed workflow_budget_paused)
 
   @doc "Publish one feed entry (string-keyed map) if ntfy is configured for it."
   def publish(entry) do

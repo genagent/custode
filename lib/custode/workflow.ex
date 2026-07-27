@@ -159,6 +159,23 @@ defmodule Custode.Workflow do
       else: length(nodes(workflow))
   end
 
+  @doc """
+  The count a launch estimate can stand behind: `{known, fans_out?}`.
+
+  `known` counts the nodes of every fixed stage -- the floor a run will
+  certainly enqueue. `fans_out?` says whether any stage expands over merged
+  items, in which case the floor is a floor and nothing more. `node_count/1`
+  answers `:unknown` in that case, which is honest but leaves a gate card
+  with no number at all; this gives it the part that IS knowable and the
+  flag that says the rest is not (#141's no-silent-caps rule: the estimate
+  states its own limit rather than quoting a total it cannot know).
+  """
+  @spec node_floor(t()) :: {non_neg_integer(), boolean()}
+  def node_floor(%__MODULE__{stages: stages}) do
+    fixed = Enum.reject(stages, & &1.per_item)
+    {Enum.sum(Enum.map(fixed, &length(&1.nodes))), Enum.any?(stages, & &1.per_item)}
+  end
+
   @doc "The stage named `name`, or nil."
   @spec stage(t(), atom()) :: Stage.t() | nil
   def stage(%__MODULE__{stages: stages}, name), do: Enum.find(stages, &(&1.name == name))
