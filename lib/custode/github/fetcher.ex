@@ -11,6 +11,10 @@ defmodule Custode.GitHub.Fetcher do
   @query """
   query($owner: String!, $name: String!) {
     repository(owner: $owner, name: $name) {
+      latestRelease { tagName publishedAt }
+      releaseWindow: pullRequests(states: MERGED, first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
+        nodes { number title mergedAt }
+      }
       defaultBranchRef {
         name
         target {
@@ -66,8 +70,41 @@ defmodule Custode.GitHub.Fetcher do
       open_prs: section(repository["openPrs"], &pr_item/1),
       merged_prs: section(repository["mergedPrs"], &item(&1, "mergedAt")),
       default_branch: default_branch(repository["defaultBranchRef"]),
+      release: release(repository["latestRelease"], repository["releaseWindow"]),
       fetched_at: DateTime.utc_now()
     }
+  end
+
+  # Release readiness (#336). Both fields ride the query that was already
+  # being made, so watching for a due release costs no extra API call.
+  #
+  # `releaseWindow` is a SECOND slice of the merged-PR connection under its own
+  # alias rather than a widening of `mergedPrs`, so the panels that render the
+  # existing five are untouched.
+  defp release(latest, window) do
+    published_at = latest && parse_at(latest["publishedAt"])
+    nodes = (window && window["nodes"]) || []
+    since = Enum.filter(nodes, &merged_after?(&1, published_at))
+    count = length(since)
+
+    %{
+      tag: latest && latest["tagName"],
+      published_at: published_at,
+      merged_since: count,
+      # The window is 20. A saturated count is a floor, not a total, and
+      # saying so is the difference between a cap and a silent cap.
+      window_full?: nodes != [] and count == length(nodes)
+    }
+  end
+
+  # No release ever published means everything merged is unreleased.
+  defp merged_after?(_node, nil), do: true
+
+  defp merged_after?(node, published_at) do
+    case parse_at(node["mergedAt"]) do
+      nil -> false
+      merged -> DateTime.compare(merged, published_at) == :gt
+    end
   end
 
   # The branch build (#310). Rides the query that was already being made, so
