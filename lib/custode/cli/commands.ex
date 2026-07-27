@@ -126,6 +126,80 @@ defmodule Custode.CLI.Answer do
   defp render(other), do: inspect(other)
 end
 
+defmodule Custode.CLI.Disowned do
+  @moduledoc false
+  use Cheer.Command
+
+  command "disowned" do
+    about("Pull requests the fleet says are not its work. Red checks here reach you.")
+    option(:repo, type: :string, help: "Restrict to one repo.")
+    option(:json, type: :boolean, help: "Raw JSON.")
+  end
+
+  @impl Cheer.Command
+  def run(args, _raw) do
+    arguments = if args[:repo], do: %{repo: args[:repo]}, else: %{}
+    Custode.CLI.emit("list_disowned", arguments, args[:json] == true, &render/1)
+  end
+
+  defp render(%{"disowned" => []}), do: "(nothing disowned)"
+
+  defp render(%{"disowned" => rows}) do
+    Enum.map_join(rows, "\n", fn row ->
+      "#{String.pad_trailing(row["repo"], 28)} ##{String.pad_trailing(to_string(row["number"]), 6)} " <>
+        "#{String.pad_trailing(row["disowned_by"], 16)} #{row["reason"] || ""}"
+    end)
+  end
+end
+
+defmodule Custode.CLI.Disown do
+  @moduledoc false
+  use Cheer.Command
+
+  command "disown" do
+    about("Declare a PR is nobody's work in the fleet, so its red checks reach you.")
+    argument(:repo, required: true, help: ~s(the repo, as "owner/name"))
+    argument(:number, required: true, help: "the pull request number")
+    argument(:reason, help: "why it is not the fleet's, in one line")
+  end
+
+  @impl Cheer.Command
+  def run(args, _raw) do
+    arguments =
+      %{repo: args[:repo], number: String.to_integer(args[:number])}
+      |> then(&if args[:reason], do: Map.put(&1, :reason, args[:reason]), else: &1)
+
+    Custode.CLI.emit("repo_disown_pr", arguments, false, &render/1)
+  end
+
+  defp render(%{"repo" => repo, "number" => number}),
+    do: "#{repo}##{number} disowned; a red check there now reaches you"
+
+  defp render(other), do: inspect(other)
+end
+
+defmodule Custode.CLI.Reclaim do
+  @moduledoc false
+  use Cheer.Command
+
+  command "reclaim" do
+    about("Undo a disownment: the PR is the fleet's work again.")
+    argument(:repo, required: true, help: ~s(the repo, as "owner/name"))
+    argument(:number, required: true, help: "the pull request number")
+  end
+
+  @impl Cheer.Command
+  def run(args, _raw) do
+    arguments = %{repo: args[:repo], number: String.to_integer(args[:number])}
+    Custode.CLI.emit("repo_reclaim_pr", arguments, false, &render/1)
+  end
+
+  defp render(%{"repo" => repo, "number" => number}),
+    do: "#{repo}##{number} reclaimed; its red checks are the fleet's again"
+
+  defp render(other), do: inspect(other)
+end
+
 defmodule Custode.CLI.Approve do
   @moduledoc false
   use Cheer.Command
