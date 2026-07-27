@@ -60,6 +60,61 @@ glass — not one shared database. That favors SQLite-per-node
 indefinitely and locates the real distribution problem in the agent
 processes, not the data.
 
+## Migration versions are timestamps, never hand-numbered
+
+Added 2026-07-26, after two outages in one day (#309, #319).
+
+**Use `mix ecto.gen.migration`. Never pick a version by hand.**
+
+The convention that produced both outages was `YYYYMMDD` plus a
+hand-incremented counter:
+
+```
+20260726000001_add_issue_drafts.exs
+20260726000002_add_asks.exs
+20260726000003_add_workflow_runs.exs
+20260726000004_add_disowned_prs.exs
+```
+
+Two branches adding a migration on the same day pick the next counter
+INDEPENDENTLY, because neither branch contains the other's file. They
+collide by construction. Ecto then refuses the entire migration run, not
+just the offending pair, so the fleet does not boot.
+
+`mix ecto.gen.migration` generates `YYYYMMDDHHMMSS`. Two authors would have
+to create a migration in the same SECOND to collide. Same width, same
+sortability, no coordination required.
+
+Existing files stay as they are. Renaming a migration a database has already
+applied rewrites recorded history, which is why neither #309 nor #319 did it
+to anything already run.
+
+### Why this is a doctrine and not a lint
+
+There is no check that can distinguish the two styles. `20260726000004` is
+fourteen digits and parses as a valid timestamp (00:00:04), so a format rule
+cannot tell a counter from a clock.
+
+Nor can CI prevent the collision. A pull-request check comparing new versions
+against `main` sounds right and does not work: #316's CI completed at
+20:21:17Z and #315 merged at 00:10:54Z, nearly four hours later, so #316's
+run could not have seen the file it would collide with. The usual answer,
+requiring branches to be up to date before merging, needs branch protection,
+which this repository cannot enable while it is private on a free plan.
+
+So prevention is the convention, and the response chain is what catches the
+rest of the time:
+
+1. `mix custode doctor` refuses the boot and names both files (#312). This
+   is the line that matters, because it fires before anything stops.
+2. CI on `push: main` goes red, because `mix test` migrates a fresh database.
+3. `Custode.Attention`'s `:red_main` (#310) then puts that red build in the
+   operator's needs-you group instead of leaving it in a log nobody reads.
+
+That chain is now complete, and it was assembled the same day by walking
+backwards from the first outage. The convention above is what stops it from
+being exercised.
+
 ## Home
 
 Orthogonal to engine choice: at packaging time (#41 / design 001 slice 5)

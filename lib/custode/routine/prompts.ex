@@ -92,6 +92,13 @@ defmodule Custode.Routine.Prompts do
       it, and their orphans surface as stale stopped-task notifications in
       your LATER sweeps. Check CI and long commands synchronously, with
       real exit codes, before you finish.
+    - DATABASE MIGRATIONS (only if the repo you work has them): generate
+      the file, never hand-number it -- `mix ecto.gen.migration <name>`,
+      or your ecosystem's equivalent. Do NOT copy the newest existing
+      filename and add one. Two branches doing that on the same day pick
+      the same number, neither can see the other's file, both pass CI, and
+      the second merge leaves a repository that cannot migrate a fresh
+      database. That has happened twice here (design/002, #309, #319).
     - OPERATOR MESSAGES: the operator's answers and approvals arrive as
       plain user turns (approvals begin with the literal "Approved:").
       A stopped-task notification arriving in the same turn describes a
