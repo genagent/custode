@@ -335,12 +335,29 @@ defmodule Custode.Repository do
 
   defp maybe_labels(attrs, _none), do: attrs
 
+  # An opening verb learns its number from the RESULT; every other verb was
+  # given one. Both are best-effort: a missing number is recorded as nil
+  # rather than guessed at.
+  defp verb_number(args, data) do
+    from_data(data) || Enum.find(args, &is_integer/1)
+  end
+
+  defp from_data(%{} = data), do: data[:number] || data["number"]
+  defp from_data(_other), do: nil
+
   defp ops_result(state, verb, args) do
     case apply(ops(), verb, args) do
       {:ok, data} ->
         Custode.Feed.record(%{
           event: "repo_verb",
           agent: state.routine_id,
+          # Structured, not just prose in the summary: without the verb, the
+          # repo and the number as fields, nothing can later ask "which PRs did
+          # this agent open, and did they land?" -- which is the measurement
+          # #339's aggregate framing needs and custode cannot currently make.
+          verb: to_string(verb),
+          repo: state.name,
+          number: verb_number(args, data),
           summary: "#{verb} on #{state.name}: ok"
         })
 
