@@ -273,6 +273,52 @@ defmodule Custode.JanitorTest do
     assert [%{artifact: "reports/kept.md"}] = Results.for_run(fresh)
   end
 
+  test "a run's report is retired from its artifact dir, not from its checkout (#275)" do
+    alias Custode.Workflow.Results
+    alias Custode.Workflow.Run
+
+    artifact_dir = tmp_workspace!()
+    checkout = tmp_workspace!()
+
+    # the file custode wrote for this run, and a file in the repo the run was
+    # reading -- same run, and only one of them is the janitor's to remove
+    report = Path.join(artifact_dir, "report.md")
+    File.write!(report, "# report")
+
+    in_checkout = Path.join(checkout, "mix.exs")
+    File.write!(in_checkout, "not the janitor's")
+
+    run_id = uid("run")
+
+    Run.start(run_id, "deep-report", "genagent/custode", "synthesis", %{
+      "working_dir" => checkout,
+      "artifact_dir" => artifact_dir
+    })
+
+    for {node, artifact} <- [{"report", report}, {"stray", in_checkout}] do
+      Results.put(%{
+        workflow_run: run_id,
+        workflow: "deep-report",
+        stage: "synthesis",
+        node_name: node,
+        args_hash: Results.args_hash(%{node: node}),
+        result: %{},
+        artifact: artifact
+      })
+    end
+
+    Run.complete(run_id)
+    [[id]] = Custode.Repo.query!("SELECT id FROM workflow_runs WHERE run_id = ?", [run_id]).rows
+    backdate!("workflow_runs", id, "started_at", 400)
+    backdate!("workflow_runs", id, "finished_at", 400)
+
+    :ok = perform!()
+
+    assert Run.get(run_id) == nil
+    refute File.exists?(report)
+    assert File.exists?(in_checkout)
+  end
+
   test "the janitor rides the crontab" do
     assert Enum.any?(Custode.Routine.crontab(), fn {cron, worker, _opts} ->
              cron == "@daily" and worker == Custode.Janitor

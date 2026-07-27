@@ -147,7 +147,7 @@ defmodule Custode.Janitor do
   end
 
   defp prune_artifacts(%Run.Row{run_id: run_id, context: context}) do
-    case working_dir(context) do
+    case artifact_root(context) do
       nil ->
         0
 
@@ -158,18 +158,26 @@ defmodule Custode.Janitor do
     end
   end
 
-  defp working_dir(context) do
+  # The tree an artifact may be deleted from: the run's `artifact_dir` (where
+  # custode writes reports since design/005 slice 5), else its `working_dir`
+  # for a run recorded before that field existed. Same fallback
+  # `Custode.Workflow.Report.dir/1` uses, so what writes the file and what
+  # retires it agree about where it belongs.
+  defp artifact_root(context) do
     with {:ok, decoded} <- Jason.decode(context || "{}"),
-         dir when is_binary(dir) <- Map.get(decoded, "working_dir") do
+         dir when is_binary(dir) <-
+           Map.get(decoded, "artifact_dir") || Map.get(decoded, "working_dir") do
       Path.expand(dir)
     else
-      _no_working_dir -> nil
+      _no_root -> nil
     end
   end
 
-  # An artifact path is a NODE'S OWN claim about where it put a report -- data
-  # a turn wrote, not a path the fleet chose. So it is resolved against the
-  # run's working_dir and deleted only if it stays inside it: `../../mix.exs`
+  # An artifact path is stored data, and a stored path is only as trustworthy
+  # as whatever put it there -- custode writes today's reports itself, but the
+  # column has always been able to hold a claim a turn made. So it is resolved
+  # against the run's artifact root and deleted only if it stays inside it:
+  # `../../mix.exs`
   # and an absolute path elsewhere on the disk both resolve out of the run's
   # tree and are refused. Same doctrine as Custode.Uploads (#180) -- a path
   # that comes back from a turn buys no reach it did not already have.

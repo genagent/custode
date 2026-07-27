@@ -59,6 +59,7 @@ defmodule Custode.Workflow.Runner do
   alias Custode.Workflow.Catalog
   alias Custode.Workflow.Launch
   alias Custode.Workflow.NodeJob
+  alias Custode.Workflow.Report
   alias Custode.Workflow.Results
   alias Custode.Workflow.Run
 
@@ -101,6 +102,11 @@ defmodule Custode.Workflow.Runner do
         |> Map.new(fn {k, v} -> {to_string(k), v} end)
         |> Map.put("working_dir", working_dir(repo, opts))
         |> Map.put("max_budget_usd", per_node_budget(opts))
+        # where a report artifact lands (slice 5). Stored on the run rather
+        # than derived at write time, so a resume writes where the launch
+        # would have, and the janitor can tell later which tree it may delete
+        # the file from.
+        |> Map.put_new("artifact_dir", Report.default_dir(run_id))
 
       run =
         Run.start(
@@ -284,8 +290,13 @@ defmodule Custode.Workflow.Runner do
 
     case after_stage(definition, stage) do
       nil ->
+        # the report is written before the run is marked complete, so its
+        # note (a synthesis node that returned no markdown) is on the record
+        # the completion summary counts
+        report = Report.write(run, definition)
         finished = Run.complete(run.run_id)
         record(finished, "workflow_complete", complete_summary(finished))
+        report_recorded(finished, report)
         {:ok, finished}
 
       %Workflow.Stage{} = next ->
@@ -553,6 +564,25 @@ defmodule Custode.Workflow.Runner do
       summary: "#{run.workflow} [#{run.run_id}] #{summary}"
     })
   end
+
+  # design/005 slice 5: the report is "saved to the workspace and linked from
+  # the feed". The path rides its own field as well as the summary, so a
+  # future page can offer the file without re-parsing prose. A run that wrote
+  # no report records nothing here -- its note already says why, and a feed
+  # entry announcing an absence would read like a failure.
+  defp report_recorded(run, {:ok, path}) do
+    Custode.Feed.record(%{
+      event: "workflow_report",
+      agent: nil,
+      run: run.run_id,
+      workflow: run.workflow,
+      repo: run.repo,
+      artifact: path,
+      summary: "#{run.workflow} [#{run.run_id}] report saved: #{path}"
+    })
+  end
+
+  defp report_recorded(_run, _other), do: :ok
 
   defp launch_summary(definition, run) do
     {known, fans_out} = Workflow.node_floor(definition)

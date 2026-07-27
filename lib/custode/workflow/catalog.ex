@@ -5,9 +5,15 @@ defmodule Custode.Workflow.Catalog do
   A small code-reviewed catalog, not user-authored orchestration: launching one
   is a name, not a script. `backlog-sweep` is the first entry -- the port of the
   five-miner deep dig, and the one whose output feeds the fleet directly.
-  `deep-report` is the second, and it waits for slice 5 by design: two entries
-  prove the catalog shape, and proving it against a half-built runner proves
-  nothing.
+  `deep-report` is the second (slice 5, #275), the research shape: its output
+  is a document rather than a list of items.
+
+  Two entries, and what the second one asked of the shape is small: a
+  `report:` declaration on the workflow saying which node's result carries
+  the markdown. Everything else -- stages as barriers, per-item fan-out,
+  digests, the args-hash resume, the rail -- carried over untouched, which is
+  the evidence position 4 wanted for the catalog being a catalog rather than
+  one workflow with a name.
 
   `Application.get_env(:custode, :extra_workflows, %{})` merges over the
   built-ins. That is the test seam -- a three-node toy workflow walks the
@@ -39,7 +45,8 @@ defmodule Custode.Workflow.Catalog do
     end
   end
 
-  defp built_in, do: %{"backlog-sweep" => backlog_sweep()}
+  defp built_in,
+    do: %{"backlog-sweep" => backlog_sweep(), "deep-report" => deep_report()}
 
   # ---------------------------------------------------------------------------
   # backlog-sweep
@@ -247,6 +254,263 @@ defmodule Custode.Workflow.Catalog do
     }
   end
 
+  # ---------------------------------------------------------------------------
+  # deep-report
+  # ---------------------------------------------------------------------------
+
+  # What the report is ABOUT. A launch may pass `subject` in its context -- a
+  # question, a technology, a decision the repo is facing -- and a launch that
+  # passes nothing gets a report about the repository itself, which is the
+  # honest reading of "run deep-report on genagent/custode" with no further
+  # instruction.
+  @subject ~S(<%= @context["subject"] || @repo %>)
+
+  @doc """
+  The research shape: search from four angles, confirm every claim against a
+  primary source, analyse the survivors along four dimensions, and synthesise
+  one markdown report.
+
+  ## The verify stage runs the OTHER way round
+
+  `backlog-sweep` verifies with default-keep: an item nobody could refute is
+  the next stage's problem, because the cost of a doubtful issue is an
+  operator reading it. Here the default is DROP. An unconfirmed claim in a
+  report is a project that does not exist, a version that was never released,
+  a benchmark nobody ran -- and the cost of that is a document that reads
+  authoritative and is wrong. Same stage shape, inverted default, and the
+  inversion is the point: it is what "the hallucination filter" means when
+  the output is prose rather than a backlog.
+
+  ## The report is data until the run ends
+
+  The synthesis node returns its markdown inside its schema-forced result
+  like any other node. `Custode.Workflow.Report` writes the file when the run
+  completes -- nodes still write nothing (design/005's non-goal), and the
+  report lands in custode's own tree rather than in the repository the run
+  was reading.
+  """
+  def deep_report do
+    Workflow.new!(
+      "deep-report",
+      [
+        %Stage{
+          name: :search,
+          nodes: [
+            angle(
+              :prior_art,
+              "what already exists",
+              """
+              Find what has already been built in this space: projects,
+              libraries, products, papers. Name each one exactly as its own
+              source names it, and give the source you found it in -- a
+              repository URL, a package page, a paper. Prefer things you can
+              point at over things you remember.
+              """
+            ),
+            angle(
+              :practice,
+              "how it is actually done",
+              """
+              Find how practitioners handle this today: documented patterns,
+              conventions, the shape working systems settle into. What does
+              the documentation of the tools involved actually say, and where
+              does practice differ from what the documentation recommends?
+              """
+            ),
+            angle(
+              :sources,
+              "the primary material",
+              """
+              Go to the primary sources: specifications, official
+              documentation, release notes, the code of the systems involved.
+              Report what they SAY, with the location. This angle exists so
+              the later stages have something to check the others against.
+              """
+            ),
+            angle(
+              :dissent,
+              "the case against",
+              """
+              Look for the counter-evidence the other angles will not go
+              looking for: post-mortems, deprecations, migrations away, known
+              failure modes, arguments that the obvious approach is wrong. A
+              landscape with no dissent in it has not been read carefully.
+              """
+            )
+          ]
+        },
+        %Stage{
+          name: :confirm,
+          per_item: true,
+          nodes: [
+            %Node{
+              name: :confirm,
+              schema: confirm_schema(),
+              prompt: """
+              CONFIRM this claim, gathered while researching #{@subject}:
+
+              <%= @item %>
+
+              Go to the source. If it names a project, fetch the project --
+              its repository, its package page, its documentation -- and
+              confirm it exists and is what the claim says it is. If it names
+              a version, a date, a benchmark or a quote, find the primary
+              source that carries it.
+
+              Then decide:
+
+              * `confirmed` -- you reached a primary source and it says what
+                the claim says. Return `items: [the claim]`, corrected where
+                the source disagreed with the detail, with the source you
+                reached recorded in its `sources`.
+              * `unconfirmed` -- everything else, INCLUDING a claim that is
+                merely plausible and a source you could not reach. Return
+                `items: []`.
+
+              The default verdict is unconfirmed. A report that names a
+              project nobody could fetch is worse than a shorter report, so
+              say why in `reason` and drop it.
+              """
+            }
+          ]
+        },
+        %Stage{
+          name: :analyse,
+          nodes: [
+            dimension(
+              :maturity,
+              "maturity",
+              """
+              How settled is each confirmed thing? Read for activity, release
+              cadence, breaking-change history, how many people depend on it.
+              Say which of these you would build on this year and which are
+              interesting but early.
+              """
+            ),
+            dimension(
+              :fit,
+              "fit",
+              """
+              What of this applies to <%= @repo %> as it actually is? Read
+              the repository before answering -- its stack, its size, its
+              constraints. An option that fits a different project is not fit
+              here, and saying so is more useful than listing it again.
+              """
+            ),
+            dimension(
+              :risk,
+              "risk",
+              """
+              What goes wrong? Read the confirmed material for the failure
+              modes it reports: what breaks under load, what is hard to
+              migrate off, what depends on one maintainer, what the dissent
+              angle found. Name the risk and what it would cost.
+              """
+            ),
+            dimension(
+              :tradeoffs,
+              "trade-offs",
+              """
+              Where do the confirmed findings genuinely disagree, and what is
+              the trade being made in each case? Name the axes a decision
+              would move along rather than declaring a winner -- the
+              synthesis stage does that, and it needs the axes from you.
+              """
+            )
+          ]
+        },
+        %Stage{
+          name: :synthesis,
+          effort: "high",
+          nodes: [
+            %Node{
+              name: :report,
+              schema: report_schema(),
+              prompt: """
+              Write the report on #{@subject}.
+
+              Everything below has been searched from four angles, confirmed
+              against primary sources one claim at a time, and analysed along
+              four dimensions:
+
+              <%= @digests %>
+
+              Write ONE standalone markdown document. It is read by someone
+              who did not watch the run, so it stands on its own: what the
+              question was, what is out there, what holds up, what it means
+              for <%= @repo %>, and what you would do.
+
+              Rules the document keeps:
+
+              * Every project, version, and quote is one the confirm stage
+                confirmed. Nothing new enters at synthesis -- if it was
+                dropped, it is not in the report.
+              * Cite sources inline, as links or paths.
+              * Say what the run did NOT establish. An open question named is
+                worth more than a paragraph of hedging.
+              * Plain declarative prose. No marketing tone, no
+                self-congratulation, no em dashes.
+
+              Return the whole document as markdown in `report`. It is
+              written to a file exactly as you return it, so it carries its
+              own title and needs no wrapper.
+              """
+            }
+          ]
+        }
+      ],
+      model: "sonnet",
+      report: %{node: :report, key: "report", filename: "report.md"}
+    )
+  end
+
+  defp angle(name, angle, instructions) do
+    %Node{
+      name: name,
+      schema: claims_schema(),
+      prompt: """
+      You are one of four researchers working on #{@subject}. Your angle is
+      #{angle}. The other three cover other angles and cannot see your
+      findings, so cover yours completely rather than guessing at theirs.
+
+      #{instructions}
+
+      Every finding is a CLAIM the next stage will try to confirm against a
+      primary source, so record what you actually saw and where you saw it. A
+      claim with no source is dropped unread, and a confident sentence about a
+      project that turns out not to exist is the specific failure this
+      workflow is built to catch. Report less rather than padding.
+      """
+    }
+  end
+
+  defp dimension(name, dimension, instructions) do
+    %Node{
+      name: name,
+      schema: analysis_schema(),
+      prompt: """
+      You are analysing the CONFIRMED research on #{@subject} along one
+      dimension: #{dimension}. Three others are taking the other dimensions.
+
+      The confirmed findings:
+
+      <%= @digests %>
+
+      #{instructions}
+
+      Work from what survived confirmation. A claim that was dropped was
+      dropped for a reason, and reintroducing it here would put it in the
+      report through the back door. Where the confirmed material does not
+      answer your dimension, say so in `unknowns` rather than filling the
+      gap.
+      """
+    }
+  end
+
+  # ---------------------------------------------------------------------------
+  # schemas
+  # ---------------------------------------------------------------------------
+
   # every stage that feeds a per_item stage produces `items`; the runner fans
   # out over exactly that key
   defp items_schema do
@@ -306,6 +570,98 @@ defmodule Custode.Workflow.Catalog do
         "labels" => %{"type" => "array", "items" => %{"type" => "string"}}
       },
       "required" => ["title", "body"]
+    }
+  end
+
+  # the research counterpart of items_schema: same `items` fan-out key, but a
+  # claim carries the SOURCE it was read from rather than a repo path, because
+  # that is what the confirm stage goes back to
+  defp claims_schema do
+    claim = %{
+      "type" => "object",
+      "properties" => %{
+        "claim" => %{"type" => "string", "description" => "one sentence, stated plainly"},
+        "names" => %{
+          "type" => "array",
+          "items" => %{"type" => "string"},
+          "description" => "the projects, papers, versions or people it names"
+        },
+        "detail" => %{"type" => "string"},
+        "sources" => %{
+          "type" => "array",
+          "items" => %{"type" => "string"},
+          "description" => "URLs, paths, or document titles the claim was read from"
+        }
+      },
+      "required" => ["claim", "detail", "sources"]
+    }
+
+    %{
+      "type" => "object",
+      "properties" => %{"items" => %{"type" => "array", "items" => claim}},
+      "required" => ["items"]
+    }
+  end
+
+  # the verdict rides at the top level for the same reason it does in
+  # verify_schema -- `items` stays the fan-out key -- but the enum is the other
+  # way round: confirmed keeps, and everything else drops
+  defp confirm_schema do
+    base = claims_schema()
+
+    properties =
+      Map.merge(base["properties"], %{
+        "verdict" => %{"type" => "string", "enum" => ["confirmed", "unconfirmed"]},
+        "reason" => %{
+          "type" => "string",
+          "description" => "the source that confirms it, or what could not be reached"
+        }
+      })
+
+    %{base | "properties" => properties, "required" => ["items", "verdict", "reason"]}
+  end
+
+  defp analysis_schema do
+    %{
+      "type" => "object",
+      "properties" => %{
+        "dimension" => %{"type" => "string"},
+        "assessment" => %{"type" => "string", "description" => "the dimension's answer, in prose"},
+        "findings" => %{
+          "type" => "array",
+          "items" => %{
+            "type" => "object",
+            "properties" => %{
+              "point" => %{"type" => "string"},
+              "evidence" => %{"type" => "array", "items" => %{"type" => "string"}}
+            },
+            "required" => ["point"]
+          }
+        },
+        "unknowns" => %{
+          "type" => "array",
+          "items" => %{"type" => "string"},
+          "description" => "what the confirmed material does not answer"
+        }
+      },
+      "required" => ["assessment"]
+    }
+  end
+
+  defp report_schema do
+    %{
+      "type" => "object",
+      "properties" => %{
+        "title" => %{"type" => "string"},
+        "summary" => %{"type" => "string", "description" => "a paragraph, for the feed"},
+        "report" => %{
+          "type" => "string",
+          "description" => "the whole document as markdown; written to the artifact file"
+        },
+        "open_questions" => %{"type" => "array", "items" => %{"type" => "string"}},
+        "sources" => %{"type" => "array", "items" => %{"type" => "string"}}
+      },
+      "required" => ["title", "summary", "report"]
     }
   end
 
