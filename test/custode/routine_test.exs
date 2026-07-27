@@ -349,10 +349,11 @@ defmodule Custode.RoutineTest do
 
       crontab = Custode.Routine.crontab()
       # one sensor + the always-on janitor + the three deterministic advisors
-      # (#125's trio) + the weekly judgment advisor Retro (#262) -- routine
-      # firing moved to Custode.Scheduler (#142), so no routine ticks ride the
-      # static crontab
-      assert length(crontab) == 6
+      # (#125's trio) + the weekly judgment advisor Retro (#262) + Dryness
+      # (#274, deterministic, raises a launch gate rather than a suggestion) --
+      # routine firing moved to Custode.Scheduler (#142), so no routine ticks
+      # ride the static crontab
+      assert length(crontab) == 7
       refute Enum.any?(crontab, &(elem(&1, 1) == Custode.RoutineTick))
       refute Enum.any?(crontab, &(elem(&1, 1) == ObanClaude.Agent.Tick))
 
@@ -360,7 +361,8 @@ defmodule Custode.RoutineTest do
             Custode.Advisors.Cadence,
             Custode.Advisors.Model,
             Custode.Advisors.Budget,
-            Custode.Advisors.Retro
+            Custode.Advisors.Retro,
+            Custode.Advisors.Dryness
           ] do
         assert Enum.any?(crontab, &(elem(&1, 1) == advisor))
       end

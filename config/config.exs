@@ -401,9 +401,17 @@ config :custode, mcp_port: 6161
 # and how often. `false` (or omitting a name) disables one. Toggleable via
 # custode.toml's [advisors] section without a code edit. Cadence/Model/Budget
 # are the zero-token deterministic trio; Retro (#262) is the weekly judgment
-# advisor that reads the Digest.
+# advisor that reads the Digest. Dryness (#274) is deterministic too, but its
+# output is a workflow launch GATE rather than a config suggestion -- it costs
+# nothing to run and nothing until the operator approves the run.
 config :custode,
-  advisors: [cadence: "@daily", model: "@daily", budget: "@daily", retro: "@weekly"]
+  advisors: [
+    cadence: "@daily",
+    model: "@daily",
+    budget: "@daily",
+    retro: "@weekly",
+    dryness: "@daily"
+  ]
 
 # Repo-owned ambient orders (#19): which routines may compose their
 # working_dir's .custode/orders.md into the prompt. Scoped with the same

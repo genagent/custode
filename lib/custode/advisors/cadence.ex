@@ -23,8 +23,9 @@ defmodule Custode.Advisors.Cadence do
       faster cron -- windowed to the operator's observed active hours, so
       the ramp lives inside one static expression (gates resolve when the
       human is around; proposing outside those hours just parks agents).
-      Demand reads through the scoped repo read verbs; a repo that cannot
-      be read simply produces no suggestion.
+      Demand reads through `Custode.Backlog.size/1`, the lenient half of the
+      shared board read; a repo that cannot be read counts as zero and so
+      simply produces no suggestion.
 
   The suggestion key encodes the rounded utilization bucket, so a dismissed
   suggestion returns only when the facts materially change.
@@ -108,7 +109,7 @@ defmodule Custode.Advisors.Cadence do
           not sub_daily?(obs.cron),
           obs.sweeps >= @rampup_min_sweeps,
           obs.utilization >= @rampup_utilization,
-          backlog = backlog_size(obs.repo),
+          backlog = Custode.Backlog.size(obs.repo),
           backlog >= @rampup_min_backlog do
         %{
           routine_id: obs.routine_id,
@@ -124,22 +125,6 @@ defmodule Custode.Advisors.Cadence do
       end
 
     back_offs ++ ramp_ups
-  end
-
-  # Demand through the scoped read verb; anything short of an answer means
-  # no demand evidence and therefore no suggestion. Deterministic in the
-  # advisor sense: one HTTP read, zero tokens.
-  defp backlog_size(nil), do: 0
-
-  defp backlog_size(repo) do
-    case Custode.Repository.list_issues(repo) do
-      {:ok, issues} -> length(issues)
-      _unreadable -> 0
-    end
-  rescue
-    _error -> 0
-  catch
-    :exit, _reason -> 0
   end
 
   # The operator's active hours, learned from when gates actually get
