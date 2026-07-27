@@ -6,6 +6,7 @@ defmodule Custode.Janitor do
     * done todos and resolved/requeued/orphaned gates past retention
     * feed entries past retention (the db is authoritative since #44)
     * FILED inbox notes past retention (unfiled notes are never touched)
+    * FINISHED workflow runs past retention, with their node results
 
   Journals shrink only through the two-phase rule (#214): the agent
   distills entries into a summary (marking them `compacted_at`), and only
@@ -23,6 +24,8 @@ defmodule Custode.Janitor do
   import Ecto.Query, only: [from: 2]
 
   alias Custode.Repo
+  alias Custode.Workflow.Results
+  alias Custode.Workflow.Run
 
   @defaults [
     done_todos_days: 30,
@@ -31,11 +34,14 @@ defmodule Custode.Janitor do
     filed_notes_days: 30,
     ledger_detail_days: 90,
     uploads_days: 30,
-    journal_compacted_days: 30
+    journal_compacted_days: 30,
+    workflow_runs_days: 90
   ]
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
+    {runs, node_results} = prune_workflow_runs()
+
     removed =
       [
         {"done todos", prune_todos()},
@@ -45,7 +51,9 @@ defmodule Custode.Janitor do
         {"idle sub-agents", reap_subagents()},
         {"ledger rows rolled up", rollup_ledger()},
         {"stale uploads", prune_uploads()},
-        {"compacted journal entries", prune_compacted_journal()}
+        {"compacted journal entries", prune_compacted_journal()},
+        {"retired workflow runs", runs},
+        {"workflow node results", node_results}
       ]
       |> Enum.reject(fn {_what, count} -> count == 0 end)
 
@@ -87,6 +95,46 @@ defmodule Custode.Janitor do
         where: not is_nil(e.compacted_at) and e.compacted_at < ^cutoff
       )
     end)
+  end
+
+  # #39/#271: `workflow_node_results` is the heavy table (one JSON result per
+  # node of a many-node dig), and design/005 says the growth inventory must
+  # cover it from day one. It prunes by RUN, not by row age, and only for a
+  # run that has FINISHED: a `running` or `budget_paused` run's results are
+  # what makes it resumable, so deleting them by age alone would silently
+  # re-run nodes an operator already paid for. Same shape as the journal's
+  # two-phase rule -- age is the second condition, never the only one.
+  #
+  # The run row goes with its results. A run row whose results have been
+  # deleted renders as a stage checklist with nothing in it, which reads like
+  # a run that did no work rather than one that aged out; retiring the pair
+  # keeps the page honest. Report ARTIFACTS the rows point at are files in a
+  # workspace and are not touched here.
+  defp prune_workflow_runs do
+    case retention(:workflow_runs_days) do
+      nil ->
+        {0, 0}
+
+      days ->
+        cutoff = DateTime.add(DateTime.utc_now(), -days, :day)
+
+        finished =
+          Repo.all(
+            from(r in Run.Row,
+              where:
+                r.status in ["complete", "failed"] and not is_nil(r.finished_at) and
+                  r.finished_at < ^cutoff,
+              select: r.run_id
+            )
+          )
+
+        results = Enum.sum(Enum.map(finished, &Results.delete_run/1))
+
+        {count, _returning} =
+          Repo.delete_all(from(r in Run.Row, where: r.run_id in ^finished))
+
+        {count, results}
+    end
   end
 
   defp delete(nil, _query_fun), do: 0

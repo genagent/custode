@@ -20,6 +20,13 @@ defmodule Custode.Workflow.Results do
   `put/2` upserts on that key: a retried node overwrites its own row rather
   than accumulating near-duplicates. Same key means same inputs, so the
   newest run of it is the one to keep.
+
+  ## Retention (#39)
+
+  `Custode.Janitor` retires these rows with their run, once that run has
+  FINISHED and its `finished_at` is past `janitor: [workflow_runs_days: N]`.
+  A run still `running` or `budget_paused` keeps every result however old it
+  is -- they are what a resume reads instead of re-running the nodes.
   """
 
   import Ecto.Query, only: [from: 2]
