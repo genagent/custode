@@ -280,7 +280,20 @@ end
 # ---------------------------------------------------------------------------
 
 defmodule Custode.MCP.RepoTools.ListIssues do
-  @moduledoc "List a served repo's issues (open by default). Scoped read verb (#129)."
+  @moduledoc """
+  List a served repo's issues (open by default). Scoped read verb (#129).
+
+  Issues carrying the ignore label are withheld from the survey (#334). The
+  operator marks an issue on GitHub, where they are already reading it, and
+  the fleet stops spending a sweep re-reading and re-judging it.
+
+  Withheld, not hidden: the reply carries the count and the label, so an
+  agent can tell "there is nothing to do" from "there is nothing I am allowed
+  to see". A silently shorter list is how a survey starts lying.
+
+  `view_issue` is deliberately unaffected. Ignoring shapes what the fleet
+  VOLUNTEERS for, not what it may look at when asked.
+  """
   use Anubis.Server.Component, type: :tool
 
   import Custode.MCP.Tools
@@ -293,8 +306,19 @@ defmodule Custode.MCP.RepoTools.ListIssues do
   @impl true
   def execute(%{repo: repo} = params, frame) do
     case Custode.Repository.list_issues(repo, Map.take(params, [:state])) do
-      {:ok, issues} -> reply(frame, %{repo: repo, issues: issues})
-      {:error, message} -> fail(frame, to_string(message))
+      {:ok, issues} ->
+        label = Custode.Repository.ignore_label()
+        {kept, ignored} = Custode.Repository.partition_ignored(issues, label)
+
+        reply(frame, %{
+          repo: repo,
+          issues: kept,
+          ignored: length(ignored),
+          ignore_label: label
+        })
+
+      {:error, message} ->
+        fail(frame, to_string(message))
     end
   end
 end

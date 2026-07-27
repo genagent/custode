@@ -264,7 +264,9 @@ defmodule Custode.Routine.Prompts do
        small, well-scoped items and anything labeled `workable` -- the
        operator's mark for sliced-and-bounded -- or `bug`; an operator
        comment starting "Operator slicing" names the exact slice to
-       propose). Read the most promising one with repo_view_issue. Cross-check
+       propose). The reply's `ignored` count is issues the operator has
+       labelled out of your survey (#334): do not work them, reopen them,
+       or ask about them, and do not spend a sweep arguing with the mark. Read the most promising one with repo_view_issue. Cross-check
        the code read-only to confirm the issue is still real and the fix is
        small. An issue LARGER than one sweep but well-specified is not
        a dead end: propose its first slice, and when that approval's
