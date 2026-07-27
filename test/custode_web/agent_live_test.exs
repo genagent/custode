@@ -114,7 +114,7 @@ defmodule CustodeWeb.AgentLiveTest do
     assert html =~ "which env?"
 
     view
-    |> form("form[phx-submit=answer]", %{"text" => "staging"})
+    |> form("form[phx-submit=prompt]", %{"text" => "staging"})
     |> render_submit()
 
     assert_receive {:enqueued, %{"prompt" => "staging"}, _meta}
@@ -663,14 +663,14 @@ defmodule CustodeWeb.AgentLiveTest do
       {:ok, view, _html} = live(conn, "/agents/#{routine.id}")
 
       view
-      |> file_input("form[phx-submit=answer]", :answer_image, [
+      |> file_input("form[phx-submit=prompt]", :image, [
         %{name: "trace.png", content: @png, type: "image/png"}
       ])
       |> render_upload("trace.png")
 
       assert render(view) =~ "trace.png"
 
-      view |> form("form[phx-submit=answer]", %{"text" => "this one"}) |> render_submit()
+      view |> form("form[phx-submit=prompt]", %{"text" => "this one"}) |> render_submit()
 
       assert_receive {:enqueued, %{"prompt" => prompt}, _meta}
       assert prompt =~ "this one"
@@ -687,18 +687,23 @@ defmodule CustodeWeb.AgentLiveTest do
       {:ok, view, _html} = live(conn, "/agents/#{routine.id}")
 
       view
-      |> file_input("form[phx-submit=answer]", :answer_image, [
+      |> file_input("form[phx-submit=prompt]", :image, [
         %{name: "shot.png", content: @png, type: "image/png"}
       ])
       |> render_upload("shot.png")
 
-      view |> form("form[phx-submit=answer]", %{"text" => ""}) |> render_submit()
+      view |> form("form[phx-submit=prompt]", %{"text" => ""}) |> render_submit()
 
       assert_receive {:enqueued, %{"prompt" => prompt}, _meta}
       assert String.starts_with?(prompt, "attached image: ")
     end
 
-    test "an image staged on one box does not ride the other's send",
+    # #302 merged the two boxes into one, so "an image staged on one box does
+    # not ride the other's send" no longer describes anything: there is one
+    # box. The guarantee that replaces it is the upload LIFECYCLE -- a staged
+    # image rides the very next send whatever that send means, and is consumed
+    # by it rather than lingering for the one after.
+    test "a staged image rides the next send, then is consumed",
          %{conn: conn, routine: routine} do
       stub_routine_agent!(routine)
       ask!(routine)
@@ -706,22 +711,24 @@ defmodule CustodeWeb.AgentLiveTest do
 
       view
       |> file_input("form[phx-submit=prompt]", :image, [
-        %{name: "elsewhere.png", content: @png, type: "image/png"}
+        %{name: "once.png", content: @png, type: "image/png"}
       ])
-      |> render_upload("elsewhere.png")
+      |> render_upload("once.png")
 
-      view |> form("form[phx-submit=answer]", %{"text" => "staging"}) |> render_submit()
+      # a question is open, so this send is an ANSWER -- and the image rides it
+      view |> form("form[phx-submit=prompt]", %{"text" => "staging"}) |> render_submit()
 
       assert_receive {:enqueued, %{"prompt" => answered}, _meta}
-      assert answered == "staging"
+      assert answered =~ "staging"
+      assert answered =~ "attached image: "
 
-      # the prompt box kept its image, and it rides that box's own send
-      view |> form("form[phx-submit=prompt]", %{"text" => "and this"}) |> render_submit()
+      # consumed: the next send carries text only
       :ok = Agent.job_finished(routine.id, {:ok, result("answered")})
+      view |> form("form[phx-submit=prompt]", %{"text" => "and this"}) |> render_submit()
 
       assert_receive {:enqueued, %{"prompt" => prompted}, _meta}
       assert prompted =~ "and this"
-      assert prompted =~ "attached image: "
+      refute prompted =~ "attached image: "
     end
 
     test "a pending answer image can be removed before sending",
@@ -731,16 +738,16 @@ defmodule CustodeWeb.AgentLiveTest do
       {:ok, view, _html} = live(conn, "/agents/#{routine.id}")
 
       view
-      |> file_input("form[phx-submit=answer]", :answer_image, [
+      |> file_input("form[phx-submit=prompt]", :image, [
         %{name: "mistake.png", content: @png, type: "image/png"}
       ])
       |> render_upload("mistake.png")
 
       assert render(view) =~ "mistake.png"
-      view |> element("button[phx-value-upload=answer_image]") |> render_click()
+      view |> element("button[phx-value-upload=image]") |> render_click()
       refute render(view) =~ "mistake.png"
 
-      view |> form("form[phx-submit=answer]", %{"text" => "never mind"}) |> render_submit()
+      view |> form("form[phx-submit=prompt]", %{"text" => "never mind"}) |> render_submit()
       assert_receive {:enqueued, %{"prompt" => "never mind"}, _meta}
     end
   end

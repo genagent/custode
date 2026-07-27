@@ -27,7 +27,6 @@ defmodule CustodeWeb.AgentLive do
      |> assign(edit: %{open: false, params: %{}, raw: %{}, error: nil})
      |> assign(journal_limit: 10, feed_limit: 30, journal_search: "", show_done_todos: false)
      |> allow_image_upload(:image)
-     |> allow_image_upload(:answer_image)
      |> refresh()}
   end
 
@@ -50,8 +49,10 @@ defmodule CustodeWeb.AgentLive do
   # the answer box is its own submit with its own upload: both forms are on
   # screen while an agent waits, and an image staged for one must not ride the
   # other's send (#180 slice 2)
+  # kept for the answer form's old submit name; the one composer submits
+  # "prompt" and send_prompt/3 does not care which it was
   def handle_event("answer", %{"text" => text}, socket),
-    do: send_prompt(socket, text, :answer_image)
+    do: send_prompt(socket, text, :image)
 
   # live uploads need a change event on the form to auto-upload; nothing to do
   # here beyond letting the entry's own validation land in the assigns
@@ -401,38 +402,23 @@ defmodule CustodeWeb.AgentLive do
         </ul>
       </section>
 
+      <%!-- The question, and NOT a second box to answer it in (#302). One
+            composer lives below; while a question is open it means answer. --%>
       <div
-        :if={match?({:waiting_for_user, _}, @status)}
+        :if={@pending_question}
         class="mb-4 rounded-lg border-l-4 border-warning bg-base-100 p-4 shadow-sm"
       >
-        <div class="w-full">
-          <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-warning">
-            needs answer
-          </p>
-          <div class="whitespace-pre-wrap text-sm leading-relaxed">{elem(@status, 1)}</div>
-          <div class="divider my-2"></div>
-          <form
-            phx-submit="answer"
-            phx-change="validate_prompt"
-            class="mt-2"
-            id={"answer-form-#{@prompt_gen}"}
-          >
-            <.image_chips upload={@uploads.answer_image} />
-            <div class="flex items-end gap-2" phx-drop-target={@routine && @uploads.answer_image.ref}>
-              <textarea
-                name="text"
-                rows="2"
-                placeholder="your answer..."
-                class="textarea textarea-sm flex-1 resize-y"
-                autocomplete="off"
-              ></textarea>
-              <button class="btn btn-primary btn-sm">answer</button>
-            </div>
-            <.image_picker :if={@routine} upload={@uploads.answer_image} />
-          </form>
-        </div>
+        <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-warning">
+          needs answer
+        </p>
+        <div class="whitespace-pre-wrap text-sm leading-relaxed">{@pending_question}</div>
       </div>
 
+      <%!-- ONE composer (#302). The page used to carry two -- an answer box
+            inside the needs-answer card and a prompt box here -- each with its
+            own file picker. They were the same affordance: the handlers
+            differed only in which upload ref they read. What it MEANS depends
+            on whether a question is open. --%>
       <form
         :if={@state not in [:offline, :ended, :paused]}
         phx-submit="prompt"
@@ -445,56 +431,26 @@ defmodule CustodeWeb.AgentLive do
           <textarea
             name="text"
             rows="2"
-            placeholder={"prompt #{@id}..."}
+            placeholder={
+              if @pending_question, do: "your answer...", else: "prompt #{@id}..."
+            }
             class="textarea textarea-sm flex-1 resize-y font-mono"
             autocomplete="off"
           ></textarea>
-          <button class="btn btn-primary btn-sm">
-            {if @state == :running, do: "queue", else: "send"}
-          </button>
+          <button class="btn btn-primary btn-sm">{compose_label(@pending_question, @state)}</button>
         </div>
         <.image_picker :if={@routine} upload={@uploads.image} />
       </form>
       <p :if={@prompt_ack} class="mb-4 text-xs text-base-content/50">{@prompt_ack}</p>
       <div :if={!@prompt_ack} class="mb-5"></div>
 
-      <section :if={@repo} class="mb-6">
-        <h3 class="mb-2 flex flex-wrap items-baseline gap-2 text-lg font-semibold text-base-content/70">
-          repository
-          <a href={"https://github.com/#{@repo}"} target="_blank" class="link link-hover font-mono text-sm">
-            {@repo}
-          </a>
-          <span :if={@repo_overview == :loading} class="loading loading-dots loading-xs ml-1"></span>
-          <WorkflowLaunch.launch_button
-            repo={@repo}
-            standing={@workflow_gates}
-            class="ml-auto self-center"
-          />
-        </h3>
-        <div
-          :if={@working_state}
-          class="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-base-100 px-3 py-2 text-xs shadow-sm"
-        >
-          <span :if={@working_state.in_flight} class="badge badge-info badge-xs gap-1">
-            <span class="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current"></span> working
-          </span>
-          <span :if={!@working_state.in_flight} class="text-base-content/40">last worktree</span>
-          <span class="font-mono text-base-content/70">
-            {@working_state.branch}<span class="text-base-content/40">@{@working_state.sha}</span>
-          </span>
-          <span
-            :if={@working_state.added > 0 || @working_state.removed > 0}
-            class="font-mono"
-          >
-            <span class="text-success">+{@working_state.added}</span>
-            <span class="text-error">-{@working_state.removed}</span>
-          </span>
-          <span class="ml-auto font-mono text-base-content/40">
-            <.ago at={@working_state.at} />
-          </span>
-        </div>
-        <.repo_overview_panel overview={@repo_overview} />
-      </section>
+      <%!-- THE BODY (#302). Everything above and below is the same for every
+            agent; this is the only part that has ever assumed a repository.
+            quakes is the standing test: no repo, no diff, no checks, no pull
+            requests -- a feed and a journal. A layout that cannot express it
+            has let repository shape leak into the core. --%>
+      <.repo_body :if={@body_kind == :repo} {assigns} />
+      <.watch_body :if={@body_kind == :watch} sensors={@agent_sensors} feed={@feed} />
 
       <section :if={@panel} class="mb-6">
         <h3 class="mb-2 text-lg font-semibold text-base-content/70">
@@ -674,6 +630,127 @@ defmodule CustodeWeb.AgentLive do
 
   # cast_prompt's real semantics, surfaced (#31): invisible queueing read as
   # "nothing happened" the first time the operator prompted a busy agent
+  @doc false
+  # The repo body: unchanged from what the page always rendered, now behind a
+  # dispatch rather than an `:if` on every agent's page.
+  def repo_body(assigns) do
+    ~H"""
+        <section class="mb-6">
+          <h3 class="mb-2 flex flex-wrap items-baseline gap-2 text-lg font-semibold text-base-content/70">
+            repository
+            <a href={"https://github.com/#{@repo}"} target="_blank" class="link link-hover font-mono text-sm">
+              {@repo}
+            </a>
+            <span :if={@repo_overview == :loading} class="loading loading-dots loading-xs ml-1"></span>
+            <WorkflowLaunch.launch_button
+              repo={@repo}
+              standing={@workflow_gates}
+              class="ml-auto self-center"
+            />
+          </h3>
+          <div
+            :if={@working_state}
+            class="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-base-100 px-3 py-2 text-xs shadow-sm"
+          >
+            <span :if={@working_state.in_flight} class="badge badge-info badge-xs gap-1">
+              <span class="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current"></span> working
+            </span>
+            <span :if={!@working_state.in_flight} class="text-base-content/40">last worktree</span>
+            <span class="font-mono text-base-content/70">
+              {@working_state.branch}<span class="text-base-content/40">@{@working_state.sha}</span>
+            </span>
+            <span
+              :if={@working_state.added > 0 || @working_state.removed > 0}
+              class="font-mono"
+            >
+              <span class="text-success">+{@working_state.added}</span>
+              <span class="text-error">-{@working_state.removed}</span>
+            </span>
+            <span class="ml-auto font-mono text-base-content/40">
+              <.ago at={@working_state.at} />
+            </span>
+          </div>
+          <.repo_overview_panel overview={@repo_overview} />
+        </section>
+    """
+  end
+
+  attr(:sensors, :list, required: true)
+  attr(:feed, :list, required: true)
+
+  @doc false
+  # The watch body: what this agent's sensors have actually reported.
+  #
+  # This is the analogue of the repository, not a lesser version of it. A watch
+  # agent's world is a feed, and the fleet already records every sensor
+  # finding, so this needs no new config surface -- which matters, because a
+  # threshold that lives in a config file the agent cannot read is a fiction.
+  def watch_body(assigns) do
+    assigns = assign(assigns, :sensor_feed, Enum.filter(assigns.feed, &(&1["event"] == "sensor")))
+
+    ~H"""
+    <section class="mb-6">
+      <h3 class="mb-2 flex flex-wrap items-baseline gap-2 text-lg font-semibold text-base-content/70">
+        watching
+        <span :for={sensor <- @sensors} class="badge badge-outline badge-sm font-mono">
+          {sensor.id} ({sensor.cron})
+        </span>
+      </h3>
+
+      <p :if={@sensor_feed == []} class="text-sm text-base-content/40">
+        nothing reported in this window -- the journal below is what it kept.
+      </p>
+
+      <ul :if={@sensor_feed != []} class="divide-y divide-base-300/60 rounded-lg bg-base-100 shadow-sm">
+        <li :for={entry <- @sensor_feed} class="flex flex-wrap items-baseline gap-2 p-3 text-sm">
+          <span class="font-mono text-xs text-base-content/50"><.ago at={entry["at"]} /></span>
+          <span class="text-base-content/80">{entry["summary"] || entry["kind"]}</span>
+        </li>
+      </ul>
+    </section>
+    """
+  end
+
+  defp pending_question({:waiting_for_user, question}) when is_binary(question), do: question
+  defp pending_question(_status), do: nil
+
+  # While a question is open the composer means answer. Otherwise it is a
+  # prompt, and a running agent queues rather than interrupts.
+  defp compose_label(question, _state) when is_binary(question), do: "answer"
+  defp compose_label(_question, :running), do: "queue"
+  defp compose_label(_question, _state), do: "send"
+
+  # Which body the agent's world deserves (#302). Derived from the routine
+  # rather than configured: a repo is a repo, and an agent fed by sensors
+  # watches something even when that something has no git remote.
+  #
+  # `Custode.Roles.watches/1` is the natural long-term home for this -- it
+  # already names :board / :condition / :events / :stars / :schedule -- but a
+  # role describes the JOB and this describes what the agent actually has.
+  defp body_kind(nil, _sensors), do: :none
+  defp body_kind(%{repo: repo}, _sensors) when is_binary(repo), do: :repo
+  defp body_kind(_routine, []), do: :none
+  defp body_kind(_routine, _sensors), do: :watch
+
+  # Activity is the audit trail, not a second copy of current state (#302).
+  # The entry announcing the question the operator is being shown RIGHT NOW
+  # is a duplicate; resolved questions stay, because there the trail is the
+  # point.
+  @doc false
+  def drop_live_question(feed, nil), do: feed
+
+  def drop_live_question(feed, question) do
+    case Enum.find_index(feed, &live_question?(&1, question)) do
+      nil -> feed
+      index -> List.delete_at(feed, index)
+    end
+  end
+
+  defp live_question?(entry, question) do
+    entry["event"] == "needs_input" and
+      (entry["question"] == question or entry["summary"] == question)
+  end
+
   defp prompt_ack(:running), do: "queued -- delivers when the current turn ends"
   defp prompt_ack(:awaiting_permission), do: "queued behind the pending approval"
   defp prompt_ack(:waiting_for_user), do: "answer delivered"
@@ -704,7 +781,6 @@ defmodule CustodeWeb.AgentLive do
     end
   end
 
-  defp upload_key("answer_image"), do: :answer_image
   defp upload_key(_name), do: :image
 
   defp pending_images(socket, upload), do: socket.assigns.uploads[upload].entries
@@ -1008,6 +1084,7 @@ defmodule CustodeWeb.AgentLive do
     repo = routine && routine.repo
     {:ok, status} = Agent.status(id)
     status = resolve_status(status, routine, id)
+    sensors = Enum.filter(Custode.Routine.sensors(), &(&1.notify == id))
 
     info =
       case Agent.info(id) do
@@ -1028,7 +1105,7 @@ defmodule CustodeWeb.AgentLive do
       state: state_of(status),
       info: info,
       history: history,
-      agent_sensors: Enum.filter(Custode.Routine.sensors(), &(&1.notify == id)),
+      agent_sensors: sensors,
       spend_today: Custode.SpendLedger.today(id),
       tokens_today: Custode.SpendLedger.today_tokens(id),
       todos: Custode.Notebook.todos(id),
@@ -1043,7 +1120,12 @@ defmodule CustodeWeb.AgentLive do
       panel_html: Custode.Panels.current(id),
       panel_pending: Custode.Panels.pending(id),
       panel_revertable: Custode.Panels.revertable?(id),
-      feed: Custode.Feed.for_agent(id, socket.assigns.feed_limit),
+      feed:
+        id
+        |> Custode.Feed.for_agent(socket.assigns.feed_limit)
+        |> drop_live_question(pending_question(status)),
+      pending_question: pending_question(status),
+      body_kind: body_kind(routine, sensors),
       fleet_today: Custode.SpendLedger.fleet_today()
     )
   end
