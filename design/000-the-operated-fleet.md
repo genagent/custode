@@ -296,6 +296,52 @@ all day and all night -- which is exactly what the guardrails exist to
 permit -- gets the same throughput without the churn. Slow, steady, and
 sequential is the design, not a limitation awaiting fixing.
 
+### Amendment, 2026-07-27: the line is LANDING, not working
+
+The paragraph above stands, and its reasoning is intact. What it does
+not distinguish is *concurrent work* from *concurrent landing*, and the
+conflict cascade it fears is entirely a property of the second.
+
+Three helpers rebasing each other is what happens when three PRs are
+open against one repo racing to merge. It is not what happens when
+three agents read the same checkout in isolated worktrees, investigate
+three independent bugs, and hand their findings back one at a time.
+
+So the non-goal is refined rather than reversed:
+
+- **Landing stays sequential.** One merge at a time, rebase between,
+  never two PRs open against one repo racing each other. This is the
+  part that was always load-bearing.
+- **Investigation may fan out.** Isolated worktrees, no shared branch,
+  results returned to a single sequential merge queue.
+
+Two mechanisms already do exactly this and always have: `roster:spawn`
+sub-agents, and the workflow runner's `per_item` fan-out (design/005).
+Neither was a violation, which is itself evidence that the wording was
+broader than the argument.
+
+**What prompted the revision.** The good/fast/cheap triple read in
+AGGREGATE rather than per run (#339). Per run, the knobs trade quality
+for speed -- a smaller model, less effort -- which is a bad trade for a
+fleet whose operator is absent. In aggregate, concurrency trades MONEY
+for speed and leaves quality alone. That is a different exchange rate,
+and it is the only one that buys throughput without buying worse work.
+
+**And the caution that comes with it.** Measured on the live fleet over
+403 resolved gates: median time to resolve 5.9 minutes, mean 49.8, p90
+89.9, worst 13.5 hours. The mean is eight times the median because of
+gates raised while the operator is asleep.
+
+Parallel agents do not move that number. Five fixes proposed at 2am are
+five gates that wait until morning; fan-out multiplies the QUEUE while
+throughput stays bounded by the same wall. So the ordering matters:
+**gate posture (#334) is the real throughput lever, and fan-out
+compounds only after it.** Building fan-out first would buy a longer
+queue and call it speed.
+
+Slow, steady and sequential remains the design *for landing*. What is
+now permitted is being unhurried in parallel.
+
 The family also settled the platform question by experiment. Rust built
 the best unit-scale tool (roba) and remains the right home for CLIs.
 The fleet belongs on the BEAM, and not as a matter of taste: every hot
