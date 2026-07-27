@@ -161,6 +161,51 @@ defmodule Custode.JanitorTest do
     refute "long since folded in" in bodies
   end
 
+  test "finished workflow runs retire with their results; unfinished ones are immortal (#39/#271)" do
+    alias Custode.Workflow.Results
+    alias Custode.Workflow.Run
+
+    old = uid("run")
+    fresh = uid("run")
+    paused = uid("run")
+
+    for run_id <- [old, fresh, paused] do
+      Run.start(run_id, "backlog-sweep", "genagent/custode", "mine")
+
+      Results.put(%{
+        workflow_run: run_id,
+        workflow: "backlog-sweep",
+        stage: "mine",
+        node_name: "mine-spec",
+        args_hash: Results.args_hash(%{topic: run_id}),
+        result: %{"findings" => []}
+      })
+    end
+
+    Run.complete(old)
+    Run.complete(fresh)
+    Run.budget_pause(paused, "rail hit", ["verify"])
+
+    # the paused run is older than any retention window and still survives:
+    # its results are what a resume reads instead of re-running the nodes
+    for run_id <- [old, paused] do
+      [[id]] = Custode.Repo.query!("SELECT id FROM workflow_runs WHERE run_id = ?", [run_id]).rows
+      backdate!("workflow_runs", id, "started_at", 400)
+      backdate!("workflow_runs", id, "finished_at", 400)
+    end
+
+    :ok = perform!()
+
+    assert Run.get(old) == nil
+    assert Results.for_run(old) == []
+
+    assert Run.get(fresh).status == "complete"
+    assert [_kept] = Results.for_run(fresh)
+
+    assert Run.get(paused).status == "budget_paused"
+    assert [_immortal] = Results.for_run(paused)
+  end
+
   test "the janitor rides the crontab" do
     assert Enum.any?(Custode.Routine.crontab(), fn {cron, worker, _opts} ->
              cron == "@daily" and worker == Custode.Janitor
