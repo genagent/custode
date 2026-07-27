@@ -126,6 +126,64 @@ defmodule Custode.CLI.Answer do
   defp render(other), do: inspect(other)
 end
 
+defmodule Custode.CLI.Attention do
+  @moduledoc false
+  use Cheer.Command
+
+  command "attention" do
+    about("What needs you, ranked: the resolver's answer rather than raw states.")
+    option(:group, type: :string, help: "Only one group: needs_you | watching | ...")
+    option(:json, type: :boolean, help: "Raw JSON.")
+  end
+
+  @impl Cheer.Command
+  def run(args, _raw) do
+    arguments = if args[:group], do: %{group: args[:group]}, else: %{}
+    Custode.CLI.emit("list_attention", arguments, args[:json] == true, &render/1)
+  end
+
+  defp render(%{"groups" => []}), do: "(nothing to report)"
+
+  defp render(%{"groups" => groups}) do
+    Enum.map_join(groups, "\n", fn group ->
+      header = "#{String.upcase(group["group"])}  #{length(group["signals"])}"
+
+      rows =
+        Enum.map_join(group["signals"], "\n", fn signal ->
+          "  #{String.pad_trailing(signal["subject"], 18)} #{signal["headline"]}"
+        end)
+
+      if rows == "", do: header, else: header <> "\n" <> rows
+    end)
+  end
+end
+
+defmodule Custode.CLI.Inbox do
+  @moduledoc false
+  use Cheer.Command
+
+  command "inbox" do
+    about("What the fleet raised to you: questions, approvals, suggestions.")
+    option(:unread, type: :boolean, help: "Only what arrived since you last looked.")
+    option(:json, type: :boolean, help: "Raw JSON.")
+  end
+
+  @impl Cheer.Command
+  def run(args, _raw) do
+    arguments = if args[:unread], do: %{unread_only: true}, else: %{}
+    Custode.CLI.emit("list_inbox", arguments, args[:json] == true, &render/1)
+  end
+
+  defp render(%{"items" => []}), do: "(nothing needs you)"
+
+  defp render(%{"items" => items}) do
+    Enum.map_join(items, "\n", fn item ->
+      "#{String.pad_trailing(to_string(item["kind"]), 16)} " <>
+        "#{String.pad_trailing(item["subject"], 18)} #{item["headline"]}"
+    end)
+  end
+end
+
 defmodule Custode.CLI.Disowned do
   @moduledoc false
   use Cheer.Command
