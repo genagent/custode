@@ -75,6 +75,22 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.AskTools.ListAsks, name: "list_asks")
   component(Custode.MCP.AskTools.AnswerAsk, name: "answer_ask")
 
+  # The reads a client could not reach (#346 / survey #345). Registered here
+  # and granted to NO agent: Custode.Routine's allowlists decide who may call
+  # what, and eleven fleet-wide reads in every sweep's tool list would be
+  # eleven new ways for a sweep to spend itself.
+  component(Custode.MCP.ReadTools.Attention, name: "list_attention")
+  component(Custode.MCP.ReadTools.Inbox, name: "list_inbox")
+  component(Custode.MCP.ReadTools.Suggestions, name: "list_suggestions")
+  component(Custode.MCP.ReadTools.SuggestionOutcomes, name: "list_suggestion_outcomes")
+  component(Custode.MCP.ReadTools.Advisors, name: "list_advisors")
+  component(Custode.MCP.ReadTools.Metrics, name: "metrics")
+  component(Custode.MCP.ReadTools.Digest, name: "digest")
+  component(Custode.MCP.ReadTools.Roles, name: "list_roles")
+  component(Custode.MCP.ReadTools.Policies, name: "list_policies")
+  component(Custode.MCP.ReadTools.Workflows, name: "list_workflows")
+  component(Custode.MCP.ReadTools.ExecutingTurns, name: "executing_turns")
+
   # the operator tier (issue #33): run the fleet, not just delegate into it
   component(Custode.MCP.OperatorTools.Beat, name: "beat")
   component(Custode.MCP.OperatorTools.DropNote, name: "drop_note")

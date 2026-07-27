@@ -34,6 +34,8 @@ defmodule Mix.Tasks.Custode do
     subcommand(Custode.CLI.Status)
     subcommand(Custode.CLI.Doctor)
     subcommand(Custode.CLI.Drain)
+    subcommand(Custode.CLI.Attention)
+    subcommand(Custode.CLI.Inbox)
     subcommand(Custode.CLI.Gates)
     subcommand(Custode.CLI.Asks)
     subcommand(Custode.CLI.Answer)
