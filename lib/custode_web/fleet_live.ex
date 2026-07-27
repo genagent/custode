@@ -924,8 +924,7 @@ defmodule CustodeWeb.FleetLive do
            spend_today: Map.get(spend_by_agent, id, 0.0),
            open_todos: length(Custode.Notebook.todos(id)),
            series: Map.get(series_by_agent, id),
-           last: Custode.Feed.last_message(id, needs_attention?(status)),
-           failing_checks: failing_checks(routine)
+           last: Custode.Feed.last_message(id, needs_attention?(status))
          }}
       end
 
@@ -947,8 +946,7 @@ defmodule CustodeWeb.FleetLive do
            spend_today: Map.get(spend_by_agent, id, 0.0),
            open_todos: 0,
            series: nil,
-           last: Custode.Feed.last_for(id),
-           failing_checks: 0
+           last: Custode.Feed.last_for(id)
          }}
       end
 
@@ -998,22 +996,6 @@ defmodule CustodeWeb.FleetLive do
   # the rail shows the top few (Custode.Suggestions holds the standing list +
   # apply); the full list lives on /suggestions (#284)
   defp applicable_field?(field), do: Custode.Suggestions.applicable_field?(field)
-
-  # Rank-1 promotion (#31): failing checks on an agent's own open PR were
-  # the quietest signal on the page (a dot inside a panel two clicks away).
-  # Reads the cached overview only -- the cache refreshes on its own cadence
-  # and broadcasts, so tiles cost no extra API calls.
-  defp failing_checks(%{repo: repo}) when is_binary(repo) do
-    case Custode.GitHub.overview(repo) do
-      {:ok, overview} ->
-        Enum.count(overview.open_prs.items, &(&1[:checks] in ["FAILURE", "ERROR"]))
-
-      :loading ->
-        0
-    end
-  end
-
-  defp failing_checks(_routine), do: 0
 
   # Threshold banners (#211, the desktop-app cue): say an agent is
   # APPROACHING its rail before the rail says it out loud by pausing.

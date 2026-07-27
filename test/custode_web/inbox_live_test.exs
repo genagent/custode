@@ -21,6 +21,7 @@ defmodule CustodeWeb.InboxLiveTest do
     # because these tests are async: false and never interleave.
     Custode.Repo.query!("DELETE FROM asks")
     Custode.Repo.query!("DELETE FROM gates")
+    Custode.Repo.query!("DELETE FROM disowned_prs")
     Custode.Repo.query!("DELETE FROM feed_entries WHERE event = 'advisor_suggestion'")
     on_exit(fn -> Custode.Repo.query!("DELETE FROM asks") end)
 

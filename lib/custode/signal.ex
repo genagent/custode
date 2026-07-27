@@ -32,6 +32,7 @@ defmodule Custode.Signal do
   counts as needing a human.
 
       :red_main  :needs_answer  :approval  :rail_hit  :stalled  -> :needs_you
+      :disowned_check                                           -> :needs_you
       :red_check                                                -> :watching
       :working                                       -> :working
       :scheduled                                     -> :scheduled
@@ -62,6 +63,7 @@ defmodule Custode.Signal do
           :red_main
           | :needs_answer
           | :approval
+          | :disowned_check
           | :red_check
           | :rail_hit
           | :stalled

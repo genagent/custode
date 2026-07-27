@@ -20,6 +20,50 @@ defmodule Custode.AttentionTest do
 
   defp resolve(view), do: Attention.resolve(view, @context)
 
+  defp pr(number, disowned? \\ false), do: %{number: number, disowned?: disowned?}
+
+  describe "disowned_check (#313)" do
+    test "a red check the agent disowned is the operator's, not the fleet's" do
+      signal = resolve(view("mdbook-lint", failing_prs: [pr(400, true)]))
+
+      assert signal.kind == :disowned_check
+      assert signal.group == :needs_you
+      assert Signal.needs_you?(signal)
+      assert signal.headline == "#400 red, and not its work"
+      assert signal.detail =~ "nobody else will"
+      assert signal.item == {:prs, [400]}
+    end
+
+    test "the same check, still owned, stays in watching" do
+      signal = resolve(view("mdbook-lint", failing_prs: [pr(400, false)]))
+
+      assert signal.kind == :red_check
+      assert signal.group == :watching
+    end
+
+    test "one disowned PR among owned ones wins, since it is the stuck one" do
+      signal = resolve(view("mixed", failing_prs: [pr(1), pr(2, true), pr(3)]))
+
+      assert signal.kind == :disowned_check
+      assert signal.item == {:prs, [2]}
+    end
+
+    test "disowning a PR whose checks are green raises nothing at all" do
+      # a disownment is not itself a signal; only a red check on one is
+      assert resolve(view("quiet-repo", failing_prs: [], cron: "@daily")).kind == :scheduled
+    end
+
+    test "it outranks a plain red check across agents, and both sit below a gate" do
+      signals = [
+        resolve(view("owned", failing_prs: [pr(1)])),
+        resolve(view("disowned", failing_prs: [pr(2, true)])),
+        resolve(view("gated", state: :awaiting_permission, gate: gate("approval", @now)))
+      ]
+
+      assert Attention.rank(signals) |> Enum.map(& &1.subject) == ["gated", "disowned", "owned"]
+    end
+  end
+
   describe "red_main (#310)" do
     defp branch(state), do: %{name: "main", state: state, headline: "the merge that broke it"}
 
@@ -145,18 +189,17 @@ defmodule Custode.AttentionTest do
       assert signal.kind == :needs_answer
     end
 
-    test "red_check on the agent's open PRs, pluralised" do
-      assert resolve(view("mdbook-lint", failing_checks: 1)).headline ==
-               "1 red check on its open PRs"
+    test "red_check names the PRs and stays in watching" do
+      signal = resolve(view("mcp-proxy", failing_prs: [pr(187), pr(190)]))
 
-      signal = resolve(view("mcp-proxy", failing_checks: 3))
       assert signal.kind == :red_check
       assert signal.urgency == :normal
       # Watching, NOT needs-you: a scheduled agent looks at its own red check
       # on the next beat, so the operator is not owed anything.
       assert signal.group == :watching
       refute Signal.needs_you?(signal)
-      assert signal.headline == "3 red checks on its open PRs"
+      # named, because "#187 red" says which tab to open and a count does not
+      assert signal.headline == "#187, #190 red on its open PRs"
       # The overview cache cannot date a check result. See the moduledoc.
       assert signal.raised_at == nil
     end
@@ -261,8 +304,8 @@ defmodule Custode.AttentionTest do
           gate: gate("approval", ~U[2026-07-26 01:30:55Z])
         ),
         view("custode-dev", state: :idle, cron: "*/15 * * * *"),
-        view("mdbook-lint", state: :offline, cron: "@daily", failing_checks: 1),
-        view("mcp-proxy", state: :offline, cron: "@daily", failing_checks: 1),
+        view("mdbook-lint", state: :offline, cron: "@daily", failing_prs: [pr(400)]),
+        view("mcp-proxy", state: :offline, cron: "@daily", failing_prs: [pr(187)]),
         view("quakes", state: :offline, cron: "manual"),
         view("tower-resilience", state: :idle, cron: "*/30 * * * *"),
         view("cheer", state: :offline, cron: "@daily")
