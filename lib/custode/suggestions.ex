@@ -15,6 +15,19 @@ defmodule Custode.Suggestions do
 
   @window_s 7 * 24 * 60 * 60
 
+  # The thrash guard (#303 / design 005). Masking already stops the SAME change
+  # being re-proposed, keyed on agent + field + proposed. It does not stop the
+  # OPPOSITE one: an advisor lowers a rail, the lower rail starts stopping
+  # work, and the next sweep proposes raising it. Both proposals are locally
+  # reasonable and together they are a loop the operator has to referee.
+  #
+  # So a parameter rests after it is applied, whatever it is next proposed to
+  # be. Longer than the masking window on purpose: masking is about not asking
+  # twice, and this is about giving a change time to be judged before it is
+  # revised. A change that genuinely needs reverting sooner is a job for the
+  # operator, who is not bound by this.
+  @dwell_s 14 * 24 * 60 * 60
+
   @doc """
   Every standing suggestion in the window, deduped, newest first (uncapped).
   A suggestion masked by an APPLIED or a DISMISSED entry (same change
@@ -23,11 +36,33 @@ defmodule Custode.Suggestions do
   """
   def standing do
     resolved = resolved_keys(["advisor_applied", "advisor_dismissed"])
+    resting = resting_parameters()
 
     "advisor_suggestion"
     |> Feed.recent_by_event(limit: 50, since: @window_s)
-    |> Enum.reject(&({&1["agent"], &1["field"], &1["proposed"]} in resolved))
+    |> Enum.reject(fn suggestion ->
+      {agent, field, proposed} =
+        {suggestion["agent"], suggestion["field"], suggestion["proposed"]}
+
+      # already decided, or the parameter is resting after a recent change
+      {agent, field, proposed} in resolved or {agent, field} in resting
+    end)
     |> Enum.uniq_by(&{&1["advisor"], &1["agent"], &1["field"]})
+  end
+
+  @doc "How long a parameter rests after a change is applied to it."
+  def dwell_seconds, do: @dwell_s
+
+  @doc """
+  The `{agent, field}` pairs that were changed recently enough to be resting.
+
+  Keyed on the PARAMETER, not the change: the point is that this knob was
+  just turned, so turning it again is revision rather than insight.
+  """
+  def resting_parameters do
+    for entry <- Feed.recent_by_event("advisor_applied", limit: 50, since: @dwell_s),
+        into: MapSet.new(),
+        do: {entry["agent"], entry["field"]}
   end
 
   defp resolved_keys(events) do
