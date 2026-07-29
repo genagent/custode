@@ -243,7 +243,7 @@ defmodule Custode.Janitor do
   end
 
   # #39: ledger detail past retention compacts into one rollup row per
-  # (agent, month, model) stamped at the month's first instant, totals
+  # (agent, month, model, work provenance) stamped at the month's first instant, totals
   # preserved -- today/fleet_today are unaffected (they read the recent
   # window) and the metrics daily series degrades gracefully to
   # month-granularity for old data instead of losing the spend entirely.
@@ -264,9 +264,23 @@ defmodule Custode.Janitor do
 
         old
         |> Enum.group_by(fn row ->
-          {row.agent_id, row.inserted_at.year, row.inserted_at.month, row.model}
+          {
+            row.agent_id,
+            row.inserted_at.year,
+            row.inserted_at.month,
+            row.model,
+            row.attempt_id,
+            row.work_item_id,
+            row.mission_id,
+            row.provider,
+            row.legacy_routine_id
+          }
         end)
-        |> Enum.each(fn {{agent_id, year, month, model}, rows} ->
+        |> Enum.each(fn {
+                          {agent_id, year, month, model, attempt_id, work_item_id, mission_id,
+                           provider, legacy_routine_id},
+                          rows
+                        } ->
           {:ok, at} = DateTime.new(Date.new!(year, month, 1), ~T[00:00:00.000000], "Etc/UTC")
 
           Repo.insert!(%Custode.SpendLedger.Entry{
@@ -278,6 +292,11 @@ defmodule Custode.Janitor do
             cache_creation_tokens: sum_field(rows, :cache_creation_tokens),
             cache_read_tokens: sum_field(rows, :cache_read_tokens),
             model: model,
+            attempt_id: attempt_id,
+            work_item_id: work_item_id,
+            mission_id: mission_id,
+            provider: provider,
+            legacy_routine_id: legacy_routine_id,
             inserted_at: at
           })
         end)

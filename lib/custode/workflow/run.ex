@@ -48,6 +48,7 @@ defmodule Custode.Workflow.Run do
       field(:notes, :string)
       field(:error, :string)
       field(:budget_usd, :float)
+      field(:work_item_id, :string)
       field(:started_at, :utc_datetime_usec)
       field(:finished_at, :utc_datetime_usec)
     end
@@ -60,7 +61,7 @@ defmodule Custode.Workflow.Run do
   `budget_usd` is the run's rail, or nil for an unbounded run (iex, tests --
   the launch gate always sets one).
   """
-  def start(run_id, workflow, repo, stage, context \\ %{}, budget_usd \\ nil) do
+  def start(run_id, workflow, repo, stage, context \\ %{}, budget_usd \\ nil, work_item_id \\ nil) do
     Repo.insert!(%Row{
       run_id: to_string(run_id),
       workflow: to_string(workflow),
@@ -70,6 +71,7 @@ defmodule Custode.Workflow.Run do
       context: Jason.encode!(context),
       notes: Jason.encode!([]),
       budget_usd: budget_usd,
+      work_item_id: work_item_id,
       started_at: DateTime.utc_now()
     })
     |> load()
@@ -207,6 +209,7 @@ defmodule Custode.Workflow.Run do
       notes: Jason.decode!(row.notes),
       error: row.error,
       budget_usd: row.budget_usd,
+      work_item_id: row.work_item_id,
       started_at: row.started_at,
       finished_at: row.finished_at
     }

@@ -5,7 +5,7 @@ defmodule Custode.WorkItem do
 
   import Ecto.Changeset
 
-  alias Custode.{Mission, WorkEvent}
+  alias Custode.{Artifact, Attempt, ContextBundle, Mission, WorkEvent}
 
   @states ~w(proposed ready active waiting blocked completed cancelled)
 
@@ -32,6 +32,9 @@ defmodule Custode.WorkItem do
     field(:completed_at, :utc_datetime_usec)
     field(:cancelled_at, :utc_datetime_usec)
     has_many(:events, WorkEvent)
+    has_many(:attempts, Attempt)
+    has_many(:context_bundles, ContextBundle)
+    has_many(:artifacts, Artifact)
     timestamps(type: :utc_datetime_usec)
   end
 

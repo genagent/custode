@@ -36,6 +36,11 @@ defmodule Custode.SpendLedger do
       field(:cache_read_tokens, :integer)
       field(:stop_reason, :string)
       field(:model, :string)
+      field(:attempt_id, :string)
+      field(:work_item_id, :string)
+      field(:mission_id, :string)
+      field(:provider, :string)
+      field(:legacy_routine_id, :string)
       timestamps(type: :utc_datetime_usec, updated_at: false)
     end
   end
@@ -72,7 +77,7 @@ defmodule Custode.SpendLedger do
           agent_id,
           measurements.cost_usd,
           if(outcome == :stop, do: "turn", else: "failed"),
-          usage_of(meta) ++ [model: model_of(meta)]
+          usage_of(meta) ++ [model: model_of(meta), provider: "claude"] ++ dimensions_of(meta)
         )
 
       _no_agent ->
@@ -106,7 +111,12 @@ defmodule Custode.SpendLedger do
       cache_creation_tokens: usage[:cache_creation],
       cache_read_tokens: usage[:cache_read],
       stop_reason: opts[:stop_reason],
-      model: opts[:model]
+      model: opts[:model],
+      attempt_id: opts[:attempt_id],
+      work_item_id: opts[:work_item_id],
+      mission_id: opts[:mission_id],
+      provider: opts[:provider],
+      legacy_routine_id: opts[:legacy_routine_id] || legacy_routine_id(agent_id)
     })
 
     enforce(agent_id)
@@ -261,6 +271,22 @@ defmodule Custode.SpendLedger do
     case Custode.Routine.get(agent_id) do
       nil -> :ok
       routine -> enforce_rails(routine, agent_id)
+    end
+  end
+
+  defp dimensions_of(%{job: %{meta: meta}}) do
+    [
+      attempt_id: meta["attempt_id"],
+      work_item_id: meta["work_item_id"],
+      mission_id: meta["mission_id"],
+      legacy_routine_id: meta["legacy_routine_id"]
+    ]
+  end
+
+  defp legacy_routine_id(agent_id) do
+    case Custode.Routine.get(agent_id) do
+      nil -> nil
+      _routine -> agent_id
     end
   end
 
