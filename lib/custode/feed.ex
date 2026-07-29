@@ -76,6 +76,7 @@ defmodule Custode.Feed do
     * `:limit` -- how many entries (default 10)
     * `:agent` -- only this agent's entries (the whole fleet's by default)
     * `:since` -- only entries newer than this many seconds ago
+    * `:now` -- reference clock for `:since` (defaults to the current UTC time)
 
   """
   def recent_by_event(event, opts \\ []) do
@@ -85,7 +86,7 @@ defmodule Custode.Feed do
       limit: ^Keyword.get(opts, :limit, 10)
     )
     |> scope_agent(opts[:agent])
-    |> scope_since(opts[:since])
+    |> scope_since(opts[:since], opts[:now])
     |> Repo.all()
     |> Enum.map(&Jason.decode!(&1.entry))
   end
@@ -265,10 +266,10 @@ defmodule Custode.Feed do
   defp scope_agent(query, nil), do: query
   defp scope_agent(query, agent), do: from(f in query, where: f.agent == ^agent)
 
-  defp scope_since(query, nil), do: query
+  defp scope_since(query, nil, _now), do: query
 
-  defp scope_since(query, seconds) do
-    cutoff = DateTime.add(DateTime.utc_now(), -seconds)
+  defp scope_since(query, seconds, now) do
+    cutoff = DateTime.add(now || DateTime.utc_now(), -seconds)
     from(f in query, where: f.at > ^cutoff)
   end
 

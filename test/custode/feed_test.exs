@@ -151,6 +151,31 @@ defmodule Custode.FeedTest do
                )
     end
 
+    test ":now makes a since-window independent of the wall clock" do
+      reference = ~U[2020-01-10 12:00:00Z]
+      agent = uid("rbe-clock")
+
+      Custode.Feed.record(%{event: "advisor_suggestion", agent: agent, field: "fixed"})
+
+      [[id]] = Custode.Repo.query!("SELECT id FROM feed_entries ORDER BY id DESC LIMIT 1").rows
+      at = reference |> DateTime.add(-1, :day) |> DateTime.to_iso8601()
+      Custode.Repo.query!("UPDATE feed_entries SET at = ? WHERE id = ?", [at, id])
+
+      assert [%{"field" => "fixed"}] =
+               Custode.Feed.recent_by_event("advisor_suggestion",
+                 agent: agent,
+                 since: 2 * 24 * 60 * 60,
+                 now: reference
+               )
+
+      assert [] =
+               Custode.Feed.recent_by_event("advisor_suggestion",
+                 agent: agent,
+                 since: 2 * 24 * 60 * 60,
+                 now: DateTime.add(reference, 4, :day)
+               )
+    end
+
     test "an event nobody has recorded is an empty list, not a crash" do
       assert Custode.Feed.recent_by_event("no_such_event") == []
     end
