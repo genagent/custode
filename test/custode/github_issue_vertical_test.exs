@@ -2216,7 +2216,7 @@ defmodule Custode.GitHubIssueVerticalTest do
   end
 
   defp clone_repository!(remote, path) do
-    case System.cmd("git", ["clone", remote, path], stderr_to_stdout: true) do
+    case System.cmd("git", ["clone", "--branch", "main", remote, path], stderr_to_stdout: true) do
       {_output, 0} -> :ok
       {output, status} -> flunk("git clone failed (#{status}): #{output}")
     end
