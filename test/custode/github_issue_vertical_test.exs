@@ -34,6 +34,7 @@ defmodule Custode.GitHubIssueVerticalTest do
     WorkspaceLeases
   }
 
+  alias Custode.GitHubReview.Reconciler
   alias Custode.Repair.Disposition
   alias Custode.Verification.{CommandSpec, Recipe}
 
@@ -96,6 +97,19 @@ defmodule Custode.GitHubIssueVerticalTest do
     def view_issue(_owner, _repo, _number), do: {:error, :unsupported}
     def pr_checks(_owner, _repo, _number), do: {:ok, %{sha: nil, checks: []}}
     def pr_diff(_owner, _repo, _number), do: {:ok, %{files: []}}
+
+    def review_snapshot(_owner, _repo, number) do
+      with snapshot when is_map(snapshot) <-
+             Application.get_env(:custode, :publication_review_snapshot),
+           pull_request when not is_nil(pull_request) <-
+             Enum.find(Agent.get(state().pid, & &1.pull_requests), &(&1.number == number)) do
+        send(state().test_pid, {:review_snapshot, number})
+        {:ok, Map.put(snapshot, :pull_request, pull_request)}
+      else
+        nil -> {:error, :unused}
+      end
+    end
+
     def review_state(_owner, _repo, _number), do: :unreviewed
 
     defp state, do: Application.fetch_env!(:custode, :publication_repo_ops_state)
@@ -489,6 +503,504 @@ defmodule Custode.GitHubIssueVerticalTest do
     refute_receive {:open_pr, _pull_request}, 50
     assert publication_attempt_count(work_item) == 1
     assert Agent.get(fixture.repo_state, &length(&1.pull_requests)) == 1
+  end
+
+  test "a periodic review snapshot records a durable no-op and replays exactly", fixture do
+    {waiting, pull_request} = publish_successfully!(fixture)
+    pull_request_number = pull_request.number
+    attempt_count = waiting.work_item_id |> Attempts.list_for_work_item() |> length()
+
+    put_env!(:publication_review_snapshot, %{
+      reviews: [],
+      comments: [],
+      checks: [
+        %{
+          id: 9_001,
+          name: "test",
+          status: "completed",
+          conclusion: "success",
+          completed_at: "2026-07-29T21:00:00Z"
+        }
+      ]
+    })
+
+    assert {:ok, first} =
+             Reconciler.reconcile(
+               waiting.work_item_id,
+               routine_id: fixture.routine.id,
+               artifact_dir: fixture.artifacts
+             )
+
+    assert_receive {:review_snapshot, ^pull_request_number}
+    assert first.status == :waiting
+    refute first.replayed
+
+    observed = WorkItems.get(waiting.work_item_id)
+    assert observed.state == "waiting"
+    assert observed.phase == "awaiting_review"
+    assert observed.version == waiting.version + 1
+
+    assert {:ok, replay} =
+             Reconciler.reconcile(
+               waiting.work_item_id,
+               routine_id: fixture.routine.id,
+               artifact_dir: fixture.artifacts
+             )
+
+    assert replay.replayed
+    assert WorkItems.get(waiting.work_item_id).version == observed.version
+    assert waiting.work_item_id |> Attempts.list_for_work_item() |> length() == attempt_count
+
+    [artifact] =
+      waiting.work_item_id
+      |> Artifacts.list_for_work_item()
+      |> Enum.filter(&(&1.kind == "github_observation"))
+
+    assert artifact.provenance["accepted"]
+
+    event =
+      waiting.work_item_id
+      |> WorkItems.list_events()
+      |> Enum.find(&(&1.kind == "work_item.observed"))
+
+    assert get_in(event.evidence, ["github_observation", "artifact_id"]) ==
+             artifact.artifact_id
+  end
+
+  test "requested changes create one semantic repair with exact observation provenance",
+       fixture do
+    {waiting, pull_request} = publish_successfully!(fixture)
+
+    observation =
+      review_observation(waiting, %{
+        kind: "review_feedback",
+        external_updated_at: "2026-07-29T21:05:00Z",
+        reviews: [
+          %{
+            id: 9_002,
+            state: "CHANGES_REQUESTED",
+            body: "Please cover the stale-head case.",
+            commit_id: pull_request.head_sha,
+            submitted_at: "2026-07-29T21:05:00Z"
+          }
+        ]
+      })
+
+    assert {:ok, first} =
+             Reconciler.ingest(
+               waiting.work_item_id,
+               observation,
+               routine_id: fixture.routine.id,
+               artifact_dir: fixture.artifacts,
+               correlation_id: "github-review:test-correlation",
+               causation_id: "github-review:test-causation"
+             )
+
+    assert first.status == :repair_ready
+    ready_version = WorkItems.get(waiting.work_item_id).version
+
+    assert {:ok, duplicate} =
+             Reconciler.ingest(
+               waiting.work_item_id,
+               observation,
+               routine_id: fixture.routine.id,
+               artifact_dir: fixture.artifacts
+             )
+
+    assert duplicate.replayed
+    assert WorkItems.get(waiting.work_item_id).version == ready_version
+
+    event = latest_transition_event(waiting)
+    assert event.correlation_id == "github-review:test-correlation"
+    assert event.causation_id == "github-review:test-causation"
+
+    assert :ok = plan_review_repair!(fixture, waiting)
+    repair = repair_attempt!(waiting)
+
+    assert repair.executor_kind == "model"
+    assert repair.provider == "claude"
+    assert repair.caused_by_attempt.attempt_id == publication_attempt!(waiting).attempt_id
+    assert repair.provenance["repair_origin"] == "github_review"
+    assert repair.provenance["repair_path"] == "semantic_repair"
+    assert repair.provenance["active_phase"] == "handling_feedback"
+    assert repair.provenance["observation_artifact_id"] == first.artifact.artifact_id
+
+    assert repair.provenance["observation_external_identity"] ==
+             first.observation.external_identity
+
+    assert repair.provenance["observation_head_sha"] == pull_request.head_sha
+    assert provider_job_count(repair.attempt_id) == 1
+
+    assert {:ok, third} =
+             Reconciler.ingest(
+               waiting.work_item_id,
+               observation,
+               routine_id: fixture.routine.id,
+               artifact_dir: fixture.artifacts
+             )
+
+    assert third.replayed
+    assert repair_attempt_count(waiting) == 1
+    assert provider_job_count(repair.attempt_id) == 1
+  end
+
+  test "a combined snapshot recovers scheduling after its durable transition", fixture do
+    {waiting, pull_request} = publish_successfully!(fixture)
+
+    successful_check =
+      review_observation(waiting, %{
+        kind: "check_run",
+        external_updated_at: "2026-07-29T21:07:00Z",
+        checks: [
+          %{
+            id: 9_020,
+            name: "test",
+            status: "completed",
+            conclusion: "success",
+            completed_at: "2026-07-29T21:07:00Z"
+          }
+        ]
+      })
+
+    assert {:ok, %{status: :waiting}} =
+             Reconciler.ingest(
+               waiting.work_item_id,
+               successful_check,
+               routine_id: fixture.routine.id,
+               artifact_dir: fixture.artifacts
+             )
+
+    combined =
+      review_observation(WorkItems.get(waiting.work_item_id), %{
+        kind: "snapshot",
+        external_updated_at: "2026-07-29T21:08:00Z",
+        checks: successful_check.checks,
+        reviews: [
+          %{
+            id: 9_021,
+            state: "CHANGES_REQUESTED",
+            body: "Please address the boundary.",
+            commit_id: pull_request.head_sha,
+            submitted_at: "2026-07-29T21:08:00Z"
+          }
+        ]
+      })
+
+    refusing_enqueue = fn _job -> {:error, :queue_unavailable} end
+
+    assert {:error, {:review_repair_enqueue_failed, :queue_unavailable}} =
+             Reconciler.ingest(
+               waiting.work_item_id,
+               combined,
+               routine_id: fixture.routine.id,
+               artifact_dir: fixture.artifacts,
+               enqueue_fun: refusing_enqueue
+             )
+
+    transitioned = WorkItems.get(waiting.work_item_id)
+    assert transitioned.state == "ready"
+    assert transitioned.phase == "feedback_ready"
+
+    assert {:ok, recovered} =
+             Reconciler.ingest(
+               waiting.work_item_id,
+               combined,
+               routine_id: fixture.routine.id,
+               artifact_dir: fixture.artifacts
+             )
+
+    assert recovered.replayed
+
+    assert recovered.observation.item_tokens == [
+             "review:9021:2026-07-29T21:08:00Z:CHANGES_REQUESTED"
+           ]
+
+    assert :ok = plan_review_repair!(fixture, waiting)
+    assert repair_attempt_count(waiting) == 1
+  end
+
+  test "stale heads and older revisions are preserved as rejected evidence only", fixture do
+    {waiting, _pull_request} = publish_successfully!(fixture)
+    workspace = publication_workspace!(waiting)
+    original_revision = git!(workspace, ["rev-parse", "HEAD"])
+
+    stale_head =
+      review_observation(waiting, %{
+        head_sha: "superseded-head",
+        kind: "review_feedback",
+        external_updated_at: "2026-07-29T21:10:00Z",
+        comments: [
+          %{
+            id: 9_003,
+            body: "This belongs to the old head.",
+            updated_at: "2026-07-29T21:10:00Z"
+          }
+        ]
+      })
+
+    assert {:error, {:stale, :github_review_head_changed, _details}} =
+             Reconciler.ingest(
+               waiting.work_item_id,
+               stale_head,
+               routine_id: fixture.routine.id,
+               artifact_dir: fixture.artifacts
+             )
+
+    assert WorkItems.get(waiting.work_item_id).version == waiting.version
+    assert git!(workspace, ["rev-parse", "HEAD"]) == original_revision
+
+    current =
+      review_observation(waiting, %{
+        kind: "check_run",
+        external_updated_at: "2026-07-29T21:20:00Z",
+        checks: [
+          %{
+            id: 9_004,
+            name: "test",
+            status: "completed",
+            conclusion: "success",
+            completed_at: "2026-07-29T21:20:00Z"
+          }
+        ]
+      })
+
+    assert {:ok, %{status: :waiting}} =
+             Reconciler.ingest(
+               waiting.work_item_id,
+               current,
+               routine_id: fixture.routine.id,
+               artifact_dir: fixture.artifacts
+             )
+
+    observed = WorkItems.get(waiting.work_item_id)
+
+    older =
+      review_observation(observed, %{
+        kind: "review_feedback",
+        external_updated_at: "2026-07-29T21:15:00Z",
+        comments: [
+          %{
+            id: 9_005,
+            body: "Late delivery of an older comment.",
+            updated_at: "2026-07-29T21:15:00Z"
+          }
+        ]
+      })
+
+    assert {:error, {:stale, :github_review_revision_older, _details}} =
+             Reconciler.ingest(
+               waiting.work_item_id,
+               older,
+               routine_id: fixture.routine.id,
+               artifact_dir: fixture.artifacts
+             )
+
+    assert WorkItems.get(waiting.work_item_id).version == observed.version
+    assert git!(workspace, ["rev-parse", "HEAD"]) == original_revision
+    assert repair_attempt_count(waiting) == 0
+
+    rejected =
+      waiting.work_item_id
+      |> Artifacts.list_for_work_item()
+      |> Enum.filter(fn artifact ->
+        artifact.kind == "github_observation" and not artifact.provenance["accepted"]
+      end)
+
+    assert length(rejected) == 2
+  end
+
+  test "formatter feedback takes the mechanical fast path and returns to verification",
+       fixture do
+    {waiting, _pull_request} = publish_successfully!(fixture)
+
+    observation =
+      review_observation(waiting, %{
+        kind: "check_run",
+        external_updated_at: "2026-07-29T21:30:00Z",
+        checks: [
+          %{
+            id: 9_006,
+            name: "mix format",
+            status: "completed",
+            conclusion: "failure",
+            completed_at: "2026-07-29T21:30:00Z"
+          }
+        ]
+      })
+
+    assert {:ok, %{status: :repair_ready}} =
+             Reconciler.ingest(
+               waiting.work_item_id,
+               observation,
+               routine_id: fixture.routine.id,
+               artifact_dir: fixture.artifacts
+             )
+
+    assert :ok = plan_review_repair!(fixture, waiting)
+    repair = repair_attempt!(waiting)
+    assert repair.executor_kind == "deterministic"
+    assert repair.provenance["active_phase"] == "handling_feedback"
+    assert get_in(repair.provenance, ["repair_disposition", "handler"]) == "elixir_format"
+
+    runner = fn spec, _path, _options ->
+      assert spec.name == "repair_format"
+      {:ok, runner_result(spec, "pass")}
+    end
+
+    assert :ok =
+             RepairAttempts.perform(
+               repair_job!(repair.attempt_id),
+               runner: runner,
+               artifact_dir: fixture.artifacts
+             )
+
+    repaired = WorkItems.get(waiting.work_item_id)
+    assert repaired.state == "ready"
+    assert repaired.phase == "verification_ready"
+  end
+
+  test "a failed mechanical review repair re-enters the bounded semantic policy", fixture do
+    {waiting, _pull_request} = publish_successfully!(fixture)
+
+    observation =
+      review_observation(waiting, %{
+        kind: "check_run",
+        external_updated_at: "2026-07-29T21:35:00Z",
+        checks: [
+          %{
+            id: 9_007,
+            name: "formatter",
+            status: "completed",
+            conclusion: "failure",
+            completed_at: "2026-07-29T21:35:00Z"
+          }
+        ]
+      })
+
+    assert {:ok, _result} =
+             Reconciler.ingest(
+               waiting.work_item_id,
+               observation,
+               routine_id: fixture.routine.id,
+               artifact_dir: fixture.artifacts
+             )
+
+    assert :ok = plan_review_repair!(fixture, waiting)
+    mechanical = repair_attempt!(waiting)
+
+    runner = fn spec, _path, _options -> {:ok, runner_result(spec, "test_failure")} end
+
+    assert :ok =
+             RepairAttempts.perform(
+               repair_job!(mechanical.attempt_id),
+               runner: runner,
+               artifact_dir: fixture.artifacts
+             )
+
+    repair_ready = WorkItems.get(waiting.work_item_id)
+    assert repair_ready.state == "ready"
+    assert repair_ready.phase == "repair_ready"
+
+    assert :ok = plan_repair!(fixture, repair_ready)
+    semantic = repair_attempt!(waiting)
+    assert semantic.attempt_id != mechanical.attempt_id
+    assert semantic.executor_kind == "model"
+    assert semantic.caused_by_attempt.attempt_id == mechanical.attempt_id
+    assert get_in(semantic.provenance, ["repair_disposition", "kind"]) == "semantic_repair"
+    assert repair_attempt_count(waiting) == 2
+  end
+
+  test "a pinned clean conflict replay preserves the published head and returns to verification",
+       fixture do
+    {waiting, pull_request} = publish_successfully!(fixture)
+    workspace = publication_workspace!(waiting)
+
+    base_source = Path.join(fixture.root, "review-base-source")
+    clone_repository!(fixture.remote, base_source)
+    git!(base_source, ["config", "user.email", "test@example.com"])
+    git!(base_source, ["config", "user.name", "Custode Test"])
+    File.write!(Path.join(base_source, "BASE_REVIEW.md"), "new base\n")
+    git!(base_source, ["add", "BASE_REVIEW.md"])
+    git!(base_source, ["commit", "-m", "docs: advance review base"])
+    new_base = git!(base_source, ["rev-parse", "HEAD"])
+    git!(base_source, ["push", "origin", "main"])
+
+    observation =
+      review_observation(waiting, %{
+        kind: "conflict",
+        external_updated_at: "2026-07-29T21:40:00Z",
+        base_sha: new_base,
+        conflict: true
+      })
+
+    assert {:ok, %{status: :repair_ready}} =
+             Reconciler.ingest(
+               waiting.work_item_id,
+               observation,
+               routine_id: fixture.routine.id,
+               artifact_dir: fixture.artifacts
+             )
+
+    assert :ok = plan_review_repair!(fixture, waiting)
+    repair = repair_attempt!(waiting)
+    assert repair.provenance["active_phase"] == "resolving_conflict"
+    assert get_in(repair.provenance, ["repair_disposition", "handler"]) == "git_replay"
+
+    assert :ok =
+             RepairAttempts.perform(
+               repair_job!(repair.attempt_id),
+               artifact_dir: fixture.artifacts
+             )
+
+    finished = Attempts.get(repair.attempt_id)
+
+    assert finished.outcome["classification"] == "pass",
+           inspect(%{outcome: finished.outcome, error_details: finished.error_details})
+
+    repaired = WorkItems.get(waiting.work_item_id)
+    assert repaired.state == "ready"
+    assert repaired.phase == "verification_ready"
+    assert File.read!(Path.join(workspace, "BASE_REVIEW.md")) == "new base\n"
+    assert git!(workspace, ["rev-parse", "HEAD"]) == pull_request.head_sha
+    assert git!(workspace, ["status", "--short"]) =~ "BASE_REVIEW.md"
+  end
+
+  test "review repair policy exhaustion blocks without creating an Attempt", fixture do
+    {waiting, _pull_request} = publish_successfully!(fixture)
+
+    observation =
+      review_observation(waiting, %{
+        kind: "review_feedback",
+        external_updated_at: "2026-07-29T21:45:00Z",
+        comments: [
+          %{
+            id: 9_008,
+            body: "Please revise the implementation.",
+            updated_at: "2026-07-29T21:45:00Z"
+          }
+        ]
+      })
+
+    assert {:ok, _result} =
+             Reconciler.ingest(
+               waiting.work_item_id,
+               observation,
+               routine_id: fixture.routine.id,
+               artifact_dir: fixture.artifacts
+             )
+
+    assert :ok =
+             plan_review_repair!(
+               fixture,
+               waiting,
+               repair_policy: repair_policy(max_repairs: 0)
+             )
+
+    blocked = WorkItems.get(waiting.work_item_id)
+    assert blocked.state == "blocked"
+    assert blocked.phase == "feedback_ready"
+    assert blocked.blocked_reason["code"] == "repair_policy_exhausted"
+    assert repair_attempt_count(waiting) == 0
   end
 
   test "a local-only publication commit is recovered and pushed without a second commit",
@@ -1292,12 +1804,56 @@ defmodule Custode.GitHubIssueVerticalTest do
     ready
   end
 
+  defp publish_successfully!(fixture) do
+    work_item = verify_successfully!(fixture)
+    assert :ok = plan_publication!(fixture, work_item)
+    publication = publication_attempt!(work_item)
+
+    assert :ok =
+             PublicationAttempts.perform(
+               publication_job!(publication.attempt_id),
+               artifact_dir: fixture.artifacts
+             )
+
+    assert_receive {:open_pr, pull_request}
+    waiting = WorkItems.get(work_item.work_item_id)
+    assert waiting.state == "waiting"
+    assert waiting.phase == "awaiting_review"
+    {waiting, pull_request}
+  end
+
+  defp review_observation(work_item, attrs) do
+    condition = work_item.waiting_condition
+
+    %{
+      repository: condition["repository"],
+      pull_request_number: condition["number"],
+      head_sha: condition["head_sha"],
+      external_updated_at: "2026-07-29T21:00:00Z",
+      kind: "snapshot"
+    }
+    |> Map.merge(attrs)
+  end
+
   defp plan_publication!(fixture, work_item) do
     GitHubIssueVertical.perform(
       fixture.routine.id,
       work_item.work_item_id,
       oban_job_id: System.unique_integer([:positive]),
       artifact_dir: fixture.artifacts
+    )
+  end
+
+  defp plan_review_repair!(fixture, work_item, options \\ []) do
+    defaults = [
+      oban_job_id: System.unique_integer([:positive]),
+      artifact_dir: fixture.artifacts
+    ]
+
+    GitHubIssueVertical.perform(
+      fixture.routine.id,
+      work_item.work_item_id,
+      Keyword.merge(defaults, options)
     )
   end
 
@@ -1657,6 +2213,13 @@ defmodule Custode.GitHubIssueVerticalTest do
 
     git!(repository, ["remote", "add", "origin", remote])
     git!(repository, ["push", "-u", "origin", "main"])
+  end
+
+  defp clone_repository!(remote, path) do
+    case System.cmd("git", ["clone", remote, path], stderr_to_stdout: true) do
+      {_output, 0} -> :ok
+      {output, status} -> flunk("git clone failed (#{status}): #{output}")
+    end
   end
 
   defp git!(path, args) do

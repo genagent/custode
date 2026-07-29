@@ -73,6 +73,7 @@ defmodule Custode.Repair.Disposition do
 
   defp handler_policy(%{kind: "infrastructure_retry", handler: "verification_retry"}), do: :ok
   defp handler_policy(%{kind: "mechanical_repair", handler: "elixir_format"}), do: :ok
+  defp handler_policy(%{kind: "mechanical_repair", handler: "git_replay"}), do: :ok
   defp handler_policy(%{kind: "semantic_repair", handler: "claude"}), do: :ok
 
   defp handler_policy(%{kind: kind, handler: nil}) when kind in ~w(human_ask terminal_block),

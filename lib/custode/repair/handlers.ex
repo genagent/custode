@@ -28,6 +28,30 @@ defmodule Custode.Repair.Handlers do
     })
   end
 
+  def fetch("git_replay", options) do
+    with old_base when is_binary(old_base) <- options[:old_base_revision],
+         new_base when is_binary(new_base) <- options[:new_base_revision],
+         head when is_binary(head) <- options[:head_revision] do
+      CommandSpec.new(%{
+        name: "repair_replay",
+        category: "repository",
+        argv: ["git", "read-tree", "-m", "-u", old_base, new_base, head],
+        working_directory: ".",
+        environment_allowlist: @environment_allowlist,
+        environment: environment(options),
+        timeout_ms: 120_000,
+        output_limit_bytes: 1_000_000,
+        tail_bytes: 8_000,
+        expected_exit_codes: [0],
+        risk: "internal_write",
+        shell: false,
+        reviewed: true
+      })
+    else
+      _missing -> {:error, :git_replay_revision_missing}
+    end
+  end
+
   def fetch(_handler, _options), do: {:error, :unknown_repair_handler}
 
   defp environment(options) do

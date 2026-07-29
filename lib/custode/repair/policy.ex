@@ -85,13 +85,28 @@ defmodule Custode.Repair.Policy do
       )
       when is_map(focused_failure) and is_list(attempts) do
     with {:ok, disposition} <- classify(failed, focused_failure) do
-      usage = usage(attempts, work_item, now)
-      snapshot = %{policy: render(policy), usage: usage}
+      authorize(disposition, attempts, work_item, policy, now)
+    end
+  end
 
-      case exhausted_limit(disposition, usage, policy) do
-        nil -> {:ok, disposition, snapshot}
-        limit -> {:exhausted, disposition, snapshot, limit}
-      end
+  @doc "Apply the same repair-loop limits to an already classified disposition."
+  @spec authorize(Disposition.t(), [Attempt.t()], WorkItem.t(), t(), DateTime.t()) ::
+          {:ok, Disposition.t(), map()}
+          | {:exhausted, Disposition.t(), map(), map()}
+  def authorize(
+        %Disposition{} = disposition,
+        attempts,
+        %WorkItem{} = work_item,
+        %__MODULE__{} = policy,
+        %DateTime{} = now
+      )
+      when is_list(attempts) do
+    usage = usage(attempts, work_item, now)
+    snapshot = %{policy: render(policy), usage: usage}
+
+    case exhausted_limit(disposition, usage, policy) do
+      nil -> {:ok, disposition, snapshot}
+      limit -> {:exhausted, disposition, snapshot, limit}
     end
   end
 
