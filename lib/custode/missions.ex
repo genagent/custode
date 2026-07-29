@@ -3,11 +3,22 @@ defmodule Custode.Missions do
 
   import Ecto.Query, only: [from: 2]
 
-  alias Custode.{Attempt, Mission, MissionTarget, OperationCall, Repo, WorkGate, WorkItem}
+  alias Custode.{
+    Attempt,
+    Mission,
+    MissionTarget,
+    OperationCall,
+    Repo,
+    WorkGate,
+    WorkItem,
+    WorkspaceLease
+  }
+
   alias Custode.Operations.Missions.Create
 
   @active_call_statuses ~w(proposed waiting running)
   @active_attempt_states ~w(queued running)
+  @active_lease_states ~w(acquiring active cleanup_failed)
   @nonterminal_work_states ~w(proposed ready active waiting blocked)
 
   def list do
@@ -66,6 +77,9 @@ defmodule Custode.Missions do
           Repo.rollback({:active_obligation, obligation})
 
         obligation = active_work_gate(mission) ->
+          Repo.rollback({:active_obligation, obligation})
+
+        obligation = active_workspace_lease(mission) ->
           Repo.rollback({:active_obligation, obligation})
 
         obligation = active_operation_call(mission_id, current_call_id) ->
@@ -212,6 +226,19 @@ defmodule Custode.Missions do
     |> case do
       nil -> nil
       gate -> %{kind: "gate", id: gate.gate_id, status: gate.status}
+    end
+  end
+
+  defp active_workspace_lease(mission) do
+    from(lease in WorkspaceLease,
+      where: lease.mission_id == ^mission.id and lease.state in ^@active_lease_states,
+      order_by: [asc: lease.inserted_at],
+      limit: 1
+    )
+    |> Repo.one()
+    |> case do
+      nil -> nil
+      lease -> %{kind: "workspace_lease", id: lease.lease_id, status: lease.state}
     end
   end
 
