@@ -271,6 +271,57 @@ defmodule Custode.WorkflowRunnerTest do
       assert {:ok, %{status: "failed"}} = Runner.advance(run.run_id)
     end
 
+    test "a terminal failure cancels every pending sibling for only its run" do
+      workflow =
+        register(
+          Workflow.new!(uid("failure"), [
+            %Stage{
+              name: :fan_out,
+              nodes:
+                Enum.map(
+                  [:failing, :available, :scheduled, :retryable],
+                  &node_fixture/1
+                )
+            }
+          ])
+        )
+
+      {:ok, run} = Runner.launch(workflow.name, "genagent/custode", run_id: uid("run"))
+
+      {:ok, other} =
+        Runner.launch(workflow.name, "genagent/custode", run_id: uid("other-run"))
+
+      run_jobs = Map.new(jobs(run.run_id), &{&1.meta["node_name"], &1})
+
+      set_job_state(run_jobs["failing"], "executing")
+      set_job_state(run_jobs["scheduled"], "scheduled")
+      set_job_state(run_jobs["retryable"], "retryable")
+
+      # Duplicate terminal callbacks may race under future queue concurrency.
+      # Both must return normally, leave siblings cancelled, and leave another
+      # run untouched.
+      results =
+        [run_jobs["failing"].meta, run_jobs["failing"].meta]
+        |> Task.async_stream(&Runner.node_failed(&1, {:cancel, :boom}),
+          max_concurrency: 2,
+          ordered: false
+        )
+        |> Enum.to_list()
+
+      assert Enum.all?(results, &match?({:ok, %{status: "failed"}}, &1))
+
+      states = Map.new(jobs(run.run_id), &{&1.meta["node_name"], &1.state})
+
+      assert states == %{
+               "failing" => "executing",
+               "available" => "cancelled",
+               "scheduled" => "cancelled",
+               "retryable" => "cancelled"
+             }
+
+      assert Enum.all?(jobs(other.run_id), &(&1.state == "available"))
+    end
+
     test "a report for a run that does not exist is ignored, not a crash" do
       assert :ok = Runner.node_finished(%{"node_name" => "x"}, result(%{}))
       assert :ok = Runner.node_failed(%{}, :whatever)
@@ -318,5 +369,9 @@ defmodule Custode.WorkflowRunnerTest do
       assert_raise ArgumentError, ~r/nope/, fn -> Catalog.fetch!("nope") end
       assert "backlog-sweep" in Catalog.names()
     end
+  end
+
+  defp set_job_state(job, state) do
+    Repo.update_all(from(j in Oban.Job, where: j.id == ^job.id), set: [state: state])
   end
 end

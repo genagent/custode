@@ -66,8 +66,8 @@ was terminal.
 That call was stopped manually. The job row was later set to `cancelled` in
 the isolated evidence database so the probe could reuse the database safely.
 The observed pre-cleanup state and defect are recorded in
-[issue #387](https://github.com/genagent/custode/issues/387). It blocks linking
-this machinery to Attempts.
+[issue #387](https://github.com/genagent/custode/issues/387). The fix and
+re-exercise below close this blocker.
 
 The built-in run retained enough evidence to explain its outcome:
 
@@ -123,6 +123,27 @@ Its SHA-256 digest was
 The `report` result row referenced the same path written by
 `Custode.Workflow.Report`.
 
+## Terminal-failure cancellation re-exercise (#387)
+
+The #387 fix reused the runner's run-scoped pending-job cancellation when a
+node fails terminally. A fresh isolated runtime exercised the exact paid-call
+race with one stage containing two Haiku siblings:
+
+- `fails_first` had a deliberately microscopic $0.001 per-node cap;
+- `must_not_start` was queued behind it;
+- the run rail was $1, so only terminal node failure could stop the stage.
+
+`fails_first` returned `{:cancel, :max_budget_exceeded}` at $0.0496291. The run
+became `failed`, the failing job became `cancelled` after one attempt, and
+`must_not_start` became `cancelled` at attempt zero. The state was unchanged
+after a one-second settling window. The spend ledger contained exactly one
+row, for `fails_first`.
+
+This directly demonstrates that an available sibling no longer begins paid
+work after the run becomes terminal. The focused regression test additionally
+covers available, scheduled, and retryable sibling states, another workflow
+run remaining untouched, and a repeated terminal callback.
+
 ## Spend
 
 Recorded spend was:
@@ -141,6 +162,10 @@ $1 caps puts maximum total exposure at $5.1099336, below the approved $15.
 
 The early harness database was retained separately under `/tmp` and did not
 contribute evidence to the assertions above.
+
+The #387 re-exercise added $0.0496291 of recorded spend. Across #356 and #387,
+recorded spend was $3.1595627 and maximum exposure under the same conservative
+accounting was $5.1595627, still below the approved $15.
 
 ## Attempt mapping decision
 
@@ -162,9 +187,9 @@ The narrow interpretation for the Attempt successor is:
 - a final report remains an Artifact produced by the report Attempt and linked
   through the plan.
 
-This is evidence for #363, not an implementation of it. No workflow or Attempt
-schema should be added until #387 prevents paid sibling work after a terminal
-run failure.
+This is evidence for #363, not an implementation of it. The #387 fix prevents
+the paid sibling work observed here; the Attempt successor can use the mapping
+above without importing workflow-run state into one oversized Attempt.
 
 ## Operational risk
 

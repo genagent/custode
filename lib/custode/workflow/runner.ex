@@ -201,7 +201,16 @@ defmodule Custode.Workflow.Runner do
   def node_failed(%{"workflow_run" => run_id} = meta, reason) do
     detail = "node #{meta["node_name"]} failed: #{inspect(reason)}"
     failed = Run.fail(run_id, detail)
-    if failed, do: record(failed, "workflow_failed", detail)
+
+    if failed do
+      # A stage enqueues its siblings together. Once one fails terminally,
+      # every sibling that has not started must be cancelled before this
+      # worker returns and the queue can dispatch another paid call (#387).
+      # The query is run-scoped and excludes executing/completed jobs.
+      cancel_pending(run_id)
+      record(failed, "workflow_failed", detail)
+    end
+
     failed
   end
 
