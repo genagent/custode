@@ -14,6 +14,7 @@ for table <- [
       "issue_drafts",
       "instance",
       "operation_calls",
+      "legacy_routine_mission_mappings",
       "mission_targets",
       "missions"
     ] do

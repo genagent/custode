@@ -39,6 +39,9 @@ defmodule Custode.Application do
       # graceful-shutdown overlap. CUSTODE_TAKEOVER=1 seizes a wedged one.
       Custode.Instance,
       Supervisor.child_spec({Task, &Custode.Missions.bootstrap!/0}, id: :mission_bootstrap),
+      Supervisor.child_spec({Task, &Custode.LegacyMissionProjection.project_all!/0},
+        id: :legacy_mission_projection
+      ),
       {Task.Supervisor, name: Custode.TaskSupervisor},
       {Oban, oban_config()},
       ObanClaude.Agent.Supervisor,

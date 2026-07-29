@@ -36,6 +36,7 @@ defmodule Custode.OperationRegistry do
         PauseAgent.definition(),
         Missions.Archive.definition(),
         Missions.Create.definition(),
+        Missions.ProjectLegacyRoutine.definition(),
         Missions.Update.definition()
       ])
 

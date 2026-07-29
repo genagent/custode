@@ -19,6 +19,7 @@ defmodule Custode.OperationDispatcherTest do
              "fleet.pause_agent",
              "mission.archive",
              "mission.create",
+             "mission.project_legacy_routine",
              "mission.update"
            ] = Enum.map(OperationRegistry.list(registry), & &1.name)
   end

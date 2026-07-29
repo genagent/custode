@@ -397,6 +397,72 @@ config :custode, Custode.Repo,
 # The MCP endpoint (localhost only) agents use to drive sibling agents/jobs.
 config :custode, mcp_port: 6161
 
+# One-way Mission mapping declarations for legacy routines without a single
+# repository target. Repository routines resolve through GitHub's stable
+# repository ID instead. These declarations describe scope only; routines.toml
+# remains authoritative for schedule and executor fields.
+config :custode,
+  legacy_mission_mappings: %{
+    "custode" => %{
+      strategy: "fixed_mission",
+      mission: %{
+        key: "system:custode",
+        purpose: "Operate Custode",
+        lifecycle: "persistent",
+        targets: [
+          %{kind: "system", external_id: "custode", display_name: "Custode"}
+        ]
+      }
+    },
+    "quakes" => %{
+      strategy: "fixed_mission",
+      mission: %{
+        key: "watch:usgs-earthquakes",
+        purpose: "Monitor significant USGS earthquakes",
+        lifecycle: "persistent",
+        targets: [
+          %{
+            kind: "usgs_feed",
+            external_id: "earthquakes-m4.5-day",
+            display_name: "USGS M4.5+ earthquakes"
+          }
+        ]
+      }
+    },
+    "stars" => %{
+      strategy: "fixed_mission",
+      mission: %{
+        key: "observation:github-stars",
+        purpose: "Observe GitHub star changes",
+        lifecycle: "persistent",
+        targets: [
+          %{
+            kind: "github_owner_set",
+            external_id: "genagent+joshrotenberg",
+            display_name: "genagent and joshrotenberg stars"
+          }
+        ]
+      }
+    },
+    "contributors" => %{
+      strategy: "fixed_mission",
+      mission: %{
+        key: "observation:github-contributors",
+        purpose: "Observe GitHub contributor activity",
+        lifecycle: "persistent",
+        targets: [
+          %{
+            kind: "github_owner_set",
+            external_id: "genagent+joshrotenberg",
+            display_name: "genagent and joshrotenberg contributors"
+          }
+        ]
+      }
+    },
+    "reviewer" => %{strategy: "repository_attempts"},
+    "consistency" => %{strategy: "ephemeral_per_investigation"}
+  }
+
 # The fleet-tuning advisors (#125/#260): a name -> cron map naming which run
 # and how often. `false` (or omitting a name) disables one. Toggleable via
 # custode.toml's [advisors] section without a code edit. Cadence/Model/Budget
