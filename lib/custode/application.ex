@@ -65,6 +65,11 @@ defmodule Custode.Application do
       # boot reconciliation: unresolved gates from before the restart become
       # RESTART NOTICE inbox notes the next sweep re-evaluates
       Supervisor.child_spec({Task, &Custode.Gates.reconcile!/0}, id: :gates_reconcile),
+      # Expired workspace ownership becomes stale and retained. Reconciliation
+      # never deletes a directory because expiry is not proof of ownership.
+      Supervisor.child_spec({Task, &Custode.WorkspaceLeases.reconcile!/0},
+        id: :workspace_leases_reconcile
+      ),
       # orphaned sub-agents (#5) become revival-handle notices in their
       # parent's inbox -- offered, never auto-revived
       Supervisor.child_spec({Task, fn -> Custode.SubAgents.reconcile!() end},
