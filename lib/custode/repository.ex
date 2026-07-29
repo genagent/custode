@@ -595,7 +595,9 @@ defmodule Custode.Repository.Ops do
       state: pr["state"],
       draft: pr["draft"],
       base: get_in(pr, ["base", "ref"]),
+      base_sha: get_in(pr, ["base", "sha"]),
       head: get_in(pr, ["head", "ref"]),
+      head_sha: get_in(pr, ["head", "sha"]),
       updated_at: pr["updated_at"],
       url: pr["html_url"]
     }

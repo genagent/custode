@@ -3,6 +3,8 @@ defmodule Custode.OperationRegistry do
 
   alias Custode.OperationDefinition
   alias Custode.Operations.Fleet.PauseAgent
+  alias Custode.Operations.Git.PublishBranch
+  alias Custode.Operations.GitHub.OpenPr
   alias Custode.Operations.Missions
   alias Custode.Operations.RoleBindings
   alias Custode.Operations.WorkItems
@@ -36,6 +38,8 @@ defmodule Custode.OperationRegistry do
     {:ok, registry} =
       new([
         PauseAgent.definition(),
+        PublishBranch.definition(),
+        OpenPr.definition(),
         Missions.Archive.definition(),
         Missions.Create.definition(),
         Missions.ProjectLegacyRoutine.definition(),

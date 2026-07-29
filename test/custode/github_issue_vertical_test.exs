@@ -18,8 +18,11 @@ defmodule Custode.GitHubIssueVerticalTest do
     Memory,
     Mission,
     MissionTarget,
+    OperationCall,
+    PublicationAttempts,
     RepairAttempts,
     Repo,
+    Repository,
     RoleBinding,
     RoleBindings,
     SpendLedger,
@@ -37,6 +40,78 @@ defmodule Custode.GitHubIssueVerticalTest do
   @repository_id "1307868502"
   @repository "genagent/custode"
 
+  defmodule PublicationRepoOps do
+    @behaviour Custode.Repository.OpsBehaviour
+
+    def open_pr(owner, repo, attrs) do
+      state = state()
+      head_sha = remote_revision!(state.remote, attrs.head)
+
+      pull_request =
+        Agent.get_and_update(state.pid, fn data ->
+          number = data.next_number
+
+          pull_request = %{
+            number: number,
+            title: attrs.title,
+            state: "open",
+            draft: true,
+            base: attrs.base,
+            base_sha: nil,
+            head: attrs.head,
+            head_sha: head_sha,
+            updated_at: "2026-07-29T20:00:00Z",
+            url: "https://github.com/#{owner}/#{repo}/pull/#{number}",
+            body: attrs.body
+          }
+
+          {pull_request,
+           %{data | next_number: number + 1, pull_requests: [pull_request | data.pull_requests]}}
+        end)
+
+      send(state.test_pid, {:open_pr, pull_request})
+
+      {:ok,
+       %{
+         "number" => pull_request.number,
+         "html_url" => pull_request.url,
+         "head" => %{"ref" => pull_request.head, "sha" => pull_request.head_sha}
+       }}
+    end
+
+    def list_prs(_owner, _repo, _opts), do: {:ok, Agent.get(state().pid, & &1.pull_requests)}
+
+    def view_pr(_owner, _repo, number) do
+      case Enum.find(Agent.get(state().pid, & &1.pull_requests), &(&1.number == number)) do
+        nil -> {:error, :not_found}
+        pull_request -> {:ok, pull_request}
+      end
+    end
+
+    def open_issue(_owner, _repo, _attrs), do: {:error, :unsupported}
+    def comment(_owner, _repo, _number, _body), do: {:error, :unsupported}
+    def ready_pr(_owner, _repo, _number), do: {:error, :unsupported}
+    def merge_pr(_owner, _repo, _number), do: {:error, :unsupported}
+    def list_issues(_owner, _repo, _opts), do: {:ok, []}
+    def view_issue(_owner, _repo, _number), do: {:error, :unsupported}
+    def pr_checks(_owner, _repo, _number), do: {:ok, %{sha: nil, checks: []}}
+    def pr_diff(_owner, _repo, _number), do: {:ok, %{files: []}}
+    def review_state(_owner, _repo, _number), do: :unreviewed
+
+    defp state, do: Application.fetch_env!(:custode, :publication_repo_ops_state)
+
+    defp remote_revision!(remote, branch) do
+      case System.cmd(
+             "git",
+             ["--git-dir", remote, "rev-parse", "refs/heads/#{branch}"],
+             stderr_to_stdout: true
+           ) do
+        {output, 0} -> String.trim(output)
+        {output, status} -> raise "remote revision failed (#{status}): #{output}"
+      end
+    end
+  end
+
   setup do
     cleanup!()
     root = Path.join(System.tmp_dir!(), "custode-vertical-#{Ecto.UUID.generate()}")
@@ -47,6 +122,24 @@ defmodule Custode.GitHubIssueVerticalTest do
     File.mkdir_p!(repository)
     File.mkdir_p!(Path.join(notebook, "inbox"))
     init_repository!(repository)
+    remote = Path.join(root, "remote.git")
+    init_remote!(repository, remote)
+
+    repo_state =
+      start_supervised!(
+        Supervisor.child_spec(
+          {Agent, fn -> %{next_number: 398, pull_requests: []} end},
+          id: {:publication_repo_state, Ecto.UUID.generate()}
+        )
+      )
+
+    put_env!(:repo_ops, PublicationRepoOps)
+
+    put_env!(:publication_repo_ops_state, %{
+      pid: repo_state,
+      remote: remote,
+      test_pid: self()
+    })
 
     routine =
       routine_fixture!(notebook, %{
@@ -62,6 +155,8 @@ defmodule Custode.GitHubIssueVerticalTest do
         timeout_ms: 60_000
       })
 
+    assert :ok = Repository.ensure_served(@repository, routine.id)
+
     mission = insert_mission!()
     {:ok, _binding, _effects} = project_binding(routine, mission)
     Memory.remember(routine.id, "house-style", "No em dashes.")
@@ -76,6 +171,8 @@ defmodule Custode.GitHubIssueVerticalTest do
       repository: repository,
       workspaces: workspaces,
       artifacts: artifacts,
+      remote: remote,
+      repo_state: repo_state,
       routine: routine,
       mission: mission
     }
@@ -328,6 +425,216 @@ defmodule Custode.GitHubIssueVerticalTest do
                runner: refuting_runner,
                artifact_dir: fixture.artifacts
              )
+  end
+
+  test "verified work publishes once and waits durably on the draft pull request", fixture do
+    work_item = verify_successfully!(fixture)
+    assert :ok = plan_publication!(fixture, work_item)
+    publication = publication_attempt!(work_item)
+
+    assert publication.state == "running"
+    assert publication.executor_kind == "deterministic"
+    assert publication.provider == "custode"
+    assert publication_job_count(publication.attempt_id) == 1
+
+    assert :ok =
+             PublicationAttempts.perform(
+               publication_job!(publication.attempt_id),
+               artifact_dir: fixture.artifacts
+             )
+
+    assert Attempts.get(publication.attempt_id).error_details == nil
+    assert_receive {:open_pr, pull_request}
+    assert pull_request.draft
+    assert pull_request.title == "feat: compile context and run Claude"
+
+    finished = Attempts.get(publication.attempt_id)
+    assert finished.state == "succeeded"
+    assert finished.outcome["classification"] == "published"
+    assert length(finished.outcome["operation_call_ids"]) == 2
+
+    waiting = WorkItems.get(work_item.work_item_id)
+    assert waiting.state == "waiting"
+    assert waiting.phase == "awaiting_review"
+    assert waiting.active_attempt_id == nil
+    assert waiting.waiting_condition["name"] == "github_pull_request"
+    assert waiting.waiting_condition["head_sha"] == pull_request.head_sha
+
+    operation_calls =
+      Repo.all(
+        from(call in OperationCall,
+          where: call.attempt_id == ^publication.attempt_id,
+          order_by: [asc: call.inserted_at]
+        )
+      )
+
+    assert Enum.map(operation_calls, & &1.operation) ==
+             ["git.publish_branch", "github.open_pr"]
+
+    assert Enum.all?(operation_calls, &(&1.status == "succeeded"))
+    assert Enum.all?(operation_calls, &(&1.actor["kind"] == "system"))
+    assert Enum.all?(operation_calls, &(&1.transport == "worker"))
+
+    artifacts = Artifacts.list_for_work_item(work_item.work_item_id)
+    assert Enum.any?(artifacts, &(&1.kind == "branch"))
+    assert Enum.any?(artifacts, &(&1.kind == "commit"))
+    assert Enum.any?(artifacts, &(&1.kind == "pull_request"))
+
+    assert :ok =
+             PublicationAttempts.perform(
+               publication_job!(publication.attempt_id),
+               artifact_dir: fixture.artifacts
+             )
+
+    refute_receive {:open_pr, _pull_request}, 50
+    assert publication_attempt_count(work_item) == 1
+    assert Agent.get(fixture.repo_state, &length(&1.pull_requests)) == 1
+  end
+
+  test "a local-only publication commit is recovered and pushed without a second commit",
+       fixture do
+    work_item = verify_successfully!(fixture)
+    assert :ok = plan_publication!(fixture, work_item)
+    publication = publication_attempt!(work_item)
+    workspace = publication_workspace!(work_item)
+
+    git!(workspace, ["add", "--all"])
+    git!(workspace, ["commit", "-m", "feat: compile context and run Claude"])
+    local_commit = git!(workspace, ["rev-parse", "HEAD"])
+
+    assert remote_branch(fixture.remote, workspace_branch(work_item)) == nil
+
+    assert :ok =
+             PublicationAttempts.perform(
+               publication_job!(publication.attempt_id),
+               artifact_dir: fixture.artifacts
+             )
+
+    assert remote_branch(fixture.remote, workspace_branch(work_item)) == local_commit
+    assert git!(workspace, ["rev-parse", "HEAD"]) == local_commit
+  end
+
+  test "a remote-only matching branch is adopted instead of overwritten", fixture do
+    work_item = verify_successfully!(fixture)
+    assert :ok = plan_publication!(fixture, work_item)
+    publication = publication_attempt!(work_item)
+    workspace = publication_workspace!(work_item)
+    branch = workspace_branch(work_item)
+    expected_head = publication.provenance["expected_head_revision"]
+
+    git!(workspace, ["add", "--all"])
+    git!(workspace, ["commit", "-m", "feat: compile context and run Claude"])
+    published_commit = git!(workspace, ["rev-parse", "HEAD"])
+    git!(workspace, ["push", "origin", "#{published_commit}:refs/heads/#{branch}"])
+    git!(workspace, ["reset", "--mixed", expected_head])
+
+    assert git!(workspace, ["rev-parse", "HEAD"]) == expected_head
+    assert remote_branch(fixture.remote, branch) == published_commit
+
+    assert :ok =
+             PublicationAttempts.perform(
+               publication_job!(publication.attempt_id),
+               artifact_dir: fixture.artifacts
+             )
+
+    assert git!(workspace, ["rev-parse", "HEAD"]) == published_commit
+    assert remote_branch(fixture.remote, branch) == published_commit
+  end
+
+  test "an existing matching draft pull request is reused without another GitHub write",
+       fixture do
+    work_item = verify_successfully!(fixture)
+    assert :ok = plan_publication!(fixture, work_item)
+    publication = publication_attempt!(work_item)
+
+    assert {:error, {:simulated_crash, :after_git}} =
+             PublicationAttempts.perform(
+               publication_job!(publication.attempt_id),
+               artifact_dir: fixture.artifacts,
+               after_git: fn _response -> {:error, :after_git} end
+             )
+
+    commit_sha = remote_branch(fixture.remote, workspace_branch(work_item))
+    seed_pull_request!(fixture, work_item, commit_sha, 812)
+
+    assert :ok =
+             PublicationAttempts.perform(
+               publication_job!(publication.attempt_id),
+               artifact_dir: fixture.artifacts
+             )
+
+    refute_receive {:open_pr, _pull_request}, 50
+    assert get_in(Attempts.get(publication.attempt_id).outcome, ["pull_request", "number"]) == 812
+  end
+
+  test "a crash after the GitHub Operation replays its result without opening another PR",
+       fixture do
+    work_item = verify_successfully!(fixture)
+    assert :ok = plan_publication!(fixture, work_item)
+    publication = publication_attempt!(work_item)
+
+    assert {:error, {:simulated_crash, :after_pull_request}} =
+             PublicationAttempts.perform(
+               publication_job!(publication.attempt_id),
+               artifact_dir: fixture.artifacts,
+               after_pull_request: fn _response -> {:error, :after_pull_request} end
+             )
+
+    assert_receive {:open_pr, _pull_request}
+    assert Attempts.get(publication.attempt_id).state == "running"
+
+    assert :ok =
+             PublicationAttempts.perform(
+               publication_job!(publication.attempt_id),
+               artifact_dir: fixture.artifacts
+             )
+
+    refute_receive {:open_pr, _pull_request}, 50
+    assert Agent.get(fixture.repo_state, &length(&1.pull_requests)) == 1
+  end
+
+  test "publication refuses a workspace changed after verification", fixture do
+    work_item = verify_successfully!(fixture)
+    assert :ok = plan_publication!(fixture, work_item)
+    publication = publication_attempt!(work_item)
+    workspace = publication_workspace!(work_item)
+
+    File.write!(Path.join(workspace, "README.md"), "changed after verification\n")
+
+    assert :ok =
+             PublicationAttempts.perform(
+               publication_job!(publication.attempt_id),
+               artifact_dir: fixture.artifacts
+             )
+
+    blocked = WorkItems.get(work_item.work_item_id)
+    assert blocked.state == "blocked"
+    assert blocked.phase == "publishing"
+    assert blocked.blocked_reason["code"] == "publication_stale"
+    refute_receive {:open_pr, _pull_request}, 50
+    assert remote_branch(fixture.remote, workspace_branch(work_item)) == nil
+  end
+
+  test "publication never overwrites a divergent remote branch", fixture do
+    work_item = verify_successfully!(fixture)
+    assert :ok = plan_publication!(fixture, work_item)
+    publication = publication_attempt!(work_item)
+    branch = workspace_branch(work_item)
+    base_revision = git!(fixture.repository, ["rev-parse", "HEAD"])
+
+    git!(fixture.repository, ["push", "origin", "#{base_revision}:refs/heads/#{branch}"])
+
+    assert :ok =
+             PublicationAttempts.perform(
+               publication_job!(publication.attempt_id),
+               artifact_dir: fixture.artifacts
+             )
+
+    blocked = WorkItems.get(work_item.work_item_id)
+    assert blocked.state == "blocked"
+    assert blocked.blocked_reason["code"] == "publication_stale"
+    assert remote_branch(fixture.remote, branch) == base_revision
+    refute_receive {:open_pr, _pull_request}, 50
   end
 
   test "a crash after command evidence reuses it without executing the command twice", fixture do
@@ -895,7 +1202,7 @@ defmodule Custode.GitHubIssueVerticalTest do
 
     issue = %{
       number: 368,
-      title: "Compile context and run Claude",
+      title: "feat: compile context and run Claude",
       body: "Implement the bounded provider slice.",
       state: "open",
       labels: ["enhancement"],
@@ -968,6 +1275,32 @@ defmodule Custode.GitHubIssueVerticalTest do
              )
   end
 
+  defp verify_successfully!(fixture) do
+    work_item = implement_successfully!(fixture)
+    assert :ok = dispatch_to_verifier!(fixture, work_item)
+    verification = latest_verification_attempt!(work_item)
+
+    assert :ok =
+             VerificationAttempts.perform(
+               verification_job!(verification.attempt_id),
+               artifact_dir: fixture.artifacts
+             )
+
+    ready = WorkItems.get(work_item.work_item_id)
+    assert ready.state == "ready"
+    assert ready.phase == "publication_ready"
+    ready
+  end
+
+  defp plan_publication!(fixture, work_item) do
+    GitHubIssueVertical.perform(
+      fixture.routine.id,
+      work_item.work_item_id,
+      oban_job_id: System.unique_integer([:positive]),
+      artifact_dir: fixture.artifacts
+    )
+  end
+
   defp fail_verification!(fixture, failed_name, status) do
     work_item = implement_successfully!(fixture)
     assert :ok = dispatch_to_verifier!(fixture, work_item)
@@ -1035,6 +1368,19 @@ defmodule Custode.GitHubIssueVerticalTest do
     work_item.work_item_id
     |> Attempts.list_for_work_item()
     |> Enum.count(&(get_in(&1.provenance, ["purpose"]) == "github_issue_repair"))
+  end
+
+  defp publication_attempt!(work_item) do
+    work_item.work_item_id
+    |> Attempts.list_for_work_item()
+    |> Enum.reverse()
+    |> Enum.find(&(get_in(&1.provenance, ["purpose"]) == "github_issue_publication"))
+  end
+
+  defp publication_attempt_count(work_item) do
+    work_item.work_item_id
+    |> Attempts.list_for_work_item()
+    |> Enum.count(&(get_in(&1.provenance, ["purpose"]) == "github_issue_publication"))
   end
 
   defp provider_job!(attempt_id) do
@@ -1110,6 +1456,72 @@ defmodule Custode.GitHubIssueVerticalTest do
       ),
       :count
     )
+  end
+
+  defp publication_job!(attempt_id) do
+    Repo.one!(
+      from(job in Oban.Job,
+        where:
+          job.worker == "Custode.PublicationAttemptJob" and
+            fragment("json_extract(?, '$.attempt_id')", job.args) == ^attempt_id
+      )
+    )
+  end
+
+  defp publication_job_count(attempt_id) do
+    Repo.aggregate(
+      from(job in Oban.Job,
+        where:
+          job.worker == "Custode.PublicationAttemptJob" and
+            fragment("json_extract(?, '$.attempt_id')", job.args) == ^attempt_id
+      ),
+      :count
+    )
+  end
+
+  defp publication_workspace!(work_item) do
+    work_item.work_item_id
+    |> WorkspaceLeases.get_for_work_item()
+    |> Map.fetch!(:workspace_path)
+  end
+
+  defp workspace_branch(work_item) do
+    work_item.work_item_id
+    |> WorkspaceLeases.get_for_work_item()
+    |> Map.fetch!(:branch)
+  end
+
+  defp seed_pull_request!(fixture, work_item, commit_sha, number) do
+    branch = workspace_branch(work_item)
+
+    pull_request = %{
+      number: number,
+      title: "feat: compile context and run Claude",
+      state: "open",
+      draft: true,
+      base: "main",
+      base_sha: nil,
+      head: branch,
+      head_sha: commit_sha,
+      updated_at: "2026-07-29T20:00:00Z",
+      url: "https://github.com/genagent/custode/pull/#{number}",
+      body: "Closes #368."
+    }
+
+    Agent.update(fixture.repo_state, fn state ->
+      %{state | pull_requests: [pull_request | state.pull_requests]}
+    end)
+  end
+
+  defp remote_branch(remote, branch) do
+    case System.cmd(
+           "git",
+           ["--git-dir", remote, "rev-parse", "--verify", "refs/heads/#{branch}"],
+           stderr_to_stdout: true
+         ) do
+      {output, 0} -> String.trim(output)
+      {_output, _status} -> nil
+    end
   end
 
   defp repair_decision_event_count(work_item) do
@@ -1237,6 +1649,16 @@ defmodule Custode.GitHubIssueVerticalTest do
     git!(path, ["commit", "-m", "base"])
   end
 
+  defp init_remote!(repository, remote) do
+    case System.cmd("git", ["init", "--bare", remote], stderr_to_stdout: true) do
+      {_output, 0} -> :ok
+      {output, status} -> flunk("git init --bare failed (#{status}): #{output}")
+    end
+
+    git!(repository, ["remote", "add", "origin", remote])
+    git!(repository, ["push", "-u", "origin", "main"])
+  end
+
   defp git!(path, args) do
     case System.cmd("git", ["-C", path | args], stderr_to_stdout: true) do
       {output, 0} -> String.trim(output)
@@ -1251,6 +1673,7 @@ defmodule Custode.GitHubIssueVerticalTest do
           job.worker in [
             "Custode.ClaudeAttemptJob",
             "Custode.GitHubIssueVerticalJob",
+            "Custode.PublicationAttemptJob",
             "Custode.RepairAttemptJob",
             "Custode.VerificationAttemptJob",
             "Custode.WorkCommandJob"
