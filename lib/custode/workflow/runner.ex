@@ -87,6 +87,9 @@ defmodule Custode.Workflow.Runner do
       after which the run parks at `budget_paused`. nil is unbounded, which is
       what an iex launch gets; the launch gate always sets one.
     * `:run_id` -- override the minted id (tests, and re-running a known run).
+    * `:work_item_id` -- optional compatibility link for a workflow launched
+      as the execution plan for one WorkItem. Individual node results link to
+      their own Attempts when an Attempt-aware caller supplies that metadata.
 
   Returns `{:ok, run}` or `{:error, reason}`.
   """
@@ -115,7 +118,8 @@ defmodule Custode.Workflow.Runner do
           repo,
           first.name,
           context,
-          Keyword.get(opts, :budget_usd)
+          Keyword.get(opts, :budget_usd),
+          Keyword.get(opts, :work_item_id)
         )
 
       record(run, "workflow_launched", launch_summary(definition, run))
@@ -182,6 +186,7 @@ defmodule Custode.Workflow.Runner do
       stage: meta["stage"],
       node_name: meta["node_name"],
       args_hash: meta["args_hash"],
+      attempt_id: meta["attempt_id"],
       result: payload
     })
 
@@ -481,16 +486,19 @@ defmodule Custode.Workflow.Runner do
       |> put_effort(planned.settings.effort)
       |> ObanClaude.Args.new()
 
-    meta = %{
-      "workflow_run" => run.run_id,
-      "workflow" => definition.name,
-      "stage" => to_string(stage.name),
-      "node_name" => planned.node_name,
-      "args_hash" => planned.args_hash,
-      # spend attribution: a run's cost is readable per run, which is what the
-      # gate's estimate (slice 2) will calibrate against
-      "agent_id" => "workflow-" <> run.run_id
-    }
+    meta =
+      %{
+        "workflow_run" => run.run_id,
+        "workflow" => definition.name,
+        "stage" => to_string(stage.name),
+        "node_name" => planned.node_name,
+        "args_hash" => planned.args_hash,
+        # spend attribution: a run's cost is readable per run, which is what the
+        # gate's estimate (slice 2) will calibrate against
+        "agent_id" => "workflow-" <> run.run_id
+      }
+      |> put_meta_unless_nil("work_item_id", run.work_item_id)
+      |> put_meta_unless_nil("mission_id", mission_id(run.work_item_id))
 
     case args |> NodeJob.new(meta: meta) |> Oban.insert() do
       {:ok, _job} ->
@@ -507,6 +515,17 @@ defmodule Custode.Workflow.Runner do
 
   defp put_unless_nil(args, _key, nil), do: args
   defp put_unless_nil(args, key, value), do: Keyword.put(args, key, value)
+  defp put_meta_unless_nil(meta, _key, nil), do: meta
+  defp put_meta_unless_nil(meta, key, value), do: Map.put(meta, key, value)
+
+  defp mission_id(nil), do: nil
+
+  defp mission_id(work_item_id) do
+    case Custode.WorkItems.get(work_item_id) do
+      nil -> nil
+      work_item -> work_item.mission.mission_id
+    end
+  end
 
   defp put_effort(args, nil), do: args
 

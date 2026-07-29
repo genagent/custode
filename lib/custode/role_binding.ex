@@ -5,7 +5,7 @@ defmodule Custode.RoleBinding do
 
   import Ecto.Changeset
 
-  alias Custode.Mission
+  alias Custode.{Attempt, Mission}
 
   @authority_sources ~w(legacy_routine database)
   @lifecycles ~w(active retired)
@@ -23,6 +23,7 @@ defmodule Custode.RoleBinding do
     field(:provenance, :map, default: %{})
     field(:retired_at, :utc_datetime_usec)
     belongs_to(:mission, Mission)
+    has_many(:attempts, Attempt)
     timestamps(type: :utc_datetime_usec)
   end
 

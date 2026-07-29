@@ -49,6 +49,7 @@ defmodule Custode.Workflow.Results do
       field(:args_hash, :string)
       field(:result, :string)
       field(:artifact, :string)
+      field(:attempt_id, :string)
       field(:at, :utc_datetime_usec)
     end
   end
@@ -67,11 +68,12 @@ defmodule Custode.Workflow.Results do
       args_hash: attrs.args_hash,
       result: Jason.encode!(Map.get(attrs, :result) || %{}),
       artifact: Map.get(attrs, :artifact),
+      attempt_id: Map.get(attrs, :attempt_id),
       at: DateTime.utc_now()
     }
 
     Repo.insert!(row,
-      on_conflict: {:replace, [:result, :artifact, :stage, :workflow, :at]},
+      on_conflict: {:replace, [:result, :artifact, :attempt_id, :stage, :workflow, :at]},
       conflict_target: [:workflow_run, :node_name, :args_hash]
     )
 
@@ -205,6 +207,7 @@ defmodule Custode.Workflow.Results do
       args_hash: row.args_hash,
       result: Jason.decode!(row.result),
       artifact: row.artifact,
+      attempt_id: row.attempt_id,
       at: row.at
     }
   end

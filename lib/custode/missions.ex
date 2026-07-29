@@ -3,10 +3,11 @@ defmodule Custode.Missions do
 
   import Ecto.Query, only: [from: 2]
 
-  alias Custode.{Mission, MissionTarget, OperationCall, Repo, WorkItem}
+  alias Custode.{Attempt, Mission, MissionTarget, OperationCall, Repo, WorkItem}
   alias Custode.Operations.Missions.Create
 
   @active_call_statuses ~w(proposed waiting running)
+  @active_attempt_states ~w(queued running)
   @nonterminal_work_states ~w(proposed ready active waiting blocked)
 
   def list do
@@ -59,6 +60,9 @@ defmodule Custode.Missions do
           mission
 
         obligation = active_work_item(mission) ->
+          Repo.rollback({:active_obligation, obligation})
+
+        obligation = active_attempt(mission) ->
           Repo.rollback({:active_obligation, obligation})
 
         obligation = active_operation_call(mission_id, current_call_id) ->
@@ -175,6 +179,23 @@ defmodule Custode.Missions do
     |> case do
       nil -> nil
       call -> %{kind: "operation_call", id: call.call_id, status: call.status}
+    end
+  end
+
+  defp active_attempt(mission) do
+    from(attempt in Attempt,
+      join: work_item in WorkItem,
+      on: work_item.id == attempt.work_item_id,
+      where:
+        work_item.mission_id == ^mission.id and
+          attempt.state in ^@active_attempt_states,
+      order_by: [asc: attempt.inserted_at],
+      limit: 1
+    )
+    |> Repo.one()
+    |> case do
+      nil -> nil
+      attempt -> %{kind: "attempt", id: attempt.attempt_id, status: attempt.state}
     end
   end
 
