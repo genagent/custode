@@ -89,6 +89,29 @@ Existing files stay as they are. Renaming a migration a database has already
 applied rewrites recorded history, which is why neither #309 nor #319 did it
 to anything already run.
 
+### Repairing a branch-only applied migration
+
+Issue #355 records the exceptional case: parked commit `5a41a5f` added
+`agent_panels.kind` as migration `20260722000004`, and one live database
+applied it even though panel v2 never shipped. Do not delete that version from
+`schema_migrations` or rename its file. Main carries the historical migration
+as an explicit compatibility tombstone, followed by a freshly generated
+timestamp migration that removes the unused column. A fresh database runs
+add-then-remove; an affected database skips the recorded add and runs remove.
+Both arrive at the declared v1 schema, and SQLite preserves the panel rows
+while rebuilding the table.
+
+Before applying the repair to an affected SQLite database, take an online
+backup:
+
+```sh
+sqlite3 custode.db ".backup 'custode.db.before-panel-kind-repair.backup'"
+mix ecto.migrate
+```
+
+Verify the backup with `PRAGMA integrity_check`, and retain it until the
+repaired application has booted and the existing panels have been read.
+
 ### Why this is a doctrine and not a lint
 
 There is no check that can distinguish the two styles. `20260726000004` is
