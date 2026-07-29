@@ -1,14 +1,19 @@
 defmodule Custode.Operations.Fleet.PauseAgent do
   @moduledoc false
 
-  alias Custode.OperationDefinition
+  alias Custode.{OperationDefinition, OperationDispatcher}
   alias Custode.Operations.Authorization
+
+  @name "fleet.pause_agent"
+
+  @spec name() :: String.t()
+  def name, do: @name
 
   @spec definition() :: OperationDefinition.t()
   def definition do
     {:ok, definition} =
       OperationDefinition.new(
-        name: "fleet.pause_agent",
+        name: @name,
         input_schema: %{agent_id: [type: :string, required: true]},
         result_schema: %{
           agent_id: [type: :string, required: true],
@@ -31,6 +36,20 @@ defmodule Custode.Operations.Fleet.PauseAgent do
       )
 
     definition
+  end
+
+  @spec dispatch(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def dispatch(agent_id, options) when is_binary(agent_id) and is_list(options) do
+    OperationDispatcher.dispatch(%{
+      operation: @name,
+      arguments: %{agent_id: agent_id},
+      actor: Keyword.fetch!(options, :actor),
+      transport: Keyword.fetch!(options, :transport),
+      idempotency_key: Keyword.fetch!(options, :idempotency_key),
+      correlation_id: options[:correlation_id],
+      causation_id: options[:causation_id],
+      dry_run: Keyword.get(options, :dry_run, false)
+    })
   end
 
   defp preview(%{agent_id: agent_id}, _envelope) do

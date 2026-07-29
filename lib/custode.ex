@@ -122,11 +122,16 @@ defmodule Custode do
   @doc "Release a paused agent."
   def resume(id \\ nil), do: Agent.resume_agent(fetch!(id).id)
 
-  @doc "The emergency brake (#14): pause every agent not already paused/offline."
-  def pause_all do
+  @doc """
+  The emergency brake (#14): pause every agent not already paused/offline.
+
+  Operation-routed clients may supply the pause function; the zero-argument
+  facade retains its original direct behavior for compatibility.
+  """
+  def pause_all(pause_fun \\ &Agent.emergency_pause/1) when is_function(pause_fun, 1) do
     ids =
       for {id, status} <- Agent.list(), pausable?(status) do
-        Agent.emergency_pause(id)
+        pause_fun.(id)
         id
       end
 

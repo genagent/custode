@@ -410,9 +410,12 @@ defmodule Custode.CLI.Pause do
 
   @impl Cheer.Command
   def run(args, _raw) do
-    Custode.CLI.emit("pause_agent", %{agent_id: args[:agent_id]}, false, fn reply ->
-      "#{reply["agent_id"]} paused"
-    end)
+    Custode.CLI.emit(
+      "pause_agent",
+      %{agent_id: args[:agent_id], idempotency_key: Ecto.UUID.generate()},
+      false,
+      fn reply -> "#{reply["agent_id"]} paused" end
+    )
   end
 end
 

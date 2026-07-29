@@ -12,6 +12,7 @@ defmodule CustodeWeb.FleetLive do
   use Phoenix.LiveView
 
   alias Custode.Config.WriteBack
+  alias Custode.Operations.Fleet.PauseAgent
 
   import CustodeWeb.Components
 
@@ -34,7 +35,11 @@ defmodule CustodeWeb.FleetLive do
 
     {:ok,
      socket
-     |> assign(tag_filter: nil, new_agent: %{open: false, preview: nil, error: nil, params: %{}})
+     |> assign(
+       tag_filter: nil,
+       new_agent: %{open: false, preview: nil, error: nil, params: %{}},
+       pause_all_idempotency_key: Ecto.UUID.generate()
+     )
      |> assign(away_dismissed: false, quiet_open: false)
      |> refresh()}
   end
@@ -117,9 +122,24 @@ defmodule CustodeWeb.FleetLive do
     {:noreply, socket |> put_flash(:info, message) |> refresh()}
   end
 
-  def handle_event("pause_all", _params, socket) do
-    {:ok, _ids} = Custode.pause_all()
-    {:noreply, refresh(socket)}
+  def handle_event("pause_all", params, socket) do
+    idempotency_key = params["idempotency_key"] || socket.assigns.pause_all_idempotency_key
+
+    pause = fn agent_id ->
+      PauseAgent.dispatch(agent_id,
+        actor: %{kind: :operator, id: "operator"},
+        transport: :liveview,
+        idempotency_key: idempotency_key,
+        correlation_id: idempotency_key
+      )
+    end
+
+    {:ok, _ids} = Custode.pause_all(pause)
+
+    {:noreply,
+     socket
+     |> assign(pause_all_idempotency_key: Ecto.UUID.generate())
+     |> refresh()}
   end
 
   def handle_event("resume_all", _params, socket) do
@@ -248,6 +268,7 @@ defmodule CustodeWeb.FleetLive do
             :if={@any_pausable}
             class="btn btn-outline btn-error btn-xs"
             phx-click="pause_all"
+            phx-value-idempotency_key={@pause_all_idempotency_key}
             data-confirm="Pause every running agent?"
           >
             pause all

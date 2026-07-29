@@ -7,8 +7,11 @@ defmodule Custode.IdentityTest do
   alias Custode.MCP.Identity
   alias Custode.MCP.MemoryTools
   alias Custode.MCP.NotebookTools
+  alias Custode.MCP.Router
   alias Custode.MCP.Tools
   alias ObanClaude.Agent
+  alias Plug.Conn
+  alias Plug.Test
 
   defp frame_for(kind, id),
     do: %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: kind, id: id}}}
@@ -49,6 +52,28 @@ defmodule Custode.IdentityTest do
         headers: [{"authorization", "Bearer " <> token} | accept],
         retry: false
       )
+  end
+
+  test "only an authenticated operator can mark an MCP request as CLI-originated" do
+    {:ok, operator_token} = Identity.operator_token()
+
+    operator_conn =
+      Test.conn(:post, "/mcp")
+      |> Conn.put_req_header("authorization", "Bearer " <> operator_token)
+      |> Conn.put_req_header("x-custode-origin", "cli")
+      |> Router.authenticate([])
+
+    assert operator_conn.assigns.custode_transport == :cli
+
+    routine_token = Identity.mint(:routine, "worker")
+
+    routine_conn =
+      Test.conn(:post, "/mcp")
+      |> Conn.put_req_header("authorization", "Bearer " <> routine_token)
+      |> Conn.put_req_header("x-custode-origin", "cli")
+      |> Router.authenticate([])
+
+    assert routine_conn.assigns.custode_transport == :mcp
   end
 
   test "a routine cannot decide a sibling routine's gate; its own sub-agents are fine" do

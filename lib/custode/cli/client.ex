@@ -23,7 +23,10 @@ defmodule Custode.CLI.Client do
 
   alias Custode.MCP.Identity
 
-  @headers [{"accept", "application/json, text/event-stream"}]
+  @headers [
+    {"accept", "application/json, text/event-stream"},
+    {"x-custode-origin", "cli"}
+  ]
 
   @doc "Call one tool on the running server: `{:ok, decoded}` | `{:error, text}`."
   def call(tool, arguments \\ %{}) do

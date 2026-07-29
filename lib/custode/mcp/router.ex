@@ -16,7 +16,9 @@ defmodule Custode.MCP.Router do
   def authenticate(conn, _opts) do
     with ["Bearer " <> token] <- Plug.Conn.get_req_header(conn, "authorization"),
          {:ok, identity} <- Identity.verify(token) do
-      Plug.Conn.assign(conn, :custode_identity, identity)
+      conn
+      |> Plug.Conn.assign(:custode_identity, identity)
+      |> Plug.Conn.assign(:custode_transport, origin_transport(conn, identity))
     else
       _missing_or_invalid ->
         conn
@@ -24,6 +26,17 @@ defmodule Custode.MCP.Router do
         |> Plug.Conn.halt()
     end
   end
+
+  # Origin is audit attribution, not a caller claim: only the verified
+  # operator token used by mix custode may distinguish CLI-over-MCP.
+  defp origin_transport(conn, %{kind: :operator}) do
+    case Plug.Conn.get_req_header(conn, "x-custode-origin") do
+      ["cli"] -> :cli
+      _other -> :mcp
+    end
+  end
+
+  defp origin_transport(_conn, _identity), do: :mcp
 
   # Not `forward`: the Anubis plug's init opts contain closures, which Plug's
   # compile-time forward cannot escape. Init at runtime instead.

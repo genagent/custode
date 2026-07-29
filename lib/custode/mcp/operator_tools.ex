@@ -138,15 +138,26 @@ defmodule Custode.MCP.OperatorTools.PauseAgent do
   use Anubis.Server.Component, type: :tool
 
   import Custode.MCP.Tools
+  alias Custode.Operations.Fleet.PauseAgent, as: Operation
 
   schema do
     field(:agent_id, :string, required: true, description: "the agent to pause")
+    field(:idempotency_key, :string, description: "stable key for retrying one logical pause")
   end
 
+  def definition, do: Operation.definition()
+  def name, do: definition().projection.mcp.name
+
   @impl true
-  def execute(%{agent_id: agent_id}, frame) do
-    case ObanClaude.Agent.emergency_pause(agent_id) do
-      :ok -> reply(frame, %{agent_id: agent_id, state: "paused"})
+  def execute(%{agent_id: agent_id} = params, frame) do
+    options = [
+      actor: Custode.MCP.caller(frame),
+      transport: Custode.MCP.origin_transport(frame),
+      idempotency_key: params[:idempotency_key] || Ecto.UUID.generate()
+    ]
+
+    case Operation.dispatch(agent_id, options) do
+      {:ok, %{result: result}} -> reply(frame, result)
       {:error, reason} -> fail(frame, "pause failed: #{inspect(reason)}")
     end
   end
