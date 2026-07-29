@@ -241,7 +241,7 @@ defmodule Custode.Routine do
 
     mcp_tools =
       if routine.mcp,
-        do: mcp_allowlist(routine.role) ++ Custode.MCP.external_allowed(),
+        do: mcp_tools(routine.role) ++ Custode.MCP.external_allowed(),
         else: []
 
     allowed = mcp_tools ++ routine.extra_allowed_tools
@@ -326,7 +326,13 @@ defmodule Custode.Routine do
   # The tool bundle follows the role's tier in the hierarchy (Custode.Roles):
   # the :custode tier (the fleet agent) also gets the operator tools; every
   # specialist gets the worker set. The permission model IS the hierarchy.
-  defp mcp_allowlist(role) do
+  @doc """
+  The existing Custode MCP allowlist for a role.
+
+  RoleTemplate compatibility projections read this exact adapter so they
+  cannot silently broaden the hierarchy-backed runtime permissions.
+  """
+  def mcp_tools(role) do
     operator = if Custode.Roles.grants(role) == :operator, do: @operator_mcp_tools, else: []
     prefix(@worker_mcp_tools ++ operator ++ optional_tools())
   end
@@ -347,6 +353,7 @@ defmodule Custode.Routine do
   def normalize_entry(routine), do: normalize(routine)
 
   defp normalize(routine) do
+    profile = Map.get(routine, :profile)
     routine = apply_profile(routine)
     id = Map.fetch!(routine, :id)
     workspace = Map.get(routine, :workspace, "workspaces/" <> id)
@@ -370,6 +377,9 @@ defmodule Custode.Routine do
           Map.get(routine, :working_dir, workspace)
         ),
       prompt: Map.fetch!(routine, :prompt),
+      # Retained only as declarative provenance for RoleTemplate resolution;
+      # execution still consumes the fully applied values below.
+      profile: profile,
       role: role,
       model: Map.get(routine, :model, Application.fetch_env!(:custode, :model)),
       max_budget_usd:

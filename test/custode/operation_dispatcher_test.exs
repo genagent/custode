@@ -20,7 +20,10 @@ defmodule Custode.OperationDispatcherTest do
              "mission.archive",
              "mission.create",
              "mission.project_legacy_routine",
-             "mission.update"
+             "mission.update",
+             "role_binding.create",
+             "role_binding.project_legacy_routine",
+             "role_binding.update"
            ] = Enum.map(OperationRegistry.list(registry), & &1.name)
   end
 

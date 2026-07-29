@@ -10,7 +10,8 @@ defmodule Custode.LegacyMissionProjectionTest do
     Missions,
     MissionTarget,
     OperationCall,
-    Repo
+    Repo,
+    RoleBinding
   }
 
   alias Custode.Operations.Missions.ProjectLegacyRoutine
@@ -28,6 +29,7 @@ defmodule Custode.LegacyMissionProjectionTest do
   end
 
   setup do
+    Repo.delete_all(RoleBinding)
     Repo.delete_all(OperationCall)
     Repo.delete_all(LegacyRoutineMissionMapping)
     Repo.delete_all(MissionTarget)
