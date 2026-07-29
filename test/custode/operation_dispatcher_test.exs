@@ -14,7 +14,13 @@ defmodule Custode.OperationDispatcherTest do
 
     registry = OperationRegistry.default()
     assert {:ok, ^definition} = OperationRegistry.fetch(registry, "fleet.pause_agent")
-    assert [^definition] = OperationRegistry.list(registry)
+
+    assert [
+             "fleet.pause_agent",
+             "mission.archive",
+             "mission.create",
+             "mission.update"
+           ] = Enum.map(OperationRegistry.list(registry), & &1.name)
   end
 
   test "invalid input never reaches a handler" do

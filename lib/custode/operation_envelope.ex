@@ -11,6 +11,7 @@ defmodule Custode.OperationEnvelope do
   @enforce_keys [:operation, :arguments, :actor, :transport]
   defstruct @enforce_keys ++
               [
+                :call_id,
                 :mission_id,
                 :work_item_id,
                 :attempt_id,
@@ -28,6 +29,7 @@ defmodule Custode.OperationEnvelope do
           arguments: map(),
           actor: actor(),
           transport: atom(),
+          call_id: String.t() | nil,
           mission_id: term(),
           work_item_id: term(),
           attempt_id: term(),
