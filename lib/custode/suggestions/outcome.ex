@@ -95,8 +95,8 @@ defmodule Custode.Suggestions.Outcome do
     now = Keyword.get(opts, :now, DateTime.utc_now())
     since = Keyword.get(opts, :since, @window_s)
 
-    applied = Feed.recent_by_event("advisor_applied", limit: 100, since: since)
-    dismissed = Feed.recent_by_event("advisor_dismissed", limit: 100, since: since)
+    applied = Feed.recent_by_event("advisor_applied", limit: 100, since: since, now: now)
+    dismissed = Feed.recent_by_event("advisor_dismissed", limit: 100, since: since, now: now)
 
     records =
       Enum.map(applied, &applied_record(&1, now)) ++
@@ -184,7 +184,14 @@ defmodule Custode.Suggestions.Outcome do
 
     %{
       days: div(seconds, 24 * 60 * 60),
-      rail_stops: length(Feed.recent_by_event("budget_paused", agent: agent, since: seconds)),
+      rail_stops:
+        length(
+          Feed.recent_by_event("budget_paused",
+            agent: agent,
+            since: seconds,
+            now: now
+          )
+        ),
       peak_usd: peak_daily_spend(agent, at)
     }
   end

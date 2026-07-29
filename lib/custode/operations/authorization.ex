@@ -1,0 +1,20 @@
+defmodule Custode.Operations.Authorization do
+  @moduledoc false
+
+  alias Custode.{OperationDefinition, OperationEnvelope}
+
+  @spec operator(OperationDefinition.t(), OperationEnvelope.t()) ::
+          {:ok, :operator} | {:error, {:denied, term()}}
+  def operator(_definition, %OperationEnvelope{actor: %{kind: :operator}}), do: {:ok, :operator}
+
+  def operator(_definition, %OperationEnvelope{actor: %{kind: :routine, id: id}}) do
+    with %{role: role} <- Custode.Routine.get(id),
+         :operator <- Custode.Roles.grants(role) do
+      {:ok, :operator}
+    else
+      _not_operator -> {:error, {:denied, :operator_required}}
+    end
+  end
+
+  def operator(_definition, _envelope), do: {:error, {:denied, :operator_required}}
+end
