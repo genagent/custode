@@ -3,9 +3,9 @@ defmodule Custode.GitHubIssueVertical do
   The first bounded work-first vertical driven by a configured repository routine.
 
   It advances only the approved `github_issue_to_merge@1` pilot through
-  workspace preparation, reproducible context compilation, and dispatch of one
-  Claude implementation Attempt. Verification and publication remain separate
-  later slices.
+  workspace preparation, reproducible context compilation, one Claude
+  implementation Attempt, and one deterministic verification Attempt.
+  Publication remains a separate later slice.
   """
 
   alias Custode.{
@@ -15,6 +15,7 @@ defmodule Custode.GitHubIssueVertical do
     GitHubIssueContext,
     GitHubIssueVerticalJob,
     Routine,
+    VerificationContext,
     WorkItems,
     WorkProcess,
     WorkspaceLeases
@@ -26,22 +27,12 @@ defmodule Custode.GitHubIssueVertical do
 
   @doc "Schedule one ID-only coordinator for each eligible intake result."
   def schedule(routine, results, options \\ []) when is_list(results) do
-    enqueue = Keyword.get(options, :enqueue_fun, &Oban.insert/1)
-
     results
     |> Enum.filter(&eligible?/1)
     |> Enum.reduce_while({:ok, []}, fn result, {:ok, jobs} ->
       work_item_id = result |> value(:work_item) |> value(:work_item_id)
-      args = %{"routine_id" => routine.id, "work_item_id" => work_item_id}
 
-      case args
-           |> GitHubIssueVerticalJob.new(
-             meta: %{
-               "legacy_routine_id" => routine.id,
-               "work_item_id" => work_item_id
-             }
-           )
-           |> enqueue.() do
+      case enqueue_coordinator(routine.id, work_item_id, options) do
         {:ok, job} -> {:cont, {:ok, [job | jobs]}}
         {:error, reason} -> {:halt, {:error, {:vertical_enqueue_failed, reason}}}
       end
@@ -50,6 +41,12 @@ defmodule Custode.GitHubIssueVertical do
       {:ok, jobs} -> {:ok, Enum.reverse(jobs)}
       {:error, _reason} = error -> error
     end
+  end
+
+  @doc "Schedule the ID-only coordinator after a later Attempt advances the WorkItem."
+  def schedule_work_item(routine_id, work_item_id, options \\ [])
+      when is_binary(routine_id) and is_binary(work_item_id) do
+    enqueue_coordinator(routine_id, work_item_id, options)
   end
 
   @doc "Advance one approved WorkItem until the provider job owns the next step."
@@ -128,6 +125,24 @@ defmodule Custode.GitHubIssueVertical do
          "active" <- lease.state,
          {:ok, compiled} <- GitHubIssueContext.latest_implementation(routine, work_item),
          snapshot <- implementation_snapshot(routine, work_item, compiled),
+         :ok <- execute_claim(work_item, snapshot, options) do
+      :ok
+    else
+      nil -> {:error, :workspace_lease_missing}
+      state when is_binary(state) -> {:error, {:workspace_lease_not_active, state}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp advance(
+         routine,
+         %{state: "ready", phase: "verification_ready"} = work_item,
+         options
+       ) do
+    with lease when not is_nil(lease) <- WorkspaceLeases.get_for_work_item(work_item.work_item_id),
+         "active" <- lease.state,
+         {:ok, compiled} <- VerificationContext.compile(routine, work_item, lease, options),
+         snapshot <- verification_snapshot(routine, work_item, compiled),
          :ok <- execute_claim(work_item, snapshot, options) do
       :ok
     else
@@ -270,6 +285,47 @@ defmodule Custode.GitHubIssueVertical do
         dispatch: %{legacy_routine_id: routine.id}
       }
     }
+  end
+
+  defp verification_snapshot(routine, work_item, compiled) do
+    implementation = compiled.implementation_attempt
+    recipe = compiled.recipe
+    bundle = compiled.bundle
+
+    %{
+      attempt: %{
+        attempt_id: stable_id("verify", work_item.work_item_id, bundle.digest),
+        role_binding_id: implementation.role_binding && implementation.role_binding.binding_id,
+        caused_by_attempt_id: implementation.attempt_id,
+        context_bundle_id: bundle.context_bundle_id,
+        executor_kind: "deterministic",
+        provider: "custode",
+        profile: "verification",
+        recipe_version: recipe.version,
+        expected_work_item_version: work_item.version,
+        provenance: %{
+          purpose: "github_issue_verification",
+          legacy_routine_id: routine.id,
+          verification_recipe_digest: recipe.digest,
+          workspace_revision: compiled.workspace_revision["revision"]
+        },
+        dispatch: %{legacy_routine_id: routine.id}
+      }
+    }
+  end
+
+  defp enqueue_coordinator(routine_id, work_item_id, options) do
+    enqueue = Keyword.get(options, :enqueue_fun, &Oban.insert/1)
+    args = %{"routine_id" => routine_id, "work_item_id" => work_item_id}
+
+    args
+    |> GitHubIssueVerticalJob.new(
+      meta: %{
+        "legacy_routine_id" => routine_id,
+        "work_item_id" => work_item_id
+      }
+    )
+    |> enqueue.()
   end
 
   defp repository_id(work_item) do

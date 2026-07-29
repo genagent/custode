@@ -22,12 +22,15 @@ defmodule Custode.GitHubIssueVerticalTest do
     RoleBinding,
     RoleBindings,
     SpendLedger,
+    VerificationAttempts,
     WorkEvent,
     WorkItem,
     WorkItems,
     WorkspaceLease,
     WorkspaceLeases
   }
+
+  alias Custode.Verification.{CommandSpec, Recipe}
 
   @repository_id "1307868502"
   @repository "genagent/custode"
@@ -249,6 +252,219 @@ defmodule Custode.GitHubIssueVerticalTest do
            ) == 1
   end
 
+  test "successful deterministic verification advances to publication_ready with exact evidence",
+       fixture do
+    work_item = implement_successfully!(fixture)
+
+    assert coordinator_job!(work_item.work_item_id).args == %{
+             "routine_id" => fixture.routine.id,
+             "work_item_id" => work_item.work_item_id
+           }
+
+    assert :ok = dispatch_to_verifier!(fixture, work_item)
+
+    verification = verification_attempt!(work_item)
+    implementation = implementation_attempt!(work_item)
+
+    assert verification.state == "running"
+    assert verification.executor_kind == "deterministic"
+    assert verification.provider == "custode"
+    assert verification.caused_by_attempt.attempt_id == implementation.attempt_id
+    assert verification_job_count(verification.attempt_id) == 1
+
+    assert :ok =
+             VerificationAttempts.dispatch(verification.attempt_id, fixture.routine.id)
+
+    assert verification_job_count(verification.attempt_id) == 1
+
+    assert :ok =
+             VerificationAttempts.perform(
+               verification_job!(verification.attempt_id),
+               artifact_dir: fixture.artifacts
+             )
+
+    finished = Attempts.get(verification.attempt_id)
+    assert finished.state == "succeeded"
+    assert finished.outcome["classification"] == "pass"
+    assert Enum.map(finished.outcome["results"], & &1["name"]) == ~w(format test analysis repo)
+    assert Enum.all?(finished.outcome["results"], &(&1["status"] == "pass"))
+
+    ready = WorkItems.get(work_item.work_item_id)
+    assert ready.state == "ready"
+    assert ready.phase == "publication_ready"
+    assert ready.active_attempt_id == nil
+
+    assert {:ok, body} = ContextBundles.body(finished.context_bundle)
+    recipe = body["recipe"]["verification"]
+    assert Recipe.new(recipe) == {:ok, test_recipe()}
+    assert body["recipe"]["verification_authority"] == "internal_override"
+    assert recipe["digest"] == finished.provenance["verification_recipe_digest"]
+
+    assert body["workspace_revision"]["revision"] ==
+             finished.outcome["workspace_revision"]["revision"]
+
+    artifacts = Artifacts.list_for_work_item(work_item.work_item_id)
+    command_results = Enum.filter(artifacts, &(&1.kind == "verification_command_result"))
+    assert length(command_results) == 4
+    assert Enum.any?(artifacts, &(&1.kind == "verification_manifest"))
+    refute Enum.any?(artifacts, &(&1.kind == "verification_failure"))
+
+    events = WorkItems.list_events(work_item.work_item_id)
+
+    assert Enum.any?(
+             events,
+             &(&1.correlation_id == "verification-attempt:#{verification.attempt_id}")
+           )
+
+    refuting_runner = fn _spec, _path, _options ->
+      flunk("a terminal verification Attempt executed again")
+    end
+
+    assert :ok =
+             VerificationAttempts.perform(
+               verification_job!(verification.attempt_id),
+               runner: refuting_runner,
+               artifact_dir: fixture.artifacts
+             )
+  end
+
+  test "a crash after command evidence reuses it without executing the command twice", fixture do
+    work_item = implement_successfully!(fixture)
+    assert :ok = dispatch_to_verifier!(fixture, work_item)
+    verification = verification_attempt!(work_item)
+    job = verification_job!(verification.attempt_id)
+    test_pid = self()
+
+    runner = fn spec, _path, _options ->
+      send(test_pid, {:verification_ran, spec.name})
+      {:ok, runner_result(spec, "pass")}
+    end
+
+    assert_raise RuntimeError, "simulated verification crash", fn ->
+      VerificationAttempts.perform(job,
+        runner: runner,
+        artifact_dir: fixture.artifacts,
+        after_command: fn result ->
+          if result["name"] == "format" and not result["reused"] do
+            raise "simulated verification crash"
+          end
+
+          :ok
+        end
+      )
+    end
+
+    assert_receive {:verification_ran, "format"}
+    refute_receive {:verification_ran, _other}
+    assert Attempts.get(verification.attempt_id).state == "running"
+
+    assert :ok =
+             VerificationAttempts.perform(job,
+               runner: runner,
+               artifact_dir: fixture.artifacts
+             )
+
+    assert_receive {:verification_ran, "test"}
+    assert_receive {:verification_ran, "analysis"}
+    assert_receive {:verification_ran, "repo"}
+    refute_receive {:verification_ran, "format"}
+
+    results = Attempts.get(verification.attempt_id).outcome["results"]
+    assert hd(results)["name"] == "format"
+    refute Map.has_key?(hd(results), "reused")
+
+    format_results =
+      work_item.work_item_id
+      |> Artifacts.list_for_work_item()
+      |> Enum.filter(
+        &(&1.kind == "verification_command_result" and
+            &1.provenance["command_name"] == "format")
+      )
+
+    assert length(format_results) == 1
+  end
+
+  test "a changed workspace cannot reuse green command evidence", fixture do
+    work_item = implement_successfully!(fixture)
+    assert :ok = dispatch_to_verifier!(fixture, work_item)
+    verification = verification_attempt!(work_item)
+    job = verification_job!(verification.attempt_id)
+    test_pid = self()
+
+    runner = fn spec, _path, _options ->
+      send(test_pid, {:verification_ran, spec.name})
+      {:ok, runner_result(spec, "pass")}
+    end
+
+    assert_raise RuntimeError, fn ->
+      VerificationAttempts.perform(job,
+        runner: runner,
+        artifact_dir: fixture.artifacts,
+        after_command: fn _result -> raise "crash after first command" end
+      )
+    end
+
+    assert_receive {:verification_ran, "format"}
+
+    lease = WorkspaceLeases.get_for_work_item(work_item.work_item_id)
+    File.write!(Path.join(lease.workspace_path, "README.md"), "changed after evidence\n")
+
+    refuting_runner = fn _spec, _path, _options ->
+      flunk("changed workspace reused or executed old verification evidence")
+    end
+
+    assert :ok =
+             VerificationAttempts.perform(job,
+               runner: refuting_runner,
+               artifact_dir: fixture.artifacts
+             )
+
+    finished = Attempts.get(verification.attempt_id)
+    assert finished.state == "failed"
+    assert finished.error_class == "policy_refusal"
+    assert finished.outcome["classification"] == "policy_refusal"
+
+    ready = WorkItems.get(work_item.work_item_id)
+    assert ready.state == "ready"
+    assert ready.phase == "repair_ready"
+  end
+
+  test "failed named verification results preserve focused repair evidence", fixture do
+    work_item = implement_successfully!(fixture)
+    assert :ok = dispatch_to_verifier!(fixture, work_item)
+    verification = verification_attempt!(work_item)
+
+    runner = fn spec, _path, _options ->
+      status = if spec.name == "test", do: "test_failure", else: "pass"
+      {:ok, runner_result(spec, status)}
+    end
+
+    assert :ok =
+             VerificationAttempts.perform(
+               verification_job!(verification.attempt_id),
+               runner: runner,
+               artifact_dir: fixture.artifacts
+             )
+
+    finished = Attempts.get(verification.attempt_id)
+    assert finished.state == "failed"
+    assert finished.error_class == "test_failure"
+    assert finished.outcome["classification"] == "test_failure"
+
+    ready = WorkItems.get(work_item.work_item_id)
+    assert ready.state == "ready"
+    assert ready.phase == "repair_ready"
+
+    failure =
+      work_item.work_item_id
+      |> Artifacts.list_for_work_item()
+      |> Enum.find(&(&1.kind == "verification_failure"))
+
+    body = failure.location |> File.read!() |> Jason.decode!()
+    assert Enum.map(body["failures"], & &1["name"]) == ["test"]
+    refute get_in(body, ["failures", Access.at(0), "output"])
+  end
+
   test "a crash after provider checkpoint recovers without a second provider call", fixture do
     work_item = fixture |> ingest!() |> tap(&dispatch_to_provider!(fixture, &1))
     implementation = implementation_attempt!(work_item)
@@ -455,10 +671,57 @@ defmodule Custode.GitHubIssueVerticalTest do
              )
   end
 
+  defp implement_successfully!(fixture) do
+    work_item = ingest!(fixture)
+    assert :ok = dispatch_to_provider!(fixture, work_item)
+    implementation = implementation_attempt!(work_item)
+    job = provider_job!(implementation.attempt_id)
+
+    query_fun = fn _prompt, options ->
+      File.write!(Path.join(options[:working_dir], "README.md"), "implemented\n")
+
+      {:ok,
+       ObanClaude.Testing.structured_result(
+         %{"outcome" => "success", "summary" => "implementation ready for verification"},
+         result: "done",
+         session_id: "session-verification",
+         cost_usd: 0.01,
+         duration_ms: 25,
+         num_turns: 1
+       )}
+    end
+
+    assert :ok =
+             ClaudeAttempts.perform(job,
+               query_fun: query_fun,
+               artifact_dir: fixture.artifacts
+             )
+
+    WorkItems.get(work_item.work_item_id)
+  end
+
+  defp dispatch_to_verifier!(fixture, work_item) do
+    assert :ok =
+             GitHubIssueVertical.perform(
+               fixture.routine.id,
+               work_item.work_item_id,
+               oban_job_id: System.unique_integer([:positive]),
+               workspace_root: fixture.workspaces,
+               artifact_dir: fixture.artifacts,
+               verification_recipe: test_recipe()
+             )
+  end
+
   defp implementation_attempt!(work_item) do
     work_item.work_item_id
     |> Attempts.list_for_work_item()
     |> Enum.find(&(&1.executor_kind == "model"))
+  end
+
+  defp verification_attempt!(work_item) do
+    work_item.work_item_id
+    |> Attempts.list_for_work_item()
+    |> Enum.find(&(get_in(&1.provenance, ["purpose"]) == "github_issue_verification"))
   end
 
   defp provider_job!(attempt_id) do
@@ -480,6 +743,96 @@ defmodule Custode.GitHubIssueVerticalTest do
       ),
       :count
     )
+  end
+
+  defp coordinator_job!(work_item_id) do
+    Repo.one!(
+      from(job in Oban.Job,
+        where:
+          job.worker == "Custode.GitHubIssueVerticalJob" and
+            fragment("json_extract(?, '$.work_item_id')", job.args) == ^work_item_id,
+        order_by: [desc: job.id],
+        limit: 1
+      )
+    )
+  end
+
+  defp verification_job!(attempt_id) do
+    Repo.one!(
+      from(job in Oban.Job,
+        where:
+          job.worker == "Custode.VerificationAttemptJob" and
+            fragment("json_extract(?, '$.attempt_id')", job.args) == ^attempt_id
+      )
+    )
+  end
+
+  defp verification_job_count(attempt_id) do
+    Repo.aggregate(
+      from(job in Oban.Job,
+        where:
+          job.worker == "Custode.VerificationAttemptJob" and
+            fragment("json_extract(?, '$.attempt_id')", job.args) == ^attempt_id
+      ),
+      :count
+    )
+  end
+
+  defp test_recipe do
+    {:ok, recipe} =
+      Recipe.new(%{
+        name: "test_verification",
+        version: "1",
+        commands: [
+          verification_command("format", "format"),
+          verification_command("test", "test"),
+          verification_command("analysis", "static_analysis"),
+          verification_command("repo", "repository")
+        ]
+      })
+
+    recipe
+  end
+
+  defp verification_command(name, category) do
+    %{
+      name: name,
+      category: category,
+      argv: ["/usr/bin/true"],
+      working_directory: ".",
+      environment_allowlist: ["PATH"],
+      environment: %{},
+      timeout_ms: 5_000,
+      output_limit_bytes: 16_384,
+      tail_bytes: 1_024,
+      expected_exit_codes: [0],
+      risk: "read",
+      shell: false,
+      reviewed: true
+    }
+  end
+
+  defp runner_result(%CommandSpec{} = spec, status) do
+    %{
+      "name" => spec.name,
+      "category" => spec.category,
+      "status" => status,
+      "reason" => if(status == "pass", do: nil, else: "fixture failure"),
+      "exit_code" => if(status == "pass", do: 0, else: 1),
+      "duration_ms" => 1,
+      "command_spec_digest" => spec.digest,
+      "runner_version" => "fixture-runner-v1",
+      "stdout_bytes" => 0,
+      "stderr_bytes" => 0,
+      "stdout_tail" => "",
+      "stderr_tail" => "",
+      "stdout_tail_encoding" => "utf-8",
+      "stderr_tail_encoding" => "utf-8",
+      "stdout_truncated" => false,
+      "stderr_truncated" => false,
+      "output_limit_bytes" => spec.output_limit_bytes,
+      "output" => %{}
+    }
   end
 
   defp insert_mission! do
@@ -538,6 +891,7 @@ defmodule Custode.GitHubIssueVerticalTest do
           job.worker in [
             "Custode.ClaudeAttemptJob",
             "Custode.GitHubIssueVerticalJob",
+            "Custode.VerificationAttemptJob",
             "Custode.WorkCommandJob"
           ]
       )

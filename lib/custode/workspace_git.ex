@@ -24,6 +24,27 @@ defmodule Custode.Workspace.Git do
     end
   end
 
+  def workspace_revision(workspace_path) do
+    with {:ok, head_revision} <- revision(workspace_path, "HEAD"),
+         {:ok, changed_files} <- changed_files(workspace_path),
+         {:ok, diff} <- diff(workspace_path) do
+      diff_digest = digest(diff)
+
+      revision =
+        [head_revision, diff_digest]
+        |> :erlang.term_to_binary()
+        |> digest()
+
+      {:ok,
+       %{
+         "revision" => "sha256:#{revision}",
+         "head_revision" => head_revision,
+         "diff_digest" => diff_digest,
+         "changed_files" => changed_files
+       }}
+    end
+  end
+
   def tracked_clean?(repository_path) do
     case System.cmd("git", ["-C", repository_path, "diff", "--quiet", "HEAD", "--"],
            stderr_to_stdout: true
@@ -158,6 +179,12 @@ defmodule Custode.Workspace.Git do
       "" -> ""
       joined -> joined <> "\n"
     end
+  end
+
+  defp digest(body) do
+    :sha256
+    |> :crypto.hash(body)
+    |> Base.encode16(case: :lower)
   end
 
   defp git(path, args) do

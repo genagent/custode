@@ -17,6 +17,7 @@ defmodule Custode.ClaudeAttempts do
     ClaudeAttemptJob,
     ContextBundles,
     GitHubIssueContext,
+    GitHubIssueVertical,
     Routine,
     WorkItems,
     WorkProcess,
@@ -80,7 +81,7 @@ defmodule Custode.ClaudeAttempts do
       %Attempt{} = attempt ->
         cond do
           Attempt.terminal?(attempt) ->
-            advance(attempt, job)
+            advance(attempt, job, options)
 
           checkpoint = checkpoint(attempt) ->
             recover_checkpoint(attempt, checkpoint, job, options)
@@ -234,7 +235,7 @@ defmodule Custode.ClaudeAttempts do
              diff_artifact
            ),
          {:ok, finished} <- Attempts.finish(attempt.attempt_id, finish_attrs) do
-      advance(finished, job)
+      advance(finished, job, options)
     end
   end
 
@@ -258,7 +259,7 @@ defmodule Custode.ClaudeAttempts do
         end
 
       %Attempt{} = terminal ->
-        advance(terminal, job)
+        advance(terminal, job, options)
 
       nil ->
         {:discard, {:unknown_attempt, attempt.attempt_id}}
@@ -368,10 +369,16 @@ defmodule Custode.ClaudeAttempts do
     }
   end
 
-  defp advance(attempt, job) do
+  defp advance(attempt, job, options) do
     work_item = WorkItems.get(attempt.work_item.work_item_id)
     proposal = get_in(attempt.outcome || %{}, ["proposal"])
 
+    with :ok <- apply_proposal(attempt, work_item, proposal, job) do
+      schedule_next(attempt, job, options)
+    end
+  end
+
+  defp apply_proposal(attempt, work_item, proposal, job) do
     cond do
       work_item.state == "active" and work_item.active_attempt_id == attempt.attempt_id ->
         with {:ok, delivery} <-
@@ -398,6 +405,28 @@ defmodule Custode.ClaudeAttempts do
         {:error,
          {:attempt_result_not_applied,
           %{attempt_id: attempt.attempt_id, state: work_item.state, phase: work_item.phase}}}
+    end
+  end
+
+  defp schedule_next(attempt, job, options) do
+    work_item = WorkItems.get(attempt.work_item.work_item_id)
+
+    if attempt.state == "succeeded" and work_item.state == "ready" and
+         work_item.phase == "verification_ready" do
+      schedule_options =
+        [enqueue_fun: options[:vertical_enqueue_fun]]
+        |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+
+      case GitHubIssueVertical.schedule_work_item(
+             job.args["routine_id"],
+             work_item.work_item_id,
+             schedule_options
+           ) do
+        {:ok, _job} -> :ok
+        {:error, reason} -> {:error, {:verification_enqueue_failed, reason}}
+      end
+    else
+      :ok
     end
   end
 
