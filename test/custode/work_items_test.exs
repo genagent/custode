@@ -20,6 +20,7 @@ defmodule Custode.WorkItemsTest do
 
   setup do
     Repo.delete_all(WorkEvent)
+    Repo.delete_all(Custode.WorkGate)
     Repo.update_all(WorkItem, set: [parent_id: nil])
     Repo.delete_all(WorkItem)
     Repo.delete_all(RoleBinding)
