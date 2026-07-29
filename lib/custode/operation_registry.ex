@@ -4,6 +4,7 @@ defmodule Custode.OperationRegistry do
   alias Custode.OperationDefinition
   alias Custode.Operations.Fleet.PauseAgent
   alias Custode.Operations.Missions
+  alias Custode.Operations.RoleBindings
 
   @enforce_keys [:definitions]
   defstruct [:definitions]
@@ -37,7 +38,10 @@ defmodule Custode.OperationRegistry do
         Missions.Archive.definition(),
         Missions.Create.definition(),
         Missions.ProjectLegacyRoutine.definition(),
-        Missions.Update.definition()
+        Missions.Update.definition(),
+        RoleBindings.Create.definition(),
+        RoleBindings.ProjectLegacyRoutine.definition(),
+        RoleBindings.Update.definition()
       ])
 
     registry

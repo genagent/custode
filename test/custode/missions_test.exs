@@ -4,16 +4,20 @@ defmodule Custode.MissionsTest do
   import Custode.TestHelpers
 
   alias Custode.{
+    LegacyRoutineMissionMapping,
     Mission,
     Missions,
     MissionTarget,
     OperationCall,
-    Repo
+    Repo,
+    RoleBinding
   }
 
   alias Custode.Operations.Missions, as: MissionOperations
 
   setup do
+    Repo.delete_all(RoleBinding)
+    Repo.delete_all(LegacyRoutineMissionMapping)
     Repo.delete_all(MissionTarget)
     Repo.delete_all(Mission)
     Repo.delete_all(OperationCall)
