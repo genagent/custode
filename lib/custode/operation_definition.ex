@@ -82,6 +82,26 @@ defmodule Custode.OperationDefinition do
 
   def new(_attrs), do: {:error, :invalid_definition}
 
+  @doc "Stable fingerprint of the inspectable, non-function operation contract."
+  @spec fingerprint(t()) :: String.t()
+  def fingerprint(%__MODULE__{} = definition) do
+    definition
+    |> Map.take([
+      :name,
+      :input_schema,
+      :result_schema,
+      :classification,
+      :risk,
+      :required_grants,
+      :idempotency,
+      :projection
+    ])
+    |> canonical()
+    |> :erlang.term_to_binary()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+
   defp validate_name(name) when is_binary(name) do
     if Regex.match?(~r/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/, name),
       do: :ok,
@@ -111,4 +131,15 @@ defmodule Custode.OperationDefinition do
   end
 
   defp validate_schema(_schema), do: {:error, :invalid_schema}
+
+  defp canonical(map) when is_map(map) do
+    map
+    |> Enum.map(fn {key, value} -> {to_string(key), canonical(value)} end)
+    |> Enum.sort_by(&elem(&1, 0))
+  end
+
+  defp canonical(list) when is_list(list), do: Enum.map(list, &canonical/1)
+  defp canonical(tuple) when is_tuple(tuple), do: tuple |> Tuple.to_list() |> canonical()
+  defp canonical(value) when is_function(value), do: :function
+  defp canonical(value), do: value
 end

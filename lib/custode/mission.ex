@@ -5,7 +5,7 @@ defmodule Custode.Mission do
 
   import Ecto.Changeset
 
-  alias Custode.{Artifact, ContextBundle, MissionTarget}
+  alias Custode.{Artifact, ContextBundle, MissionTarget, WorkGate}
 
   schema "missions" do
     field(:mission_id, :string)
@@ -22,6 +22,7 @@ defmodule Custode.Mission do
     has_many(:targets, MissionTarget)
     has_many(:context_bundles, ContextBundle)
     has_many(:artifacts, Artifact)
+    has_many(:work_gates, WorkGate)
     timestamps(type: :utc_datetime_usec)
   end
 

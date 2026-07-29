@@ -5,7 +5,7 @@ defmodule Custode.Attempt do
 
   import Ecto.Changeset
 
-  alias Custode.{ContextBundle, RoleBinding, WorkItem}
+  alias Custode.{ContextBundle, RoleBinding, WorkGate, WorkItem}
 
   @states ~w(queued running succeeded partial blocked failed cancelled)
   @terminal_states @states -- ~w(queued running)
@@ -34,6 +34,7 @@ defmodule Custode.Attempt do
     field(:outcome, :map)
     field(:error_class, :string)
     field(:error_details, :map)
+    has_many(:gates, WorkGate)
     timestamps(type: :utc_datetime_usec)
   end
 

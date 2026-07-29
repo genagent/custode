@@ -79,7 +79,7 @@ defmodule Custode.WorkItems do
       work_item ->
         from(event in WorkEvent,
           where: event.work_item_id == ^work_item.id,
-          order_by: [asc: event.work_item_version]
+          order_by: [asc: event.work_item_version, asc: event.inserted_at, asc: event.id]
         )
         |> Repo.all()
     end
@@ -282,6 +282,7 @@ defmodule Custode.WorkItems do
       actor: event.actor,
       operation: event.operation,
       operation_call_id: event.operation_call_id,
+      gate_id: event.gate_id,
       before: %{
         state: event.before_state,
         phase: event.before_phase,
