@@ -3,6 +3,27 @@ defmodule Custode.Workspace.Git do
 
   def revision(repository_path, ref), do: git(repository_path, ["rev-parse", ref])
 
+  def changed_files(workspace_path) do
+    with {:ok, tracked} <- git(workspace_path, ["diff", "--name-only", "-z", "HEAD", "--"]),
+         {:ok, untracked} <-
+           git(workspace_path, ["ls-files", "--others", "--exclude-standard", "-z"]) do
+      {:ok,
+       (nul_paths(tracked) ++ nul_paths(untracked))
+       |> Enum.uniq()
+       |> Enum.sort()}
+    end
+  end
+
+  def diff(workspace_path) do
+    with {:ok, tracked} <-
+           git(workspace_path, ["diff", "--binary", "--no-ext-diff", "HEAD", "--"]),
+         {:ok, untracked} <-
+           git(workspace_path, ["ls-files", "--others", "--exclude-standard", "-z"]),
+         {:ok, patches} <- untracked_patches(workspace_path, nul_paths(untracked)) do
+      {:ok, join_patches([tracked | patches])}
+    end
+  end
+
   def tracked_clean?(repository_path) do
     case System.cmd("git", ["-C", repository_path, "diff", "--quiet", "HEAD", "--"],
            stderr_to_stdout: true
@@ -97,9 +118,51 @@ defmodule Custode.Workspace.Git do
   defp matching_branch(branch, branch), do: :ok
   defp matching_branch(observed, _expected), do: {:error, {:workspace_branch_mismatch, observed}}
 
+  defp untracked_patches(workspace_path, paths) do
+    Enum.reduce_while(paths, {:ok, []}, fn path, {:ok, patches} ->
+      case System.cmd(
+             "git",
+             [
+               "-C",
+               workspace_path,
+               "diff",
+               "--no-index",
+               "--binary",
+               "--",
+               "/dev/null",
+               path
+             ],
+             stderr_to_stdout: true
+           ) do
+        {output, status} when status in [0, 1] ->
+          {:cont, {:ok, [String.trim_trailing(output) | patches]}}
+
+        {output, status} ->
+          {:halt, {:error, {:git_failed, status, String.trim(output)}}}
+      end
+    end)
+    |> case do
+      {:ok, patches} -> {:ok, Enum.reverse(patches)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp nul_paths(""), do: []
+  defp nul_paths(output), do: String.split(output, <<0>>, trim: true)
+
+  defp join_patches(patches) do
+    patches
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n")
+    |> case do
+      "" -> ""
+      joined -> joined <> "\n"
+    end
+  end
+
   defp git(path, args) do
     case System.cmd("git", ["-C", path | args], stderr_to_stdout: true) do
-      {output, 0} -> {:ok, String.trim(output)}
+      {output, 0} -> {:ok, String.trim_trailing(output)}
       {output, status} -> {:error, {:git_failed, status, String.trim(output)}}
     end
   end

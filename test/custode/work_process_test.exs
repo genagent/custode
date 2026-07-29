@@ -234,6 +234,47 @@ defmodule Custode.WorkProcessTest do
     assert process_job_count() == 1
   end
 
+  test "a replay after activation still dispatches the same queued Attempt", %{
+    artifact_dir: artifact_dir
+  } do
+    work_item = insert_work!("activation-crash")
+    bundle = insert_bundle!(work_item, artifact_dir)
+
+    assert {:ok, claim} =
+             WorkProcess.reconcile(
+               work_item.work_item_id,
+               work_item.version,
+               attempt_snapshot(work_item, bundle, "attempt-activation-crash"),
+               enqueue: false
+             )
+
+    Repo.update_all(
+      from(item in WorkItem, where: item.id == ^work_item.id),
+      set: [
+        state: "active",
+        phase: "preparing_workspace",
+        active_attempt_id: "attempt-activation-crash",
+        version: work_item.version + 1
+      ]
+    )
+
+    assert Attempts.get("attempt-activation-crash").state == "queued"
+
+    assert :ok =
+             WorkProcess.perform(
+               claim.event.event_id,
+               work_item.work_item_id,
+               work_item.version,
+               3_680
+             )
+
+    recovered = Attempts.get("attempt-activation-crash")
+    assert recovered.state == "running"
+    assert recovered.oban_job_id == 3_680
+    assert result_count(claim.event.event_id) == 1
+    assert WorkItems.get(work_item.work_item_id).active_attempt_id == recovered.attempt_id
+  end
+
   test "invalid planning fails before the atomic claim", %{artifact_dir: artifact_dir} do
     work_item = insert_work!("before-claim")
     _bundle = insert_bundle!(work_item, artifact_dir)

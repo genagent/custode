@@ -484,12 +484,18 @@ defmodule Custode.WorkspaceLeases do
       attempt.state != "running" ->
         {:error, :attempt_not_running}
 
-      attempt.expected_work_item_version != work_item.version ->
+      not attempt_owns_work_version?(attempt, work_item) ->
         {:error, :work_item_version_changed}
 
       true ->
         :ok
     end
+  end
+
+  defp attempt_owns_work_version?(attempt, work_item) do
+    attempt.expected_work_item_version == work_item.version or
+      (work_item.state == "active" and work_item.active_attempt_id == attempt.attempt_id and
+         attempt.expected_work_item_version + 1 == work_item.version)
   end
 
   defp validate_target(work_item, repository_id)
