@@ -7,6 +7,7 @@ defmodule CustodeWeb.AgentLiveTest do
   import Phoenix.LiveViewTest
 
   alias Custode.Config.Loader
+  alias Custode.{OperationCall, Repo}
   alias Custode.Test.FakeGitHubFetcher
   alias Custode.Workflow.Launch
   alias Custode.Workflow.Run
@@ -93,6 +94,16 @@ defmodule CustodeWeb.AgentLiveTest do
 
     view |> element("button", "pause") |> render_click()
     assert render(view) =~ "paused"
+
+    assert %OperationCall{
+             operation: "fleet.pause_agent",
+             actor: %{"kind" => "operator"},
+             transport: "liveview",
+             status: "succeeded"
+           } =
+             Repo.all(OperationCall)
+             |> Enum.find(&(&1.arguments == %{"agent_id" => routine.id}))
+
     view |> element("button", "resume") |> render_click()
     assert render(view) =~ "idle"
   end

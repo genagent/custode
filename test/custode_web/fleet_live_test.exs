@@ -348,6 +348,7 @@ defmodule CustodeWeb.FleetLiveBrakeTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
+  alias Custode.{OperationCall, Repo}
   alias ObanClaude.Agent
 
   @endpoint CustodeWeb.Endpoint
@@ -362,6 +363,14 @@ defmodule CustodeWeb.FleetLiveBrakeTest do
 
     {:ok, :paused} = Agent.await(first, :paused, 1_000)
     {:ok, :paused} = Agent.await(second, :paused, 1_000)
+
+    calls =
+      Repo.all(OperationCall)
+      |> Enum.filter(&(&1.arguments["agent_id"] in [first, second]))
+
+    assert Enum.map(calls, & &1.operation) == ["fleet.pause_agent", "fleet.pause_agent"]
+    assert Enum.all?(calls, &(&1.transport == "liveview"))
+    assert calls |> Enum.map(& &1.correlation_id) |> Enum.uniq() |> length() == 1
 
     view |> element("button", "resume all") |> render_click()
     {:ok, :idle} = Agent.await(first, :idle, 1_000)

@@ -11,6 +11,7 @@ defmodule CustodeWeb.AgentLive do
 
   alias Custode.Config.Loader
   alias Custode.Config.WriteBack
+  alias Custode.Operations.Fleet.PauseAgent
   alias CustodeWeb.WorkflowLaunch
   alias ObanClaude.Agent
 
@@ -23,7 +24,12 @@ defmodule CustodeWeb.AgentLive do
 
     {:ok,
      socket
-     |> assign(id: id, prompt_ack: nil, prompt_gen: 0)
+     |> assign(
+       id: id,
+       prompt_ack: nil,
+       prompt_gen: 0,
+       pause_idempotency_key: Ecto.UUID.generate()
+     )
      |> assign(edit: %{open: false, params: %{}, raw: %{}, error: nil})
      |> assign(journal_limit: 10, feed_limit: 30, journal_search: "", show_done_todos: false)
      |> allow_image_upload(:image)
@@ -164,9 +170,21 @@ defmodule CustodeWeb.AgentLive do
     {:noreply, refresh(socket)}
   end
 
-  def handle_event("pause", _params, socket) do
-    Agent.emergency_pause(socket.assigns.id)
-    {:noreply, refresh(socket)}
+  def handle_event("pause", params, socket) do
+    idempotency_key = params["idempotency_key"] || socket.assigns.pause_idempotency_key
+
+    _result =
+      PauseAgent.dispatch(socket.assigns.id,
+        actor: %{kind: :operator, id: "operator"},
+        transport: :liveview,
+        idempotency_key: idempotency_key,
+        correlation_id: idempotency_key
+      )
+
+    {:noreply,
+     socket
+     |> assign(pause_idempotency_key: Ecto.UUID.generate())
+     |> refresh()}
   end
 
   def handle_event("resume", _params, socket) do
@@ -229,6 +247,7 @@ defmodule CustodeWeb.AgentLive do
             :if={@state not in [:offline, :ended, :paused]}
             class="btn btn-outline btn-error btn-xs"
             phx-click="pause"
+            phx-value-idempotency_key={@pause_idempotency_key}
           >
             pause
           </button>

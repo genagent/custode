@@ -1,10 +1,12 @@
 defmodule Custode.OperatorToolsTest do
   use ExUnit.Case, async: false
 
+  import Ecto.Query, only: [from: 2]
   import Custode.TestHelpers
   import ObanClaude.Testing
 
   alias Custode.MCP.OperatorTools
+  alias Custode.{OperationCall, OperationRegistry, Repo}
   alias ObanClaude.Agent
 
   @frame %Anubis.Server.Frame{}
@@ -107,16 +109,105 @@ defmodule Custode.OperatorToolsTest do
   end
 
   describe "pause_agent / resume_agent" do
+    test "projects the registered fleet.pause_agent definition" do
+      assert {:ok, definition} =
+               OperationRegistry.fetch(OperationRegistry.default(), "fleet.pause_agent")
+
+      assert OperatorTools.PauseAgent.definition() == definition
+      assert OperatorTools.PauseAgent.name() == definition.projection.mcp.name
+    end
+
     test "round-trips through paused" do
       id = start_stub_agent!()
+      :ok = Custode.PubSubBridge.subscribe()
 
       json = tool_json(OperatorTools.PauseAgent.execute(%{agent_id: id}, @frame))
       assert json["state"] == "paused"
       {:ok, :paused} = Agent.await(id, :paused, 1_000)
+      assert_receive {:status_changed, ^id}
+
+      eventually(fn ->
+        assert Enum.any?(Custode.Feed.for_agent(id), &(&1["event"] == "paused"))
+      end)
+
+      assert %OperationCall{
+               operation: "fleet.pause_agent",
+               actor: %{"kind" => "operator", "id" => "operator"},
+               transport: "mcp",
+               status: "succeeded"
+             } =
+               Repo.all(OperationCall)
+               |> Enum.find(&(&1.arguments == %{"agent_id" => id}))
 
       json = tool_json(OperatorTools.ResumeAgent.execute(%{agent_id: id}, @frame))
       assert json["state"] == "resumed"
       {:ok, :idle} = Agent.await(id, :idle, 1_000)
+    end
+
+    test "duplicate MCP submissions replay one logical result" do
+      id = start_stub_agent!()
+      key = "mcp-#{System.unique_integer([:positive])}"
+      params = %{agent_id: id, idempotency_key: key}
+
+      first = tool_json(OperatorTools.PauseAgent.execute(params, @frame))
+      second = tool_json(OperatorTools.PauseAgent.execute(params, @frame))
+
+      assert first == second
+
+      eventually(fn ->
+        paused =
+          Custode.Feed.for_agent(id)
+          |> Enum.count(&(&1["event"] == "paused"))
+
+        assert paused == 1
+      end)
+
+      assert Repo.aggregate(
+               from(c in OperationCall, where: c.idempotency_key == ^key),
+               :count
+             ) == 1
+    end
+
+    test "a specialist routine cannot acquire pause authority through the tool", %{
+      routine: routine
+    } do
+      id = start_stub_agent!()
+      frame = frame_for(:routine, routine.id)
+
+      assert tool_error(OperatorTools.PauseAgent.execute(%{agent_id: id}, frame)) =~
+               "operator_required"
+
+      assert {:ok, :idle} = Agent.status(id)
+
+      assert %OperationCall{
+               status: "denied",
+               actor: %{"kind" => "routine", "id" => caller_id}
+             } =
+               Repo.all(OperationCall)
+               |> Enum.find(&(&1.arguments == %{"agent_id" => id}))
+
+      assert caller_id == routine.id
+    end
+
+    test "the existing caretaker grant remains authorized", %{workspace: workspace} do
+      caretaker = routine_fixture!(workspace, %{role: :caretaker})
+      id = start_stub_agent!()
+
+      assert %{"agent_id" => ^id, "state" => "paused"} =
+               OperatorTools.PauseAgent.execute(
+                 %{agent_id: id},
+                 frame_for(:routine, caretaker.id)
+               )
+               |> tool_json()
+
+      assert %OperationCall{
+               grant: "operator",
+               actor: %{"kind" => "routine", "id" => caller_id}
+             } =
+               Repo.all(OperationCall)
+               |> Enum.find(&(&1.arguments == %{"agent_id" => id}))
+
+      assert caller_id == caretaker.id
     end
 
     test "pause of an offline agent is a tool error" do
@@ -136,4 +227,7 @@ defmodule Custode.OperatorToolsTest do
       assert json["fleet_today_usd"] >= 1.25
     end
   end
+
+  defp frame_for(kind, id),
+    do: %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: kind, id: id}}}
 end

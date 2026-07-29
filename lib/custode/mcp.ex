@@ -127,6 +127,13 @@ defmodule Custode.MCP do
   def caller(%{assigns: %{custode_identity: identity}}), do: identity
   def caller(_frame), do: %{kind: :operator, id: "operator"}
 
+  @doc "The authenticated request's originating transport; direct tool calls are MCP."
+  def origin_transport(%{assigns: %{custode_transport: transport}})
+      when transport in [:cli, :mcp],
+      do: transport
+
+  def origin_transport(_frame), do: :mcp
+
   defp add_external(%{type: :http, name: name, url: url}, config) when is_binary(url),
     do: ClaudeWrapper.McpConfig.add_http(config, name, url)
 
