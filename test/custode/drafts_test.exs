@@ -30,6 +30,7 @@ defmodule Custode.DraftsTest do
     def view_pr(_owner, _repo, number), do: {:ok, %{number: number}}
     def pr_checks(_owner, _repo, number), do: {:ok, %{sha: "abc", checks: [], number: number}}
     def pr_diff(_owner, _repo, _number), do: {:ok, %{files: []}}
+    def review_snapshot(_owner, _repo, _number), do: {:error, :unused}
 
     defp pid, do: Application.fetch_env!(:custode, :repo_ops_test_pid)
   end

@@ -28,7 +28,7 @@ defmodule Custode.GitHubIssueAttemptDispatcher do
           options
         )
 
-      "repair" ->
+      kind when kind in ["repair", "handle_feedback", "resolve_conflict"] ->
         repair(attempt, options)
 
       "publish" ->

@@ -428,10 +428,11 @@ defmodule Custode.RepairAttempts do
 
   defp active_owner(attempt) do
     work_item = attempt.work_item
+    active_phase = get_in(attempt.provenance || %{}, ["active_phase"]) || "repairing"
 
     valid? =
       work_item.state == "active" and
-        work_item.phase == "repairing" and
+        work_item.phase == active_phase and
         work_item.active_attempt_id == attempt.attempt_id and
         work_item.version == attempt.expected_work_item_version + 1
 
@@ -460,6 +461,12 @@ defmodule Custode.RepairAttempts do
 
   defp handler_matches(attempt, %CommandSpec{name: "repair_format"}) do
     if get_in(attempt.provenance, ["repair_disposition", "handler"]) == "elixir_format",
+      do: :ok,
+      else: {:error, :repair_handler_mismatch}
+  end
+
+  defp handler_matches(attempt, %CommandSpec{name: "repair_replay"}) do
+    if get_in(attempt.provenance, ["repair_disposition", "handler"]) == "git_replay",
       do: :ok,
       else: {:error, :repair_handler_mismatch}
   end

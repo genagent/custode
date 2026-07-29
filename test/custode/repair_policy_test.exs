@@ -19,6 +19,11 @@ defmodule Custode.Repair.PolicyTest do
     assert {:error, {:invalid_repair_handler, _details}} =
              Disposition.new(base_disposition("mechanical_repair", "claude"))
 
+    assert {:ok, replay} =
+             Disposition.new(base_disposition("mechanical_repair", "git_replay"))
+
+    assert replay.handler == "git_replay"
+
     assert {:error, {:repair_disposition_field_required, :question}} =
              Disposition.new(base_disposition("human_ask", nil))
   end

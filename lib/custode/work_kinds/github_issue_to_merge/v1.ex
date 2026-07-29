@@ -59,9 +59,9 @@ defmodule Custode.WorkKinds.GithubIssueToMerge.V1 do
     "publishing" => ~w(awaiting_review),
     "awaiting_review" => ~w(feedback_ready conflict_ready merge_ready),
     "feedback_ready" => ~w(handling_feedback),
-    "handling_feedback" => ~w(verification_ready),
+    "handling_feedback" => ~w(verification_ready repair_ready),
     "conflict_ready" => ~w(resolving_conflict),
-    "resolving_conflict" => ~w(verification_ready),
+    "resolving_conflict" => ~w(verification_ready repair_ready),
     "merge_ready" => ~w(merging),
     "merging" => ~w(landed),
     "landed" => []
@@ -79,7 +79,9 @@ defmodule Custode.WorkKinds.GithubIssueToMerge.V1 do
 
   @edge_evidence_requirements %{
     {"implementing", "verification_ready"} => ~w(implementation),
-    {"repairing", "verification_ready"} => ~w(repair)
+    {"repairing", "verification_ready"} => ~w(repair),
+    {"handling_feedback", "verification_ready"} => ~w(repair),
+    {"resolving_conflict", "verification_ready"} => ~w(repair)
   }
 
   @ready_commands %{
@@ -142,16 +144,18 @@ defmodule Custode.WorkKinds.GithubIssueToMerge.V1 do
 
   @impl true
   def next_command(
-        %WorkItem{state: "ready", phase: "repair_ready"},
+        %WorkItem{state: "ready", phase: phase},
         %{repair: %{kind: :transition, transition: transition}}
-      ) do
+      )
+      when phase in ["repair_ready", "feedback_ready", "conflict_ready"] do
     {:ok, %{action: :transition, transition: transition}}
   end
 
   def next_command(
-        %WorkItem{state: "ready", phase: "repair_ready"},
+        %WorkItem{state: "ready", phase: phase},
         %{"repair" => %{"kind" => "transition", "transition" => transition}}
-      ) do
+      )
+      when phase in ["repair_ready", "feedback_ready", "conflict_ready"] do
     {:ok, %{action: :transition, transition: transition}}
   end
 

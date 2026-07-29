@@ -4,8 +4,8 @@ defmodule Custode.GitHubIssueVertical do
 
   It advances only the approved `github_issue_to_merge@1` pilot through
   workspace preparation, reproducible context compilation, one Claude
-  implementation Attempt, deterministic verification, and bounded repair.
-  Publication remains a separate later slice.
+  implementation Attempt, deterministic verification, draft publication,
+  and bounded review repair. Merge remains a separate later slice.
   """
 
   alias Custode.{
@@ -23,6 +23,7 @@ defmodule Custode.GitHubIssueVertical do
     WorkspaceLeases
   }
 
+  alias Custode.GitHubReview.Context, as: GitHubReviewContext
   alias Custode.Repair.Disposition
   alias Custode.Workspace.Git
 
@@ -164,6 +165,25 @@ defmodule Custode.GitHubIssueVertical do
          "active" <- lease.state,
          {:ok, plan} <- RepairContext.plan(routine, work_item, lease, options),
          snapshot <- repair_snapshot(routine, work_item, plan),
+         :ok <- execute_claim(work_item, snapshot, options) do
+      :ok
+    else
+      nil -> {:error, :workspace_lease_missing}
+      state when is_binary(state) -> {:error, {:workspace_lease_not_active, state}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp advance(
+         routine,
+         %{state: "ready", phase: phase} = work_item,
+         options
+       )
+       when phase in ["feedback_ready", "conflict_ready"] do
+    with lease when not is_nil(lease) <- WorkspaceLeases.get_for_work_item(work_item.work_item_id),
+         "active" <- lease.state,
+         {:ok, plan} <- GitHubReviewContext.plan(routine, work_item, lease, options),
+         snapshot <- review_repair_snapshot(routine, work_item, plan),
          :ok <- execute_claim(work_item, snapshot, options) do
       :ok
     else
@@ -386,6 +406,56 @@ defmodule Custode.GitHubIssueVertical do
           repair_disposition: Disposition.render(disposition),
           repair_policy: plan.policy_snapshot,
           failure_artifact_id: plan.failure_artifact.artifact_id,
+          workspace_revision: plan.workspace_revision["revision"],
+          capabilities: if(model?, do: GitHubIssueContext.capabilities(), else: [])
+        },
+        dispatch: %{legacy_routine_id: routine.id}
+      }
+    }
+  end
+
+  defp review_repair_snapshot(_routine, _work_item, %{kind: :transition} = plan) do
+    %{
+      repair: %{
+        kind: :transition,
+        transition: plan.transition
+      }
+    }
+  end
+
+  defp review_repair_snapshot(routine, work_item, %{kind: :attempt} = plan) do
+    disposition = plan.disposition
+    source = plan.source_attempt
+    evidence = plan.observation_evidence
+    model? = disposition.kind == "semantic_repair"
+    effort = routine.effort || "default"
+
+    %{
+      repair: %{kind: :attempt},
+      attempt: %{
+        attempt_id: stable_id("review-repair", work_item.work_item_id, plan.bundle.digest),
+        role_binding_id: source.role_binding && source.role_binding.binding_id,
+        caused_by_attempt_id: source.attempt_id,
+        context_bundle_id: plan.bundle.context_bundle_id,
+        executor_kind: if(model?, do: "model", else: "deterministic"),
+        provider: if(model?, do: "claude", else: "custode"),
+        profile: if(model?, do: "#{routine.model}:#{effort}", else: disposition.kind),
+        recipe_version: plan.policy_snapshot.policy.version,
+        expected_work_item_version: work_item.version,
+        provenance: %{
+          purpose: "github_issue_repair",
+          repair_origin: "github_review",
+          repair_path: disposition.kind,
+          active_phase: evidence["action"]["active_phase"],
+          legacy_routine_id: routine.id,
+          repair_disposition: Disposition.render(disposition),
+          repair_policy: plan.policy_snapshot,
+          failure_artifact_id: plan.observation_artifact.artifact_id,
+          observation_artifact_id: plan.observation_artifact.artifact_id,
+          observation_external_identity: plan.observation_artifact.external_identity,
+          observation_item_tokens: evidence["item_tokens"],
+          observation_head_sha: evidence["head_sha"],
+          observation_base_sha: evidence["base_sha"],
           workspace_revision: plan.workspace_revision["revision"],
           capabilities: if(model?, do: GitHubIssueContext.capabilities(), else: [])
         },

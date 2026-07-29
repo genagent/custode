@@ -766,19 +766,44 @@ defmodule Custode.ClaudeAttempts do
     do: get_in(attempt.provenance || %{}, ["purpose"]) == "github_issue_repair"
 
   defp active_phase(attempt),
-    do: if(repair_attempt?(attempt), do: "repairing", else: "implementing")
+    do:
+      if(
+        repair_attempt?(attempt),
+        do: get_in(attempt.provenance || %{}, ["active_phase"]) || "repairing",
+        else: "implementing"
+      )
 
-  defp attempt_kind(attempt),
-    do: if(repair_attempt?(attempt), do: "claude_repair", else: "claude_implementation")
+  defp attempt_kind(attempt) do
+    cond do
+      get_in(attempt.provenance || %{}, ["repair_origin"]) == "github_review" ->
+        "claude_review_repair"
+
+      repair_attempt?(attempt) ->
+        "claude_repair"
+
+      true ->
+        "claude_implementation"
+    end
+  end
 
   defp attempt_label(attempt),
-    do: if(repair_attempt?(attempt), do: "semantic repair", else: "implementation")
+    do:
+      if(
+        get_in(attempt.provenance || %{}, ["repair_origin"]) == "github_review",
+        do: "review repair",
+        else: if(repair_attempt?(attempt), do: "semantic repair", else: "implementation")
+      )
 
   defp attempt_instruction(attempt) do
-    if repair_attempt?(attempt) do
-      "Repair only the focused failure described by this exact ContextBundle."
-    else
-      "Implement the approved WorkItem described by this exact ContextBundle."
+    cond do
+      get_in(attempt.provenance || %{}, ["repair_origin"]) == "github_review" ->
+        "Address only the accepted GitHub observation described by this exact ContextBundle."
+
+      repair_attempt?(attempt) ->
+        "Repair only the focused failure described by this exact ContextBundle."
+
+      true ->
+        "Implement the approved WorkItem described by this exact ContextBundle."
     end
   end
 

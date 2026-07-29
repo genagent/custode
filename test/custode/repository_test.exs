@@ -66,6 +66,18 @@ defmodule Custode.RepositoryTest do
       {:ok, %{files: [%{filename: "lib/x.ex", status: "modified", patch: "@@ -1 +1 @@"}]}}
     end
 
+    def review_snapshot(owner, repo, number) do
+      send(pid(), {:review_snapshot, owner, repo, number})
+
+      {:ok,
+       %{
+         pull_request: %{number: number, head_sha: "abc", base_sha: "def"},
+         reviews: [%{id: 11, state: "CHANGES_REQUESTED"}],
+         comments: [%{id: 12, body: "please fix"}],
+         checks: [%{id: 13, name: "test", conclusion: "failure"}]
+       }}
+    end
+
     defp pid, do: Application.fetch_env!(:custode, :repo_ops_test_pid)
   end
 
@@ -233,6 +245,11 @@ defmodule Custode.RepositoryTest do
 
     assert {:ok, %{files: [%{filename: "lib/x.ex"}]}} = Repository.pr_diff(repo, 9)
     assert_receive {:pr_diff, "acme", _bare, 9}
+
+    assert {:ok, %{pull_request: %{head_sha: "abc"}, reviews: [%{id: 11}]}} =
+             Repository.review_snapshot(repo, 9)
+
+    assert_receive {:review_snapshot, "acme", _bare, 9}
   end
 
   test "reads do NOT record a feed entry (only writes do)", %{repo: repo} do

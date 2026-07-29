@@ -17,6 +17,13 @@ defmodule Custode.Artifacts do
     |> preload()
   end
 
+  @spec get_by_external_identity(String.t()) :: Artifact.t() | nil
+  def get_by_external_identity(external_identity) when is_binary(external_identity) do
+    Artifact
+    |> Repo.get_by(external_identity: external_identity)
+    |> preload()
+  end
+
   @spec list_for_work_item(String.t()) :: [Artifact.t()]
   def list_for_work_item(work_item_id) do
     case WorkItems.get(work_item_id) do

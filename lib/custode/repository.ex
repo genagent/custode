@@ -14,9 +14,10 @@ defmodule Custode.Repository do
 
   Write verbs: `open_pr/2`, `comment/3`, `ready_pr/2`, `merge_pr/2`.
   Read verbs (#129): `list_issues/2`, `view_issue/2`, `list_prs/2`,
-  `view_pr/2`, `pr_checks/2`, `pr_diff/2` -- scoped GitHub reads through the
-  bound server, replacing the unscoped `gh issue list` / `gh pr view` Bash
-  grants. `Custode.GitHub` still owns the dashboard panel fetcher/cache.
+  `view_pr/2`, `pr_checks/2`, `pr_diff/2`, `review_snapshot/2` -- scoped
+  GitHub reads through the bound server, replacing the unscoped
+  `gh issue list` / `gh pr view` Bash grants. `Custode.GitHub` still owns the
+  dashboard panel fetcher/cache.
   """
 
   use GenServer
@@ -228,6 +229,9 @@ defmodule Custode.Repository do
   @doc "The changed files of a PR, each with its patch (the diff)."
   def pr_diff(name, number), do: call(name, {:pr_diff, number})
 
+  @doc "Identifier-rich PR, review, comment, and check evidence for reconciliation."
+  def review_snapshot(name, number), do: call(name, {:review_snapshot, number})
+
   defp call(name, request) do
     if served?(name) do
       GenServer.call(via(name), request, 30_000)
@@ -323,6 +327,10 @@ defmodule Custode.Repository do
 
   def handle_call({:pr_diff, number}, _from, state) do
     read_op(:pr_diff, [state.owner, state.repo, number]) |> reply(state)
+  end
+
+  def handle_call({:review_snapshot, number}, _from, state) do
+    read_op(:review_snapshot, [state.owner, state.repo, number]) |> reply(state)
   end
 
   # The workflow's review stage (#86) is mechanical law regardless of who
@@ -465,6 +473,7 @@ defmodule Custode.Repository.OpsBehaviour do
   @callback view_pr(owner, repo, pos_integer()) :: result
   @callback pr_checks(owner, repo, pos_integer()) :: result
   @callback pr_diff(owner, repo, pos_integer()) :: result
+  @callback review_snapshot(owner, repo, pos_integer()) :: result
   @callback review_state(owner, repo, pos_integer()) :: result
 end
 
@@ -575,6 +584,23 @@ defmodule Custode.Repository.Ops do
     end
   end
 
+  def review_snapshot(owner, repo, number) do
+    with {:ok, client} <- client(),
+         {:ok, pr} <- unwrap(GhEx.PullRequests.get(client, owner, repo, number)),
+         {:ok, reviews} <- unwrap(GhEx.PullRequests.list_reviews(client, owner, repo, number)),
+         {:ok, comments} <- unwrap(GhEx.Issues.list_comments(client, owner, repo, number)),
+         sha = get_in(pr, ["head", "sha"]),
+         {:ok, result} <- unwrap(GhEx.Checks.list_for_ref(client, owner, repo, sha)) do
+      {:ok,
+       %{
+         pull_request: pr_row(pr) |> Map.put(:body, pr["body"]),
+         reviews: Enum.map(reviews, &review_row/1),
+         comments: comment_rows(comments),
+         checks: Enum.map(result["check_runs"] || [], &check_row/1)
+       }}
+    end
+  end
+
   defp state_param(opts), do: opts[:state] || opts["state"] || "open"
 
   defp issue_row(issue) do
@@ -598,8 +624,21 @@ defmodule Custode.Repository.Ops do
       base_sha: get_in(pr, ["base", "sha"]),
       head: get_in(pr, ["head", "ref"]),
       head_sha: get_in(pr, ["head", "sha"]),
+      mergeable: pr["mergeable"],
+      mergeable_state: pr["mergeable_state"],
       updated_at: pr["updated_at"],
       url: pr["html_url"]
+    }
+  end
+
+  defp review_row(review) do
+    %{
+      id: review["id"],
+      author: get_in(review, ["user", "login"]),
+      state: review["state"],
+      body: review["body"],
+      commit_id: review["commit_id"],
+      submitted_at: review["submitted_at"]
     }
   end
 
@@ -616,7 +655,14 @@ defmodule Custode.Repository.Ops do
   end
 
   defp check_row(run) do
-    %{name: run["name"], status: run["status"], conclusion: run["conclusion"]}
+    %{
+      id: run["id"],
+      name: run["name"],
+      status: run["status"],
+      conclusion: run["conclusion"],
+      started_at: run["started_at"],
+      completed_at: run["completed_at"]
+    }
   end
 
   defp file_row(file) do
