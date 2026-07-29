@@ -28,22 +28,25 @@ defmodule Custode.OperationDispatcher do
   @spec inspect_invocation(map() | keyword() | OperationEnvelope.t(), OperationRegistry.t()) ::
           {:ok, map()} | {:error, term()}
   def inspect_invocation(envelope_or_attrs, registry \\ OperationRegistry.default()) do
+    with {:ok, authorization} <- authorize_invocation(envelope_or_attrs, registry),
+         %{definition: definition, envelope: envelope} = authorization,
+         :ok <- check_precondition(definition, envelope),
+         {:ok, preview} <- preview(definition, envelope) do
+      {:ok, Map.put(authorization, :preview, preview)}
+    end
+  end
+
+  @doc "Validate and authorize a command without checking effects or creating an OperationCall."
+  @spec authorize_invocation(map() | keyword() | OperationEnvelope.t(), OperationRegistry.t()) ::
+          {:ok, map()} | {:error, term()}
+  def authorize_invocation(envelope_or_attrs, registry \\ OperationRegistry.default()) do
     with {:ok, envelope} <- normalize_envelope(envelope_or_attrs),
          {:ok, definition} <- fetch(registry, envelope.operation),
          :ok <- require_command(definition),
          {:ok, arguments} <- validate(definition.input_schema, envelope.arguments),
          envelope = %{envelope | arguments: arguments},
-         {:ok, grant} <- authorize(definition, envelope),
-         envelope = %{envelope | grant: grant},
-         :ok <- check_precondition(definition, envelope),
-         {:ok, preview} <- preview(definition, envelope) do
-      {:ok,
-       %{
-         definition: definition,
-         envelope: envelope,
-         grant: grant,
-         preview: preview
-       }}
+         {:ok, grant} <- authorize(definition, envelope) do
+      {:ok, %{definition: definition, envelope: %{envelope | grant: grant}, grant: grant}}
     end
   end
 

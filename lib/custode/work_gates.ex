@@ -159,6 +159,7 @@ defmodule Custode.WorkGates do
       fn ->
         gate = open_gate!(gate_id)
         resolver = principal!(options)
+        authorize_resolution!(gate, resolver, options)
         reason = required_structured!(reason, :reason)
 
         gate =
@@ -197,6 +198,7 @@ defmodule Custode.WorkGates do
         end
 
         resolver = principal!(options)
+        authorize_resolution!(gate, resolver, options)
         reason = required_structured!(reason, :reason)
 
         resolve!(
@@ -433,6 +435,7 @@ defmodule Custode.WorkGates do
       fn ->
         gate = open_gate!(gate_id)
         resolver = principal!(options)
+        authorize_resolution!(gate, resolver, options)
         reason = required_structured!(reason, :reason)
 
         resolve!(
@@ -582,6 +585,17 @@ defmodule Custode.WorkGates do
   defp inspect!(envelope, registry) do
     case OperationDispatcher.inspect_invocation(envelope, registry) do
       {:ok, inspection} -> inspection
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp authorize_resolution!(gate, resolver, options) do
+    registry = Keyword.get(options, :registry, OperationRegistry.default())
+
+    case gate
+         |> invocation_envelope(resolver)
+         |> OperationDispatcher.authorize_invocation(registry) do
+      {:ok, _authorization} -> :ok
       {:error, reason} -> Repo.rollback(reason)
     end
   end

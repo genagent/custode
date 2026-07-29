@@ -227,6 +227,15 @@ defmodule Custode.WorkGatesTest do
     assert {:ok, gate} = propose(work_item, "gate-reject")
     reason = %{code: "operator_refused", detail: "unsafe at this revision"}
 
+    assert {:error, {:denied, :operator_required}} =
+             WorkGates.reject(
+               gate.gate_id,
+               reason,
+               resolver(actor: %{kind: :sub_agent, id: "unauthorized"})
+             )
+
+    assert WorkGates.get(gate.gate_id).status == "open"
+
     assert {:ok, rejected} = WorkGates.reject(gate.gate_id, reason, resolver())
     assert rejected.status == "rejected"
 

@@ -594,6 +594,7 @@ defmodule Custode.AttemptsTest do
     Repo.delete_all(SpendLedger.Entry)
     Repo.delete_all(Custode.WorkEvent)
     Repo.delete_all(Custode.WorkGate)
+    Repo.update_all(WorkItem, set: [parent_id: nil])
     Repo.delete_all(WorkItem)
     Repo.delete_all(RoleBinding)
     Repo.delete_all(Custode.LegacyRoutineMissionMapping)
