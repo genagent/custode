@@ -86,7 +86,8 @@ defmodule Custode.GitHubReview.Reconciler do
     accepted? = artifact.provenance["accepted"] || artifact.provenance[:accepted]
 
     if accepted? do
-      with {:ok, observation} <- observation_from_artifact(artifact) do
+      with {:ok, observation} <- observation_from_artifact(artifact),
+           :ok <- replay_scope(work_item, observation, artifact) do
         apply_observation(work_item, observation, artifact, options)
       end
     else
@@ -94,6 +95,30 @@ defmodule Custode.GitHubReview.Reconciler do
        {:stale, :github_observation_previously_rejected,
         %{observation_artifact_id: artifact.artifact_id}}}
     end
+  end
+
+  defp replay_scope(work_item, observation, artifact) do
+    if applied?(work_item, artifact.external_identity) do
+      :ok
+    else
+      case current_scope(work_item, observation) do
+        :ok ->
+          :ok
+
+        {:stale, reason, observed} ->
+          {:error,
+           {:stale, reason, Map.put(observed, :observation_artifact_id, artifact.artifact_id)}}
+      end
+    end
+  end
+
+  defp applied?(work_item, external_identity) do
+    work_item.work_item_id
+    |> WorkItems.list_events()
+    |> Enum.any?(fn event ->
+      get_in(event.evidence || %{}, ["github_observation", "external_identity"]) ==
+        external_identity
+    end)
   end
 
   defp observation_from_artifact(artifact) do
@@ -313,13 +338,9 @@ defmodule Custode.GitHubReview.Reconciler do
 
   defp consumed_tokens(work_item) do
     work_item.work_item_id
-    |> Artifacts.list_for_work_item()
-    |> Enum.filter(fn artifact ->
-      artifact.kind == "github_observation" and
-        (artifact.provenance["accepted"] || artifact.provenance[:accepted])
-    end)
-    |> Enum.flat_map(fn artifact ->
-      artifact.provenance["item_tokens"] || artifact.provenance[:item_tokens] || []
+    |> WorkItems.list_events()
+    |> Enum.flat_map(fn event ->
+      get_in(event.evidence || %{}, ["github_observation", "item_tokens"]) || []
     end)
     |> MapSet.new()
   end

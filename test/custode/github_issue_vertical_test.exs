@@ -34,7 +34,7 @@ defmodule Custode.GitHubIssueVerticalTest do
     WorkspaceLeases
   }
 
-  alias Custode.GitHubReview.Reconciler
+  alias Custode.GitHubReview.{Observation, Reconciler}
   alias Custode.Repair.Disposition
   alias Custode.Verification.{CommandSpec, Recipe}
 
@@ -717,6 +717,86 @@ defmodule Custode.GitHubIssueVerticalTest do
 
     assert :ok = plan_review_repair!(fixture, waiting)
     assert repair_attempt_count(waiting) == 1
+  end
+
+  test "an accepted observation without an operation is revalidated before replay", fixture do
+    {waiting, pull_request} = publish_successfully!(fixture)
+
+    accepted_before_dispatch =
+      review_observation(waiting, %{
+        kind: "review_feedback",
+        external_updated_at: "2026-07-29T21:09:00Z",
+        comments: [
+          %{
+            id: 9_022,
+            body: "This observation was persisted before its operation was claimed.",
+            updated_at: "2026-07-29T21:09:00Z"
+          }
+        ]
+      })
+
+    {:ok, persisted} = Observation.new(accepted_before_dispatch)
+    body = Jason.encode!(Observation.render(persisted))
+
+    assert {:ok, artifact} =
+             Artifacts.put(
+               waiting.work_item_id,
+               body,
+               %{
+                 artifact_id: "github-observation:accepted-before-operation",
+                 kind: "github_observation",
+                 external_identity: persisted.external_identity,
+                 media_type: "application/json",
+                 provenance: %{
+                   accepted: true,
+                   item_tokens: persisted.item_tokens
+                 }
+               },
+               artifact_dir: fixture.artifacts
+             )
+
+    newer =
+      review_observation(waiting, %{
+        kind: "review_feedback",
+        external_updated_at: "2026-07-29T21:10:00Z",
+        reviews: [
+          %{
+            id: 9_023,
+            state: "CHANGES_REQUESTED",
+            body: "Please address the newer review.",
+            commit_id: pull_request.head_sha,
+            submitted_at: "2026-07-29T21:10:00Z"
+          }
+        ]
+      })
+
+    assert {:ok, %{status: :repair_ready}} =
+             Reconciler.ingest(
+               waiting.work_item_id,
+               newer,
+               routine_id: fixture.routine.id,
+               artifact_dir: fixture.artifacts
+             )
+
+    current = WorkItems.get(waiting.work_item_id)
+
+    assert {:error,
+            {:stale, :github_review_not_waiting,
+             %{observation_artifact_id: observation_artifact_id}}} =
+             Reconciler.ingest(
+               waiting.work_item_id,
+               accepted_before_dispatch,
+               routine_id: fixture.routine.id,
+               artifact_dir: fixture.artifacts
+             )
+
+    assert observation_artifact_id == artifact.artifact_id
+    assert WorkItems.get(waiting.work_item_id).version == current.version
+
+    refute Enum.any?(WorkItems.list_events(waiting.work_item_id), fn event ->
+             get_in(event.evidence || %{}, ["github_observation", "external_identity"]) ==
+               persisted.external_identity
+           end)
   end
 
   test "stale heads and older revisions are preserved as rejected evidence only", fixture do
