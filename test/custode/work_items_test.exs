@@ -405,7 +405,12 @@ defmodule Custode.WorkItemsTest do
     work_item = create_work!(work_attrs(mission), "next-command-work")
     ready = advance_to_ready!(work_item)
 
-    assert {:ok, %{action: :dispatch_attempt, kind: "prepare_workspace"}} =
+    assert {:ok,
+            %{
+              action: :dispatch_attempt,
+              kind: "prepare_workspace",
+              phase: "preparing_workspace"
+            }} =
              WorkItems.next_command(ready.work_item_id)
   end
 

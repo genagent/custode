@@ -1,5 +1,5 @@
 defmodule Custode.WorkEvent do
-  @moduledoc "Append-only typed account of a WorkItem lifecycle or gate outcome."
+  @moduledoc "Append-only typed account of WorkItem lifecycle, gates, and process decisions."
 
   use Ecto.Schema
 
@@ -68,13 +68,25 @@ defmodule Custode.WorkEvent do
       "work_item.transitioned",
       "work_item.reopened",
       "gate.rejected",
-      "gate.stale"
+      "gate.stale",
+      "work.next_action.claimed",
+      "work.next_action.completed"
     ])
     |> validate_number(:work_item_version, greater_than: 0)
     |> foreign_key_constraint(:work_item_id)
     |> foreign_key_constraint(:mission_id)
     |> unique_constraint(:event_id)
     |> unique_constraint(:operation_call_id)
+    |> unique_constraint([:work_item_id, :work_item_version],
+      name: :work_events_next_action_claim_index
+    )
+    # SQLite reports partial-index conflicts by the default field-derived
+    # constraint name rather than the explicit index name.
+    |> unique_constraint([:work_item_id, :work_item_version],
+      name: :work_events_work_item_id_work_item_version_index
+    )
+    |> unique_constraint(:causation_id, name: :work_events_next_action_result_index)
+    |> unique_constraint(:causation_id, name: :work_events_causation_id_index)
     |> foreign_key_constraint(:gate_id)
     |> unique_constraint(:gate_id)
   end
