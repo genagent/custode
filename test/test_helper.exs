@@ -20,6 +20,7 @@ for table <- [
       "issue_drafts",
       "instance",
       "work_events",
+      "work_gates",
       "attempts",
       "context_bundles",
       "artifacts",

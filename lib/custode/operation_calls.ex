@@ -51,6 +51,23 @@ defmodule Custode.OperationCalls do
   @spec get(String.t()) :: OperationCall.t() | nil
   def get(call_id), do: Repo.get_by(OperationCall, call_id: call_id)
 
+  @doc false
+  @spec get_for_invocation(OperationDefinition.t(), OperationEnvelope.t()) ::
+          OperationCall.t() | nil
+  def get_for_invocation(definition, envelope) do
+    case idempotency_scope(definition, envelope) do
+      {:ok, scope} ->
+        Repo.get_by(OperationCall,
+          operation: definition.name,
+          idempotency_scope: scope,
+          idempotency_key: envelope.idempotency_key
+        )
+
+      _error ->
+        nil
+    end
+  end
+
   defp replay_or_resume(definition, envelope, scope, executor) do
     case authorize(definition, envelope) do
       {:ok, grant} ->

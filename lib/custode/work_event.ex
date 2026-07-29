@@ -1,5 +1,5 @@
 defmodule Custode.WorkEvent do
-  @moduledoc "Append-only typed account of a WorkItem lifecycle change."
+  @moduledoc "Append-only typed account of a WorkItem lifecycle or gate outcome."
 
   use Ecto.Schema
 
@@ -15,6 +15,7 @@ defmodule Custode.WorkEvent do
     field(:actor, :map)
     field(:operation, :string)
     field(:operation_call_id, :string)
+    field(:gate_id, :string)
     field(:before_state, :string)
     field(:before_phase, :string)
     field(:after_state, :string)
@@ -40,6 +41,7 @@ defmodule Custode.WorkEvent do
       :actor,
       :operation,
       :operation_call_id,
+      :gate_id,
       :before_state,
       :before_phase,
       :after_state,
@@ -64,12 +66,16 @@ defmodule Custode.WorkEvent do
     |> validate_inclusion(:kind, [
       "work_item.created",
       "work_item.transitioned",
-      "work_item.reopened"
+      "work_item.reopened",
+      "gate.rejected",
+      "gate.stale"
     ])
     |> validate_number(:work_item_version, greater_than: 0)
     |> foreign_key_constraint(:work_item_id)
     |> foreign_key_constraint(:mission_id)
     |> unique_constraint(:event_id)
     |> unique_constraint(:operation_call_id)
+    |> foreign_key_constraint(:gate_id)
+    |> unique_constraint(:gate_id)
   end
 end

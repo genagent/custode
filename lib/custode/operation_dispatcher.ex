@@ -19,6 +19,34 @@ defmodule Custode.OperationDispatcher do
     end
   end
 
+  @doc """
+  Validate, authorize, and preview a command without creating an OperationCall.
+
+  Gate v2 uses this at proposal and again at approval. It is intentionally the
+  same validation and authorization seam as dispatch, not a parallel policy.
+  """
+  @spec inspect_invocation(map() | keyword() | OperationEnvelope.t(), OperationRegistry.t()) ::
+          {:ok, map()} | {:error, term()}
+  def inspect_invocation(envelope_or_attrs, registry \\ OperationRegistry.default()) do
+    with {:ok, envelope} <- normalize_envelope(envelope_or_attrs),
+         {:ok, definition} <- fetch(registry, envelope.operation),
+         :ok <- require_command(definition),
+         {:ok, arguments} <- validate(definition.input_schema, envelope.arguments),
+         envelope = %{envelope | arguments: arguments},
+         {:ok, grant} <- authorize(definition, envelope),
+         envelope = %{envelope | grant: grant},
+         :ok <- check_precondition(definition, envelope),
+         {:ok, preview} <- preview(definition, envelope) do
+      {:ok,
+       %{
+         definition: definition,
+         envelope: envelope,
+         grant: grant,
+         preview: preview
+       }}
+    end
+  end
+
   defp dispatch_definition(%OperationDefinition{classification: :command} = definition, envelope) do
     OperationCalls.dispatch(definition, envelope, &execute/2)
   end
@@ -46,6 +74,35 @@ defmodule Custode.OperationDispatcher do
 
   defp require_grant(%OperationDefinition{required_grants: grants}, grant) do
     if grant in grants, do: :ok, else: {:error, {:denied, :missing_grant}}
+  end
+
+  defp require_command(%OperationDefinition{classification: :command}), do: :ok
+  defp require_command(definition), do: {:error, {:gate_requires_command, definition.name}}
+
+  defp authorize(definition, envelope) do
+    with {:ok, grant} <- definition.authorization.(definition, envelope),
+         :ok <- require_grant(definition, grant) do
+      {:ok, grant}
+    else
+      {:error, {:denied, reason}} -> {:error, {:denied, reason}}
+      {:error, reason} -> {:error, {:denied, reason}}
+    end
+  end
+
+  defp check_precondition(%OperationDefinition{precondition: nil}, _envelope), do: :ok
+
+  defp check_precondition(definition, envelope) do
+    case definition.precondition.(envelope.arguments, envelope) do
+      :ok -> :ok
+      {:stale, reason, observed} -> {:error, {:stale, reason, observed}}
+    end
+  end
+
+  defp preview(%OperationDefinition{effect_preview: nil} = definition, _envelope),
+    do: {:error, {:gate_preview_unsupported, definition.name}}
+
+  defp preview(definition, envelope) do
+    definition.effect_preview.(envelope.arguments, envelope)
   end
 
   defp execute(%OperationDefinition{} = definition, %{dry_run: true} = envelope) do
