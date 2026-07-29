@@ -18,6 +18,7 @@ defmodule Custode.GitHubIssueVerticalTest do
     Memory,
     Mission,
     MissionTarget,
+    RepairAttempts,
     Repo,
     RoleBinding,
     RoleBindings,
@@ -30,6 +31,7 @@ defmodule Custode.GitHubIssueVerticalTest do
     WorkspaceLeases
   }
 
+  alias Custode.Repair.Disposition
   alias Custode.Verification.{CommandSpec, Recipe}
 
   @repository_id "1307868502"
@@ -465,6 +467,260 @@ defmodule Custode.GitHubIssueVerticalTest do
     refute get_in(body, ["failures", Access.at(0), "output"])
   end
 
+  test "mechanical repair is linked, crash-safe, and returns through fresh verification",
+       fixture do
+    {work_item, failed_verification} = fail_verification!(fixture, "format", "test_failure")
+
+    assert :ok = plan_repair!(fixture, work_item)
+    repair = repair_attempt!(work_item)
+
+    assert repair.executor_kind == "deterministic"
+    assert repair.provider == "custode"
+    assert repair.caused_by_attempt.attempt_id == failed_verification.attempt_id
+    assert get_in(repair.provenance, ["repair_disposition", "kind"]) == "mechanical_repair"
+
+    assert :ok = plan_repair!(fixture, work_item)
+    assert repair_attempt_count(work_item) == 1
+    assert repair_job_count(repair.attempt_id) == 1
+
+    assert {:ok, body} = ContextBundles.body(repair.context_bundle)
+
+    assert get_in(body, ["repair", "focused_failure", "failures", Access.at(0), "name"]) ==
+             "format"
+
+    assert get_in(body, ["repair", "failure_artifact", "producer_attempt_id"]) ==
+             failed_verification.attempt_id
+
+    test_pid = self()
+
+    runner = fn spec, _path, _options ->
+      send(test_pid, {:repair_ran, spec.name})
+      {:ok, runner_result(spec, "pass")}
+    end
+
+    assert {:error, :simulated_crash} =
+             RepairAttempts.perform(
+               repair_job!(repair.attempt_id),
+               runner: runner,
+               artifact_dir: fixture.artifacts,
+               after_result: fn _artifact -> {:error, :simulated_crash} end
+             )
+
+    assert_receive {:repair_ran, "repair_format"}
+    assert Attempts.get(repair.attempt_id).state == "running"
+
+    refuting_runner = fn _spec, _path, _options ->
+      flunk("durable repair evidence was executed twice")
+    end
+
+    assert :ok =
+             RepairAttempts.perform(
+               repair_job!(repair.attempt_id),
+               runner: refuting_runner,
+               artifact_dir: fixture.artifacts
+             )
+
+    assert Attempts.get(repair.attempt_id).state == "succeeded"
+    assert WorkItems.get(work_item.work_item_id).phase == "verification_ready"
+
+    assert :ok =
+             GitHubIssueVertical.perform(
+               fixture.routine.id,
+               work_item.work_item_id,
+               oban_job_id: System.unique_integer([:positive]),
+               artifact_dir: fixture.artifacts,
+               verification_recipe: test_recipe()
+             )
+
+    next_verification = latest_verification_attempt!(work_item)
+    assert next_verification.attempt_id != failed_verification.attempt_id
+    assert next_verification.caused_by_attempt.attempt_id == repair.attempt_id
+
+    repair_results =
+      work_item.work_item_id
+      |> Artifacts.list_for_work_item()
+      |> Enum.filter(&(&1.kind == "repair_result"))
+
+    assert length(repair_results) == 1
+  end
+
+  test "semantic repair is a focused linked Claude Attempt", fixture do
+    {work_item, failed_verification} = fail_verification!(fixture, "test", "test_failure")
+
+    assert :ok = plan_repair!(fixture, work_item)
+    repair = repair_attempt!(work_item)
+
+    assert repair.executor_kind == "model"
+    assert repair.provider == "claude"
+    assert repair.caused_by_attempt.attempt_id == failed_verification.attempt_id
+    assert get_in(repair.provenance, ["repair_disposition", "kind"]) == "semantic_repair"
+
+    test_pid = self()
+
+    query_fun = fn prompt, options ->
+      send(test_pid, {:repair_prompt, prompt})
+      File.write!(Path.join(options[:working_dir], "semantic-repair.txt"), "fixed\n")
+
+      {:ok,
+       ObanClaude.Testing.structured_result(
+         %{"outcome" => "success", "summary" => "focused repair complete"},
+         cost_usd: 0.02,
+         duration_ms: 10,
+         num_turns: 1
+       )}
+    end
+
+    assert :ok =
+             ClaudeAttempts.perform(
+               provider_job!(repair.attempt_id),
+               query_fun: query_fun,
+               artifact_dir: fixture.artifacts
+             )
+
+    assert_receive {:repair_prompt, prompt}
+    assert prompt =~ "Repair only the focused failure"
+    assert prompt =~ "\"failure_artifact\""
+    assert prompt =~ "\"test\""
+
+    finished = Attempts.get(repair.attempt_id)
+    assert finished.state == "succeeded"
+    assert finished.outcome["kind"] == "claude_repair"
+    assert WorkItems.get(work_item.work_item_id).phase == "verification_ready"
+  end
+
+  test "a repair-time human question records a typed wait disposition", fixture do
+    {work_item, _failed_verification} = fail_verification!(fixture, "test", "test_failure")
+    assert :ok = plan_repair!(fixture, work_item)
+    repair = repair_attempt!(work_item)
+
+    query_fun =
+      ObanClaude.Testing.respond(
+        ObanClaude.Testing.structured_result(%{
+          "outcome" => "human_question",
+          "summary" => "repair needs an operator decision",
+          "question" => "Which compatibility behavior should the repair preserve?"
+        })
+      )
+
+    assert :ok =
+             ClaudeAttempts.perform(
+               provider_job!(repair.attempt_id),
+               query_fun: query_fun,
+               artifact_dir: fixture.artifacts
+             )
+
+    waiting = WorkItems.get(work_item.work_item_id)
+    assert waiting.state == "waiting"
+    assert waiting.phase == "repairing"
+
+    assert get_in(waiting.waiting_condition, ["repair_disposition", "kind"]) == "human_ask"
+
+    assert waiting.waiting_condition["question"] ==
+             "Which compatibility behavior should the repair preserve?"
+
+    event = latest_transition_event(work_item)
+    assert get_in(event.evidence, ["repair_disposition", "kind"]) == "human_ask"
+  end
+
+  test "an unrepairable semantic result records a typed terminal block", fixture do
+    {work_item, _failed_verification} = fail_verification!(fixture, "test", "test_failure")
+    assert :ok = plan_repair!(fixture, work_item)
+    repair = repair_attempt!(work_item)
+
+    query_fun =
+      ObanClaude.Testing.respond(
+        ObanClaude.Testing.structured_result(%{
+          "outcome" => "blocked",
+          "summary" => "required source remains unavailable",
+          "reason" => "missing dependency"
+        })
+      )
+
+    assert :ok =
+             ClaudeAttempts.perform(
+               provider_job!(repair.attempt_id),
+               query_fun: query_fun,
+               artifact_dir: fixture.artifacts
+             )
+
+    blocked = WorkItems.get(work_item.work_item_id)
+    assert blocked.state == "blocked"
+    assert blocked.phase == "repairing"
+    assert blocked.blocked_reason["code"] == "repair_terminal_block"
+
+    assert get_in(blocked.blocked_reason, ["repair_disposition", "kind"]) ==
+             "terminal_block"
+
+    event = latest_transition_event(work_item)
+    assert get_in(event.evidence, ["repair_disposition", "kind"]) == "terminal_block"
+  end
+
+  test "infrastructure retry is deterministic and never masquerades as semantic repair",
+       fixture do
+    {work_item, failed_verification} =
+      fail_verification!(fixture, "test", "infrastructure_error")
+
+    assert :ok = plan_repair!(fixture, work_item)
+    retry_attempt = repair_attempt!(work_item)
+
+    assert retry_attempt.executor_kind == "deterministic"
+    assert retry_attempt.profile == "infrastructure_retry"
+    assert retry_attempt.caused_by_attempt.attempt_id == failed_verification.attempt_id
+
+    assert get_in(retry_attempt.provenance, ["repair_disposition", "kind"]) ==
+             "infrastructure_retry"
+
+    assert repair_job_count(retry_attempt.attempt_id) == 1
+    assert provider_job_count(retry_attempt.attempt_id) == 0
+
+    assert :ok =
+             RepairAttempts.perform(
+               repair_job!(retry_attempt.attempt_id),
+               artifact_dir: fixture.artifacts
+             )
+
+    finished = Attempts.get(retry_attempt.attempt_id)
+    assert finished.state == "succeeded"
+    assert finished.usage["commands"] == 0
+    assert WorkItems.get(work_item.work_item_id).phase == "verification_ready"
+  end
+
+  test "exhausted repair policy creates one stable blocked transition", fixture do
+    {work_item, _failed_verification} = fail_verification!(fixture, "test", "test_failure")
+    exhausted = repair_policy(max_repairs: 0)
+
+    assert :ok = plan_repair!(fixture, work_item, repair_policy: exhausted)
+
+    blocked = WorkItems.get(work_item.work_item_id)
+    assert blocked.state == "blocked"
+    assert blocked.phase == "repair_ready"
+    assert blocked.blocked_reason["code"] == "repair_policy_exhausted"
+    assert blocked.blocked_reason["limit"]["name"] == "repairs"
+    assert repair_attempt_count(work_item) == 0
+
+    transitions_before = repair_decision_event_count(work_item)
+    assert transitions_before == 1
+
+    assert :ok = plan_repair!(fixture, work_item, repair_policy: exhausted)
+    assert repair_decision_event_count(work_item) == transitions_before
+    assert WorkItems.get(work_item.work_item_id).version == blocked.version
+  end
+
+  test "changed workspace invalidates focused failure evidence before repair", fixture do
+    {work_item, _failed_verification} = fail_verification!(fixture, "test", "test_failure")
+    lease = WorkspaceLeases.get_for_work_item(work_item.work_item_id)
+    File.write!(Path.join(lease.workspace_path, "after-failure.txt"), "stale\n")
+
+    assert {:error, :focused_failure_workspace_changed} =
+             plan_repair!(fixture, work_item)
+
+    assert repair_attempt_count(work_item) == 0
+
+    unchanged = WorkItems.get(work_item.work_item_id)
+    assert unchanged.state == "ready"
+    assert unchanged.phase == "repair_ready"
+  end
+
   test "a crash after provider checkpoint recovers without a second provider call", fixture do
     work_item = fixture |> ingest!() |> tap(&dispatch_to_provider!(fixture, &1))
     implementation = implementation_attempt!(work_item)
@@ -712,6 +968,43 @@ defmodule Custode.GitHubIssueVerticalTest do
              )
   end
 
+  defp fail_verification!(fixture, failed_name, status) do
+    work_item = implement_successfully!(fixture)
+    assert :ok = dispatch_to_verifier!(fixture, work_item)
+    verification = latest_verification_attempt!(work_item)
+
+    runner = fn spec, _path, _options ->
+      result_status = if spec.name == failed_name, do: status, else: "pass"
+      {:ok, runner_result(spec, result_status)}
+    end
+
+    assert :ok =
+             VerificationAttempts.perform(
+               verification_job!(verification.attempt_id),
+               runner: runner,
+               artifact_dir: fixture.artifacts
+             )
+
+    ready = WorkItems.get(work_item.work_item_id)
+    assert ready.state == "ready"
+    assert ready.phase == "repair_ready"
+
+    {work_item, Attempts.get(verification.attempt_id)}
+  end
+
+  defp plan_repair!(fixture, work_item, options \\ []) do
+    defaults = [
+      oban_job_id: System.unique_integer([:positive]),
+      artifact_dir: fixture.artifacts
+    ]
+
+    GitHubIssueVertical.perform(
+      fixture.routine.id,
+      work_item.work_item_id,
+      Keyword.merge(defaults, options)
+    )
+  end
+
   defp implementation_attempt!(work_item) do
     work_item.work_item_id
     |> Attempts.list_for_work_item()
@@ -722,6 +1015,26 @@ defmodule Custode.GitHubIssueVerticalTest do
     work_item.work_item_id
     |> Attempts.list_for_work_item()
     |> Enum.find(&(get_in(&1.provenance, ["purpose"]) == "github_issue_verification"))
+  end
+
+  defp latest_verification_attempt!(work_item) do
+    work_item.work_item_id
+    |> Attempts.list_for_work_item()
+    |> Enum.reverse()
+    |> Enum.find(&(get_in(&1.provenance, ["purpose"]) == "github_issue_verification"))
+  end
+
+  defp repair_attempt!(work_item) do
+    work_item.work_item_id
+    |> Attempts.list_for_work_item()
+    |> Enum.reverse()
+    |> Enum.find(&(get_in(&1.provenance, ["purpose"]) == "github_issue_repair"))
+  end
+
+  defp repair_attempt_count(work_item) do
+    work_item.work_item_id
+    |> Attempts.list_for_work_item()
+    |> Enum.count(&(get_in(&1.provenance, ["purpose"]) == "github_issue_repair"))
   end
 
   defp provider_job!(attempt_id) do
@@ -776,6 +1089,53 @@ defmodule Custode.GitHubIssueVerticalTest do
       ),
       :count
     )
+  end
+
+  defp repair_job!(attempt_id) do
+    Repo.one!(
+      from(job in Oban.Job,
+        where:
+          job.worker == "Custode.RepairAttemptJob" and
+            fragment("json_extract(?, '$.attempt_id')", job.args) == ^attempt_id
+      )
+    )
+  end
+
+  defp repair_job_count(attempt_id) do
+    Repo.aggregate(
+      from(job in Oban.Job,
+        where:
+          job.worker == "Custode.RepairAttemptJob" and
+            fragment("json_extract(?, '$.attempt_id')", job.args) == ^attempt_id
+      ),
+      :count
+    )
+  end
+
+  defp repair_decision_event_count(work_item) do
+    work_item.work_item_id
+    |> WorkItems.list_events()
+    |> Enum.count(
+      &(get_in(&1.evidence || %{}, ["repair_disposition", "kind"]) in Disposition.kinds())
+    )
+  end
+
+  defp latest_transition_event(work_item) do
+    work_item.work_item_id
+    |> WorkItems.list_events()
+    |> Enum.reverse()
+    |> Enum.find(&(&1.kind == "work_item.transitioned"))
+  end
+
+  defp repair_policy(overrides) do
+    %{
+      version: "test-repair-policy",
+      max_infrastructure_retries: 2,
+      max_repairs: 2,
+      max_elapsed_ms: 60_000,
+      max_spend_usd: 1.0
+    }
+    |> Map.merge(Map.new(overrides))
   end
 
   defp test_recipe do
@@ -891,6 +1251,7 @@ defmodule Custode.GitHubIssueVerticalTest do
           job.worker in [
             "Custode.ClaudeAttemptJob",
             "Custode.GitHubIssueVerticalJob",
+            "Custode.RepairAttemptJob",
             "Custode.VerificationAttemptJob",
             "Custode.WorkCommandJob"
           ]

@@ -1,6 +1,7 @@
 defmodule Custode.ClaudeAttempts do
   @moduledoc """
-  The narrow Claude adapter for the first implementation Attempt.
+  The narrow Claude adapter for implementation and focused semantic repair
+  Attempts in the first repository vertical.
 
   Durable Attempt and Artifact records own the execution. The Oban job carries
   only stable IDs, and a provider-result checkpoint prevents a crash after a
@@ -24,6 +25,7 @@ defmodule Custode.ClaudeAttempts do
     WorkspaceLeases
   }
 
+  alias Custode.Repair.Disposition
   alias Custode.Workspace.Git
 
   @rail_stops ~w(budget_exceeded max_budget_exceeded max_turns_exceeded)a
@@ -313,25 +315,98 @@ defmodule Custode.ClaudeAttempts do
       error_class: classification["error_class"],
       error_details: classification["error_details"],
       outcome: %{
-        kind: "claude_implementation",
+        kind: attempt_kind(attempt),
         classification: classification["category"],
         summary: classification["summary"],
         structured_output: get_in(body, ["provider", "structured_output"]),
         artifacts: evidence,
-        proposal: proposal(classification, evidence)
+        proposal: proposal(attempt, classification, evidence)
       }
     }
   end
 
-  defp proposal(%{"category" => "success"}, evidence) do
+  defp proposal(attempt, %{"category" => "success"}, evidence) do
     %{
       state: "ready",
       phase: "verification_ready",
-      evidence: %{implementation: evidence}
+      evidence: success_evidence(attempt, evidence)
     }
   end
 
-  defp proposal(%{"category" => "retryable_infrastructure"} = classification, evidence) do
+  defp proposal(
+         attempt,
+         %{"category" => "retryable_infrastructure"} = classification,
+         evidence
+       ) do
+    if repair_attempt?(attempt) do
+      repair_ready_proposal(attempt, evidence)
+    else
+      implementation_retry_proposal(classification, evidence)
+    end
+  end
+
+  defp proposal(
+         attempt,
+         %{"category" => "semantic_follow_up"} = classification,
+         evidence
+       ) do
+    if repair_attempt?(attempt) do
+      repair_ready_proposal(attempt, evidence)
+    else
+      blocked_proposal(attempt, classification, evidence)
+    end
+  end
+
+  defp proposal(attempt, %{"category" => "human_question"} = classification, evidence) do
+    disposition =
+      if repair_attempt?(attempt),
+        do: provider_disposition(attempt, classification, evidence, "human_ask"),
+        else: nil
+
+    %{
+      state: "waiting",
+      phase: active_phase(attempt),
+      waiting_condition: %{
+        kind: "external_event",
+        name: "operator_answer",
+        question: classification["question"],
+        repair_disposition: disposition
+      },
+      evidence: failure_evidence(attempt, evidence, disposition)
+    }
+  end
+
+  defp proposal(attempt, classification, evidence) do
+    blocked_proposal(attempt, classification, evidence)
+  end
+
+  defp blocked_proposal(attempt, classification, evidence) do
+    disposition =
+      if repair_attempt?(attempt),
+        do: provider_disposition(attempt, classification, evidence, "terminal_block"),
+        else: nil
+
+    %{
+      state: "blocked",
+      phase: active_phase(attempt),
+      blocked_reason: %{
+        code: if(disposition, do: "repair_terminal_block", else: classification["category"]),
+        reason: classification["summary"],
+        repair_disposition: disposition
+      },
+      evidence: failure_evidence(attempt, evidence, disposition)
+    }
+  end
+
+  defp repair_ready_proposal(attempt, evidence) do
+    %{
+      state: "ready",
+      phase: "repair_ready",
+      evidence: %{repair_failure: repair_evidence(attempt, evidence)}
+    }
+  end
+
+  defp implementation_retry_proposal(classification, evidence) do
     %{
       state: "waiting",
       phase: "implementing",
@@ -339,31 +414,6 @@ defmodule Custode.ClaudeAttempts do
         kind: "reconciler",
         name: "provider_retry",
         error: classification["error_details"]
-      },
-      evidence: %{implementation_failure: evidence}
-    }
-  end
-
-  defp proposal(%{"category" => "human_question"} = classification, evidence) do
-    %{
-      state: "waiting",
-      phase: "implementing",
-      waiting_condition: %{
-        kind: "external_event",
-        name: "operator_answer",
-        question: classification["question"]
-      },
-      evidence: %{implementation_failure: evidence}
-    }
-  end
-
-  defp proposal(classification, evidence) do
-    %{
-      state: "blocked",
-      phase: "implementing",
-      blocked_reason: %{
-        code: classification["category"],
-        reason: classification["summary"]
       },
       evidence: %{implementation_failure: evidence}
     }
@@ -411,8 +461,8 @@ defmodule Custode.ClaudeAttempts do
   defp schedule_next(attempt, job, options) do
     work_item = WorkItems.get(attempt.work_item.work_item_id)
 
-    if attempt.state == "succeeded" and work_item.state == "ready" and
-         work_item.phase == "verification_ready" do
+    if work_item.state == "ready" and
+         work_item.phase in ~w(verification_ready repair_ready) do
       schedule_options =
         [enqueue_fun: options[:vertical_enqueue_fun]]
         |> Enum.reject(fn {_key, value} -> is_nil(value) end)
@@ -447,14 +497,14 @@ defmodule Custode.ClaudeAttempts do
       "allowed_tools" => GitHubIssueContext.allowed_tools(),
       "disallowed_tools" => GitHubIssueContext.disallowed_tools(),
       "json_schema" => Jason.encode!(GitHubIssueContext.output_contract()),
-      "append_system_prompt" => bounded_system_prompt(),
-      "prompt" => implementation_prompt(attempt, context_body)
+      "append_system_prompt" => bounded_system_prompt(attempt),
+      "prompt" => attempt_prompt(attempt, context_body)
     })
   end
 
-  defp bounded_system_prompt do
+  defp bounded_system_prompt(attempt) do
     """
-    You are executing one bounded implementation Attempt in an already-owned Git worktree.
+    You are executing one bounded #{attempt_label(attempt)} Attempt in an already-owned Git worktree.
     Change only what the supplied ContextBundle requires. Do not commit, push, open a pull
     request, invoke network tools, delegate, or modify another workspace. Return exactly the
     schema-constrained result. Verification and publication belong to later Attempts.
@@ -462,9 +512,9 @@ defmodule Custode.ClaudeAttempts do
     |> String.trim()
   end
 
-  defp implementation_prompt(attempt, context_body) do
+  defp attempt_prompt(attempt, context_body) do
     """
-    Implement the approved WorkItem described by this exact ContextBundle.
+    #{attempt_instruction(attempt)}
 
     ContextBundle digest: #{attempt.context_digest}
 
@@ -678,24 +728,97 @@ defmodule Custode.ClaudeAttempts do
 
   defp dispatchable(%Attempt{} = attempt, routine_id) do
     expected_routine = get_in(attempt.provenance, ["legacy_routine_id"])
+    purpose = get_in(attempt.provenance, ["purpose"])
 
     cond do
-      attempt.executor_kind != "model" -> {:error, :model_attempt_required}
-      attempt.provider != "claude" -> {:error, :claude_attempt_required}
-      expected_routine != routine_id -> {:error, :legacy_routine_mismatch}
-      true -> :ok
+      attempt.executor_kind != "model" ->
+        {:error, :model_attempt_required}
+
+      attempt.provider != "claude" ->
+        {:error, :claude_attempt_required}
+
+      purpose not in ~w(github_issue_implementation github_issue_repair) ->
+        {:error, :github_issue_claude_attempt_required}
+
+      purpose == "github_issue_repair" and
+          get_in(attempt.provenance, ["repair_disposition", "kind"]) != "semantic_repair" ->
+        {:error, :semantic_repair_disposition_required}
+
+      expected_routine != routine_id ->
+        {:error, :legacy_routine_mismatch}
+
+      true ->
+        :ok
     end
   end
 
   defp active_owner(attempt, work_item) do
     valid? =
       work_item.state == "active" and
-        work_item.phase == "implementing" and
+        work_item.phase == active_phase(attempt) and
         work_item.active_attempt_id == attempt.attempt_id and
         work_item.version == attempt.expected_work_item_version + 1
 
     if valid?, do: :ok, else: {:error, :attempt_not_active_owner}
   end
+
+  defp repair_attempt?(attempt),
+    do: get_in(attempt.provenance || %{}, ["purpose"]) == "github_issue_repair"
+
+  defp active_phase(attempt),
+    do: if(repair_attempt?(attempt), do: "repairing", else: "implementing")
+
+  defp attempt_kind(attempt),
+    do: if(repair_attempt?(attempt), do: "claude_repair", else: "claude_implementation")
+
+  defp attempt_label(attempt),
+    do: if(repair_attempt?(attempt), do: "semantic repair", else: "implementation")
+
+  defp attempt_instruction(attempt) do
+    if repair_attempt?(attempt) do
+      "Repair only the focused failure described by this exact ContextBundle."
+    else
+      "Implement the approved WorkItem described by this exact ContextBundle."
+    end
+  end
+
+  defp repair_evidence(attempt, evidence) do
+    %{
+      disposition: get_in(attempt.provenance, ["repair_disposition"]),
+      result: evidence
+    }
+  end
+
+  defp failure_evidence(attempt, evidence, disposition) do
+    if repair_attempt?(attempt) do
+      %{repair_failure: repair_evidence(attempt, evidence)}
+      |> maybe_put_map(:repair_disposition, disposition)
+    else
+      %{implementation_failure: evidence}
+    end
+  end
+
+  defp success_evidence(attempt, evidence) do
+    if repair_attempt?(attempt),
+      do: %{repair: repair_evidence(attempt, evidence)},
+      else: %{implementation: evidence}
+  end
+
+  defp provider_disposition(attempt, classification, evidence, kind) do
+    attrs = %{
+      kind: kind,
+      reason: classification["summary"] || classification["category"],
+      source_attempt_id: attempt.attempt_id,
+      failure_artifact_id: evidence.provider_checkpoint_artifact_id,
+      question: if(kind == "human_ask", do: classification["question"])
+    }
+
+    {:ok, disposition} = Disposition.new(attrs)
+    Disposition.render(disposition)
+  end
+
+  defp maybe_put_map(map, _key, nil), do: map
+  defp maybe_put_map(map, key, value), do: Map.put(map, key, value)
 
   defp checkpoint(attempt), do: Artifacts.get(artifact_ids(attempt.attempt_id).checkpoint)
 

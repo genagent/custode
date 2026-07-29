@@ -2,9 +2,9 @@ defmodule Custode.VerificationContext do
   @moduledoc """
   Reproducible deterministic verification dossiers.
 
-  The implementation dossier remains immutable. Verification adds the exact
-  reviewed recipe, the implementation outcome, and a content-sensitive
-  workspace revision in a new ContextBundle. Database-native RoleBinding
+  The producer dossier remains immutable. Verification adds the exact
+  reviewed recipe, the implementation or repair outcome, and a
+  content-sensitive workspace revision in a new ContextBundle. Database-native RoleBinding
   overrides already change through the audited `role_binding.update`
   operation; legacy bindings continue to use the declarative registry.
   """
@@ -22,15 +22,15 @@ defmodule Custode.VerificationContext do
 
   @doc "Compile or reuse the exact dossier for a verification Attempt."
   def compile(routine, work_item, %WorkspaceLease{} = lease, options \\ []) do
-    with %Attempt{} = implementation <- implementation_attempt(work_item.work_item_id),
-         {:ok, implementation_body} <- ContextBundles.body(implementation.context_bundle),
+    with %Attempt{} = producer <- producer_attempt(work_item.work_item_id),
+         {:ok, producer_body} <- ContextBundles.body(producer.context_bundle),
          {:ok, recipe, recipe_authority} <-
-           recipe(lease, implementation.role_binding, options),
+           recipe(lease, producer.role_binding, options),
          {:ok, workspace_revision} <- Git.workspace_revision(lease.workspace_path),
          body <-
            verification_body(
-             implementation_body,
-             implementation,
+             producer_body,
+             producer,
              recipe,
              recipe_authority,
              lease,
@@ -45,7 +45,8 @@ defmodule Custode.VerificationContext do
                  compiler: "verification_context",
                  purpose: "verification",
                  legacy_routine_id: routine.id,
-                 implementation_attempt_id: implementation.attempt_id,
+                 producer_attempt_id: producer.attempt_id,
+                 implementation_attempt_id: implementation_attempt_id(producer),
                  verification_recipe_digest: recipe.digest,
                  verification_recipe_authority: recipe_authority,
                  workspace_lease_id: lease.lease_id,
@@ -59,22 +60,23 @@ defmodule Custode.VerificationContext do
          body: body,
          recipe: recipe,
          recipe_authority: recipe_authority,
-         implementation_attempt: implementation,
+         implementation_attempt: producer,
+         producer_attempt: producer,
          workspace_revision: workspace_revision
        }}
     else
-      nil -> {:error, {:implementation_attempt_missing, work_item.work_item_id}}
+      nil -> {:error, {:verification_producer_attempt_missing, work_item.work_item_id}}
       {:error, _reason} = error -> error
     end
   end
 
-  defp implementation_attempt(work_item_id) do
+  defp producer_attempt(work_item_id) do
     work_item_id
     |> Attempts.list_for_work_item()
     |> Enum.reverse()
     |> Enum.find(fn attempt ->
-      attempt.executor_kind == "model" and attempt.provider == "claude" and
-        attempt.state == "succeeded" and
+      attempt.state == "succeeded" and
+        get_in(attempt.provenance || %{}, ["purpose"]) in ~w(github_issue_implementation github_issue_repair) and
         get_in(attempt.outcome || %{}, ["proposal", "phase"]) == "verification_ready"
     end)
   end
@@ -129,7 +131,7 @@ defmodule Custode.VerificationContext do
 
   defp verification_body(
          body,
-         implementation,
+         producer,
          recipe,
          recipe_authority,
          lease,
@@ -145,7 +147,7 @@ defmodule Custode.VerificationContext do
     )
     |> Map.put(
       "prior_evidence",
-      Map.get(body, "prior_evidence", []) ++ [implementation_evidence(implementation)]
+      Map.get(body, "prior_evidence", []) ++ [producer_evidence(producer)]
     )
     |> Map.put(
       "workspace_revision",
@@ -179,7 +181,7 @@ defmodule Custode.VerificationContext do
     })
   end
 
-  defp implementation_evidence(attempt) do
+  defp producer_evidence(attempt) do
     %{
       "attempt_id" => attempt.attempt_id,
       "context_bundle_id" => attempt.context_bundle.context_bundle_id,
@@ -189,6 +191,12 @@ defmodule Custode.VerificationContext do
       "outcome" => attempt.outcome,
       "finished_at" => attempt.finished_at && DateTime.to_iso8601(attempt.finished_at)
     }
+  end
+
+  defp implementation_attempt_id(producer) do
+    if get_in(producer.provenance || %{}, ["purpose"]) == "github_issue_implementation",
+      do: producer.attempt_id,
+      else: nil
   end
 
   defp artifact_options(options, provenance: provenance) do

@@ -4,7 +4,7 @@ defmodule Custode.GitHubIssueVertical do
 
   It advances only the approved `github_issue_to_merge@1` pilot through
   workspace preparation, reproducible context compilation, one Claude
-  implementation Attempt, and one deterministic verification Attempt.
+  implementation Attempt, deterministic verification, and bounded repair.
   Publication remains a separate later slice.
   """
 
@@ -14,6 +14,7 @@ defmodule Custode.GitHubIssueVertical do
     GitHubIssueAttemptDispatcher,
     GitHubIssueContext,
     GitHubIssueVerticalJob,
+    RepairContext,
     Routine,
     VerificationContext,
     WorkItems,
@@ -21,6 +22,7 @@ defmodule Custode.GitHubIssueVertical do
     WorkspaceLeases
   }
 
+  alias Custode.Repair.Disposition
   alias Custode.Workspace.Git
 
   @max_steps 8
@@ -143,6 +145,24 @@ defmodule Custode.GitHubIssueVertical do
          "active" <- lease.state,
          {:ok, compiled} <- VerificationContext.compile(routine, work_item, lease, options),
          snapshot <- verification_snapshot(routine, work_item, compiled),
+         :ok <- execute_claim(work_item, snapshot, options) do
+      :ok
+    else
+      nil -> {:error, :workspace_lease_missing}
+      state when is_binary(state) -> {:error, {:workspace_lease_not_active, state}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp advance(
+         routine,
+         %{state: "ready", phase: "repair_ready"} = work_item,
+         options
+       ) do
+    with lease when not is_nil(lease) <- WorkspaceLeases.get_for_work_item(work_item.work_item_id),
+         "active" <- lease.state,
+         {:ok, plan} <- RepairContext.plan(routine, work_item, lease, options),
+         snapshot <- repair_snapshot(routine, work_item, plan),
          :ok <- execute_claim(work_item, snapshot, options) do
       :ok
     else
@@ -288,15 +308,15 @@ defmodule Custode.GitHubIssueVertical do
   end
 
   defp verification_snapshot(routine, work_item, compiled) do
-    implementation = compiled.implementation_attempt
+    producer = compiled.producer_attempt
     recipe = compiled.recipe
     bundle = compiled.bundle
 
     %{
       attempt: %{
         attempt_id: stable_id("verify", work_item.work_item_id, bundle.digest),
-        role_binding_id: implementation.role_binding && implementation.role_binding.binding_id,
-        caused_by_attempt_id: implementation.attempt_id,
+        role_binding_id: producer.role_binding && producer.role_binding.binding_id,
+        caused_by_attempt_id: producer.attempt_id,
         context_bundle_id: bundle.context_bundle_id,
         executor_kind: "deterministic",
         provider: "custode",
@@ -308,6 +328,47 @@ defmodule Custode.GitHubIssueVertical do
           legacy_routine_id: routine.id,
           verification_recipe_digest: recipe.digest,
           workspace_revision: compiled.workspace_revision["revision"]
+        },
+        dispatch: %{legacy_routine_id: routine.id}
+      }
+    }
+  end
+
+  defp repair_snapshot(_routine, _work_item, %{kind: :transition} = plan) do
+    %{
+      repair: %{
+        kind: :transition,
+        transition: plan.transition
+      }
+    }
+  end
+
+  defp repair_snapshot(routine, work_item, %{kind: :attempt} = plan) do
+    disposition = plan.disposition
+    source = plan.source_attempt
+    model? = disposition.kind == "semantic_repair"
+    effort = routine.effort || "default"
+
+    %{
+      repair: %{kind: :attempt},
+      attempt: %{
+        attempt_id: stable_id("repair", work_item.work_item_id, plan.bundle.digest),
+        role_binding_id: source.role_binding && source.role_binding.binding_id,
+        caused_by_attempt_id: source.attempt_id,
+        context_bundle_id: plan.bundle.context_bundle_id,
+        executor_kind: if(model?, do: "model", else: "deterministic"),
+        provider: if(model?, do: "claude", else: "custode"),
+        profile: if(model?, do: "#{routine.model}:#{effort}", else: disposition.kind),
+        recipe_version: plan.policy_snapshot.policy.version,
+        expected_work_item_version: work_item.version,
+        provenance: %{
+          purpose: "github_issue_repair",
+          legacy_routine_id: routine.id,
+          repair_disposition: Disposition.render(disposition),
+          repair_policy: plan.policy_snapshot,
+          failure_artifact_id: plan.failure_artifact.artifact_id,
+          workspace_revision: plan.workspace_revision["revision"],
+          capabilities: if(model?, do: GitHubIssueContext.capabilities(), else: [])
         },
         dispatch: %{legacy_routine_id: routine.id}
       }
