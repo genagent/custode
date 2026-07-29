@@ -16,6 +16,9 @@ defmodule Custode.MissionsTest do
   alias Custode.Operations.Missions, as: MissionOperations
 
   setup do
+    Repo.delete_all(Custode.WorkEvent)
+    Repo.update_all(Custode.WorkItem, set: [parent_id: nil])
+    Repo.delete_all(Custode.WorkItem)
     Repo.delete_all(RoleBinding)
     Repo.delete_all(LegacyRoutineMissionMapping)
     Repo.delete_all(MissionTarget)

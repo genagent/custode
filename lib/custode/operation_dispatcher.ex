@@ -90,6 +90,9 @@ defmodule Custode.OperationDispatcher do
            }}
         end
 
+      {:error, {:stale, reason, observed}} when is_map(observed) ->
+        {:error, {:stale, reason, observed}}
+
       {:error, reason} ->
         {:error, {:handler_failed, reason}}
 

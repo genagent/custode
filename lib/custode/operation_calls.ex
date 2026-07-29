@@ -232,6 +232,15 @@ defmodule Custode.OperationCalls do
 
         {:ok, response(call, false)}
 
+      {:error, {:stale, reason, observed}} ->
+        _call =
+          finish(call, "stale", %{
+            preconditions: json(observed),
+            error: error("stale", reason)
+          })
+
+        {:error, {:stale, reason}}
+
       {:error, reason} ->
         {kind, value, public_error} = failure(reason)
         _call = finish(call, "failed", %{error: error(kind, value)})

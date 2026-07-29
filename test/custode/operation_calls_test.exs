@@ -156,6 +156,25 @@ defmodule Custode.OperationCallsTest do
     refute_received :effect
   end
 
+  test "a stale result detected atomically by a handler is recorded as stale" do
+    operation =
+      definition(
+        handler: fn _arguments, _envelope ->
+          {:error, {:stale, :version_changed, %{work_item: %{expected: 2, observed: 3}}}}
+        end
+      )
+
+    assert {:error, {:stale, :version_changed}} =
+             dispatch(operation, key: "atomic-stale")
+
+    assert %OperationCall{
+             status: "stale",
+             preconditions: %{
+               "work_item" => %{"expected" => 2, "observed" => 3}
+             }
+           } = Repo.get_by!(OperationCall, idempotency_key: "atomic-stale")
+  end
+
   test "dry runs are durable previews and never invoke the handler" do
     parent = self()
     operation = definition(handler: fn _, _ -> send(parent, :effect) end)
