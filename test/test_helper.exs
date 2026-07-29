@@ -1,6 +1,8 @@
 # The test database persists across runs (the app boots it before this file
 # runs), so truncate everything for hermetic runs -- the earlier "passes
 # alone, fails on the third run" class of flake came from exactly this.
+Custode.Repo.query!("UPDATE work_items SET parent_id = NULL")
+
 for table <- [
       "oban_jobs",
       "journal_entries",
@@ -13,6 +15,8 @@ for table <- [
       "feed_entries",
       "issue_drafts",
       "instance",
+      "work_events",
+      "work_items",
       "operation_calls",
       "role_bindings",
       "legacy_routine_mission_mappings",

@@ -1,0 +1,75 @@
+defmodule Custode.WorkEvent do
+  @moduledoc "Append-only typed account of a WorkItem lifecycle change."
+
+  use Ecto.Schema
+
+  import Ecto.Changeset
+
+  alias Custode.{Mission, WorkItem}
+
+  schema "work_events" do
+    field(:event_id, :string)
+    belongs_to(:work_item, WorkItem)
+    belongs_to(:mission, Mission)
+    field(:kind, :string)
+    field(:actor, :map)
+    field(:operation, :string)
+    field(:operation_call_id, :string)
+    field(:before_state, :string)
+    field(:before_phase, :string)
+    field(:after_state, :string)
+    field(:after_phase, :string)
+    field(:before_version, :integer)
+    field(:work_item_version, :integer)
+    field(:evidence, :map, default: %{})
+    field(:correlation_id, :string)
+    field(:causation_id, :string)
+    timestamps(updated_at: false, type: :utc_datetime_usec)
+  end
+
+  @type t :: %__MODULE__{}
+
+  @doc false
+  def create_changeset(attrs) do
+    %__MODULE__{}
+    |> cast(attrs, [
+      :event_id,
+      :work_item_id,
+      :mission_id,
+      :kind,
+      :actor,
+      :operation,
+      :operation_call_id,
+      :before_state,
+      :before_phase,
+      :after_state,
+      :after_phase,
+      :before_version,
+      :work_item_version,
+      :evidence,
+      :correlation_id,
+      :causation_id
+    ])
+    |> validate_required([
+      :event_id,
+      :work_item_id,
+      :mission_id,
+      :kind,
+      :actor,
+      :operation,
+      :after_state,
+      :after_phase,
+      :work_item_version
+    ])
+    |> validate_inclusion(:kind, [
+      "work_item.created",
+      "work_item.transitioned",
+      "work_item.reopened"
+    ])
+    |> validate_number(:work_item_version, greater_than: 0)
+    |> foreign_key_constraint(:work_item_id)
+    |> foreign_key_constraint(:mission_id)
+    |> unique_constraint(:event_id)
+    |> unique_constraint(:operation_call_id)
+  end
+end
