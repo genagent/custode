@@ -162,4 +162,5 @@ defmodule Custode.OperationDispatcher do
   defp valid_type?(value, :integer), do: is_integer(value)
   defp valid_type?(value, :boolean), do: is_boolean(value)
   defp valid_type?(value, :map), do: is_map(value)
+  defp valid_type?(value, :list), do: is_list(value)
 end

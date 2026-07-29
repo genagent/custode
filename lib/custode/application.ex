@@ -38,6 +38,7 @@ defmodule Custode.Application do
       # two servers never poll one db and double-run jobs during a restart's
       # graceful-shutdown overlap. CUSTODE_TAKEOVER=1 seizes a wedged one.
       Custode.Instance,
+      Supervisor.child_spec({Task, &Custode.Missions.bootstrap!/0}, id: :mission_bootstrap),
       {Task.Supervisor, name: Custode.TaskSupervisor},
       {Oban, oban_config()},
       ObanClaude.Agent.Supervisor,

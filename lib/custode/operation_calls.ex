@@ -219,6 +219,8 @@ defmodule Custode.OperationCalls do
         started_at: call.started_at || now()
       })
 
+    envelope = %{envelope | call_id: call.call_id}
+
     case executor.(definition, envelope) do
       {:ok, outcome} ->
         call =

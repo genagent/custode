@@ -3,6 +3,7 @@ defmodule Custode.OperationRegistry do
 
   alias Custode.OperationDefinition
   alias Custode.Operations.Fleet.PauseAgent
+  alias Custode.Operations.Missions
 
   @enforce_keys [:definitions]
   defstruct [:definitions]
@@ -30,7 +31,14 @@ defmodule Custode.OperationRegistry do
 
   @spec default() :: t()
   def default do
-    {:ok, registry} = new([PauseAgent.definition()])
+    {:ok, registry} =
+      new([
+        PauseAgent.definition(),
+        Missions.Archive.definition(),
+        Missions.Create.definition(),
+        Missions.Update.definition()
+      ])
+
     registry
   end
 

@@ -7,7 +7,7 @@ defmodule Custode.OperationDefinition do
   validation so malformed input cannot reach a handler.
   """
 
-  @type schema_type :: :string | :integer | :boolean | :map | :any
+  @type schema_type :: :string | :integer | :boolean | :map | :list | :any
   @type schema :: %{optional(atom()) => keyword()}
   @type classification :: :query | :command
   @type risk :: :read | :internal_write | :external_write | :destructive
@@ -93,7 +93,14 @@ defmodule Custode.OperationDefinition do
   defp validate_schema(schema) when is_map(schema) do
     if Enum.all?(schema, fn
          {key, options} when is_atom(key) and is_list(options) ->
-           Keyword.get(options, :type, :any) in [:string, :integer, :boolean, :map, :any] and
+           Keyword.get(options, :type, :any) in [
+             :string,
+             :integer,
+             :boolean,
+             :map,
+             :list,
+             :any
+           ] and
              Keyword.get(options, :required, false) in [true, false]
 
          _other ->
