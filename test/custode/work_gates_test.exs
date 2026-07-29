@@ -53,7 +53,7 @@ defmodule Custode.WorkGatesTest do
     assert persisted.gate_id == "gate-durable"
     assert [persisted] = WorkGates.list_for_work_item(work_item.work_item_id)
     assert persisted.gate_id == "gate-durable"
-    assert Repo.aggregate(OperationCall, :count) == 0
+    assert operation_call_count(work_item) == 0
     assert Repo.aggregate(Oban.Job, :count) == jobs_before
 
     assert {:ok, same_gate} = propose(work_item, "gate-durable")
@@ -96,7 +96,7 @@ defmodule Custode.WorkGatesTest do
 
     assert expected == work_item.work_item_id
     assert Repo.aggregate(WorkGate, :count) == 0
-    assert Repo.aggregate(OperationCall, :count) == 0
+    assert operation_call_count(work_item) == 0
   end
 
   test "approval dispatches only the stored operation and preserves context" do
@@ -207,7 +207,7 @@ defmodule Custode.WorkGatesTest do
       assert stale_gate.status == "stale"
       assert stale_gate.resolution["changed_preconditions"] == Enum.sort(Map.keys(changes))
       assert WorkItems.get(work_item.work_item_id).state == "waiting"
-      assert Repo.aggregate(OperationCall, :count) == 0
+      assert operation_call_count(work_item) == 0
 
       assert %WorkEvent{kind: "gate.stale", gate_id: ^gate_id} =
                Repo.get_by!(WorkEvent, gate_id: gate_id)
@@ -423,6 +423,13 @@ defmodule Custode.WorkGatesTest do
 
   defp command_scope(envelope), do: "work-item:#{envelope.arguments.work_item_id}"
 
+  defp operation_call_count(work_item) do
+    Repo.aggregate(
+      from(call in OperationCall, where: call.work_item_id == ^work_item.work_item_id),
+      :count
+    )
+  end
+
   defp insert_waiting_work!(suffix, gate_id) do
     mission =
       %{
@@ -448,7 +455,7 @@ defmodule Custode.WorkGatesTest do
         phase: "triaging",
         priority: 1,
         policy_ref: "policy-v1",
-        source: "test",
+        source: "work-gates-test",
         external_key: "issue-#{suffix}",
         version: 1,
         waiting_condition: %{"kind" => "gate", "gate_id" => gate_id}
@@ -461,12 +468,32 @@ defmodule Custode.WorkGatesTest do
   end
 
   defp cleanup! do
-    Repo.delete_all(WorkEvent)
-    Repo.delete_all(WorkGate)
-    Repo.delete_all(WorkItem)
-    Repo.delete_all(OperationCall)
-    Repo.delete_all(Custode.MissionTarget)
-    Repo.delete_all(Mission)
-    Repo.delete_all(Feed.Entry)
+    work_items =
+      Repo.all(
+        from(item in WorkItem,
+          where: item.source == "work-gates-test",
+          select: %{id: item.id, work_item_id: item.work_item_id, mission_id: item.mission_id}
+        )
+      )
+
+    work_item_ids = Enum.map(work_items, & &1.id)
+    public_work_item_ids = Enum.map(work_items, & &1.work_item_id)
+    mission_ids = work_items |> Enum.map(& &1.mission_id) |> Enum.uniq()
+
+    Repo.delete_all(from(event in WorkEvent, where: event.work_item_id in ^work_item_ids))
+    Repo.delete_all(from(gate in WorkGate, where: gate.work_item_id in ^work_item_ids))
+    Repo.delete_all(from(item in WorkItem, where: item.id in ^work_item_ids))
+
+    Repo.delete_all(
+      from(call in OperationCall, where: call.work_item_id in ^public_work_item_ids)
+    )
+
+    Repo.delete_all(from(mission in Mission, where: mission.id in ^mission_ids))
+
+    Repo.delete_all(
+      from(entry in Feed.Entry,
+        where: entry.event in ["work_gate_rejected", "work_gate_stale"]
+      )
+    )
   end
 end
