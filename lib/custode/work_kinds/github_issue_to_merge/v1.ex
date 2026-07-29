@@ -54,7 +54,7 @@ defmodule Custode.WorkKinds.GithubIssueToMerge.V1 do
     "verification_ready" => ~w(verifying),
     "verifying" => ~w(publication_ready repair_ready),
     "repair_ready" => ~w(repairing),
-    "repairing" => ~w(verification_ready),
+    "repairing" => ~w(verification_ready repair_ready),
     "publication_ready" => ~w(publishing),
     "publishing" => ~w(awaiting_review),
     "awaiting_review" => ~w(feedback_ready conflict_ready merge_ready),
@@ -71,11 +71,15 @@ defmodule Custode.WorkKinds.GithubIssueToMerge.V1 do
     "triaging" => ~w(source_snapshot),
     "eligible" => ~w(eligibility),
     "implementation_ready" => ~w(context_bundle_digest),
-    "verification_ready" => ~w(implementation),
     "publication_ready" => ~w(verification),
     "awaiting_review" => ~w(pull_request),
     "merge_ready" => ~w(merge_preconditions),
     "landed" => ~w(merge_commit acceptance)
+  }
+
+  @edge_evidence_requirements %{
+    {"implementing", "verification_ready"} => ~w(implementation),
+    {"repairing", "verification_ready"} => ~w(repair)
   }
 
   @ready_commands %{
@@ -137,6 +141,20 @@ defmodule Custode.WorkKinds.GithubIssueToMerge.V1 do
   end
 
   @impl true
+  def next_command(
+        %WorkItem{state: "ready", phase: "repair_ready"},
+        %{repair: %{kind: :transition, transition: transition}}
+      ) do
+    {:ok, %{action: :transition, transition: transition}}
+  end
+
+  def next_command(
+        %WorkItem{state: "ready", phase: "repair_ready"},
+        %{"repair" => %{"kind" => "transition", "transition" => transition}}
+      ) do
+    {:ok, %{action: :transition, transition: transition}}
+  end
+
   def next_command(%WorkItem{state: "ready", phase: phase}, _world_snapshot) do
     case Map.fetch(@ready_commands, phase) do
       {:ok, command} -> {:ok, command}
@@ -181,17 +199,21 @@ defmodule Custode.WorkKinds.GithubIssueToMerge.V1 do
 
   defp validate_evidence(phase, phase, _evidence), do: :ok
 
-  defp validate_evidence(_from, to, evidence) when is_map(evidence) do
+  defp validate_evidence(from, to, evidence) when is_map(evidence) do
     missing =
-      @evidence_requirements
-      |> Map.get(to, [])
+      @edge_evidence_requirements
+      |> Map.get({from, to}, Map.get(@evidence_requirements, to, []))
       |> Enum.reject(&Map.has_key?(evidence, &1))
 
     if missing == [], do: :ok, else: {:error, {:missing_evidence, missing}}
   end
 
-  defp validate_evidence(_from, to, _evidence) do
-    case Map.get(@evidence_requirements, to, []) do
+  defp validate_evidence(from, to, _evidence) do
+    case Map.get(
+           @edge_evidence_requirements,
+           {from, to},
+           Map.get(@evidence_requirements, to, [])
+         ) do
       [] -> :ok
       missing -> {:error, {:missing_evidence, missing}}
     end

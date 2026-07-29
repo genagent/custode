@@ -741,7 +741,11 @@ defmodule Custode.WorkProcess do
     Repo.exists?(
       from(job in Oban.Job,
         where:
-          job.worker in ["Custode.ClaudeAttemptJob", "Custode.VerificationAttemptJob"] and
+          job.worker in [
+            "Custode.ClaudeAttemptJob",
+            "Custode.RepairAttemptJob",
+            "Custode.VerificationAttemptJob"
+          ] and
             job.state in ^@live_job_states and
             fragment("json_extract(?, '$.attempt_id')", job.args) == ^attempt_id
       )

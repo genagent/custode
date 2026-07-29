@@ -13,6 +13,7 @@ defmodule Custode.VerificationAttempts do
     Attempt,
     Attempts,
     ContextBundles,
+    GitHubIssueVertical,
     Routine,
     VerificationAttemptJob,
     WorkItems,
@@ -61,7 +62,7 @@ defmodule Custode.VerificationAttempts do
         {:discard, {:unknown_attempt, attempt_id}}
 
       %Attempt{} = attempt when attempt.state in ~w(succeeded partial blocked failed cancelled) ->
-        advance(attempt, job)
+        advance(attempt, job, options)
 
       %Attempt{} = attempt ->
         run(attempt, routine_id, job, options)
@@ -73,7 +74,7 @@ defmodule Custode.VerificationAttempts do
          {:ok, runtime} <- runtime(running, routine_id, options),
          {:ok, results} <- run_commands(running, runtime, options),
          {:ok, finished} <- persist_and_finish(running, runtime, results, options) do
-      advance(finished, job)
+      advance(finished, job, options)
     else
       {:error, reason} ->
         finish_preflight_failure(attempt, routine_id, reason, job, options)
@@ -580,11 +581,11 @@ defmodule Custode.VerificationAttempts do
              {:ok, runtime} <- fallback_runtime(running, routine_id),
              result <- preflight_result(reason),
              {:ok, finished} <- persist_and_finish(running, runtime, [result], options) do
-          advance(finished, job)
+          advance(finished, job, options)
         end
 
       %Attempt{} = terminal ->
-        advance(terminal, job)
+        advance(terminal, job, options)
 
       nil ->
         {:discard, {:unknown_attempt, attempt.attempt_id}}
@@ -648,10 +649,16 @@ defmodule Custode.VerificationAttempts do
   defp policy_preflight?(:unsupported_verification_recipe), do: true
   defp policy_preflight?(_reason), do: false
 
-  defp advance(attempt, job) do
+  defp advance(attempt, job, options) do
     work_item = WorkItems.get(attempt.work_item.work_item_id)
     proposal = get_in(attempt.outcome || %{}, ["proposal"])
 
+    with :ok <- apply_proposal(attempt, work_item, proposal, job) do
+      schedule_repair(attempt, job, options)
+    end
+  end
+
+  defp apply_proposal(attempt, work_item, proposal, job) do
     cond do
       work_item.state == "active" and work_item.active_attempt_id == attempt.attempt_id ->
         with {:ok, delivery} <-
@@ -678,6 +685,27 @@ defmodule Custode.VerificationAttempts do
         {:error,
          {:attempt_result_not_applied,
           %{attempt_id: attempt.attempt_id, state: work_item.state, phase: work_item.phase}}}
+    end
+  end
+
+  defp schedule_repair(attempt, job, options) do
+    work_item = WorkItems.get(attempt.work_item.work_item_id)
+
+    if work_item.state == "ready" and work_item.phase == "repair_ready" do
+      schedule_options =
+        [enqueue_fun: options[:vertical_enqueue_fun]]
+        |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+
+      case GitHubIssueVertical.schedule_work_item(
+             job.args["routine_id"],
+             work_item.work_item_id,
+             schedule_options
+           ) do
+        {:ok, _job} -> :ok
+        {:error, reason} -> {:error, {:repair_enqueue_failed, reason}}
+      end
+    else
+      :ok
     end
   end
 
