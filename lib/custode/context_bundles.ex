@@ -53,7 +53,8 @@ defmodule Custode.ContextBundles do
     normalized = normalize(body)
 
     with :ok <- validate_components(normalized),
-         work_item when not is_nil(work_item) <- WorkItems.get(work_item_id) do
+         work_item when not is_nil(work_item) <- WorkItems.get(work_item_id),
+         :ok <- active_mission(work_item) do
       digest = digest(normalized)
       insert_or_reuse(work_item, normalized, digest, opts)
     else
@@ -187,6 +188,9 @@ defmodule Custode.ContextBundles do
       missing -> {:error, {:missing_context_components, missing}}
     end
   end
+
+  defp active_mission(%{mission: %{status: "active"}}), do: :ok
+  defp active_mission(_work_item), do: {:error, :mission_archived}
 
   defp default_dir do
     Custode.Home.resolve_in(&Custode.Home.data_dir/0, "artifacts/context_bundles")

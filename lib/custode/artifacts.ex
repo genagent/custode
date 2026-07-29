@@ -77,6 +77,7 @@ defmodule Custode.Artifacts do
     attrs = atomize(attrs)
 
     with work_item when not is_nil(work_item) <- WorkItems.get(attrs[:work_item_id]),
+         :ok <- active_mission(work_item),
          {:ok, producer} <- producer(attrs[:producer_attempt_id], work_item),
          create_attrs <-
            attrs
@@ -118,6 +119,9 @@ defmodule Custode.Artifacts do
   def digest(body) when is_binary(body) do
     :sha256 |> :crypto.hash(body) |> Base.encode16(case: :lower)
   end
+
+  defp active_mission(%{mission: %{status: "active"}}), do: :ok
+  defp active_mission(_work_item), do: {:error, :mission_archived}
 
   defp producer(nil, _work_item), do: {:ok, nil}
 

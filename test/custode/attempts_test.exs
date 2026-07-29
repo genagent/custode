@@ -447,6 +447,35 @@ defmodule Custode.AttemptsTest do
     assert archived.status == "archived"
   end
 
+  test "archived Missions reject new context, artifact, and Attempt provenance", %{
+    artifact_dir: artifact_dir
+  } do
+    {mission, work_item} = insert_work!("archived-writes")
+    bundle = insert_bundle!(work_item, artifact_dir)
+
+    mission
+    |> Ecto.Changeset.change(status: "archived", archived_at: DateTime.utc_now())
+    |> Repo.update!()
+
+    assert {:error, :mission_archived} =
+             ContextBundles.create(work_item.work_item_id, context_body(work_item),
+               artifact_dir: artifact_dir
+             )
+
+    assert {:error, :mission_archived} =
+             Artifacts.create(%{
+               work_item_id: work_item.work_item_id,
+               kind: "review",
+               external_identity: "review:archived",
+               media_type: "text/plain",
+               location: "review://archived",
+               size_bytes: 0
+             })
+
+    assert {:error, :mission_archived} =
+             Attempts.create(attempt_attrs(work_item, bundle))
+  end
+
   defp insert_bundle!(work_item, artifact_dir) do
     assert {:ok, {:created, bundle}} =
              ContextBundles.create(work_item.work_item_id, context_body(work_item),
