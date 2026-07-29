@@ -79,13 +79,29 @@ defmodule Custode.WorkKinds.GithubIssueToMerge.V1 do
   }
 
   @ready_commands %{
-    "eligible" => %{action: :dispatch_attempt, kind: "prepare_workspace"},
-    "implementation_ready" => %{action: :dispatch_attempt, kind: "implement"},
-    "verification_ready" => %{action: :dispatch_attempt, kind: "verify"},
-    "repair_ready" => %{action: :dispatch_attempt, kind: "repair"},
-    "publication_ready" => %{action: :dispatch_attempt, kind: "publish"},
-    "feedback_ready" => %{action: :dispatch_attempt, kind: "handle_feedback"},
-    "conflict_ready" => %{action: :dispatch_attempt, kind: "resolve_conflict"},
+    "eligible" => %{
+      action: :dispatch_attempt,
+      kind: "prepare_workspace",
+      phase: "preparing_workspace"
+    },
+    "implementation_ready" => %{
+      action: :dispatch_attempt,
+      kind: "implement",
+      phase: "implementing"
+    },
+    "verification_ready" => %{action: :dispatch_attempt, kind: "verify", phase: "verifying"},
+    "repair_ready" => %{action: :dispatch_attempt, kind: "repair", phase: "repairing"},
+    "publication_ready" => %{action: :dispatch_attempt, kind: "publish", phase: "publishing"},
+    "feedback_ready" => %{
+      action: :dispatch_attempt,
+      kind: "handle_feedback",
+      phase: "handling_feedback"
+    },
+    "conflict_ready" => %{
+      action: :dispatch_attempt,
+      kind: "resolve_conflict",
+      phase: "resolving_conflict"
+    },
     "merge_ready" => %{action: :invoke_operation, operation: "github.merge_pr"}
   }
 
