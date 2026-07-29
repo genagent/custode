@@ -44,6 +44,7 @@ defmodule Custode.OperationRegistry do
         RoleBindings.ProjectLegacyRoutine.definition(),
         RoleBindings.Update.definition(),
         WorkItems.Create.definition(),
+        WorkItems.Observe.definition(),
         WorkItems.Reopen.definition(),
         WorkItems.Transition.definition()
       ])

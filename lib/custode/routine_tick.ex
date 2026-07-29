@@ -17,6 +17,10 @@ defmodule Custode.RoutineTick do
   required -- and with the scheduler reading the roster live, a cadence edit
   now takes effect at the next minute too.
 
+  The bounded GitHub intake pilot uses the same resolved routine as a
+  compatibility driver. Intake failure is logged and isolated so the legacy
+  Tick is still inserted with exactly the current prompt and execution args.
+
   `queue: :ticks`, `max_attempts: 1`: a resolution is a point-in-time beat
   like the tick it produces -- a missed one is simply missed, and retrying
   would resolve stale-then. Sharing the `:ticks` queue (withheld until the
@@ -26,6 +30,8 @@ defmodule Custode.RoutineTick do
   """
 
   use Oban.Worker, queue: :ticks, max_attempts: 1
+
+  require Logger
 
   alias Custode.Routine
   alias ObanClaude.Agent.Tick
@@ -38,6 +44,7 @@ defmodule Custode.RoutineTick do
         {:cancel, {:unknown_routine, id}}
 
       routine ->
+        run_intake(routine)
         {:ok, _job} = Oban.insert(Tick.new(Routine.tick_args(routine), queue: :ticks))
         :ok
     end
@@ -45,5 +52,31 @@ defmodule Custode.RoutineTick do
 
   def perform(%Oban.Job{args: args}) do
     {:cancel, {:invalid_routine_tick, "missing \"routine_id\" in #{inspect(args)}"}}
+  end
+
+  defp run_intake(routine) do
+    intake = Application.get_env(:custode, :work_intake, Custode.GitHubIssueIntake)
+
+    case intake.on_routine_tick(routine) do
+      :noop ->
+        :ok
+
+      :ok ->
+        :ok
+
+      {:ok, _results} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("work intake failed for #{routine.id}: #{inspect(reason)}")
+    end
+  rescue
+    exception ->
+      Logger.warning(
+        "work intake crashed for #{routine.id}: #{Exception.format(:error, exception, __STACKTRACE__)}"
+      )
+  catch
+    kind, reason ->
+      Logger.warning("work intake threw for #{routine.id}: #{inspect({kind, reason})}")
   end
 end

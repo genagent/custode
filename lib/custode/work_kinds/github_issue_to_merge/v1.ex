@@ -46,7 +46,7 @@ defmodule Custode.WorkKinds.GithubIssueToMerge.V1 do
     "discovered" => ~w(triaging),
     "triaging" => ~w(eligible ineligible),
     "ineligible" => ~w(triaging),
-    "eligible" => ~w(preparing_workspace),
+    "eligible" => ~w(ineligible preparing_workspace),
     "preparing_workspace" => ~w(compiling_context),
     "compiling_context" => ~w(implementation_ready),
     "implementation_ready" => ~w(implementing),
