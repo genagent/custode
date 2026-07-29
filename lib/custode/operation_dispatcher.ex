@@ -1,18 +1,34 @@
 defmodule Custode.OperationDispatcher do
   @moduledoc "Validates, authorizes, previews, and invokes registered operations."
 
-  alias Custode.{OperationDefinition, OperationEnvelope, OperationRegistry}
+  alias Custode.{
+    OperationCalls,
+    OperationDefinition,
+    OperationEnvelope,
+    OperationRegistry
+  }
 
   @spec dispatch(map() | keyword() | OperationEnvelope.t(), OperationRegistry.t()) ::
           {:ok, map()} | {:error, term()}
   def dispatch(envelope_or_attrs, registry \\ OperationRegistry.default()) do
     with {:ok, envelope} <- normalize_envelope(envelope_or_attrs),
          {:ok, definition} <- fetch(registry, envelope.operation),
-         {:ok, arguments} <- validate(definition.input_schema, envelope.arguments),
-         {:ok, grant} <- definition.authorization.(definition, envelope),
-         :ok <- require_grant(definition, grant) do
-      envelope = %{envelope | arguments: arguments, grant: grant}
-      invoke(definition, envelope)
+         {:ok, arguments} <- validate(definition.input_schema, envelope.arguments) do
+      envelope = %{envelope | arguments: arguments}
+      dispatch_definition(definition, envelope)
+    end
+  end
+
+  defp dispatch_definition(%OperationDefinition{classification: :command} = definition, envelope) do
+    OperationCalls.dispatch(definition, envelope, &execute/2)
+  end
+
+  defp dispatch_definition(%OperationDefinition{classification: :query} = definition, envelope) do
+    with {:ok, grant} <- definition.authorization.(definition, envelope),
+         :ok <- require_grant(definition, grant),
+         envelope = %{envelope | grant: grant},
+         {:ok, outcome} <- execute(definition, envelope) do
+      {:ok, response(envelope, outcome)}
     end
   end
 
@@ -32,23 +48,46 @@ defmodule Custode.OperationDispatcher do
     if grant in grants, do: :ok, else: {:error, {:denied, :missing_grant}}
   end
 
-  defp invoke(%OperationDefinition{} = definition, %{dry_run: true} = envelope) do
+  defp execute(%OperationDefinition{} = definition, %{dry_run: true} = envelope) do
     case definition.effect_preview do
       nil ->
         {:error, {:dry_run_unsupported, definition.name}}
 
       preview ->
         with {:ok, effect} <- preview.(envelope.arguments, envelope) do
-          {:ok, response(envelope, :dry_run, nil, effect)}
+          {:ok,
+           %{
+             response_status: :dry_run,
+             result: nil,
+             effect_preview: effect,
+             effects: []
+           }}
         end
     end
   end
 
-  defp invoke(%OperationDefinition{} = definition, envelope) do
+  defp execute(%OperationDefinition{} = definition, envelope) do
     case definition.handler.(envelope.arguments, envelope) do
       {:ok, result} ->
         with {:ok, validated_result} <- validate(definition.result_schema, result) do
-          {:ok, response(envelope, :succeeded, validated_result, nil)}
+          {:ok,
+           %{
+             response_status: :succeeded,
+             result: validated_result,
+             effect_preview: nil,
+             effects: []
+           }}
+        end
+
+      {:ok, result, effects} when is_list(effects) ->
+        with {:ok, validated_result} <- validate(definition.result_schema, result) do
+          {:ok,
+           %{
+             response_status: :succeeded,
+             result: validated_result,
+             effect_preview: nil,
+             effects: effects
+           }}
         end
 
       {:error, reason} ->
@@ -59,12 +98,13 @@ defmodule Custode.OperationDispatcher do
     end
   end
 
-  defp response(envelope, status, result, effect) do
+  defp response(envelope, outcome) do
     %{
-      status: status,
+      status: outcome.response_status,
       operation: envelope.operation,
-      result: result,
-      effect_preview: effect,
+      result: outcome.result,
+      effect_preview: outcome.effect_preview,
+      effects: outcome.effects,
       actor: envelope.actor,
       transport: envelope.transport,
       grant: envelope.grant,
