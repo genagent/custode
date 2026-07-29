@@ -1,7 +1,7 @@
 defmodule Custode.GitHubIssueAttemptDispatcher do
   @moduledoc false
 
-  alias Custode.{ClaudeAttempts, WorkspaceLeases}
+  alias Custode.{ClaudeAttempts, VerificationAttempts, WorkspaceLeases}
 
   def dispatch(attempt, oban_job_id, options) do
     case value(attempt, :command_kind) do
@@ -10,6 +10,13 @@ defmodule Custode.GitHubIssueAttemptDispatcher do
 
       "implement" ->
         ClaudeAttempts.dispatch(
+          value(attempt, :attempt_id),
+          attempt |> value(:dispatch) |> value(:legacy_routine_id),
+          options
+        )
+
+      "verify" ->
+        VerificationAttempts.dispatch(
           value(attempt, :attempt_id),
           attempt |> value(:dispatch) |> value(:legacy_routine_id),
           options

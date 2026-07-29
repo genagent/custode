@@ -727,7 +727,7 @@ defmodule Custode.WorkProcess do
   end
 
   defp live_job_for_attempt?(work_item_id, attempt_id) do
-    process_job_live?(work_item_id, attempt_id) or provider_job_live?(attempt_id)
+    process_job_live?(work_item_id, attempt_id) or attempt_job_live?(attempt_id)
   end
 
   defp process_job_live?(work_item_id, attempt_id) do
@@ -737,11 +737,11 @@ defmodule Custode.WorkProcess do
     end
   end
 
-  defp provider_job_live?(attempt_id) do
+  defp attempt_job_live?(attempt_id) do
     Repo.exists?(
       from(job in Oban.Job,
         where:
-          job.worker == "Custode.ClaudeAttemptJob" and
+          job.worker in ["Custode.ClaudeAttemptJob", "Custode.VerificationAttemptJob"] and
             job.state in ^@live_job_states and
             fragment("json_extract(?, '$.attempt_id')", job.args) == ^attempt_id
       )
