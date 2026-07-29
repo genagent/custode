@@ -104,6 +104,10 @@ defmodule Custode.OperationDispatcherTest do
       arguments: arguments,
       actor: Keyword.get(options, :actor, %{kind: :operator, id: "human"}),
       transport: :cli,
+      idempotency_key:
+        Keyword.get_lazy(options, :idempotency_key, fn ->
+          "test-#{System.unique_integer([:positive])}"
+        end),
       correlation_id: options[:correlation_id],
       causation_id: options[:causation_id],
       dry_run: Keyword.get(options, :dry_run, false)

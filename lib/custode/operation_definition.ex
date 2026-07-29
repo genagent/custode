@@ -25,7 +25,7 @@ defmodule Custode.OperationDefinition do
     :audit,
     :projection
   ]
-  defstruct @enforce_keys ++ [effect_preview: nil]
+  defstruct @enforce_keys ++ [effect_preview: nil, precondition: nil, reconcile: nil]
 
   @type t :: %__MODULE__{
           name: String.t(),
@@ -39,7 +39,16 @@ defmodule Custode.OperationDefinition do
           idempotency: map(),
           effect_preview:
             nil | (map(), Custode.OperationEnvelope.t() -> {:ok, term()} | {:error, term()}),
-          handler: (map(), Custode.OperationEnvelope.t() -> {:ok, map()} | {:error, term()}),
+          precondition:
+            nil
+            | (map(), Custode.OperationEnvelope.t() ->
+                 :ok | {:stale, term(), map()}),
+          reconcile:
+            nil
+            | (Custode.OperationCall.t() ->
+                 :retry | {:ok, map(), [map()]} | {:waiting, term()}),
+          handler: (map(), Custode.OperationEnvelope.t() ->
+                      {:ok, map()} | {:ok, map(), [map()]} | {:error, term()}),
           audit: (map() -> String.t()),
           projection: map()
         }
@@ -57,6 +66,8 @@ defmodule Custode.OperationDefinition do
          true <- is_function(definition.authorization, 2),
          true <- is_map(definition.idempotency),
          true <- is_nil(definition.effect_preview) or is_function(definition.effect_preview, 2),
+         true <- is_nil(definition.precondition) or is_function(definition.precondition, 2),
+         true <- is_nil(definition.reconcile) or is_function(definition.reconcile, 1),
          true <- is_function(definition.handler, 2),
          true <- is_function(definition.audit, 1),
          true <- is_map(definition.projection) do
