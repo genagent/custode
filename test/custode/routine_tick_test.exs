@@ -14,6 +14,18 @@ defmodule Custode.RoutineTickTest do
     end
   end
 
+  defmodule WorkVertical do
+    def schedule(routine, results) do
+      send(Application.fetch_env!(:custode, :routine_tick_test_pid), {
+        :vertical,
+        routine,
+        results
+      })
+
+      {:ok, [:scheduled]}
+    end
+  end
+
   # the Tick jobs RoutineTick enqueues for one agent, newest first (queues
   # are empty in test config, so they insert and sit there for inspection;
   # the oban_jobs table is shared across the suite, so always scope by id)
@@ -95,5 +107,27 @@ defmodule Custode.RoutineTickTest do
     assert job.args == Custode.Routine.tick_args(Custode.Routine.get(id))
     assert job.args["prompt"] == "unchanged prompt"
     assert job.args["start"]["args"]["model"] == "haiku"
+  end
+
+  test "eligible intake schedules the bounded vertical and preserves the legacy tick" do
+    workspace = tmp_workspace!()
+    id = uid("vertical")
+    result = %{work_item: %{work_item_id: "work-368", state: "ready", phase: "eligible"}}
+
+    put_env!(:routines, [
+      %{id: id, cron: "@daily", workspace: workspace, prompt: "legacy sweep", model: "haiku"}
+    ])
+
+    put_env!(:work_intake, WorkIntake)
+    put_env!(:work_vertical, WorkVertical)
+    put_env!(:routine_tick_test_pid, self())
+    put_env!(:routine_tick_test_result, {:ok, [result]})
+
+    assert :ok = RoutineTick.perform(%Oban.Job{args: %{"routine_id" => id}})
+    assert_receive {:intake, %{id: ^id}}
+    assert_receive {:vertical, %{id: ^id}, [^result]}
+
+    assert [job] = ticks_for(id)
+    assert job.args["prompt"] == "legacy sweep"
   end
 end

@@ -64,8 +64,8 @@ defmodule Custode.RoutineTick do
       :ok ->
         :ok
 
-      {:ok, _results} ->
-        :ok
+      {:ok, results} ->
+        run_vertical(routine, results)
 
       {:error, reason} ->
         Logger.warning("work intake failed for #{routine.id}: #{inspect(reason)}")
@@ -78,5 +78,25 @@ defmodule Custode.RoutineTick do
   catch
     kind, reason ->
       Logger.warning("work intake threw for #{routine.id}: #{inspect({kind, reason})}")
+  end
+
+  defp run_vertical(routine, results) do
+    vertical = Application.get_env(:custode, :work_vertical, Custode.GitHubIssueVertical)
+
+    case vertical.schedule(routine, results) do
+      {:ok, _jobs} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("work vertical failed for #{routine.id}: #{inspect(reason)}")
+    end
+  rescue
+    exception ->
+      Logger.warning(
+        "work vertical crashed for #{routine.id}: #{Exception.format(:error, exception, __STACKTRACE__)}"
+      )
+  catch
+    kind, reason ->
+      Logger.warning("work vertical threw for #{routine.id}: #{inspect({kind, reason})}")
   end
 end

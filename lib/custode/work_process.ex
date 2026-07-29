@@ -422,14 +422,11 @@ defmodule Custode.WorkProcess do
   end
 
   defp execute(%Decision{action: "dispatch_attempt"} = decision, event, job_id, options) do
-    case transition(decision.transition, event, options) do
-      {:ok, _response} ->
-        case Attempts.start(value(decision.attempt, :attempt_id), %{oban_job_id: job_id}) do
-          {:ok, _attempt} -> :ok
-          {:error, reason} -> {:error, reason}
-        end
+    case activate_attempt(decision, event, options) do
+      :ok ->
+        dispatch_attempt(decision.attempt, job_id, options)
 
-      {:error, {:stale, reason}} ->
+      {:stale, reason} ->
         cancel_stale_attempt(decision.attempt, reason)
         {:terminal, {:stale, reason}}
 
@@ -542,6 +539,49 @@ defmodule Custode.WorkProcess do
       usage: %{},
       outcome: %{kind: "stale_before_dispatch", reason: json(reason)}
     })
+  end
+
+  defp activate_attempt(decision, event, options) do
+    case transition(decision.transition, event, options) do
+      {:ok, _response} ->
+        :ok
+
+      {:error, {:stale, reason}} ->
+        if attempt_already_active?(decision, event), do: :ok, else: {:stale, reason}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp attempt_already_active?(decision, event) do
+    case WorkItems.get(event_work_item_id(event)) do
+      %WorkItem{
+        state: "active",
+        phase: phase,
+        active_attempt_id: attempt_id,
+        version: version
+      } ->
+        phase == value(decision.transition, :phase) and
+          attempt_id == value(decision.attempt, :attempt_id) and
+          version == event.work_item_version + 1
+
+      _other ->
+        false
+    end
+  end
+
+  defp dispatch_attempt(attempt, job_id, options) do
+    case Keyword.get(options, :attempt_dispatcher) do
+      nil ->
+        case Attempts.start(value(attempt, :attempt_id), %{oban_job_id: job_id}) do
+          {:ok, _attempt} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+
+      dispatcher ->
+        dispatcher.dispatch(attempt, job_id, options)
+    end
   end
 
   defp block_failed_operation(event, reason, options) do
@@ -687,10 +727,25 @@ defmodule Custode.WorkProcess do
   end
 
   defp live_job_for_attempt?(work_item_id, attempt_id) do
+    process_job_live?(work_item_id, attempt_id) or provider_job_live?(attempt_id)
+  end
+
+  defp process_job_live?(work_item_id, attempt_id) do
     case claim_for_attempt(work_item_id, attempt_id) do
       nil -> false
       event -> live_job?(event.event_id)
     end
+  end
+
+  defp provider_job_live?(attempt_id) do
+    Repo.exists?(
+      from(job in Oban.Job,
+        where:
+          job.worker == "Custode.ClaudeAttemptJob" and
+            job.state in ^@live_job_states and
+            fragment("json_extract(?, '$.attempt_id')", job.args) == ^attempt_id
+      )
+    )
   end
 
   defp live_job?(decision_id) do
