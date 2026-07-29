@@ -156,6 +156,9 @@ defmodule Custode.OperationDispatcher do
       {:error, reason} ->
         {:error, {:handler_failed, reason}}
 
+      {:waiting, reason} ->
+        {:error, {:operation_waiting, reason}}
+
       other ->
         {:error, {:invalid_handler_result, other}}
     end

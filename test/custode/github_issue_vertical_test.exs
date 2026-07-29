@@ -14,6 +14,7 @@ defmodule Custode.GitHubIssueVerticalTest do
     ContextBundles,
     GitHubIssueIntake,
     GitHubIssueVertical,
+    GitHubMerge,
     LegacyRoleBindingProjection,
     Memory,
     Mission,
@@ -28,6 +29,7 @@ defmodule Custode.GitHubIssueVerticalTest do
     SpendLedger,
     VerificationAttempts,
     WorkEvent,
+    WorkGate,
     WorkItem,
     WorkItems,
     WorkspaceLease,
@@ -93,6 +95,43 @@ defmodule Custode.GitHubIssueVerticalTest do
     def comment(_owner, _repo, _number, _body), do: {:error, :unsupported}
     def ready_pr(_owner, _repo, _number), do: {:error, :unsupported}
     def merge_pr(_owner, _repo, _number), do: {:error, :unsupported}
+
+    def merge_pr_at_head(_owner, _repo, number, head_sha) do
+      if hook = Application.get_env(:custode, :publication_before_merge) do
+        hook.(number, head_sha)
+      end
+
+      pull_request =
+        Agent.get_and_update(state().pid, fn data ->
+          {current, rest} = Enum.split_with(data.pull_requests, &(&1.number == number))
+
+          case current do
+            [%{head_sha: ^head_sha} = pull_request] ->
+              merged =
+                Map.merge(pull_request, %{
+                  state: "closed",
+                  merged: true,
+                  merged_at: "2026-07-29T22:00:00Z",
+                  merge_commit_sha: "merge-#{String.slice(head_sha, 0, 12)}"
+                })
+
+              {merged, %{data | pull_requests: [merged | rest]}}
+
+            _other ->
+              {nil, data}
+          end
+        end)
+
+      case pull_request do
+        nil ->
+          {:error, :head_changed}
+
+        merged ->
+          send(state().test_pid, {:merge_pr_at_head, number, head_sha})
+          {:ok, %{"merged" => true, "sha" => merged.merge_commit_sha}}
+      end
+    end
+
     def list_issues(_owner, _repo, _opts), do: {:ok, []}
     def view_issue(_owner, _repo, _number), do: {:error, :unsupported}
     def pr_checks(_owner, _repo, _number), do: {:ok, %{sha: nil, checks: []}}
@@ -110,7 +149,9 @@ defmodule Custode.GitHubIssueVerticalTest do
       end
     end
 
-    def review_state(_owner, _repo, _number), do: :unreviewed
+    def review_state(_owner, _repo, _number) do
+      Application.get_env(:custode, :publication_review_state, :unreviewed)
+    end
 
     defp state, do: Application.fetch_env!(:custode, :publication_repo_ops_state)
 
@@ -124,6 +165,10 @@ defmodule Custode.GitHubIssueVerticalTest do
         {output, status} -> raise "remote revision failed (#{status}): #{output}"
       end
     end
+  end
+
+  defmodule FailingCleanupGit do
+    def remove(_repository_path, _workspace_path), do: {:error, :simulated_cleanup_failure}
   end
 
   setup do
@@ -565,6 +610,225 @@ defmodule Custode.GitHubIssueVerticalTest do
 
     assert get_in(event.evidence, ["github_observation", "artifact_id"]) ==
              artifact.artifact_id
+  end
+
+  test "a clean pinned review requires approval, merges once, completes, and cleans up",
+       fixture do
+    {waiting, pull_request, gate} = prepare_merge_gate!(fixture)
+    workspace = publication_workspace!(waiting)
+
+    assert gate.status == "open"
+    assert gate.operation == "github.merge_pr"
+    assert gate.arguments["expected_head_sha"] == pull_request.head_sha
+    assert gate.arguments["expected_version"] == waiting.version + 1
+    assert gate.external_preconditions["review_state"]["status"] == "approved"
+    refute_receive {:merge_pr_at_head, _number, _head}, 50
+
+    assert {:ok, approved, response} =
+             GitHubMerge.approve(
+               gate.gate_id,
+               actor: %{kind: :operator, id: "maintainer"},
+               transport: :cli
+             )
+
+    assert approved.status == "approved", inspect(%{gate: approved, response: response})
+    assert response.status == :succeeded
+    assert approved.operation_call_id == response.call_id
+    assert_receive {:merge_pr_at_head, number, head_sha}
+    assert number == pull_request.number
+    assert head_sha == pull_request.head_sha
+
+    landed = WorkItems.get(waiting.work_item_id)
+    assert landed.state == "completed"
+    assert landed.phase == "landed"
+    assert landed.outcome["head_sha"] == pull_request.head_sha
+    assert landed.outcome["merge_commit_sha"] == response.result.pull_request.merge_commit_sha
+
+    lease = WorkspaceLeases.get(gate.arguments["lease_id"])
+    assert lease.state == "released"
+    refute File.exists?(workspace)
+
+    merge_call = Repo.get_by!(OperationCall, call_id: response.call_id)
+    assert merge_call.correlation_id == gate.correlation_id
+    assert merge_call.causation_id == gate.causation_id
+
+    completion =
+      waiting.work_item_id
+      |> WorkItems.list_events()
+      |> Enum.find(fn event -> event.after_phase == "landed" end)
+
+    assert completion.correlation_id == gate.correlation_id
+    assert completion.causation_id == response.call_id
+    assert get_in(completion.evidence, ["acceptance", "gate_id"]) == gate.gate_id
+
+    assert {:error, {:gate_already_resolved, "approved"}} =
+             GitHubMerge.approve(
+               gate.gate_id,
+               actor: %{kind: :operator, id: "maintainer"},
+               transport: :cli
+             )
+
+    refute_receive {:merge_pr_at_head, _number, _head}, 50
+
+    assert Enum.count(WorkItems.list_events(waiting.work_item_id), &(&1.after_phase == "landed")) ==
+             1
+  end
+
+  test "a changed head makes the exact merge Gate stale", fixture do
+    {waiting, pull_request, gate} = prepare_merge_gate!(fixture)
+
+    update_pull_request!(fixture, pull_request.number, %{
+      head_sha: "advanced-head",
+      updated_at: "2026-07-29T21:11:00Z"
+    })
+
+    assert_stale_merge_gate!(waiting, gate)
+  end
+
+  test "a changed policy makes the exact merge Gate stale", fixture do
+    {waiting, _pull_request, gate} = prepare_merge_gate!(fixture)
+
+    Repo.update_all(
+      from(item in WorkItem, where: item.id == ^waiting.id),
+      set: [policy_ref: "policy:changed"]
+    )
+
+    assert_stale_merge_gate!(waiting, gate)
+  end
+
+  test "a failed check makes the exact merge Gate stale", fixture do
+    {waiting, pull_request, gate} = prepare_merge_gate!(fixture)
+    put_env!(:publication_review_snapshot, failed_merge_snapshot(pull_request))
+    assert_stale_merge_gate!(waiting, gate)
+  end
+
+  test "a resolver without the operator grant makes the exact merge Gate stale", fixture do
+    {waiting, _pull_request, gate} = prepare_merge_gate!(fixture)
+
+    assert {:error, {:stale, changes, stale_gate}} =
+             GitHubMerge.approve(
+               gate.gate_id,
+               actor: %{kind: :sub_agent, id: "unauthorized"},
+               transport: :cli
+             )
+
+    assert Map.has_key?(changes, "grant_decision")
+    assert stale_gate.status == "stale"
+    refute_receive {:merge_pr_at_head, _number, _head}, 50
+    assert WorkItems.get(waiting.work_item_id).phase == "merge_ready"
+  end
+
+  test "a head race at the merge API refuses without activating or merging work", fixture do
+    {waiting, pull_request, gate} = prepare_merge_gate!(fixture)
+
+    put_env!(:publication_before_merge, fn number, _expected_head ->
+      update_pull_request!(fixture, number, %{
+        head_sha: "raced-head",
+        updated_at: "2026-07-29T21:12:00Z"
+      })
+    end)
+
+    assert {:error, {:stale, changes, stale_gate}} =
+             GitHubMerge.approve(
+               gate.gate_id,
+               actor: %{kind: :operator, id: "maintainer"},
+               transport: :cli
+             )
+
+    assert Map.has_key?(changes, "operation_precondition")
+    assert stale_gate.status == "stale"
+    refute_receive {:merge_pr_at_head, _number, _head}, 50
+
+    unchanged = WorkItems.get(waiting.work_item_id)
+    assert unchanged.state == "waiting"
+    assert unchanged.phase == "merge_ready"
+
+    call = Repo.get_by!(OperationCall, call_id: stale_gate.operation_call_id)
+    assert call.status == "stale"
+    assert pull_request.head_sha != "raced-head"
+  end
+
+  test "a crash before the external merge resumes the same call and merges once", fixture do
+    {waiting, pull_request, gate} = prepare_merge_gate!(fixture)
+    crashed = insert_running_merge_call!(gate)
+
+    assert {:ok, approved, response} =
+             GitHubMerge.approve(
+               gate.gate_id,
+               actor: %{kind: :operator, id: "recovery-operator"},
+               transport: :cli
+             )
+
+    assert approved.operation_call_id == crashed.call_id
+    assert response.call_id == crashed.call_id
+    assert_receive {:merge_pr_at_head, number, head}
+    assert {number, head} == {pull_request.number, pull_request.head_sha}
+    assert WorkItems.get(waiting.work_item_id).phase == "landed"
+  end
+
+  test "a crash after GitHub merged reconciles completion without merging twice", fixture do
+    {waiting, pull_request, gate} = prepare_merge_gate!(fixture)
+    crashed = insert_running_merge_call!(gate)
+    merge_commit_sha = "already-merged-commit"
+
+    update_pull_request!(fixture, pull_request.number, %{
+      state: "closed",
+      merged: true,
+      merged_at: "2026-07-29T21:13:00Z",
+      merge_commit_sha: merge_commit_sha,
+      updated_at: "2026-07-29T21:13:00Z"
+    })
+
+    assert {:ok, approved, response} =
+             GitHubMerge.approve(
+               gate.gate_id,
+               actor: %{kind: :operator, id: "recovery-operator"},
+               transport: :cli
+             )
+
+    assert approved.operation_call_id == crashed.call_id
+    assert response.call_id == crashed.call_id
+    assert response.replayed
+    assert response.result, inspect(response)
+    assert response.result.pull_request.source == "reconciled"
+    assert response.result.pull_request.merge_commit_sha == merge_commit_sha
+    refute_receive {:merge_pr_at_head, _number, _head}, 50
+
+    landed = WorkItems.get(waiting.work_item_id)
+    assert landed.state == "completed"
+    assert landed.phase == "landed"
+    assert landed.outcome["merge_commit_sha"] == merge_commit_sha
+  end
+
+  test "cleanup failure preserves landed work and records the retained obligation", fixture do
+    {waiting, _pull_request, gate} = prepare_merge_gate!(fixture)
+    workspace = publication_workspace!(waiting)
+    put_env!(:github_merge_workspace_git, FailingCleanupGit)
+
+    assert {:ok, approved, response} =
+             GitHubMerge.approve(
+               gate.gate_id,
+               actor: %{kind: :operator, id: "maintainer"},
+               transport: :cli
+             )
+
+    assert approved.status == "approved"
+    assert response.status == :succeeded
+    assert response.result.cleanup.status == "failed"
+    assert response.result.cleanup.error =~ "simulated_cleanup_failure"
+
+    landed = WorkItems.get(waiting.work_item_id)
+    assert landed.state == "completed"
+    assert landed.phase == "landed"
+
+    lease = WorkspaceLeases.get(gate.arguments["lease_id"])
+    assert lease.state == "cleanup_failed"
+    assert File.dir?(workspace)
+
+    assert Enum.any?(
+             response.effects,
+             &(&1.type == "workspace_cleanup_failed" and &1.lease_id == lease.lease_id)
+           )
   end
 
   test "requested changes create one semantic repair with exact observation provenance",
@@ -1900,6 +2164,115 @@ defmodule Custode.GitHubIssueVerticalTest do
     assert waiting.state == "waiting"
     assert waiting.phase == "awaiting_review"
     {waiting, pull_request}
+  end
+
+  defp prepare_merge_gate!(fixture) do
+    {waiting, pull_request} = publish_successfully!(fixture)
+
+    pull_request =
+      update_pull_request!(fixture, pull_request.number, %{
+        base_sha: git!(fixture.repository, ["rev-parse", "HEAD"]),
+        draft: false,
+        mergeable: true,
+        mergeable_state: "clean",
+        merged: false,
+        merge_commit_sha: nil,
+        updated_at: "2026-07-29T21:10:00Z"
+      })
+
+    put_env!(:publication_review_snapshot, clean_merge_snapshot(pull_request))
+    put_env!(:publication_review_state, {:reviewed, "approving review"})
+
+    assert {:ok, %{status: :merge_ready, gate: %WorkGate{} = gate}} =
+             Reconciler.reconcile(
+               waiting.work_item_id,
+               routine_id: fixture.routine.id,
+               artifact_dir: fixture.artifacts,
+               correlation_id: "github-merge:test-correlation",
+               causation_id: "github-merge:test-causation"
+             )
+
+    merge_ready = WorkItems.get(waiting.work_item_id)
+    assert merge_ready.state == "waiting"
+    assert merge_ready.phase == "merge_ready"
+    assert merge_ready.waiting_condition["gate_id"] == gate.gate_id
+
+    {waiting, pull_request, gate}
+  end
+
+  defp clean_merge_snapshot(pull_request) do
+    %{
+      reviews: [
+        %{
+          id: 9_100,
+          author: "reviewer",
+          state: "APPROVED",
+          commit_id: pull_request.head_sha,
+          submitted_at: "2026-07-29T21:09:00Z"
+        }
+      ],
+      comments: [],
+      checks: [
+        %{
+          id: 9_101,
+          name: "test",
+          status: "completed",
+          conclusion: "success",
+          started_at: "2026-07-29T21:08:00Z",
+          completed_at: "2026-07-29T21:09:00Z"
+        }
+      ]
+    }
+  end
+
+  defp failed_merge_snapshot(pull_request) do
+    pull_request
+    |> clean_merge_snapshot()
+    |> put_in([:checks, Access.at(0), :conclusion], "failure")
+  end
+
+  defp update_pull_request!(fixture, number, attrs) do
+    Agent.get_and_update(fixture.repo_state, fn state ->
+      {pull_request, rest} = Enum.split_with(state.pull_requests, &(&1.number == number))
+      [pull_request] = pull_request
+      updated = Map.merge(pull_request, attrs)
+      {updated, %{state | pull_requests: [updated | rest]}}
+    end)
+  end
+
+  defp assert_stale_merge_gate!(waiting, gate) do
+    assert {:error, {:stale, changes, stale_gate}} =
+             GitHubMerge.approve(
+               gate.gate_id,
+               actor: %{kind: :operator, id: "maintainer"},
+               transport: :cli
+             )
+
+    assert stale_gate.status == "stale"
+    assert map_size(changes) > 0
+    refute_receive {:merge_pr_at_head, _number, _head}, 50
+    assert WorkItems.get(waiting.work_item_id).phase == "merge_ready"
+  end
+
+  defp insert_running_merge_call!(gate) do
+    %{
+      call_id: Ecto.UUID.generate(),
+      operation: gate.operation,
+      arguments: gate.arguments,
+      actor: %{"kind" => "operator", "id" => "crashed-approver"},
+      transport: "cli",
+      risk: "external_write",
+      idempotency_scope: "github-merge:#{gate.work_item.work_item_id}",
+      idempotency_key: gate.operation_idempotency_key,
+      expected_versions: %{"work_item" => gate.work_item_version},
+      correlation_id: gate.correlation_id,
+      causation_id: gate.causation_id,
+      mission_id: gate.mission.mission_id,
+      work_item_id: gate.work_item.work_item_id,
+      status: "running"
+    }
+    |> OperationCall.create_changeset()
+    |> Repo.insert!()
   end
 
   defp review_observation(work_item, attrs) do

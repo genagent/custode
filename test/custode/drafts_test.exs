@@ -23,6 +23,7 @@ defmodule Custode.DraftsTest do
     def comment(_owner, _repo, _number, _body), do: {:ok, %{}}
     def ready_pr(_owner, _repo, _number), do: {:ok, %{}}
     def merge_pr(_owner, _repo, _number), do: {:ok, %{}}
+    def merge_pr_at_head(_owner, _repo, _number, _head_sha), do: {:ok, %{}}
     def review_state(_owner, _repo, _number), do: :unreviewed
     def list_issues(_owner, _repo, _opts), do: {:ok, []}
     def view_issue(_owner, _repo, number), do: {:ok, %{number: number}}

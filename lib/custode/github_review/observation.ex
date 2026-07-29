@@ -9,6 +9,7 @@ defmodule Custode.GitHubReview.Observation do
 
   @kinds ~w(snapshot review_feedback check_run conflict)
   @failing_conclusions ~w(action_required cancelled failure startup_failure timed_out)
+  @passing_conclusions ~w(neutral skipped success)
 
   @enforce_keys [
     :repository,
@@ -23,7 +24,7 @@ defmodule Custode.GitHubReview.Observation do
     :item_tokens,
     :external_identity
   ]
-  defstruct @enforce_keys ++ [:delivery_id]
+  defstruct @enforce_keys ++ [:delivery_id, :pull_request]
 
   @type t :: %__MODULE__{}
 
@@ -47,6 +48,7 @@ defmodule Custode.GitHubReview.Observation do
       base_sha: value(pull_request, :base_sha),
       external_updated_at: latest_timestamp(pull_request, reviews, snapshot),
       kind: "snapshot",
+      pull_request: pull_request,
       comments: value(snapshot, :comments, []),
       reviews: reviews,
       checks: value(snapshot, :checks, []),
@@ -77,6 +79,7 @@ defmodule Custode.GitHubReview.Observation do
       external_updated_at: value(attrs, :external_updated_at),
       kind: normalize_kind(value(attrs, :kind)),
       delivery_id: value(attrs, :delivery_id),
+      pull_request: normalize_pull_request(value(attrs, :pull_request)),
       comments: comments,
       reviews: reviews,
       checks: checks,
@@ -117,6 +120,57 @@ defmodule Custode.GitHubReview.Observation do
   @spec action(t()) :: map()
   def action(%__MODULE__{} = observation) do
     conflict_action(observation) || feedback_action(observation)
+  end
+
+  @doc """
+  Return the exact clean-check and review snapshot for a merge Gate.
+
+  This is evaluated from the complete current GitHub snapshot, not only the
+  newly unconsumed items used to choose a repair.
+  """
+  @spec merge_action(t()) :: map() | nil
+  def merge_action(%__MODULE__{} = observation) do
+    preconditions = merge_preconditions(observation)
+
+    if merge_ready?(preconditions) do
+      %{
+        kind: :merge,
+        phase: "merge_ready",
+        merge_preconditions: preconditions,
+        reason: "pinned checks and review permit an operator merge Gate"
+      }
+    end
+  end
+
+  @doc "Render the external revision set pinned by a merge Gate."
+  @spec merge_preconditions(t()) :: map()
+  def merge_preconditions(%__MODULE__{} = observation) do
+    pull_request = observation.pull_request || %{}
+
+    %{
+      "repository" => observation.repository,
+      "pull_request_number" => observation.pull_request_number,
+      "head_sha" => observation.head_sha,
+      "base_sha" => observation.conflict[:base_sha],
+      "pull_request" => %{
+        "state" => value(pull_request, :state),
+        "draft" => value(pull_request, :draft),
+        "merged" => value(pull_request, :merged),
+        "merge_commit_sha" => value(pull_request, :merge_commit_sha),
+        "mergeable" => value(pull_request, :mergeable),
+        "mergeable_state" => value(pull_request, :mergeable_state)
+      },
+      "required_checks" =>
+        observation.checks
+        |> Enum.map(&merge_check/1)
+        |> Enum.sort_by(&{&1["name"], &1["id"]}),
+      "review_state" => review_state(observation),
+      "approvals" =>
+        observation.reviews
+        |> Enum.filter(&(normalize_text(value(&1, :state)) == "approved"))
+        |> Enum.map(&approval/1)
+        |> Enum.sort_by(&{&1["submitted_at"], &1["id"]})
+    }
   end
 
   defp conflict_action(observation) do
@@ -192,6 +246,119 @@ defmodule Custode.GitHubReview.Observation do
       handler: "claude",
       reason: reason
     }
+  end
+
+  defp merge_ready?(preconditions) do
+    pull_request = preconditions["pull_request"]
+
+    pull_request["state"] == "open" and
+      pull_request["draft"] == false and
+      pull_request["merged"] != true and
+      pull_request["mergeable"] == true and
+      normalize_text(pull_request["mergeable_state"]) != "dirty" and
+      preconditions["review_state"]["status"] == "approved" and
+      checks_ready?(preconditions["required_checks"])
+  end
+
+  defp checks_ready?(checks) do
+    Enum.all?(checks, fn check ->
+      normalize_text(check["status"]) == "completed" and
+        normalize_text(check["conclusion"]) in @passing_conclusions
+    end)
+  end
+
+  defp merge_check(check) do
+    %{
+      "id" => value(check, :id),
+      "name" => value(check, :name),
+      "status" => normalize_text(value(check, :status)),
+      "conclusion" => normalize_text(value(check, :conclusion)),
+      "started_at" => value(check, :started_at),
+      "completed_at" => value(check, :completed_at)
+    }
+  end
+
+  defp approval(review) do
+    %{
+      "id" => value(review, :id),
+      "author" => value(review, :author),
+      "commit_id" => value(review, :commit_id),
+      "submitted_at" => value(review, :submitted_at)
+    }
+  end
+
+  defp review_state(observation) do
+    events =
+      Enum.flat_map(observation.reviews, &review_event/1) ++
+        Enum.flat_map(observation.comments, &marker_event/1)
+
+    case Enum.max_by(events, &{&1.at, &1.token}, fn -> nil end) do
+      nil ->
+        %{"status" => "unreviewed", "source" => nil, "id" => nil, "at" => nil}
+
+      event ->
+        %{
+          "status" => event.status,
+          "source" => event.source,
+          "id" => event.id,
+          "at" => event.at
+        }
+    end
+  end
+
+  defp review_event(review) do
+    status =
+      case normalize_text(value(review, :state)) do
+        "approved" -> "approved"
+        "changes_requested" -> "changes_requested"
+        _other -> nil
+      end
+
+    if status do
+      id = value(review, :id)
+      at = value(review, :submitted_at) || value(review, :updated_at) || ""
+
+      [
+        %{
+          status: status,
+          source: "review",
+          id: id,
+          at: at,
+          token: token("review", [id])
+        }
+      ]
+    else
+      []
+    end
+  end
+
+  defp marker_event(comment) do
+    body = comment |> value(:body) |> to_string() |> String.trim()
+    normalized = String.downcase(body)
+
+    status =
+      cond do
+        String.starts_with?(normalized, "review: needs-human") -> "needs_human"
+        String.starts_with?(normalized, "review:") -> "approved"
+        true -> nil
+      end
+
+    if status do
+      id = value(comment, :id)
+      at = value(comment, :updated_at) || value(comment, :created_at) || ""
+
+      [
+        %{
+          status: status,
+          source: "comment",
+          id: id,
+          at: at,
+          token: token("comment", [id])
+        }
+      ]
+    else
+      []
+    end
   end
 
   defp validate(observation) do
@@ -367,6 +534,24 @@ defmodule Custode.GitHubReview.Observation do
   end
 
   defp normalize_conflict(_conflict, base_sha), do: %{status: "unknown", base_sha: base_sha}
+
+  defp normalize_pull_request(nil), do: nil
+
+  defp normalize_pull_request(pull_request)
+       when is_map(pull_request) or is_list(pull_request) do
+    pull_request = Map.new(pull_request)
+
+    %{
+      state: normalize_text(value(pull_request, :state)),
+      draft: value(pull_request, :draft),
+      merged: value(pull_request, :merged),
+      merge_commit_sha: value(pull_request, :merge_commit_sha),
+      mergeable: value(pull_request, :mergeable),
+      mergeable_state: normalize_text(value(pull_request, :mergeable_state))
+    }
+  end
+
+  defp normalize_pull_request(_pull_request), do: nil
 
   defp normalize_conflict_status(value) do
     case normalize_text(value) do

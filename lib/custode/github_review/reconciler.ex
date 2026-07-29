@@ -11,6 +11,7 @@ defmodule Custode.GitHubReview.Reconciler do
     Artifact,
     Artifacts,
     GitHubIssueVertical,
+    GitHubMerge,
     Repository,
     WorkItems
   }
@@ -50,33 +51,47 @@ defmodule Custode.GitHubReview.Reconciler do
   end
 
   defp ingest_new(work_item, observation, options) do
-    observation = Observation.without_consumed(observation, consumed_tokens(work_item))
+    pending = Observation.without_consumed(observation, consumed_tokens(work_item))
+    {observation, action} = decide(pending, observation)
 
-    if Observation.empty?(observation) do
+    if Observation.empty?(observation) and action.kind == :wait do
       {:ok, %{status: :duplicate, work_item: WorkItems.render(work_item), action: :none}}
     else
-      ingest_nonempty(work_item, observation, options)
+      ingest_nonempty(work_item, observation, action, options)
     end
   end
 
-  defp ingest_nonempty(work_item, observation, options) do
+  defp decide(pending, complete) do
+    case Observation.action(pending) do
+      %{kind: :wait} = wait ->
+        case Observation.merge_action(complete) do
+          nil -> {pending, wait}
+          merge -> {complete, merge}
+        end
+
+      action ->
+        {pending, action}
+    end
+  end
+
+  defp ingest_nonempty(work_item, observation, action, options) do
     case current_scope(work_item, observation) do
       :ok ->
-        persist_and_apply(work_item, observation, options)
+        persist_and_apply(work_item, observation, action, options)
 
       {:stale, reason, observed} ->
-        persist_rejection(work_item, observation, reason, observed, options)
+        persist_rejection(work_item, observation, action, reason, observed, options)
     end
   end
 
-  defp persist_and_apply(work_item, observation, options) do
-    with {:ok, artifact} <- persist(work_item, observation, true, options) do
-      apply_observation(work_item, observation, artifact, options)
+  defp persist_and_apply(work_item, observation, action, options) do
+    with {:ok, artifact} <- persist(work_item, observation, action, true, options) do
+      apply_observation(work_item, observation, artifact, action, options)
     end
   end
 
-  defp persist_rejection(work_item, observation, reason, observed, options) do
-    with {:ok, artifact} <- persist(work_item, observation, false, options) do
+  defp persist_rejection(work_item, observation, action, reason, observed, options) do
+    with {:ok, artifact} <- persist(work_item, observation, action, false, options) do
       {:error,
        {:stale, reason, Map.put(observed, :observation_artifact_id, artifact.artifact_id)}}
     end
@@ -87,8 +102,9 @@ defmodule Custode.GitHubReview.Reconciler do
 
     if accepted? do
       with {:ok, observation} <- observation_from_artifact(artifact),
+           {:ok, action} <- artifact_action(artifact, observation),
            :ok <- replay_scope(work_item, observation, artifact) do
-        apply_observation(work_item, observation, artifact, options)
+        apply_observation(work_item, observation, artifact, action, options)
       end
     else
       {:error,
@@ -133,8 +149,7 @@ defmodule Custode.GitHubReview.Reconciler do
     end
   end
 
-  defp apply_observation(work_item, observation, artifact, options) do
-    action = Observation.action(observation)
+  defp apply_observation(work_item, observation, artifact, action, options) do
     idempotency_key = operation_key(artifact.external_identity, action)
 
     result =
@@ -148,6 +163,25 @@ defmodule Custode.GitHubReview.Reconciler do
                 source_snapshot: Observation.render(observation),
                 external_updated_at: observation.external_updated_at,
                 github_observation: event_evidence(observation, artifact, action)
+              }
+            },
+            operation_options(idempotency_key, artifact, options)
+          )
+
+        :merge ->
+          gate_id =
+            GitHubMerge.gate_id(work_item.work_item_id, action.merge_preconditions)
+
+          WorkOperations.Transition.dispatch(
+            work_item.work_item_id,
+            %{
+              expected_version: work_item.version,
+              state: "waiting",
+              phase: action.phase,
+              waiting_condition: %{kind: "gate", gate_id: gate_id},
+              evidence: %{
+                github_observation: event_evidence(observation, artifact, action),
+                merge_preconditions: action.merge_preconditions
               }
             },
             operation_options(idempotency_key, artifact, options)
@@ -173,13 +207,14 @@ defmodule Custode.GitHubReview.Reconciler do
   end
 
   defp finish({:ok, response}, work_item_id, observation, artifact, action, options) do
-    with :ok <- schedule(action, work_item_id, options) do
+    with {:ok, gate} <- after_transition(action, work_item_id, artifact, options) do
       {:ok,
        %{
-         status: if(action.kind == :repair, do: :repair_ready, else: :waiting),
+         status: status(action),
          action: action,
          observation: observation,
          artifact: artifact,
+         gate: gate,
          operation_call_id: response.call_id,
          replayed: response.replayed,
          work_item: WorkItems.get(work_item_id)
@@ -190,14 +225,26 @@ defmodule Custode.GitHubReview.Reconciler do
   defp finish({:error, reason}, _work_item_id, _observation, _artifact, _action, _options),
     do: {:error, reason}
 
-  defp schedule(%{kind: :wait}, _work_item_id, _options), do: :ok
+  defp after_transition(%{kind: :wait}, _work_item_id, _artifact, _options),
+    do: {:ok, nil}
 
-  defp schedule(%{kind: :repair}, work_item_id, options) do
+  defp after_transition(%{kind: :merge} = action, work_item_id, artifact, options) do
+    GitHubMerge.propose(work_item_id, action, artifact, options)
+  end
+
+  defp after_transition(%{kind: :repair}, work_item_id, _artifact, options) do
     case Keyword.fetch(options, :routine_id) do
-      {:ok, routine_id} -> enqueue_repair(routine_id, work_item_id, options)
-      :error -> {:error, :review_repair_routine_required}
+      {:ok, routine_id} ->
+        with :ok <- enqueue_repair(routine_id, work_item_id, options), do: {:ok, nil}
+
+      :error ->
+        {:error, :review_repair_routine_required}
     end
   end
+
+  defp status(%{kind: :merge}), do: :merge_ready
+  defp status(%{kind: :repair}), do: :repair_ready
+  defp status(%{kind: :wait}), do: :waiting
 
   defp enqueue_repair(routine_id, work_item_id, options) do
     schedule_options =
@@ -210,7 +257,7 @@ defmodule Custode.GitHubReview.Reconciler do
     end
   end
 
-  defp persist(work_item, observation, accepted?, options) do
+  defp persist(work_item, observation, action, accepted?, options) do
     body = Jason.encode!(Observation.render(observation))
     artifact_id = artifact_id(observation.external_identity)
 
@@ -226,7 +273,8 @@ defmodule Custode.GitHubReview.Reconciler do
         pull_request_number: observation.pull_request_number,
         head_sha: observation.head_sha,
         external_updated_at: observation.external_updated_at,
-        item_tokens: observation.item_tokens
+        item_tokens: observation.item_tokens,
+        action: action
       },
       retention: %{until: "work_item_terminal"}
     }
@@ -359,6 +407,30 @@ defmodule Custode.GitHubReview.Reconciler do
     }
   end
 
+  defp artifact_action(artifact, observation) do
+    case artifact.provenance["action"] || artifact.provenance[:action] do
+      nil ->
+        {:ok, Observation.action(observation)}
+
+      action when is_map(action) ->
+        action = atomize(action)
+
+        case action[:kind] do
+          kind when kind in ["wait", "repair", "merge"] ->
+            {:ok, Map.put(action, :kind, String.to_existing_atom(kind))}
+
+          kind when kind in [:wait, :repair, :merge] ->
+            {:ok, action}
+
+          _other ->
+            {:error, :github_observation_action_invalid}
+        end
+
+      _other ->
+        {:error, :github_observation_action_invalid}
+    end
+  end
+
   defp operation_options(idempotency_key, artifact, options) do
     [
       actor: %{kind: :system, id: "github-review-reconciler"},
@@ -370,8 +442,7 @@ defmodule Custode.GitHubReview.Reconciler do
   end
 
   defp operation_key(external_identity, action) do
-    suffix = if action.kind == :repair, do: "repair", else: "wait"
-    "#{external_identity}:#{suffix}"
+    "#{external_identity}:#{action.kind}"
   end
 
   defp artifact_id(external_identity) do
@@ -422,4 +493,18 @@ defmodule Custode.GitHubReview.Reconciler do
   end
 
   defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
+  defp atomize(map) when is_map(map) do
+    Map.new(map, fn
+      {key, value} when is_binary(key) ->
+        try do
+          {String.to_existing_atom(key), value}
+        rescue
+          ArgumentError -> {key, value}
+        end
+
+      pair ->
+        pair
+    end)
+  end
 end

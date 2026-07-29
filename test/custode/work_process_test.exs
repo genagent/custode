@@ -520,14 +520,24 @@ defmodule Custode.WorkProcessTest do
     snapshot = %{
       operation: %{
         operation: "github.merge_pr",
-        arguments: %{},
+        arguments: %{
+          work_item_id: work_item.work_item_id,
+          gate_id: "gate-operation-contract",
+          lease_id: "lease-operation-contract",
+          repository: "genagent/custode",
+          pull_request_number: 372,
+          expected_version: work_item.version,
+          expected_head_sha: "head-operation-contract",
+          policy_version: work_item.policy_ref,
+          external_preconditions: %{}
+        },
         actor: %{kind: :sub_agent, id: "model"},
         transport: :worker,
         idempotency_key: "unauthorized-operation"
       }
     }
 
-    assert {:error, {:unknown_operation, "github.merge_pr"}} =
+    assert {:error, {:denied, :operator_required}} =
              WorkProcess.reconcile(work_item.work_item_id, work_item.version, snapshot)
 
     assert Repo.aggregate(OperationCall, :count) == 0

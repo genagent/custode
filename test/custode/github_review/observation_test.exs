@@ -121,4 +121,113 @@ defmodule Custode.GitHubReview.ObservationTest do
 
     assert Observation.action(clean) == %{kind: :wait, reason: "no actionable review change"}
   end
+
+  test "pins the exact clean head, checks, and latest approving review for merge" do
+    assert {:ok, observation} =
+             Observation.new(
+               Map.merge(@base, %{
+                 kind: "snapshot",
+                 pull_request: %{
+                   state: "open",
+                   draft: false,
+                   merged: false,
+                   mergeable: true,
+                   mergeable_state: "clean"
+                 },
+                 conflict: %{status: "clean", base_sha: "base-371"},
+                 reviews: [
+                   %{
+                     id: 70,
+                     author: "reviewer",
+                     state: "CHANGES_REQUESTED",
+                     commit_id: "head-371",
+                     submitted_at: "2026-07-29T20:01:00Z"
+                   },
+                   %{
+                     id: 71,
+                     author: "reviewer",
+                     state: "APPROVED",
+                     commit_id: "head-371",
+                     submitted_at: "2026-07-29T20:02:00Z"
+                   }
+                 ],
+                 checks: [
+                   %{
+                     id: 82,
+                     name: "test",
+                     status: "completed",
+                     conclusion: "success",
+                     completed_at: "2026-07-29T20:03:00Z"
+                   },
+                   %{
+                     id: 81,
+                     name: "format",
+                     status: "completed",
+                     conclusion: "skipped",
+                     completed_at: "2026-07-29T20:03:00Z"
+                   }
+                 ]
+               })
+             )
+
+    assert %{kind: :merge, merge_preconditions: pinned} =
+             Observation.merge_action(observation)
+
+    assert pinned["head_sha"] == "head-371"
+    assert pinned["base_sha"] == "base-371"
+    assert pinned["review_state"]["status"] == "approved"
+    assert pinned["review_state"]["id"] == 71
+    assert Enum.map(pinned["required_checks"], & &1["name"]) == ["format", "test"]
+    assert Enum.map(pinned["approvals"], & &1["id"]) == [71]
+  end
+
+  test "a later refusal or a failed check prevents a merge action" do
+    common =
+      Map.merge(@base, %{
+        kind: "snapshot",
+        pull_request: %{
+          state: "open",
+          draft: false,
+          merged: false,
+          mergeable: true,
+          mergeable_state: "clean"
+        },
+        conflict: %{status: "clean", base_sha: "base-371"},
+        reviews: [
+          %{
+            id: 72,
+            state: "APPROVED",
+            submitted_at: "2026-07-29T20:01:00Z"
+          }
+        ]
+      })
+
+    assert {:ok, refused} =
+             Observation.new(
+               Map.put(common, :comments, [
+                 %{
+                   id: 73,
+                   body: "review: needs-human -- inspect the policy boundary",
+                   updated_at: "2026-07-29T20:02:00Z"
+                 }
+               ])
+             )
+
+    assert Observation.merge_action(refused) == nil
+
+    assert {:ok, failed} =
+             Observation.new(
+               Map.put(common, :checks, [
+                 %{
+                   id: 74,
+                   name: "test",
+                   status: "completed",
+                   conclusion: "failure",
+                   completed_at: "2026-07-29T20:03:00Z"
+                 }
+               ])
+             )
+
+    assert Observation.merge_action(failed) == nil
+  end
 end

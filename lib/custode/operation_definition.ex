@@ -48,7 +48,10 @@ defmodule Custode.OperationDefinition do
             | (Custode.OperationCall.t() ->
                  :retry | {:ok, map(), [map()]} | {:waiting, term()}),
           handler: (map(), Custode.OperationEnvelope.t() ->
-                      {:ok, map()} | {:ok, map(), [map()]} | {:error, term()}),
+                      {:ok, map()}
+                      | {:ok, map(), [map()]}
+                      | {:waiting, term()}
+                      | {:error, term()}),
           audit: (map() -> String.t()),
           projection: map()
         }

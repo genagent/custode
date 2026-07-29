@@ -171,6 +171,10 @@ defmodule Custode.Repository do
   @doc "Merge a PR. Refused wherever the merge policy is :manual."
   def merge_pr(name, number), do: call(name, {:merge_pr, number})
 
+  @doc false
+  def merge_pr_at_head(name, number, head_sha),
+    do: call(name, {:merge_pr_at_head, number, head_sha})
+
   # ---------------------------------------------------------------------------
   # read verbs (issue #129): scoped GitHub reads through the bound server
   # ---------------------------------------------------------------------------
@@ -302,6 +306,18 @@ defmodule Custode.Repository do
       state |> ops_result(:merge_pr, [state.owner, state.repo, number]) |> reply(state)
     else
       refusal -> reply(refusal, state)
+    end
+  end
+
+  def handle_call({:merge_pr_at_head, number, head_sha}, _from, state) do
+    case review_floor(state, number) do
+      :ok ->
+        state
+        |> ops_result(:merge_pr_at_head, [state.owner, state.repo, number, head_sha])
+        |> reply(state)
+
+      refusal ->
+        reply(refusal, state)
     end
   end
 
@@ -467,6 +483,7 @@ defmodule Custode.Repository.OpsBehaviour do
   @callback comment(owner, repo, pos_integer(), String.t()) :: result
   @callback ready_pr(owner, repo, pos_integer()) :: result
   @callback merge_pr(owner, repo, pos_integer()) :: result
+  @callback merge_pr_at_head(owner, repo, pos_integer(), String.t()) :: result
   @callback list_issues(owner, repo, keyword() | map()) :: result
   @callback view_issue(owner, repo, pos_integer()) :: result
   @callback list_prs(owner, repo, keyword() | map()) :: result
@@ -524,6 +541,12 @@ defmodule Custode.Repository.Ops do
   def merge_pr(owner, repo, number) do
     with {:ok, client} <- client() do
       unwrap(GhEx.PullRequests.merge(client, owner, repo, number))
+    end
+  end
+
+  def merge_pr_at_head(owner, repo, number, head_sha) do
+    with {:ok, client} <- client() do
+      unwrap(GhEx.PullRequests.merge(client, owner, repo, number, %{sha: head_sha}))
     end
   end
 
@@ -626,6 +649,9 @@ defmodule Custode.Repository.Ops do
       head_sha: get_in(pr, ["head", "sha"]),
       mergeable: pr["mergeable"],
       mergeable_state: pr["mergeable_state"],
+      merged: pr["merged"],
+      merged_at: pr["merged_at"],
+      merge_commit_sha: pr["merge_commit_sha"],
       updated_at: pr["updated_at"],
       url: pr["html_url"]
     }

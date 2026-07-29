@@ -12,6 +12,7 @@ defmodule Custode.WorkGates do
   alias Custode.{
     Attempt,
     Feed,
+    OperationCall,
     OperationCalls,
     OperationDefinition,
     OperationDispatcher,
@@ -137,15 +138,7 @@ defmodule Custode.WorkGates do
       fn ->
         gate = open_gate!(gate_id)
         resolver = principal!(options)
-
-        case revalidate(gate, current, resolver, registry) do
-          {:ok, inspection} ->
-            approve_and_dispatch!(gate, inspection, resolver, registry)
-
-          {:stale, changes} ->
-            gate = resolve_stale!(gate, resolver, changes, "gate.approve")
-            {:stale, changes, gate}
-        end
+        approval_decision(gate, current, resolver, registry)
       end,
       mode: :immediate
     )
@@ -247,47 +240,132 @@ defmodule Custode.WorkGates do
     }
   end
 
-  defp approve_and_dispatch!(gate, inspection, resolver, registry) do
+  defp approve_and_dispatch(gate, definition, resolver, registry) do
     envelope = invocation_envelope(gate, resolver)
     result = OperationDispatcher.dispatch(envelope, registry)
-    call = OperationCalls.get_for_invocation(inspection.definition, envelope)
+    call = OperationCalls.get_for_invocation(definition, envelope)
 
-    case result do
-      {:ok, response} ->
-        gate =
-          resolve!(
-            gate,
-            resolver,
-            "approved",
-            %{"decision" => "approved", "operation_status" => to_string(response.status)},
-            nil,
-            call && call.call_id
-          )
+    persist_approval_result(gate, resolver, call, result)
+  end
 
-        {:approved, gate, response}
+  defp approval_decision(gate, current, resolver, registry) do
+    case resumable_call(gate, resolver, registry) do
+      {:ok, definition} ->
+        {:dispatch, gate, definition, resolver, registry}
 
-      {:error, {:denied, reason}} ->
-        changes = %{"grant_decision" => %{"observed" => json(reason)}}
+      :none ->
+        fresh_approval_decision(gate, current, resolver, registry)
+    end
+  end
+
+  defp fresh_approval_decision(gate, current, resolver, registry) do
+    case revalidate(gate, current, resolver, registry) do
+      {:ok, inspection} ->
+        {:dispatch, gate, inspection.definition, resolver, registry}
+
+      {:stale, changes} ->
         gate = resolve_stale!(gate, resolver, changes, "gate.approve")
         {:stale, changes, gate}
+    end
+  end
 
-      {:error, {:stale, reason}} ->
-        changes = %{"operation_precondition" => %{"observed" => json(reason)}}
-        gate = resolve_stale!(gate, resolver, changes, "gate.approve")
-        {:stale, changes, gate}
+  defp persist_approval_result(gate, resolver, call, result) do
+    Repo.transaction(
+      fn ->
+        gate.gate_id
+        |> gate!()
+        |> persist_approval_result_for_status(resolver, call, result)
+      end,
+      mode: :immediate
+    )
+    |> after_approval()
+  end
 
-      {:error, reason} ->
-        gate =
-          resolve!(
-            gate,
-            resolver,
-            "approved",
-            %{"decision" => "approved", "operation_status" => "failed"},
-            %{"operation_error" => json(reason)},
-            call && call.call_id
-          )
+  defp persist_approval_result_for_status(
+         %{status: "open"} = gate,
+         resolver,
+         call,
+         result
+       ) do
+    persist_open_approval_result(gate, resolver, call, result)
+  end
 
-        {:operation_failed, reason, gate}
+  defp persist_approval_result_for_status(
+         %{status: "approved", operation_call_id: call_id} = gate,
+         _resolver,
+         %{call_id: call_id},
+         result
+       ) do
+    replayed_approval_result(gate, result)
+  end
+
+  defp persist_approval_result_for_status(gate, _resolver, _call, _result) do
+    Repo.rollback({:gate_already_resolved, gate.status})
+  end
+
+  defp replayed_approval_result(gate, {:ok, response}), do: {:approved, gate, response}
+
+  defp replayed_approval_result(gate, {:error, reason}),
+    do: {:operation_failed, reason, gate}
+
+  defp persist_open_approval_result(gate, _resolver, call, {:ok, response})
+       when response.status in [:proposed, :waiting, :running] do
+    gate =
+      gate
+      |> Ecto.Changeset.change(operation_call_id: call && call.call_id)
+      |> Repo.update!()
+      |> preload()
+
+    {:pending, gate, response}
+  end
+
+  defp persist_open_approval_result(gate, resolver, call, {:ok, response}) do
+    gate =
+      resolve!(
+        gate,
+        resolver,
+        "approved",
+        %{"decision" => "approved", "operation_status" => to_string(response.status)},
+        nil,
+        call && call.call_id
+      )
+
+    {:approved, gate, response}
+  end
+
+  defp persist_open_approval_result(gate, resolver, call, {:error, {:denied, reason}}) do
+    changes = %{"grant_decision" => %{"observed" => json(reason)}}
+    gate = resolve_stale!(gate, resolver, changes, "gate.approve", call && call.call_id)
+    {:stale, changes, gate}
+  end
+
+  defp persist_open_approval_result(gate, resolver, call, {:error, {:stale, reason}}) do
+    changes = %{"operation_precondition" => %{"observed" => json(reason)}}
+    gate = resolve_stale!(gate, resolver, changes, "gate.approve", call && call.call_id)
+    {:stale, changes, gate}
+  end
+
+  defp persist_open_approval_result(gate, resolver, call, {:error, reason}) do
+    gate =
+      resolve!(
+        gate,
+        resolver,
+        "approved",
+        %{"decision" => "approved", "operation_status" => "failed"},
+        %{"operation_error" => json(reason)},
+        call && call.call_id
+      )
+
+    {:operation_failed, reason, gate}
+  end
+
+  defp resumable_call(gate, resolver, registry) do
+    with {:ok, definition} <- OperationRegistry.fetch(registry, gate.operation),
+         envelope <- invocation_envelope(gate, resolver),
+         %OperationCall{} <- OperationCalls.get_for_invocation(definition, envelope) do
+      {:ok, definition}
+    else
+      _missing -> :none
     end
   end
 
@@ -414,7 +492,7 @@ defmodule Custode.WorkGates do
     Map.put(changes, name, %{"expected" => json(expected), "observed" => json(observed)})
   end
 
-  defp resolve_stale!(gate, resolver, changes, operation) do
+  defp resolve_stale!(gate, resolver, changes, operation, operation_call_id \\ nil) do
     reason = %{"changed_preconditions" => changes}
 
     gate =
@@ -423,7 +501,8 @@ defmodule Custode.WorkGates do
         resolver,
         "stale",
         %{"decision" => "stale", "changed_preconditions" => Map.keys(changes) |> Enum.sort()},
-        reason
+        reason,
+        operation_call_id
       )
 
     append_outcome_event!(gate, resolver, "gate.stale", operation, reason)
@@ -720,7 +799,11 @@ defmodule Custode.WorkGates do
 
   defp required_structured!(_value, field), do: Repo.rollback({:required, field})
 
+  defp after_approval({:ok, {:dispatch, gate, definition, resolver, registry}}),
+    do: approve_and_dispatch(gate, definition, resolver, registry)
+
   defp after_approval({:ok, {:approved, gate, response}}), do: {:ok, gate, response}
+  defp after_approval({:ok, {:pending, gate, response}}), do: {:ok, gate, response}
 
   defp after_approval({:ok, {:stale, changes, gate}}) do
     record_outcome(gate, "work_gate_stale", changes)
