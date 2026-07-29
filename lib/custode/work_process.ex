@@ -743,6 +743,7 @@ defmodule Custode.WorkProcess do
         where:
           job.worker in [
             "Custode.ClaudeAttemptJob",
+            "Custode.PublicationAttemptJob",
             "Custode.RepairAttemptJob",
             "Custode.VerificationAttemptJob"
           ] and

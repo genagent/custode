@@ -654,7 +654,7 @@ defmodule Custode.VerificationAttempts do
     proposal = get_in(attempt.outcome || %{}, ["proposal"])
 
     with :ok <- apply_proposal(attempt, work_item, proposal, job) do
-      schedule_repair(attempt, job, options)
+      schedule_successor(attempt, job, options)
     end
   end
 
@@ -688,10 +688,11 @@ defmodule Custode.VerificationAttempts do
     end
   end
 
-  defp schedule_repair(attempt, job, options) do
+  defp schedule_successor(attempt, job, options) do
     work_item = WorkItems.get(attempt.work_item.work_item_id)
 
-    if work_item.state == "ready" and work_item.phase == "repair_ready" do
+    if work_item.state == "ready" and
+         work_item.phase in ~w(publication_ready repair_ready) do
       schedule_options =
         [enqueue_fun: options[:vertical_enqueue_fun]]
         |> Enum.reject(fn {_key, value} -> is_nil(value) end)
@@ -702,7 +703,7 @@ defmodule Custode.VerificationAttempts do
              schedule_options
            ) do
         {:ok, _job} -> :ok
-        {:error, reason} -> {:error, {:repair_enqueue_failed, reason}}
+        {:error, reason} -> {:error, {:verification_successor_enqueue_failed, reason}}
       end
     else
       :ok

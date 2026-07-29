@@ -1,7 +1,13 @@
 defmodule Custode.GitHubIssueAttemptDispatcher do
   @moduledoc false
 
-  alias Custode.{ClaudeAttempts, RepairAttempts, VerificationAttempts, WorkspaceLeases}
+  alias Custode.{
+    ClaudeAttempts,
+    PublicationAttempts,
+    RepairAttempts,
+    VerificationAttempts,
+    WorkspaceLeases
+  }
 
   def dispatch(attempt, oban_job_id, options) do
     case value(attempt, :command_kind) do
@@ -24,6 +30,13 @@ defmodule Custode.GitHubIssueAttemptDispatcher do
 
       "repair" ->
         repair(attempt, options)
+
+      "publish" ->
+        PublicationAttempts.dispatch(
+          value(attempt, :attempt_id),
+          attempt |> value(:dispatch) |> value(:legacy_routine_id),
+          options
+        )
 
       _other ->
         {:error, {:unsupported_github_issue_attempt, value(attempt, :command_kind)}}

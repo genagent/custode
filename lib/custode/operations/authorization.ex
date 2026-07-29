@@ -24,4 +24,9 @@ defmodule Custode.Operations.Authorization do
     do: {:ok, :system}
 
   def operator_or_system(definition, envelope), do: operator(definition, envelope)
+
+  @spec system(OperationDefinition.t(), OperationEnvelope.t()) ::
+          {:ok, :system} | {:error, {:denied, term()}}
+  def system(_definition, %OperationEnvelope{actor: %{kind: :system}}), do: {:ok, :system}
+  def system(_definition, _envelope), do: {:error, {:denied, :system_required}}
 end

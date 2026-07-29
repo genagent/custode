@@ -14,6 +14,7 @@ defmodule Custode.GitHubIssueVertical do
     GitHubIssueAttemptDispatcher,
     GitHubIssueContext,
     GitHubIssueVerticalJob,
+    PublicationContext,
     RepairContext,
     Routine,
     VerificationContext,
@@ -163,6 +164,24 @@ defmodule Custode.GitHubIssueVertical do
          "active" <- lease.state,
          {:ok, plan} <- RepairContext.plan(routine, work_item, lease, options),
          snapshot <- repair_snapshot(routine, work_item, plan),
+         :ok <- execute_claim(work_item, snapshot, options) do
+      :ok
+    else
+      nil -> {:error, :workspace_lease_missing}
+      state when is_binary(state) -> {:error, {:workspace_lease_not_active, state}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp advance(
+         routine,
+         %{state: "ready", phase: "publication_ready"} = work_item,
+         options
+       ) do
+    with lease when not is_nil(lease) <- WorkspaceLeases.get_for_work_item(work_item.work_item_id),
+         "active" <- lease.state,
+         {:ok, compiled} <- PublicationContext.compile(routine, work_item, lease, options),
+         snapshot <- publication_snapshot(routine, work_item, compiled),
          :ok <- execute_claim(work_item, snapshot, options) do
       :ok
     else
@@ -369,6 +388,40 @@ defmodule Custode.GitHubIssueVertical do
           failure_artifact_id: plan.failure_artifact.artifact_id,
           workspace_revision: plan.workspace_revision["revision"],
           capabilities: if(model?, do: GitHubIssueContext.capabilities(), else: [])
+        },
+        dispatch: %{legacy_routine_id: routine.id}
+      }
+    }
+  end
+
+  defp publication_snapshot(routine, work_item, compiled) do
+    bundle = compiled.bundle
+    verification = compiled.verification_attempt
+    publication = compiled.publication
+
+    %{
+      attempt: %{
+        attempt_id: stable_id("publish", work_item.work_item_id, bundle.digest),
+        role_binding_id: verification.role_binding && verification.role_binding.binding_id,
+        caused_by_attempt_id: verification.attempt_id,
+        context_bundle_id: bundle.context_bundle_id,
+        executor_kind: "deterministic",
+        provider: "custode",
+        profile: "git-github-publication",
+        recipe_version: "github_issue_publication_v1",
+        expected_work_item_version: work_item.version,
+        provenance: %{
+          purpose: "github_issue_publication",
+          legacy_routine_id: routine.id,
+          workspace_lease_id: compiled.lease.lease_id,
+          workspace_revision: publication["expected_workspace_revision"],
+          expected_head_revision: publication["expected_head_revision"],
+          branch: publication["branch"],
+          repository: publication["repository"],
+          capabilities: %{
+            tools: [],
+            operations: ["git.publish_branch", "github.open_pr"]
+          }
         },
         dispatch: %{legacy_routine_id: routine.id}
       }

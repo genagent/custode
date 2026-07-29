@@ -17,6 +17,8 @@ defmodule Custode.OperationDispatcherTest do
 
     assert [
              "fleet.pause_agent",
+             "git.publish_branch",
+             "github.open_pr",
              "mission.archive",
              "mission.create",
              "mission.project_legacy_routine",
@@ -47,6 +49,58 @@ defmodule Custode.OperationDispatcherTest do
              dispatch(%{agent_id: "anything"}, OperationRegistry.default(),
                actor: %{kind: :sub_agent, id: "worker"}
              )
+  end
+
+  test "publication operations are system-only and cannot be borrowed by an operator" do
+    common = %{
+      work_item_id: "work",
+      attempt_id: "attempt",
+      lease_id: "lease",
+      repository: "genagent/custode",
+      remote: "origin",
+      expected_work_item_version: 1
+    }
+
+    git_arguments =
+      Map.merge(common, %{
+        repository_path: "/tmp/repository",
+        workspace_path: "/tmp/workspace",
+        branch: "custode/work-1",
+        expected_workspace_revision: "sha256:workspace",
+        expected_head_revision: "head",
+        expected_changed_files: ["README.md"],
+        commit_message: "feat: publish work"
+      })
+
+    github_arguments =
+      Map.merge(common, %{
+        expected_head_sha: "head",
+        head_branch: "custode/work-1",
+        base_branch: "main",
+        title: "feat: publish work",
+        body: "Closes #1."
+      })
+
+    Enum.each(
+      [
+        {"git.publish_branch", git_arguments},
+        {"github.open_pr", github_arguments}
+      ],
+      fn {operation, arguments} ->
+        assert {:error, {:denied, :system_required}} =
+                 OperationDispatcher.dispatch(%{
+                   operation: operation,
+                   arguments: arguments,
+                   actor: %{kind: :operator, id: "human"},
+                   transport: :cli,
+                   mission_id: "mission",
+                   work_item_id: "work",
+                   attempt_id: "attempt",
+                   expected_versions: %{work_item: 1},
+                   idempotency_key: "test-#{operation}"
+                 })
+      end
+    )
   end
 
   test "dry run authorizes and previews without invoking the handler" do
