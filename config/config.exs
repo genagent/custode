@@ -93,6 +93,16 @@ config :custode,
       sensors: [:ci]
     }
   },
+  # P1 intake pilot (#366): one approved repository identity and one exact
+  # issue. The stable repository ID survives owner/name renames; the legacy
+  # custode-dev cadence remains the compatibility driver.
+  github_issue_intake_pilots: %{
+    "custode-dev" => %{
+      repository_id: "1307868502",
+      issue_numbers: [368],
+      policy_version: "github-issue-intake-v1"
+    }
+  },
   routines: [
     %{
       id: "custode",

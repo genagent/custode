@@ -1,6 +1,7 @@
 defmodule Custode.WorkItems do
   @moduledoc """
-  WorkItem identity, optimistic transitions, explicit reopen, and typed events.
+  WorkItem identity, optimistic transitions, source observations, explicit
+  reopen, and typed events.
 
   Mutable WorkItems remain current truth. Every lifecycle change and its
   operation provenance is appended to WorkEvents in the same transaction.
@@ -220,6 +221,32 @@ defmodule Custode.WorkItems do
     |> unwrap_change()
   end
 
+  @doc false
+  def observe(work_item_id, attrs, %OperationEnvelope{} = envelope) do
+    attrs = atomize(attrs)
+
+    Repo.transaction(
+      fn ->
+        work_item = work_item!(work_item_id)
+        active_mission!(work_item.mission.mission_id)
+        expected_version = attrs[:expected_version]
+        ensure_version!(work_item, expected_version)
+
+        evidence = normalize(attrs[:evidence] || %{})
+        rollback_unless(structured?(evidence["source_snapshot"]), :source_snapshot_required)
+
+        rollback_unless(
+          nonempty_binary?(evidence["external_updated_at"]),
+          :external_updated_at_required
+        )
+
+        apply_observation!(work_item, expected_version, evidence, envelope)
+      end,
+      mode: :immediate
+    )
+    |> unwrap_change()
+  end
+
   @spec version_precondition(String.t(), integer()) ::
           :ok | {:stale, term(), map()}
   def version_precondition(work_item_id, expected_version) do
@@ -311,6 +338,14 @@ defmodule Custode.WorkItems do
 
         {:ok, work_item, event}
     end
+  end
+
+  @spec latest_source_snapshot(String.t()) :: map() | nil
+  def latest_source_snapshot(work_item_id) do
+    work_item_id
+    |> list_events()
+    |> Enum.reverse()
+    |> Enum.find_value(fn event -> event.evidence["source_snapshot"] end)
   end
 
   defp transition_target(work_item, attrs) do
@@ -445,6 +480,28 @@ defmodule Custode.WorkItems do
 
     updated = WorkItem |> Repo.get!(work_item.id) |> preload()
     event = append_event!(updated, work_item, event_kind, evidence, envelope)
+    {updated, event}
+  end
+
+  defp apply_observation!(work_item, expected_version, evidence, envelope) do
+    now = DateTime.utc_now()
+    next_version = expected_version + 1
+
+    {updated_count, _rows} =
+      Repo.update_all(
+        from(item in WorkItem,
+          where: item.id == ^work_item.id and item.version == ^expected_version
+        ),
+        set: [version: next_version, updated_at: now]
+      )
+
+    if updated_count == 0 do
+      observed = Repo.get!(WorkItem, work_item.id)
+      Repo.rollback(stale_tuple(expected_version, observed.version))
+    end
+
+    updated = WorkItem |> Repo.get!(work_item.id) |> preload()
+    event = append_event!(updated, work_item, "work_item.observed", evidence, envelope)
     {updated, event}
   end
 

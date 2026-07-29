@@ -414,6 +414,60 @@ defmodule Custode.WorkItemsTest do
              WorkItems.next_command(ready.work_item_id)
   end
 
+  test "source observations are validated, authorized, versioned, and traced" do
+    mission = create_mission!("observation-mission")
+    work_item = create_work!(work_attrs(mission), "observation-work")
+
+    assert {:error, {:handler_failed, :external_updated_at_required}} =
+             WorkOperations.Observe.dispatch(
+               work_item.work_item_id,
+               %{
+                 expected_version: work_item.version,
+                 evidence: %{source_snapshot: %{revision: "r2"}}
+               },
+               invocation("observation-missing-updated-at")
+             )
+
+    assert {:error, {:denied, :operator_required}} =
+             WorkOperations.Observe.dispatch(
+               work_item.work_item_id,
+               %{
+                 expected_version: work_item.version,
+                 evidence: %{
+                   source_snapshot: %{revision: "r2"},
+                   external_updated_at: "2026-07-29T18:00:00Z"
+                 }
+               },
+               actor: %{kind: :sub_agent, id: "worker"},
+               transport: :worker,
+               idempotency_key: "denied-observation"
+             )
+
+    assert {:ok, observed} =
+             WorkOperations.Observe.dispatch(
+               work_item.work_item_id,
+               %{
+                 expected_version: work_item.version,
+                 evidence: %{
+                   source_snapshot: %{revision: "r2"},
+                   external_updated_at: "2026-07-29T18:00:00Z"
+                 }
+               },
+               invocation("source-observation")
+             )
+
+    assert observed.result.work_item.version == work_item.version + 1
+    assert observed.result.work_item.state == work_item.state
+    assert observed.result.work_item.phase == work_item.phase
+
+    event = List.last(WorkItems.list_events(work_item.work_item_id))
+    assert event.kind == "work_item.observed"
+    assert event.operation == "work.observe"
+    assert event.correlation_id == "corr-source-observation"
+    assert event.causation_id == "cause-source-observation"
+    assert event.evidence["external_updated_at"] == "2026-07-29T18:00:00Z"
+  end
+
   defp create_mission!(key, mission_key \\ "github:repository:123") do
     external_id = mission_key |> String.split(":") |> List.last()
 

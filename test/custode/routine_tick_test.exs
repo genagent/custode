@@ -7,6 +7,13 @@ defmodule Custode.RoutineTickTest do
   alias Custode.Repo
   alias Custode.RoutineTick
 
+  defmodule WorkIntake do
+    def on_routine_tick(routine) do
+      send(Application.fetch_env!(:custode, :routine_tick_test_pid), {:intake, routine})
+      Application.fetch_env!(:custode, :routine_tick_test_result)
+    end
+  end
+
   # the Tick jobs RoutineTick enqueues for one agent, newest first (queues
   # are empty in test config, so they insert and sit there for inspection;
   # the oban_jobs table is shared across the suite, so always scope by id)
@@ -61,5 +68,32 @@ defmodule Custode.RoutineTickTest do
   test "cancels on a malformed job with no routine_id" do
     assert {:cancel, {:invalid_routine_tick, _}} =
              RoutineTick.perform(%Oban.Job{args: %{}})
+  end
+
+  test "intake is a failure-isolated sidecar and does not change the legacy tick" do
+    workspace = tmp_workspace!()
+    id = uid("intake")
+
+    put_env!(:routines, [
+      %{
+        id: id,
+        cron: "@daily",
+        workspace: workspace,
+        prompt: "unchanged prompt",
+        model: "haiku"
+      }
+    ])
+
+    put_env!(:work_intake, WorkIntake)
+    put_env!(:routine_tick_test_pid, self())
+    put_env!(:routine_tick_test_result, {:error, :github_unavailable})
+
+    assert :ok = RoutineTick.perform(%Oban.Job{args: %{"routine_id" => id}})
+    assert_receive {:intake, %{id: ^id, prompt: "unchanged prompt"}}
+
+    assert [job] = ticks_for(id)
+    assert job.args == Custode.Routine.tick_args(Custode.Routine.get(id))
+    assert job.args["prompt"] == "unchanged prompt"
+    assert job.args["start"]["args"]["model"] == "haiku"
   end
 end

@@ -67,6 +67,7 @@ defmodule Custode.WorkEvent do
       "work_item.created",
       "work_item.transitioned",
       "work_item.reopened",
+      "work_item.observed",
       "gate.rejected",
       "gate.stale",
       "work.next_action.claimed",

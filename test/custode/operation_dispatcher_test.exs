@@ -25,6 +25,7 @@ defmodule Custode.OperationDispatcherTest do
              "role_binding.project_legacy_routine",
              "role_binding.update",
              "work.create",
+             "work.observe",
              "work.reopen",
              "work.transition"
            ] = Enum.map(OperationRegistry.list(registry), & &1.name)

@@ -602,7 +602,15 @@ defmodule Custode.Repository.Ops do
   end
 
   defp comment_rows(comments) do
-    for c <- comments, do: %{author: get_in(c, ["user", "login"]), body: c["body"]}
+    for c <- comments do
+      %{
+        id: c["id"],
+        author: get_in(c, ["user", "login"]),
+        body: c["body"],
+        created_at: c["created_at"],
+        updated_at: c["updated_at"]
+      }
+    end
   end
 
   defp check_row(run) do
