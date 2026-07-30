@@ -327,6 +327,15 @@ defmodule Custode.GitHubIssueVerticalTest do
 
     diff = Enum.find(artifacts, &(&1.kind == "implementation_diff"))
     changed_files = Enum.find(artifacts, &(&1.kind == "changed_files"))
+    provider_result = Enum.find(artifacts, &(&1.kind == "provider_result"))
+    provider_evidence = provider_result.location |> File.read!() |> Jason.decode!()
+
+    assert provider_evidence["executor"]["protocol_version"] == "custode.executor.v1"
+    assert provider_evidence["provider"]["kind"] == "result"
+
+    assert provider_evidence["transcript_refs"] == [
+             %{"id" => "session-368", "kind" => "provider_session"}
+           ]
 
     assert Jason.decode!(File.read!(changed_files.location)) == [
              "README.md",
