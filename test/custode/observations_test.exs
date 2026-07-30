@@ -257,19 +257,32 @@ defmodule Custode.ObservationsTest do
     mission
   end
 
+  # EVERY table that references missions, child-first. Omitting any of them
+  # passes when this file runs alone and fails with a foreign-key error the
+  # moment another module leaves one of those rows behind -- which is exactly
+  # what happened once observations_test, definitions_test and
+  # availability_test all landed and changed the execution order.
   defp cleanup! do
     Repo.query!("UPDATE attempts SET caused_by_attempt_id = NULL")
     Repo.query!("UPDATE artifacts SET producer_attempt_id = NULL")
-    Repo.delete_all(Observation)
-    Repo.delete_all(Custode.WorkEvent)
-    Repo.delete_all(Custode.WorkGate)
-    Repo.delete_all(Custode.Attempt)
-    Repo.delete_all(Custode.ContextBundle)
-    Repo.delete_all(Custode.Artifact)
-    Repo.update_all(Custode.WorkItem, set: [parent_id: nil])
-    Repo.delete_all(Custode.WorkItem)
-    Repo.delete_all(Custode.OperationCall)
-    Repo.delete_all(MissionTarget)
-    Repo.delete_all(Mission)
+    Repo.query!("UPDATE work_items SET parent_id = NULL")
+
+    for table <- ~w(
+          observations
+          work_events
+          work_gates
+          attempts
+          context_bundles
+          artifacts
+          workspace_leases
+          role_bindings
+          legacy_routine_mission_mappings
+          work_items
+          operation_calls
+          mission_targets
+          missions
+        ) do
+      Repo.query!("DELETE FROM #{table}")
+    end
   end
 end
