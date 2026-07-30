@@ -21,7 +21,7 @@ defmodule Custode.GitHubIssueContext do
   @allowed_tools ~w(Read Glob Grep Edit Write)
   @disallowed_tools ~w(Bash NotebookEdit WebFetch WebSearch Task)
 
-  @doc "The least-privilege Claude tool contract recorded in every implementation bundle."
+  @doc "The least-privilege model tool contract recorded in every implementation bundle."
   def capabilities do
     %{
       "tools" => %{
@@ -84,7 +84,7 @@ defmodule Custode.GitHubIssueContext do
     )
   end
 
-  @doc "Compile or reuse the exact dossier consumed by the Claude implementation Attempt."
+  @doc "Compile or reuse the exact dossier consumed by the model implementation Attempt."
   def compile(routine, work_item, %WorkspaceLease{} = lease, options \\ []) do
     with binding when not is_nil(binding) <- RoleBindings.get_by_legacy_routine(routine.id),
          {:ok, template} <- RoleTemplates.fetch(binding.template_key),

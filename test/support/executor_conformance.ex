@@ -55,7 +55,10 @@ defmodule Custode.ExecutorConformance do
         assert result.attempt_id == request.attempt_id
         assert result.status == :succeeded
         assert result.output["outcome"] == "success"
-        assert result.usage.cost_usd == 0.25
+
+        expected_usage = @executor_harness.expected_usage()
+
+        assert Map.take(result.usage, Map.keys(expected_usage)) == expected_usage
 
         assert [%{kind: "provider_session", id: "session-conformance"}] =
                  result.transcript_refs

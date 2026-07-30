@@ -8,6 +8,7 @@ defmodule Custode.AttemptWorkers.GitHubIssue do
 
   alias Custode.{
     ClaudeAttempts,
+    CodexAttempts,
     PublicationAttempts,
     RepairAttempts,
     VerificationAttempts,
@@ -21,11 +22,7 @@ defmodule Custode.AttemptWorkers.GitHubIssue do
         prepare_workspace(attempt, oban_job_id, options)
 
       "implement" ->
-        ClaudeAttempts.dispatch(
-          value(attempt, :attempt_id),
-          attempt |> value(:dispatch) |> value(:legacy_routine_id),
-          options
-        )
+        dispatch_model_attempt(attempt, options)
 
       "verify" ->
         VerificationAttempts.dispatch(
@@ -52,7 +49,7 @@ defmodule Custode.AttemptWorkers.GitHubIssue do
   defp repair(attempt, options) do
     module =
       case value(attempt, :executor_kind) do
-        "model" -> ClaudeAttempts
+        "model" -> model_attempts(attempt)
         "deterministic" -> RepairAttempts
         _other -> nil
       end
@@ -65,6 +62,28 @@ defmodule Custode.AttemptWorkers.GitHubIssue do
       )
     else
       {:error, :unsupported_repair_executor}
+    end
+  end
+
+  defp dispatch_model_attempt(attempt, options) do
+    case model_attempts(attempt) do
+      nil ->
+        {:error, :unsupported_model_executor}
+
+      module ->
+        module.dispatch(
+          value(attempt, :attempt_id),
+          attempt |> value(:dispatch) |> value(:legacy_routine_id),
+          options
+        )
+    end
+  end
+
+  defp model_attempts(attempt) do
+    case value(attempt, :provider) do
+      "claude" -> ClaudeAttempts
+      "codex" -> CodexAttempts
+      _unsupported -> nil
     end
   end
 

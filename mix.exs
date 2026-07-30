@@ -38,6 +38,9 @@ defmodule Custode.MixProject do
       # point at the real sibling repo so mix compile/test work inside
       # .claude/worktrees/* -- proposed by the custode-dev routine.
       {:oban_claude, path: System.get_env("OBAN_CLAUDE_PATH", "../oban_claude")},
+      # Codex implements the same Executor contract through its sibling Oban
+      # integration. Keep the path configurable for isolated worktree builds.
+      {:oban_codex, path: System.get_env("OBAN_CODEX_PATH", "../oban_codex")},
       {:oban, "~> 2.23"},
       {:ecto_sqlite3, "~> 0.17"},
       {:jason, "~> 1.4"},

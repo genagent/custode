@@ -100,6 +100,22 @@ defmodule Custode.AttemptPoolTest do
     end
   end
 
+  test "the default pool selects the declared Codex worker", fixture do
+    attempt =
+      insert_model_attempt!("codex-worker", fixture,
+        provider: "codex",
+        profile: "gpt-5.6-codex"
+      )
+
+    insert_active_lease!(attempt)
+
+    assert {:ok, admission} =
+             AttemptPool.admit(attempt.attempt_id, usage_fun: &zero_usage/1)
+
+    assert admission.worker.name == "local.codex"
+    assert admission.requirements.provider == "codex"
+  end
+
   test "spend and concurrency rails are deterministic before launch", fixture do
     attempt = insert_model_attempt!("rails", fixture)
     insert_active_lease!(attempt)
@@ -337,7 +353,10 @@ defmodule Custode.AttemptPoolTest do
     assert {:ok, []} = AttemptPool.reconcile()
   end
 
-  defp insert_model_attempt!(suffix, %{artifact_dir: artifact_dir}) do
+  defp insert_model_attempt!(suffix, %{artifact_dir: artifact_dir}, options \\ []) do
+    provider = Keyword.get(options, :provider, "claude")
+    profile = Keyword.get(options, :profile, "sonnet:high")
+
     mission =
       %{
         mission_id: "mission-pool-#{suffix}",
@@ -422,8 +441,8 @@ defmodule Custode.AttemptPoolTest do
                work_item_id: work_item.work_item_id,
                context_bundle_id: bundle.context_bundle_id,
                executor_kind: "model",
-               provider: "claude",
-               profile: "sonnet:high",
+               provider: provider,
+               profile: profile,
                recipe_version: "1",
                expected_work_item_version: work_item.version,
                command_kind: "implement",

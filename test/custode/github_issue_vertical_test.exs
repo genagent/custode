@@ -10,6 +10,7 @@ defmodule Custode.GitHubIssueVerticalTest do
     Attempt,
     Attempts,
     ClaudeAttempts,
+    CodexAttempts,
     ContextBundle,
     ContextBundles,
     GitHubIssueIntake,
@@ -28,6 +29,7 @@ defmodule Custode.GitHubIssueVerticalTest do
     RoleBindings,
     SpendLedger,
     VerificationAttempts,
+    WorkAttribution,
     WorkEvent,
     WorkGate,
     WorkItem,
@@ -396,6 +398,91 @@ defmodule Custode.GitHubIssueVerticalTest do
              Enum.filter(events, &(&1.kind == "work.next_action.completed")),
              &is_binary(&1.causation_id)
            )
+  end
+
+  test "an operator-selected Codex WorkItem executes through the worker pool", fixture do
+    work_item = ingest!(fixture)
+
+    assert :ok =
+             dispatch_to_provider!(fixture, work_item,
+               executor_provider: "codex",
+               executor_selection: %{model: "gpt-5.6-codex"}
+             )
+
+    implementation = implementation_attempt!(work_item)
+    assert implementation.provider == "codex"
+    assert implementation.profile == "gpt-5.6-codex"
+    assert implementation.provenance["executor_selection"] == %{"model" => "gpt-5.6-codex"}
+
+    job = provider_job!(implementation.attempt_id)
+    assert job.worker == "Custode.CodexAttemptJob"
+    assert :ok = CodexAttempts.dispatch(implementation.attempt_id, fixture.routine.id)
+    assert provider_job_count(implementation.attempt_id) == 1
+    test_pid = self()
+
+    query_fun = fn prompt, options ->
+      send(test_pid, {:codex_provider_args, prompt, options})
+      File.write!(Path.join(options[:working_dir], "README.md"), "implemented by codex\n")
+
+      {:ok,
+       ObanCodex.Testing.structured_result(
+         %{"outcome" => "success", "summary" => "Codex completed the bounded WorkItem"},
+         session_id: "codex-thread-378",
+         usage: %{
+           "input_tokens" => 120,
+           "cached_input_tokens" => 20,
+           "output_tokens" => 35
+         }
+       )}
+    end
+
+    assert :ok =
+             CodexAttempts.perform(job,
+               query_fun: query_fun,
+               artifact_dir: fixture.artifacts,
+               output_schema_dir: Path.join(fixture.root, "schemas")
+             )
+
+    assert_receive {:codex_provider_args, prompt, provider_options}
+    assert prompt =~ implementation.context_digest
+    assert provider_options[:sandbox] == :workspace_write
+    assert provider_options[:approval_policy] == :never
+    assert provider_options[:search] == :disabled
+    assert "sandbox_workspace_write.network_access=false" in provider_options[:config_overrides]
+
+    finished = Attempts.get(implementation.attempt_id)
+    assert finished.state == "succeeded"
+    assert finished.provider_continuation == %{"session_id" => "codex-thread-378"}
+    assert finished.usage["cost_usd"] == nil
+    assert finished.usage["num_turns"] == 1
+    assert finished.usage["tokens"]["input_tokens"] == 120
+
+    assert %Artifact{kind: "provider_result"} =
+             Artifacts.get("codex-result:#{implementation.attempt_id}")
+
+    ready = WorkItems.get(work_item.work_item_id)
+    assert ready.state == "ready"
+    assert ready.phase == "verification_ready"
+
+    assert {:ok, summary} = WorkAttribution.attempt_summary(implementation.attempt_id)
+    assert summary.provider == "codex"
+    assert summary.usage.reconciliation.status == "reconciled"
+    assert summary.usage.physical_charges.cost_usd == 0.0
+    assert summary.usage.logical_attempt_usage.input_tokens == 120
+    assert summary.usage.logical_attempt_usage.output_tokens == 35
+
+    spend =
+      Repo.one!(
+        from(entry in SpendLedger.Entry,
+          where: entry.attempt_id == ^implementation.attempt_id
+        )
+      )
+
+    assert spend.provider == "codex"
+    assert spend.model == "gpt-5.6-codex"
+    assert spend.input_tokens == 120
+    assert spend.output_tokens == 35
+    assert spend.cache_read_tokens == 20
   end
 
   test "duplicate intake delivery schedules one live coordinator", fixture do
@@ -2088,14 +2175,20 @@ defmodule Custode.GitHubIssueVerticalTest do
     WorkItems.get(result.work_item.work_item_id)
   end
 
-  defp dispatch_to_provider!(fixture, work_item) do
+  defp dispatch_to_provider!(fixture, work_item, options \\ []) do
+    options =
+      [
+        oban_job_id: System.unique_integer([:positive]),
+        workspace_root: fixture.workspaces,
+        artifact_dir: fixture.artifacts
+      ]
+      |> Keyword.merge(options)
+
     assert :ok =
              GitHubIssueVertical.perform(
                fixture.routine.id,
                work_item.work_item_id,
-               oban_job_id: System.unique_integer([:positive]),
-               workspace_root: fixture.workspaces,
-               artifact_dir: fixture.artifacts
+               options
              )
   end
 
@@ -2405,7 +2498,7 @@ defmodule Custode.GitHubIssueVerticalTest do
     Repo.one!(
       from(job in Oban.Job,
         where:
-          job.worker == "Custode.ClaudeAttemptJob" and
+          job.worker in ["Custode.ClaudeAttemptJob", "Custode.CodexAttemptJob"] and
             fragment("json_extract(?, '$.attempt_id')", job.args) == ^attempt_id
       )
     )
@@ -2415,7 +2508,7 @@ defmodule Custode.GitHubIssueVerticalTest do
     Repo.aggregate(
       from(job in Oban.Job,
         where:
-          job.worker == "Custode.ClaudeAttemptJob" and
+          job.worker in ["Custode.ClaudeAttemptJob", "Custode.CodexAttemptJob"] and
             fragment("json_extract(?, '$.attempt_id')", job.args) == ^attempt_id
       ),
       :count
@@ -2697,6 +2790,7 @@ defmodule Custode.GitHubIssueVerticalTest do
         where:
           job.worker in [
             "Custode.ClaudeAttemptJob",
+            "Custode.CodexAttemptJob",
             "Custode.GitHubIssueVerticalJob",
             "Custode.PublicationAttemptJob",
             "Custode.RepairAttemptJob",
