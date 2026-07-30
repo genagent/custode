@@ -18,11 +18,13 @@ defmodule Custode.SpendLedger do
 
   import Ecto.Query, only: [from: 2]
 
-  alias Custode.Repo
+  alias Custode.{Attempts, Repo}
 
   defmodule Entry do
     @moduledoc false
     use Ecto.Schema
+
+    import Ecto.Changeset
 
     schema "spend" do
       field(:agent_id, :string)
@@ -41,7 +43,56 @@ defmodule Custode.SpendLedger do
       field(:mission_id, :string)
       field(:provider, :string)
       field(:legacy_routine_id, :string)
+      field(:ingestion_key, :string)
+      field(:attribution_key, :string)
+      field(:attribution_status, :string)
+      field(:role_binding_id, :string)
+      field(:executor_kind, :string)
+      field(:workflow_phase, :string)
       timestamps(type: :utc_datetime_usec, updated_at: false)
+    end
+
+    @fields [
+      :agent_id,
+      :cost_usd,
+      :outcome,
+      :input_tokens,
+      :output_tokens,
+      :cache_creation_tokens,
+      :cache_read_tokens,
+      :stop_reason,
+      :model,
+      :attempt_id,
+      :work_item_id,
+      :mission_id,
+      :provider,
+      :legacy_routine_id,
+      :ingestion_key,
+      :attribution_key,
+      :attribution_status,
+      :role_binding_id,
+      :executor_kind,
+      :workflow_phase
+    ]
+
+    @doc false
+    def changeset(attrs) do
+      %__MODULE__{}
+      |> cast(attrs, @fields)
+      |> validate_required([
+        :agent_id,
+        :cost_usd,
+        :outcome,
+        :attribution_key,
+        :attribution_status
+      ])
+      |> validate_inclusion(:attribution_status, [
+        "attempt",
+        "legacy_attempt",
+        "legacy_unattributed",
+        "unknown_attempt"
+      ])
+      |> unique_constraint(:ingestion_key, name: :spend_ingestion_key_index)
     end
   end
 
@@ -72,13 +123,14 @@ defmodule Custode.SpendLedger do
 
   defp do_handle_event([:oban_claude, :run, outcome], measurements, meta, _config) do
     case meta do
-      %{job: %{meta: %{"agent_id" => agent_id}}} ->
-        record(
-          agent_id,
-          measurements.cost_usd,
-          if(outcome == :stop, do: "turn", else: "failed"),
-          usage_of(meta) ++ [model: model_of(meta), provider: "claude"] ++ dimensions_of(meta)
-        )
+      %{job: %{meta: %{"agent_id" => agent_id}} = job} ->
+        options =
+          usage_of(meta) ++
+            [model: model_of(meta), provider: "claude"] ++
+            dimensions_of(meta) ++
+            [ingestion_key: telemetry_ingestion_key(job, outcome)]
+
+        record_telemetry(agent_id, measurements.cost_usd, outcome, options)
 
       _no_agent ->
         :ok
@@ -98,11 +150,19 @@ defmodule Custode.SpendLedger do
   defp model_of(%{args: %{"model" => model}}), do: model
   defp model_of(_meta), do: nil
 
-  @doc "Record spend for an agent and enforce its budget (if it is a routine with one)."
+  @doc """
+  Record spend for an agent and enforce its budget.
+
+  An `:attempt_id` is resolved before insertion and supplies the authoritative
+  WorkItem, Mission, RoleBinding, executor, provider, and workflow phase.
+  Missing Attempt IDs remain supported only as explicitly labeled legacy
+  attribution. A repeated non-nil `:ingestion_key` returns `:ok` without
+  inserting or enforcing the same charge twice.
+  """
   def record(agent_id, cost_usd, outcome \\ "turn", opts \\ []) when is_number(cost_usd) do
     usage = opts[:usage] || %{}
 
-    Repo.insert!(%Entry{
+    base = %{
       agent_id: agent_id,
       cost_usd: cost_usd * 1.0,
       outcome: outcome,
@@ -112,15 +172,14 @@ defmodule Custode.SpendLedger do
       cache_read_tokens: usage[:cache_read],
       stop_reason: opts[:stop_reason],
       model: opts[:model],
-      attempt_id: opts[:attempt_id],
-      work_item_id: opts[:work_item_id],
-      mission_id: opts[:mission_id],
-      provider: opts[:provider],
-      legacy_routine_id: opts[:legacy_routine_id] || legacy_routine_id(agent_id)
-    })
+      ingestion_key: opts[:ingestion_key]
+    }
 
-    enforce(agent_id)
-    :ok
+    with {:ok, attrs} <- attribute(base, opts),
+         {:ok, inserted?} <- insert_once(attrs) do
+      if inserted?, do: enforce(agent_id)
+      :ok
+    end
   end
 
   @doc "An agent's spend since the start of the current UTC day."
@@ -281,6 +340,175 @@ defmodule Custode.SpendLedger do
       mission_id: meta["mission_id"],
       legacy_routine_id: meta["legacy_routine_id"]
     ]
+  end
+
+  defp attribute(base, opts) do
+    case opts[:attempt_id] do
+      nil -> {:ok, legacy_attribution(base, opts)}
+      attempt_id -> attempt_attribution(base, opts, attempt_id)
+    end
+  end
+
+  defp legacy_attribution(base, opts) do
+    legacy_routine_id = opts[:legacy_routine_id] || legacy_routine_id(base.agent_id)
+
+    Map.merge(base, %{
+      attempt_id: nil,
+      work_item_id: nil,
+      mission_id: nil,
+      provider: opts[:provider],
+      legacy_routine_id: legacy_routine_id,
+      attribution_key: "legacy_agent:#{base.agent_id}",
+      attribution_status: "legacy_unattributed",
+      role_binding_id: nil,
+      executor_kind: nil,
+      workflow_phase: nil
+    })
+  end
+
+  defp attempt_attribution(base, opts, attempt_id) do
+    case Attempts.get(attempt_id) do
+      nil ->
+        {:error, {:unknown_attempt, attempt_id}}
+
+      attempt ->
+        work_item = attempt.work_item
+        mission = work_item.mission
+        role_binding_id = attempt.role_binding && attempt.role_binding.binding_id
+        legacy_routine_id = attempt.role_binding && attempt.role_binding.legacy_routine_id
+        workflow_phase = attempt_phase(attempt)
+
+        expected = %{
+          attempt_id: attempt.attempt_id,
+          work_item_id: work_item.work_item_id,
+          mission_id: mission.mission_id,
+          provider: attempt.provider,
+          legacy_routine_id: legacy_routine_id
+        }
+
+        with :ok <- validate_dimensions(opts, expected) do
+          {:ok,
+           Map.merge(base, expected)
+           |> Map.merge(%{
+             attribution_key: "attempt:#{attempt.attempt_id}",
+             attribution_status: "attempt",
+             role_binding_id: role_binding_id,
+             executor_kind: attempt.executor_kind,
+             workflow_phase: workflow_phase
+           })}
+        end
+    end
+  end
+
+  defp validate_dimensions(opts, expected) do
+    expected
+    |> Enum.reject(fn {field, _expected} -> is_nil(opts[field]) end)
+    |> Enum.find(fn {field, expected_value} -> opts[field] != expected_value end)
+    |> case do
+      nil ->
+        :ok
+
+      {field, expected_value} ->
+        {:error,
+         {:attribution_mismatch, %{field: field, expected: expected_value, observed: opts[field]}}}
+    end
+  end
+
+  defp attempt_phase(attempt) do
+    if attempt.work_item.active_attempt_id == attempt.attempt_id do
+      attempt.work_item.phase
+    else
+      get_in(attempt.provenance, ["active_phase"])
+    end
+  end
+
+  defp insert_once(%{ingestion_key: ingestion_key} = attrs)
+       when is_binary(ingestion_key) and ingestion_key != "" do
+    case Repo.get_by(Entry, ingestion_key: ingestion_key) do
+      nil -> insert(attrs)
+      existing -> replay(existing, attrs)
+    end
+  end
+
+  defp insert_once(attrs), do: insert(Map.put(attrs, :ingestion_key, nil))
+
+  defp insert(attrs) do
+    case attrs |> Entry.changeset() |> Repo.insert() do
+      {:ok, _entry} ->
+        {:ok, true}
+
+      {:error, changeset} ->
+        if unique_ingestion_key?(changeset) do
+          attrs.ingestion_key
+          |> then(&Repo.get_by!(Entry, ingestion_key: &1))
+          |> replay(attrs)
+        else
+          {:error, {:spend_record_invalid, changeset}}
+        end
+    end
+  end
+
+  defp replay(existing, attrs) do
+    if equivalent?(existing, attrs) do
+      {:ok, false}
+    else
+      {:error, {:ingestion_conflict, attrs.ingestion_key}}
+    end
+  end
+
+  defp equivalent?(existing, attrs) do
+    fields = [
+      :agent_id,
+      :cost_usd,
+      :outcome,
+      :input_tokens,
+      :output_tokens,
+      :cache_creation_tokens,
+      :cache_read_tokens,
+      :stop_reason,
+      :model,
+      :attempt_id,
+      :work_item_id,
+      :mission_id,
+      :provider,
+      :legacy_routine_id,
+      :attribution_key,
+      :attribution_status,
+      :role_binding_id,
+      :executor_kind,
+      :workflow_phase
+    ]
+
+    Enum.all?(fields, &(Map.get(existing, &1) == Map.get(attrs, &1)))
+  end
+
+  defp unique_ingestion_key?(changeset) do
+    Enum.any?(changeset.errors, fn
+      {:ingestion_key, {_message, options}} -> options[:constraint] == :unique
+      _other -> false
+    end)
+  end
+
+  defp telemetry_ingestion_key(%{id: id, attempt: attempt}, outcome)
+       when is_integer(id) and is_integer(attempt) do
+    "oban_claude:job:#{id}:attempt:#{attempt}:#{outcome}"
+  end
+
+  defp telemetry_ingestion_key(_job, _outcome), do: nil
+
+  defp record_telemetry(agent_id, cost_usd, outcome, options) do
+    outcome = if outcome == :stop, do: "turn", else: "failed"
+
+    case record(agent_id, cost_usd, outcome, options) do
+      :ok -> :ok
+      {:error, reason} -> log_attribution_error(reason)
+    end
+  end
+
+  defp log_attribution_error(reason) do
+    require Logger
+    Logger.error("Custode.SpendLedger attribution rejected: #{inspect(reason)}")
+    :ok
   end
 
   defp legacy_routine_id(agent_id) do
