@@ -96,10 +96,20 @@ config :custode,
   # P1 intake pilot (#366): one approved repository identity and one exact
   # issue. The stable repository ID survives owner/name renames; the legacy
   # custode-dev cadence remains the compatibility driver.
+  #
+  # This allowlist IS the operator approval design/008 asks for, so the issue
+  # number is a deliberate choice and not a default. It pointed at 368 until
+  # 2026-07-30, and 368 had closed: intake ingested it, correctly cancelled at
+  # `discovered` with disposition "closed", and repeated every sweep. The
+  # kernel worked and observed nothing, which is why #354's acceptance was
+  # still unmet with every child issue shipped.
+  #
+  # 425 is the first OPEN pilot subject: small, mechanical, independently
+  # worth doing, chosen so a misbehaving vertical fails legibly.
   github_issue_intake_pilots: %{
     "custode-dev" => %{
       repository_id: "1307868502",
-      issue_numbers: [368],
+      issue_numbers: [425],
       policy_version: "github-issue-intake-v1"
     }
   },
