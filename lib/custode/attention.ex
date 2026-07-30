@@ -1,7 +1,14 @@
 defmodule Custode.Attention do
   @moduledoc """
-  The attention resolver (#296): a pure function from one agent's facts to the
-  single `Custode.Signal` that describes it, plus a ranking over many.
+  The shared Attention surface.
+
+  `resolve/2`, `rank/1`, and `by_group/1` preserve the pure compatibility
+  resolver from one legacy agent's facts to a `Custode.Signal`.
+
+  `list/1` is the work-first projection: current operator obligations derived
+  from authoritative Mission, WorkItem, Gate, OperationCall, ask, and legacy
+  gate records. It is transport-neutral, deterministically paginated, and
+  never stored as independent truth.
 
   ## Why this is a module and not a sort key
 
@@ -85,6 +92,7 @@ defmodule Custode.Attention do
   scan.
   """
 
+  alias Custode.Attention.Projection
   alias Custode.Signal
 
   # Ranked kinds, most urgent first. The index into this list IS the
@@ -127,6 +135,10 @@ defmodule Custode.Attention do
   @doc "The kinds, most urgent first."
   @spec kinds() :: [Signal.kind()]
   def kinds, do: @precedence
+
+  @doc "List current work-first Attention items."
+  @spec list(keyword() | map()) :: {:ok, Projection.page()} | {:error, term()}
+  def list(options \\ []), do: Projection.list(options)
 
   @doc "The groups, in the order a page should stack them."
   @spec groups() :: [Signal.group()]
