@@ -321,27 +321,38 @@ defmodule Custode.AttemptsTest do
              })
   end
 
-  test "current spend accepts new provenance dimensions while retaining legacy dimensions" do
-    {_mission, work_item} = insert_work!("spend")
+  test "current spend derives provenance dimensions from its Attempt", %{
+    artifact_dir: artifact_dir
+  } do
+    {mission, work_item} = insert_work!("spend")
+    binding = insert_binding!(mission, "spender")
+    bundle = insert_bundle!(work_item, artifact_dir)
+
+    attempt =
+      insert_attempt!(work_item, bundle, %{
+        attempt_id: "attempt-spend",
+        role_binding_id: binding.binding_id,
+        provenance: %{"active_phase" => "implementing"}
+      })
 
     assert :ok =
              SpendLedger.record("legacy-agent", 0.5, "turn",
                model: "sonnet",
-               provider: "claude",
-               attempt_id: "attempt-spend",
-               work_item_id: work_item.work_item_id,
-               mission_id: work_item.mission.mission_id,
-               legacy_routine_id: "legacy-agent"
+               attempt_id: attempt.attempt_id
              )
 
     entry = Repo.one!(SpendLedger.Entry)
     assert entry.agent_id == "legacy-agent"
     assert entry.model == "sonnet"
-    assert entry.attempt_id == "attempt-spend"
+    assert entry.attempt_id == attempt.attempt_id
     assert entry.work_item_id == work_item.work_item_id
     assert entry.mission_id == work_item.mission.mission_id
     assert entry.provider == "claude"
-    assert entry.legacy_routine_id == "legacy-agent"
+    assert entry.legacy_routine_id == nil
+    assert entry.role_binding_id == binding.binding_id
+    assert entry.executor_kind == "model"
+    assert entry.workflow_phase == "implementing"
+    assert entry.attribution_status == "attempt"
   end
 
   test "workflow runs and node results retain WorkItem and Attempt links", %{
@@ -384,8 +395,17 @@ defmodule Custode.AttemptsTest do
     assert Results.fetch(run.run_id, "one", "hash").attempt_id == attempt.attempt_id
   end
 
-  test "telemetry carries Attempt, WorkItem, Mission, provider, and legacy routine dimensions" do
+  test "telemetry carries authoritative Attempt, WorkItem, Mission, and provider dimensions", %{
+    artifact_dir: artifact_dir
+  } do
     {_mission, work_item} = insert_work!("telemetry-spend")
+    bundle = insert_bundle!(work_item, artifact_dir)
+
+    attempt =
+      insert_attempt!(work_item, bundle, %{
+        attempt_id: "attempt-telemetry",
+        provenance: %{"active_phase" => "implementing"}
+      })
 
     assert :ok =
              SpendLedger.handle_event(
@@ -395,10 +415,9 @@ defmodule Custode.AttemptsTest do
                  job: %{
                    meta: %{
                      "agent_id" => "legacy-agent",
-                     "attempt_id" => "attempt-telemetry",
+                     "attempt_id" => attempt.attempt_id,
                      "work_item_id" => work_item.work_item_id,
-                     "mission_id" => work_item.mission.mission_id,
-                     "legacy_routine_id" => "legacy-agent"
+                     "mission_id" => work_item.mission.mission_id
                    }
                  },
                  args: %{"model" => "sonnet"}
@@ -408,11 +427,12 @@ defmodule Custode.AttemptsTest do
 
     entry = Repo.one!(SpendLedger.Entry)
     assert entry.outcome == "failed"
-    assert entry.attempt_id == "attempt-telemetry"
+    assert entry.attempt_id == attempt.attempt_id
     assert entry.work_item_id == work_item.work_item_id
     assert entry.mission_id == work_item.mission.mission_id
     assert entry.provider == "claude"
-    assert entry.legacy_routine_id == "legacy-agent"
+    assert entry.legacy_routine_id == nil
+    assert entry.attribution_status == "attempt"
   end
 
   test "an active Attempt is an explicit Mission archive obligation", %{
