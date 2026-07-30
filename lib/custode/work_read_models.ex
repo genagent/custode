@@ -21,17 +21,20 @@ defmodule Custode.WorkReadModels do
       }
 
   Detail reads use `custode.mission.detail.v1` and
-  `custode.work_item.detail.v1`. WorkItem state and workflow phase remain
-  separate fields. Detail relationships retain the stable identifiers needed
-  to traverse Attempts, OperationCalls, Gates, Artifacts, and WorkEvents.
+  `custode.work_item.detail.v1`. Artifact and WorkEvent pages use
+  `custode.artifact.v1` and `custode.work_event.v1`. WorkItem state and
+  workflow phase remain separate fields. Detail relationships retain the
+  stable identifiers needed to traverse Attempts, OperationCalls, Gates,
+  Artifacts, and WorkEvents.
 
   A WorkItem's explicit active Attempt is current while it exists. Otherwise
   the newest logical Attempt remains current for operator continuity.
   `current_attempt.active` distinguishes those cases. Relevant Artifacts are
   the WorkItem's unexpired Artifacts.
 
-  Cursors are opaque keyset cursors. Missions and WorkItems are ordered by
-  insertion time and then their stable public identifier, both ascending.
+  Cursors are opaque keyset cursors. Missions, WorkItems, Artifacts, and
+  WorkEvents are ordered by insertion time and then their stable public
+  identifier, both ascending.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -54,6 +57,8 @@ defmodule Custode.WorkReadModels do
   @max_limit 100
   @mission_order ["inserted_at:asc", "mission_id:asc"]
   @work_item_order ["inserted_at:asc", "work_item_id:asc"]
+  @artifact_order ["inserted_at:asc", "artifact_id:asc"]
+  @work_event_order ["inserted_at:asc", "event_id:asc"]
   @states ~w(proposed ready active waiting blocked completed cancelled)
   @transition_kinds ~w(work_item.created work_item.transitioned work_item.reopened)
   @legacy_projected_fields ~w(
@@ -185,6 +190,79 @@ defmodule Custode.WorkReadModels do
   @doc "Recompute one WorkItem projection from authoritative rows and events."
   @spec rebuild_work_item(String.t()) :: {:ok, map()} | {:error, term()}
   def rebuild_work_item(work_item_id), do: get_work_item(work_item_id)
+
+  @doc "List all Artifacts for one WorkItem using a scope-bound opaque cursor."
+  @spec list_work_item_artifacts(String.t(), keyword() | map()) ::
+          {:ok, page()} | {:error, term()}
+  def list_work_item_artifacts(work_item_id, options \\ [])
+
+  def list_work_item_artifacts(work_item_id, options)
+      when is_binary(work_item_id) and work_item_id != "" do
+    with {:ok, options} <- options(options, limit: @default_limit, after: nil),
+         :ok <- validate_limit(options[:limit]),
+         {:ok, work_item} <- fetch_work_item(work_item_id),
+         {:ok, cursor} <- decode_cursor(options[:after], "artifact", work_item_id) do
+      fetch_limit = options[:limit] + 1
+
+      rows =
+        from(artifact in Artifact,
+          where: artifact.work_item_id == ^work_item.id,
+          order_by: [asc: artifact.inserted_at, asc: artifact.artifact_id],
+          limit: ^fetch_limit
+        )
+        |> after_artifact(cursor)
+        |> Repo.all()
+        |> Repo.preload([:producer_attempt, :work_item, :mission])
+
+      {artifacts, page} =
+        page(rows, options[:limit], "artifact", work_item_id, @artifact_order)
+
+      {:ok, %{items: Enum.map(artifacts, &artifact_contract/1), page: page}}
+    end
+  end
+
+  def list_work_item_artifacts(work_item_id, _options),
+    do: {:error, {:invalid_work_item_id, work_item_id}}
+
+  @doc """
+  List append-only WorkEvents using a deterministic opaque cursor.
+
+  Pass `work_item_id: id` for one WorkItem's complete event history. The
+  cursor is bound to that scope and cannot be reused for a different WorkItem.
+  """
+  @spec list_work_events(keyword() | map()) :: {:ok, page()} | {:error, term()}
+  def list_work_events(options \\ []) do
+    with {:ok, options} <-
+           options(options, limit: @default_limit, after: nil, work_item_id: nil),
+         :ok <- validate_work_item_scope(options[:work_item_id]),
+         :ok <- ensure_work_item_exists(options[:work_item_id]),
+         {:ok, cursor} <-
+           decode_cursor(options[:after], "work_event", options[:work_item_id]),
+         :ok <- validate_limit(options[:limit]) do
+      fetch_limit = options[:limit] + 1
+
+      rows =
+        from(event in WorkEvent,
+          order_by: [asc: event.inserted_at, asc: event.event_id],
+          limit: ^fetch_limit
+        )
+        |> for_work_item(options[:work_item_id])
+        |> after_work_event(cursor)
+        |> Repo.all()
+        |> Repo.preload([:mission, :work_item])
+
+      {events, page} =
+        page(
+          rows,
+          options[:limit],
+          "work_event",
+          options[:work_item_id],
+          @work_event_order
+        )
+
+      {:ok, %{items: Enum.map(events, &work_event_contract/1), page: page}}
+    end
+  end
 
   defp mission_summary(mission, context) do
     targets = rows(context.targets, mission.id)
@@ -645,6 +723,22 @@ defmodule Custode.WorkReadModels do
     })
   end
 
+  defp artifact_contract(artifact) do
+    artifact
+    |> artifact_detail()
+    |> Map.put(:contract, "custode.artifact.v1")
+  end
+
+  defp work_event_contract(event) do
+    event
+    |> WorkItems.render_event()
+    |> Map.merge(%{
+      contract: "custode.work_event.v1",
+      mission_id: event.mission.mission_id,
+      work_item_id: event.work_item.work_item_id
+    })
+  end
+
   defp relevant_artifacts(artifacts) do
     now = DateTime.utc_now()
 
@@ -793,6 +887,31 @@ defmodule Custode.WorkReadModels do
   defp validate_mission_scope(mission_id),
     do: {:error, {:invalid_mission_id, mission_id}}
 
+  defp validate_work_item_scope(nil), do: :ok
+
+  defp validate_work_item_scope(work_item_id)
+       when is_binary(work_item_id) and work_item_id != "",
+       do: :ok
+
+  defp validate_work_item_scope(work_item_id),
+    do: {:error, {:invalid_work_item_id, work_item_id}}
+
+  defp ensure_work_item_exists(nil), do: :ok
+
+  defp ensure_work_item_exists(work_item_id) do
+    case Repo.exists?(from(work_item in WorkItem, where: work_item.work_item_id == ^work_item_id)) do
+      true -> :ok
+      false -> {:error, {:unknown_work_item, work_item_id}}
+    end
+  end
+
+  defp fetch_work_item(work_item_id) do
+    case Repo.get_by(WorkItem, work_item_id: work_item_id) do
+      nil -> {:error, {:unknown_work_item, work_item_id}}
+      work_item -> {:ok, work_item}
+    end
+  end
+
   defp after_mission(query, nil), do: query
 
   defp after_mission(query, %{inserted_at: inserted_at, id: mission_id}) do
@@ -813,6 +932,16 @@ defmodule Custode.WorkReadModels do
     )
   end
 
+  defp for_work_item(query, nil), do: query
+
+  defp for_work_item(query, work_item_id) do
+    from(event in query,
+      join: work_item in WorkItem,
+      on: work_item.id == event.work_item_id,
+      where: work_item.work_item_id == ^work_item_id
+    )
+  end
+
   defp after_work_item(query, nil), do: query
 
   defp after_work_item(query, %{inserted_at: inserted_at, id: work_item_id}) do
@@ -821,6 +950,26 @@ defmodule Custode.WorkReadModels do
         work_item.inserted_at > ^inserted_at or
           (work_item.inserted_at == ^inserted_at and
              work_item.work_item_id > ^work_item_id)
+    )
+  end
+
+  defp after_artifact(query, nil), do: query
+
+  defp after_artifact(query, %{inserted_at: inserted_at, id: artifact_id}) do
+    from(artifact in query,
+      where:
+        artifact.inserted_at > ^inserted_at or
+          (artifact.inserted_at == ^inserted_at and artifact.artifact_id > ^artifact_id)
+    )
+  end
+
+  defp after_work_event(query, nil), do: query
+
+  defp after_work_event(query, %{inserted_at: inserted_at, id: event_id}) do
+    from(event in query,
+      where:
+        event.inserted_at > ^inserted_at or
+          (event.inserted_at == ^inserted_at and event.event_id > ^event_id)
     )
   end
 
@@ -849,6 +998,12 @@ defmodule Custode.WorkReadModels do
 
   defp encode_cursor(row, "work_item", scope),
     do: encode_cursor_payload("work_item", row.inserted_at, row.work_item_id, scope)
+
+  defp encode_cursor(row, "artifact", scope),
+    do: encode_cursor_payload("artifact", row.inserted_at, row.artifact_id, scope)
+
+  defp encode_cursor(row, "work_event", scope),
+    do: encode_cursor_payload("work_event", row.inserted_at, row.event_id, scope)
 
   defp encode_cursor_payload(resource, inserted_at, id, scope) do
     %{
