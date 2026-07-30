@@ -298,9 +298,11 @@ defmodule Custode.Routine.Prompts do
        you wait -- so when the operator is AWAY: do the approval-free work
        first (triage and record judgments, refine the plan ledger,
        re-verify your green PRs), propose a gate ONLY as the LAST act of
-       the sweep and only for the best queued-for-morning item, and never
-       ask_user a question that presumes a live human -- journal it and
-       ask when presence flips. PRESENT means normal cadence: propose as
+       the sweep and only for the best queued-for-morning item. Asking is
+       different from proposing: ask_operator does NOT park you (#306), so
+       ask while AWAY rather than journalling the question for later, and
+       an ask left waiting is itself what tells the fleet the room is empty
+       (#328). PRESENT means normal cadence: propose as
        soon as you have the item.
     """
   end
