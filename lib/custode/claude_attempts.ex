@@ -1,14 +1,14 @@
 defmodule Custode.ClaudeAttempts do
   @moduledoc """
-  The narrow Claude adapter for implementation and focused semantic repair
+  Claude-backed orchestration for implementation and focused semantic repair
   Attempts in the first repository vertical.
 
   Durable Attempt and Artifact records own the execution. The Oban job carries
   only stable IDs, and a provider-result checkpoint prevents a crash after a
-  paid call from causing another call.
+  paid call from causing another call. Provider launch and response shapes stay
+  behind `Custode.Executors.Claude`; this module consumes only the neutral
+  `Custode.Executor` contract.
   """
-
-  alias ClaudeWrapper.{Error, Result}
 
   alias Custode.{
     Artifact,
@@ -17,7 +17,7 @@ defmodule Custode.ClaudeAttempts do
     Attempts,
     ClaudeAttemptJob,
     ContextBundles,
-    GitHubIssueContext,
+    Executor,
     GitHubIssueVertical,
     Routine,
     WorkItems,
@@ -25,10 +25,10 @@ defmodule Custode.ClaudeAttempts do
     WorkspaceLeases
   }
 
+  alias Custode.Executor.{Failure, Request, Result}
+  alias Custode.Executors.Claude, as: ClaudeExecutor
   alias Custode.Repair.Disposition
   alias Custode.Workspace.Git
-
-  @rail_stops ~w(budget_exceeded max_budget_exceeded max_turns_exceeded)a
 
   @doc "Insert or recover the one physical job for a queued logical Attempt."
   def dispatch(attempt_id, routine_id, options \\ [])
@@ -96,19 +96,24 @@ defmodule Custode.ClaudeAttempts do
 
   defp run(attempt, routine_id, job, options) do
     with {:ok, running} <- ensure_running(attempt, job),
-         {:ok, runtime} <- runtime(running, routine_id, options),
-         {verdict, payload} <- provider_run(runtime.args, job, options),
+         {:ok, runtime} <- runtime(running, routine_id, job, options),
+         {:ok, executor_result} <-
+           Executor.execute(
+             ClaudeExecutor,
+             runtime.request,
+             executor_options(job, options)
+           ),
          {:ok, changed_files} <- Git.changed_files(runtime.lease.workspace_path),
          {:ok, diff} <- Git.diff(runtime.lease.workspace_path) do
-      classification = classify(verdict, payload, changed_files, job)
+      classification = classify(executor_result, changed_files, job)
 
       if classification["retry"] do
-        verdict
+        retry_verdict(executor_result)
       else
         persist_and_finish(
           running,
           runtime,
-          payload,
+          executor_result,
           classification,
           changed_files,
           diff,
@@ -122,7 +127,7 @@ defmodule Custode.ClaudeAttempts do
     end
   end
 
-  defp runtime(attempt, routine_id, options) do
+  defp runtime(attempt, routine_id, job, options) do
     with :ok <- dispatchable(attempt, routine_id),
          routine when not is_nil(routine) <- Routine.get(routine_id),
          work_item = attempt.work_item,
@@ -130,14 +135,21 @@ defmodule Custode.ClaudeAttempts do
          lease when not is_nil(lease) <- WorkspaceLeases.get_for_work_item(work_item.work_item_id),
          "active" <- lease.state,
          {:ok, _lease} <- heartbeat(lease.lease_id, options),
-         {:ok, context_body} <- ContextBundles.body(attempt.context_bundle) do
+         {:ok, context_body} <- ContextBundles.body(attempt.context_bundle),
+         {:ok, request} <- executor_request(attempt, routine, lease, context_body, job),
+         {:ok, _heartbeat} <-
+           Executor.heartbeat(
+             ClaudeExecutor,
+             request,
+             executor_heartbeat_options(options)
+           ) do
       {:ok,
        %{
          routine: routine,
          work_item: work_item,
          lease: lease,
          context_body: context_body,
-         args: provider_args(routine, lease, attempt, context_body)
+         request: request
        }}
     else
       nil -> {:error, :runtime_scope_missing}
@@ -154,22 +166,23 @@ defmodule Custode.ClaudeAttempts do
     WorkspaceLeases.heartbeat(lease_id, heartbeat_options)
   end
 
-  defp provider_run(args, job, options) do
-    run_options = [job: job]
-
+  defp executor_options(job, options) do
     query_fun =
       options[:query_fun] || Application.get_env(:custode, :claude_attempt_query_fun)
 
-    run_options =
-      if query_fun, do: Keyword.put(run_options, :query_fun, query_fun), else: run_options
+    [job: job, query_fun: query_fun]
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+  end
 
-    ObanClaude.run(args, run_options)
+  defp executor_heartbeat_options(options) do
+    [heartbeat_fun: options[:executor_heartbeat_fun]]
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
   end
 
   defp persist_and_finish(
          attempt,
          runtime,
-         payload,
+         executor_result,
          classification,
          changed_files,
          diff,
@@ -177,17 +190,20 @@ defmodule Custode.ClaudeAttempts do
          options
        ) do
     ids = artifact_ids(attempt.attempt_id)
-    usage = usage(payload)
-    continuation = continuation(payload)
 
     checkpoint_body = %{
       "attempt_id" => attempt.attempt_id,
       "context_digest" => attempt.context_digest,
       "workspace_lease_id" => runtime.lease.lease_id,
-      "provider" => provider_payload(payload),
+      "executor" => normalize(executor_result.executor),
+      "provider" => normalize(executor_result.evidence),
+      "transcript_refs" => normalize(executor_result.transcript_refs),
+      "executor_artifacts" => normalize(executor_result.artifacts),
+      "cancellation" => normalize(executor_result.cancellation),
+      "executor_failure" => normalize_failure(executor_result.failure),
       "classification" => classification,
-      "usage" => usage,
-      "provider_continuation" => continuation,
+      "usage" => executor_result.usage,
+      "provider_continuation" => executor_result.continuation,
       "changed_files" => changed_files,
       "diff" => diff,
       "artifact_ids" => ids
@@ -247,11 +263,12 @@ defmodule Custode.ClaudeAttempts do
         with {:ok, running} <- ensure_running(current, job),
              runtime <- preflight_runtime(running, routine_id),
              {:ok, changed_files, diff} <- available_workspace_evidence(runtime),
-             classification <- blocked_classification(reason) do
+             classification <- blocked_classification(reason),
+             executor_result <- preflight_executor_result(running, reason) do
           persist_and_finish(
             running,
             runtime,
-            reason,
+            executor_result,
             classification,
             changed_files,
             diff,
@@ -486,19 +503,56 @@ defmodule Custode.ClaudeAttempts do
 
   defp transition_applied?(_work_item, _proposal), do: false
 
-  defp provider_args(routine, lease, attempt, context_body) do
+  defp executor_request(attempt, routine, lease, context_body, job) do
     configured = Routine.tick_args(routine)["start"]["args"]
+    capabilities = context_body["capabilities"] || %{}
 
-    configured
-    |> Map.take(~w(model effort max_turns max_budget_usd timeout agent hermetic))
-    |> Map.merge(%{
-      "working_dir" => lease.workspace_path,
-      "permission_mode" => "accept_edits",
-      "allowed_tools" => GitHubIssueContext.allowed_tools(),
-      "disallowed_tools" => GitHubIssueContext.disallowed_tools(),
-      "json_schema" => Jason.encode!(GitHubIssueContext.output_contract()),
-      "append_system_prompt" => bounded_system_prompt(attempt),
-      "prompt" => attempt_prompt(attempt, context_body)
+    Request.new(%{
+      attempt_id: attempt.attempt_id,
+      work_item_id: attempt.work_item.work_item_id,
+      mission_id: attempt.work_item.mission.mission_id,
+      context_bundle: %{
+        id: attempt.context_bundle.context_bundle_id,
+        digest: attempt.context_digest,
+        body: context_body
+      },
+      role_binding: get_in(attempt.provenance, ["role_binding"]),
+      recipe: context_body["recipe"],
+      requirements: %{
+        executor_kind: attempt.executor_kind,
+        provider: attempt.provider,
+        tools: allowed_tools(capabilities),
+        disallowed_tools: disallowed_tools(capabilities),
+        operations: capabilities["operations"] || [],
+        isolation: ["owned_worktree"],
+        features: ["cancellation", "heartbeat", "structured_output", "timeout"]
+      },
+      selection:
+        configured
+        |> Map.take(~w(model effort agent))
+        |> Map.put("profile", attempt.profile),
+      limits: %{
+        max_turns: configured["max_turns"],
+        max_budget_usd: configured["max_budget_usd"],
+        timeout_ms: configured["timeout"]
+      },
+      workspace: %{
+        lease_id: lease.lease_id,
+        path: lease.workspace_path,
+        isolation: "owned_worktree",
+        hermetic: configured["hermetic"]
+      },
+      instructions: %{
+        system: bounded_system_prompt(attempt),
+        task: attempt_instruction(attempt)
+      },
+      output_contract: context_body["output_contract"],
+      delivery: %{
+        kind: "oban",
+        oban_job_id: job.id,
+        delivery_attempt: job.attempt,
+        max_deliveries: job.max_attempts
+      }
     })
   end
 
@@ -512,19 +566,14 @@ defmodule Custode.ClaudeAttempts do
     |> String.trim()
   end
 
-  defp attempt_prompt(attempt, context_body) do
-    """
-    #{attempt_instruction(attempt)}
+  defp allowed_tools(%{"tools" => %{"allowed" => tools}}) when is_list(tools), do: tools
+  defp allowed_tools(%{"tools" => tools}) when is_list(tools), do: tools
+  defp allowed_tools(_capabilities), do: []
 
-    ContextBundle digest: #{attempt.context_digest}
+  defp disallowed_tools(%{"tools" => %{"disallowed" => tools}}) when is_list(tools), do: tools
+  defp disallowed_tools(_capabilities), do: []
 
-    #{Jason.encode!(context_body, pretty: true)}
-    """
-    |> String.trim()
-  end
-
-  defp classify(:ok, %Result{} = result, changed_files, _job) do
-    structured = ObanClaude.structured(result)
+  defp classify(%Result{status: :succeeded, output: structured}, changed_files, _job) do
     provider_outcome = value(structured, :outcome)
 
     case provider_outcome do
@@ -579,12 +628,16 @@ defmodule Custode.ClaudeAttempts do
     end
   end
 
-  defp classify({:error, reason}, payload, _changed_files, job) do
+  defp classify(
+         %Result{status: :failed, failure: %Failure{retryable: true} = failure} = result,
+         _changed_files,
+         job
+       ) do
     if job.attempt < job.max_attempts do
       %{
         "retry" => true,
-        "verdict" => inspect(reason),
-        "payload" => provider_payload(payload)
+        "verdict" => inspect(failure.details[:reason] || failure.classification),
+        "payload" => result.evidence
       }
     else
       classification(
@@ -592,38 +645,78 @@ defmodule Custode.ClaudeAttempts do
         "failed",
         "provider infrastructure retries were exhausted",
         error_class: "retryable_infrastructure",
-        error_details: %{reason: inspect(reason)}
+        error_details: %{
+          classification: failure.classification,
+          reason: inspect(failure.details[:reason] || failure.message)
+        }
       )
     end
   end
 
-  defp classify({:cancel, kind}, payload, _changed_files, _job) when kind in @rail_stops do
+  defp classify(
+         %Result{status: :cancelled, failure: %Failure{classification: :limit} = failure} =
+           result,
+         _changed_files,
+         _job
+       ) do
     classification(
       "semantic_follow_up",
       "partial",
       "the configured provider rail stopped the implementation",
       error_class: "semantic_follow_up",
-      error_details: %{reason: inspect(kind), provider: provider_payload(payload)}
+      error_details: %{reason: failure.details[:reason], provider: result.evidence}
     )
   end
 
-  defp classify({:cancel, reason}, payload, _changed_files, _job) do
+  defp classify(%Result{status: :cancelled, failure: failure} = result, _changed_files, _job) do
     classification(
       "blocked",
       "blocked",
       "the provider could not run under the configured environment",
       error_class: "provider_blocked",
-      error_details: %{reason: inspect(reason), provider: provider_payload(payload)}
+      error_details: %{reason: failure.details[:reason], provider: result.evidence}
     )
   end
 
-  defp classify(verdict, payload, _changed_files, _job) do
+  defp classify(
+         %Result{
+           status: :rejected,
+           failure: %Failure{classification: :capability_mismatch} = failure
+         },
+         _changed_files,
+         _job
+       ) do
     classification(
       "blocked",
       "blocked",
-      "the provider returned an unsupported verdict",
+      "no eligible Executor capabilities satisfy the Attempt",
+      error_class: "capability_mismatch",
+      error_details: failure.details
+    )
+  end
+
+  defp classify(%Result{status: :failed, failure: failure} = result, _changed_files, _job) do
+    classification(
+      "blocked",
+      "blocked",
+      "the Executor could not complete the implementation",
       error_class: "provider_contract",
-      error_details: %{verdict: inspect(verdict), provider: provider_payload(payload)}
+      error_details: %{
+        classification: failure.classification,
+        reason: failure.message,
+        details: failure.details,
+        provider: result.evidence
+      }
+    )
+  end
+
+  defp classify(%Result{} = result, _changed_files, _job) do
+    classification(
+      "blocked",
+      "blocked",
+      "the Executor returned an unsupported result",
+      error_class: "provider_contract",
+      error_details: %{status: result.status}
     )
   end
 
@@ -649,52 +742,35 @@ defmodule Custode.ClaudeAttempts do
     }
   end
 
-  defp usage(%Result{} = result) do
-    %{
-      cost_usd: result.cost_usd,
-      duration_ms: result.duration_ms,
-      num_turns: result.num_turns,
-      tokens: ClaudeWrapper.Result.usage(result),
-      stop_reason: ClaudeWrapper.Result.stop_reason(result)
+  defp retry_verdict(%Result{failure: %Failure{} = failure}) do
+    {:error, failure.details[:reason] || {:executor_failure, failure.classification}}
+  end
+
+  defp preflight_executor_result(attempt, reason) do
+    {:ok, version} = Executor.version(ClaudeExecutor)
+
+    %Result{
+      attempt_id: attempt.attempt_id,
+      status: :rejected,
+      output: nil,
+      usage: %{},
+      continuation: nil,
+      transcript_refs: [],
+      artifacts: [],
+      cancellation: nil,
+      failure: %Failure{
+        classification: :provider_refusal,
+        message: "implementation preflight failed",
+        retryable: false,
+        details: %{reason: inspect(reason)}
+      },
+      evidence: %{"kind" => "preflight", "reason" => inspect(reason)},
+      executor: Map.from_struct(version)
     }
   end
 
-  defp usage(payload), do: %{cost_usd: ObanClaude.cost_usd(payload)}
-
-  defp continuation(payload) do
-    case ObanClaude.session_id(payload) do
-      session_id when is_binary(session_id) -> %{session_id: session_id}
-      _missing -> nil
-    end
-  end
-
-  defp provider_payload(%Result{} = result) do
-    %{
-      "kind" => "result",
-      "result" => result.result,
-      "is_error" => result.is_error,
-      "session_id" => result.session_id,
-      "cost_usd" => result.cost_usd,
-      "duration_ms" => result.duration_ms,
-      "num_turns" => result.num_turns,
-      "usage" => ClaudeWrapper.Result.usage(result),
-      "stop_reason" => ClaudeWrapper.Result.stop_reason(result),
-      "structured_output" => ObanClaude.structured(result)
-    }
-  end
-
-  defp provider_payload(%Error{} = error) do
-    %{
-      "kind" => "error",
-      "error_kind" => to_string(error.kind),
-      "message" => error.message,
-      "reason" => inspect(error.reason),
-      "session_id" => ObanClaude.session_id(error),
-      "cost_usd" => ObanClaude.cost_usd(error)
-    }
-  end
-
-  defp provider_payload(payload), do: %{"kind" => "other", "value" => inspect(payload)}
+  defp normalize_failure(nil), do: nil
+  defp normalize_failure(%Failure{} = failure), do: failure |> Map.from_struct() |> normalize()
 
   defp job_changeset(attempt, routine_id) do
     args = %{"attempt_id" => attempt.attempt_id, "routine_id" => routine_id}
