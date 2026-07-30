@@ -192,7 +192,11 @@ defmodule Custode.WorkProcess do
   defp attempt_result_command(work_item, attempt) do
     case proposal(attempt.outcome) do
       {:ok, transition} ->
-        {:ok, %{action: :transition, transition: transition}}
+        {:ok,
+         %{
+           action: :transition,
+           transition: put_policy_evidence(transition, attempt_policy(attempt))
+         }}
 
       :error ->
         block_command(work_item, "terminal_attempt_requires_policy", %{
@@ -244,7 +248,11 @@ defmodule Custode.WorkProcess do
         state: "active",
         phase: value(command, :phase),
         active_attempt_id: value(attempt, :attempt_id),
-        evidence: %{process: %{action: "dispatch_attempt", kind: command_kind}}
+        evidence:
+          %{
+            process: %{action: "dispatch_attempt", kind: command_kind}
+          }
+          |> maybe_put(:work_policy, attempt_policy(attempt))
       }
 
       Decision.new(
@@ -485,6 +493,7 @@ defmodule Custode.WorkProcess do
   defp transition(transition, event, _options) do
     work_item_id = event_work_item_id(event)
     attrs = transition |> atomize() |> Map.put(:expected_version, event.work_item_version)
+    work_policy = transition |> value(:evidence) |> value(:work_policy)
 
     WorkOperations.Transition.dispatch(
       work_item_id,
@@ -492,6 +501,7 @@ defmodule Custode.WorkProcess do
       actor: %{kind: :system, id: "work-process"},
       transport: :worker,
       idempotency_key: "work-process:#{event.event_id}:transition",
+      work_policy: work_policy,
       correlation_id: event.correlation_id,
       causation_id: event.event_id
     )
@@ -652,7 +662,8 @@ defmodule Custode.WorkProcess do
   defp refuse_attempt(decision, event, refusal, options) do
     attempt_id = value(decision.attempt, :attempt_id)
     work_item = WorkItems.get(event_work_item_id(event))
-    proposal = refusal_proposal(work_item, attempt_id, refusal)
+    work_policy = attempt_policy(decision.attempt)
+    proposal = refusal_proposal(work_item, attempt_id, refusal, work_policy)
 
     finish_attrs =
       %{
@@ -675,7 +686,7 @@ defmodule Custode.WorkProcess do
     end
   end
 
-  defp refusal_proposal(work_item, attempt_id, refusal) do
+  defp refusal_proposal(work_item, attempt_id, refusal, work_policy) do
     rendered = Refusal.render(refusal)
 
     %{
@@ -686,7 +697,9 @@ defmodule Custode.WorkProcess do
         attempt_id: attempt_id,
         worker_pool: rendered
       },
-      evidence: %{worker_pool: rendered}
+      evidence:
+        %{worker_pool: rendered}
+        |> maybe_put(:work_policy, work_policy)
     }
   end
 
@@ -701,6 +714,7 @@ defmodule Custode.WorkProcess do
   defp error_class("no_eligible_worker"), do: "capability_mismatch"
   defp error_class("workspace_lease_" <> _rest), do: "lease_unavailable"
   defp error_class("spend_limit_reached"), do: "limit"
+  defp error_class("work_policy_" <> _rest), do: "policy_refusal"
   defp error_class(_code), do: "worker_unavailable"
 
   defp transition_refusal(work_item, proposal, event, _options) do
@@ -710,6 +724,7 @@ defmodule Custode.WorkProcess do
       actor: %{kind: :system, id: "work-process"},
       transport: :worker,
       idempotency_key: "work-process:#{event.event_id}:worker-refusal",
+      work_policy: proposal |> value(:evidence) |> value(:work_policy),
       correlation_id: event.correlation_id,
       causation_id: event.event_id
     )
@@ -1008,6 +1023,22 @@ defmodule Custode.WorkProcess do
     |> Map.delete(Atom.to_string(key))
     |> Map.put(key, value)
   end
+
+  defp put_policy_evidence(transition, nil), do: transition
+
+  defp put_policy_evidence(transition, policy) do
+    evidence = value(transition, :evidence) || %{}
+    put(transition, :evidence, put(evidence, :work_policy, policy))
+  end
+
+  defp attempt_policy(attempt) do
+    attempt
+    |> value(:provenance)
+    |> value(:work_policy)
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp atomize(map) do
     Map.new(map, fn

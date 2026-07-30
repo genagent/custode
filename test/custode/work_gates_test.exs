@@ -222,6 +222,28 @@ defmodule Custode.WorkGatesTest do
     end)
   end
 
+  test "a changed effective policy snapshot stales a Gate even when its version is unchanged" do
+    {_mission, work_item} = insert_waiting_work!("policy-snapshot", "gate-policy-snapshot")
+    policy = %{version: "policy-v1", posture: "ask", fingerprint: "first"}
+
+    assert {:ok, gate} =
+             propose(work_item, "gate-policy-snapshot", work_policy: policy)
+
+    current =
+      Map.put(current_preconditions(), :work_policy, %{
+        version: "policy-v1",
+        posture: "ask",
+        fingerprint: "changed"
+      })
+
+    assert {:error, {:stale, changes, stale_gate}} =
+             WorkGates.approve(gate.gate_id, current, resolver())
+
+    assert Map.has_key?(changes, "work_policy")
+    assert stale_gate.status == "stale"
+    assert operation_call_count(work_item) == 0
+  end
+
   test "rejection is typed, feed-compatible, durable, and cannot be answered twice" do
     {_mission, work_item} = insert_waiting_work!("reject", "gate-reject")
     assert {:ok, gate} = propose(work_item, "gate-reject")
@@ -390,6 +412,7 @@ defmodule Custode.WorkGatesTest do
       arguments: Keyword.get(options, :arguments, transition_arguments(work_item)),
       policy_version: "policy-v1",
       external_preconditions: %{github_issue_revision: "rev-1"},
+      work_policy: Keyword.get(options, :work_policy),
       correlation_id: "corr-#{gate_id}",
       causation_id: "cause-#{gate_id}"
     }

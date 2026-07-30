@@ -80,19 +80,28 @@ defmodule Custode.OperationCalls do
             idempotency_key: envelope.idempotency_key
           )
 
-        cond do
-          call.status in @terminal ->
-            replay(call)
-
-          lease_active?(call) ->
-            {:ok, response(call, true)}
-
-          true ->
-            reclaim(call, definition, envelope, executor)
-        end
+        replay_authorized(call, definition, envelope, executor)
 
       {:error, reason} ->
         {:error, {:denied, reason}}
+    end
+  end
+
+  defp replay_authorized(call, definition, envelope, executor) do
+    with :ok <- same_policy(call, envelope) do
+      replay_authorized_call(call, definition, envelope, executor)
+    end
+  end
+
+  defp replay_authorized_call(%{status: status} = call, _definition, _envelope, _executor)
+       when status in @terminal,
+       do: replay(call)
+
+  defp replay_authorized_call(call, definition, envelope, executor) do
+    if lease_active?(call) do
+      {:ok, response(call, true)}
+    else
+      reclaim(call, definition, envelope, executor)
     end
   end
 
@@ -128,7 +137,11 @@ defmodule Custode.OperationCalls do
       {:error, reason} ->
         _call =
           finish(call, "denied", %{
-            authorization_result: %{"decision" => "denied", "reason" => json(reason)},
+            authorization_result:
+              policy_authorization(envelope, %{
+                "decision" => "denied",
+                "reason" => json(reason)
+              }),
             error: error("denied", reason)
           })
 
@@ -141,10 +154,11 @@ defmodule Custode.OperationCalls do
 
     call =
       update!(call, %{
-        authorization_result: %{
-          "decision" => "allowed",
-          "grant" => to_string(envelope.grant)
-        },
+        authorization_result:
+          policy_authorization(envelope, %{
+            "decision" => "allowed",
+            "grant" => to_string(envelope.grant)
+          }),
         grant: to_string(envelope.grant)
       })
 
@@ -299,6 +313,7 @@ defmodule Custode.OperationCalls do
       actor: restore_actor(call.actor),
       transport: String.to_existing_atom(call.transport),
       grant: call.grant && String.to_existing_atom(call.grant),
+      policy: restore_keys(get_in(call.authorization_result || %{}, ["work_policy"])),
       correlation_id: call.correlation_id,
       causation_id: call.causation_id,
       replayed: replayed
@@ -427,6 +442,21 @@ defmodule Custode.OperationCalls do
 
   defp validate_key(key) when is_binary(key) and key != "", do: :ok
   defp validate_key(_key), do: {:error, {:invalid_envelope, :idempotency_key}}
+
+  defp same_policy(call, envelope) do
+    expected = get_in(call.authorization_result || %{}, ["work_policy"])
+    observed = json(envelope.policy)
+
+    if expected == observed,
+      do: :ok,
+      else: {:error, {:stale, :work_policy_changed}}
+  end
+
+  defp policy_authorization(%{policy: nil}, authorization), do: authorization
+
+  defp policy_authorization(envelope, authorization) do
+    Map.put(authorization, "work_policy", json(envelope.policy))
+  end
 
   defp idempotency_conflict?(changeset) do
     Enum.any?(changeset.errors, fn

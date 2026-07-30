@@ -20,6 +20,7 @@ defmodule Custode.AttemptPool do
     Repo,
     SpendLedger,
     WorkItems,
+    WorkPolicy,
     WorkspaceLeases
   }
 
@@ -76,13 +77,23 @@ defmodule Custode.AttemptPool do
 
     with {:ok, attempt, command} <- load_attempt(attempt_or_id),
          :ok <- dispatch_state(attempt),
+         :ok <- posture_policy(attempt),
          {:ok, body} <- ContextBundles.body(attempt.context_bundle),
          {:ok, requirements} <- requirements(attempt, command, body),
          {:ok, worker} <- select_worker(registry, requirements),
          :ok <- lease_policy(attempt, requirements, options),
          {:ok, spend} <- spend_policy(attempt, body, options),
-         :ok <- concurrency_policy(attempt, worker, options) do
-      {:ok, %{worker: worker, requirements: requirements, policy: %{spend: spend}}}
+         {:ok, concurrency} <- concurrency_policy(attempt, worker, options) do
+      {:ok,
+       %{
+         worker: worker,
+         requirements: requirements,
+         policy: %{
+           work_policy: get_in(attempt.provenance || %{}, ["work_policy"]),
+           spend: spend,
+           concurrency: concurrency
+         }
+       }}
     else
       {:blocked, %Refusal{} = refusal} -> {:blocked, refusal}
       {:retry, %Refusal{} = refusal} -> {:retry, refusal}
@@ -318,6 +329,35 @@ defmodule Custode.AttemptPool do
      })}
   end
 
+  defp posture_policy(attempt) do
+    policy = get_in(attempt.provenance || %{}, ["work_policy"])
+
+    case WorkPolicy.posture(policy) do
+      nil ->
+        :ok
+
+      :auto ->
+        :ok
+
+      :ask ->
+        blocked_posture(attempt, "work_policy_gate_required", "Attempt policy requires a Gate")
+
+      :ineligible ->
+        blocked_posture(attempt, "work_policy_ineligible", "Attempt is ineligible under policy")
+
+      :invalid ->
+        blocked_posture(attempt, "work_policy_invalid", "Attempt policy is malformed")
+    end
+  end
+
+  defp blocked_posture(attempt, code, message) do
+    {:blocked,
+     refusal(:blocked, code, message, %{
+       attempt_id: attempt.attempt_id,
+       work_policy: get_in(attempt.provenance || %{}, ["work_policy"])
+     })}
+  end
+
   defp select_worker(registry, requirements) do
     case AttemptWorkerRegistry.eligible(registry, requirements) do
       [worker | _rest] ->
@@ -370,7 +410,11 @@ defmodule Custode.AttemptPool do
   end
 
   defp spend_policy(attempt, body, options) do
-    budget = get_in(body, ["policy", "budget"]) || %{}
+    budget =
+      get_in(attempt.provenance || %{}, ["work_policy", "controls", "budget"]) ||
+        get_in(body, ["policy", "budget"]) ||
+        %{}
+
     routine_id = get_in(attempt.provenance || %{}, ["legacy_routine_id"])
     usage = usage(routine_id, options)
 
@@ -431,21 +475,40 @@ defmodule Custode.AttemptPool do
   defp concurrency_policy(attempt, worker, options) do
     active = active_count(attempt, worker, options)
 
-    if active < worker.max_concurrency do
-      :ok
+    policy_limit =
+      get_in(attempt.provenance || %{}, [
+        "work_policy",
+        "controls",
+        "execution",
+        "max_concurrency"
+      ])
+
+    limit =
+      if is_integer(policy_limit) and policy_limit > 0,
+        do: min(worker.max_concurrency, policy_limit),
+        else: worker.max_concurrency
+
+    if active < limit do
+      {:ok, %{worker_limit: worker.max_concurrency, policy_limit: policy_limit, effective: limit}}
     else
       retry_after_ms = Keyword.get(options, :capacity_retry_after_ms, 5_000)
+      details = %{worker: worker.name, active: active, limit: limit}
+
+      details =
+        if is_integer(policy_limit),
+          do:
+            Map.merge(details, %{
+              worker_limit: worker.max_concurrency,
+              policy_limit: policy_limit
+            }),
+          else: details
 
       {:retry,
        refusal(
          :retry,
          "concurrency_limit",
          "Eligible worker is at its concurrency limit",
-         %{
-           worker: worker.name,
-           active: active,
-           limit: worker.max_concurrency
-         },
+         details,
          retry_after_ms
        )}
     end

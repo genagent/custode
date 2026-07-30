@@ -17,6 +17,7 @@ defmodule Custode.GitHubMerge do
     WorkGate,
     WorkGates,
     WorkItems,
+    WorkPolicy,
     WorkspaceLease,
     WorkspaceLeases
   }
@@ -47,7 +48,10 @@ defmodule Custode.GitHubMerge do
          gate_id <- gate_id(work_item_id, external),
          :ok <- waiting_for_gate(work_item, gate_id),
          {:ok, lease} <- fetch_active_lease(work_item_id),
-         {:ok, policy_version} <- fetch_policy_version(work_item) do
+         {:ok, policy_version} <- fetch_policy_version(work_item),
+         {:ok, policy} <-
+           WorkPolicy.operation(work_item, :external_write, repository: external["repository"]),
+         :ask <- policy.posture do
       arguments = %{
         work_item_id: work_item_id,
         gate_id: gate_id,
@@ -68,6 +72,7 @@ defmodule Custode.GitHubMerge do
           operation: @operation,
           arguments: arguments,
           policy_version: policy_version,
+          work_policy: WorkPolicy.render(policy),
           external_preconditions: external,
           operation_idempotency_key: "github-merge:#{work_item_id}:#{external["head_sha"]}",
           correlation_id: options[:correlation_id] || "github-merge:#{artifact.artifact_id}",
@@ -79,6 +84,7 @@ defmodule Custode.GitHubMerge do
       )
     else
       {:error, _reason} = error -> error
+      posture -> {:error, {:merge_policy_requires_ask, posture}}
     end
   end
 
@@ -86,11 +92,16 @@ defmodule Custode.GitHubMerge do
   def approve(gate_id, options) do
     with %WorkGate{} = gate <- WorkGates.get(gate_id),
          work_item when not is_nil(work_item) <- WorkItems.get(gate.work_item.work_item_id),
-         {:ok, external} <- current_preconditions(gate.arguments) do
+         {:ok, external} <- current_preconditions(gate.arguments),
+         {:ok, policy} <-
+           WorkPolicy.operation(work_item, :external_write,
+             repository: gate.arguments["repository"]
+           ) do
       WorkGates.approve(
         gate_id,
         %{
           policy_version: work_item.policy_ref,
+          work_policy: WorkPolicy.render(policy),
           external_preconditions: external
         },
         actor: Keyword.fetch!(options, :actor),
@@ -126,9 +137,17 @@ defmodule Custode.GitHubMerge do
   end
 
   @doc false
-  def execute(arguments, %OperationEnvelope{grant: :operator, call_id: call_id} = envelope)
-      when is_binary(call_id) do
-    with {:ok, observation, current} <- current_snapshot(arguments),
+  def execute(
+        arguments,
+        %OperationEnvelope{
+          grant: :operator,
+          call_id: call_id,
+          gate_id: gate_id
+        } = envelope
+      )
+      when is_binary(call_id) and is_binary(gate_id) do
+    with true <- gate_id == value(arguments, :gate_id),
+         {:ok, observation, current} <- current_snapshot(arguments),
          :ok <- expected_external(arguments, observation, current),
          {:ok, merged} <-
            Repository.merge_pr_at_head(
@@ -151,6 +170,9 @@ defmodule Custode.GitHubMerge do
 
       {:error, reason} ->
         merge_failure(arguments, reason)
+
+      false ->
+        {:error, :operator_gate_required}
     end
   end
 
@@ -197,6 +219,8 @@ defmodule Custode.GitHubMerge do
       grant: call.grant && String.to_existing_atom(call.grant),
       idempotency_key: call.idempotency_key,
       expected_versions: call.expected_versions,
+      gate_id: value(arguments, :gate_id),
+      policy: get_in(call.authorization_result || %{}, ["work_policy"]),
       correlation_id: call.correlation_id,
       causation_id: call.causation_id
     }
@@ -669,6 +693,7 @@ defmodule Custode.GitHubMerge do
       actor: %{kind: :system, id: "github-merge"},
       transport: :worker,
       idempotency_key: "github-merge:#{envelope.work_item_id}:#{envelope.call_id}:#{stage}",
+      work_policy: envelope.policy,
       correlation_id: envelope.correlation_id,
       causation_id: envelope.call_id
     ]

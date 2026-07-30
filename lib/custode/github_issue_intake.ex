@@ -8,7 +8,15 @@ defmodule Custode.GitHubIssueIntake do
   recorded policy inputs, never direct lifecycle commands.
   """
 
-  alias Custode.{LegacyMissionProjection, Mission, Missions, Repository, WorkItems}
+  alias Custode.{
+    LegacyMissionProjection,
+    Mission,
+    Missions,
+    Repository,
+    WorkItems,
+    WorkPolicy
+  }
+
   alias Custode.Operations.WorkItems, as: WorkOperations
 
   @source "github"
@@ -63,6 +71,12 @@ defmodule Custode.GitHubIssueIntake do
 
     with {:ok, work_item, created?} <-
            ensure_work_item(mission, issue, pilot, disposition, context),
+         {:ok, policy} <-
+           WorkPolicy.intake(work_item, disposition,
+             source_snapshot: source_snapshot,
+             repository: canonical_name
+           ),
+         context <- Map.put(context, :work_policy, WorkPolicy.render(policy)),
          {:ok, work_item, observed?} <- observe_changed_source(work_item, context),
          {:ok, work_item} <- apply_disposition(work_item, disposition, context) do
       {:ok,
@@ -434,6 +448,7 @@ defmodule Custode.GitHubIssueIntake do
   defp intake_evidence(context) do
     %{
       policy_version: context.policy_version,
+      work_policy: context[:work_policy],
       revision: context.revision,
       source: @source
     }
@@ -465,7 +480,8 @@ defmodule Custode.GitHubIssueIntake do
             revision: context.revision
           }),
       correlation_id: context.correlation_id,
-      causation_id: context.causation_id
+      causation_id: context.causation_id,
+      work_policy: context[:work_policy]
     ]
   end
 

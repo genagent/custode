@@ -168,6 +168,19 @@ defmodule Custode.GitHubIssueIntakeTest do
     assert withheld.work_item.phase == "ineligible"
     assert Repo.aggregate(Attempt, :count) == 0
 
+    ineligible_event =
+      withheld.work_item.work_item_id
+      |> WorkItems.list_events()
+      |> Enum.find(&(&1.after_phase == "ineligible"))
+
+    assert get_in(ineligible_event.evidence, ["intake", "work_policy", "posture"]) ==
+             "ineligible"
+
+    ineligible_call = Repo.get_by!(OperationCall, call_id: ineligible_event.operation_call_id)
+
+    assert ineligible_call.authorization_result["work_policy"]["posture"] ==
+             "ineligible"
+
     admitted = issue(labels: [], updated_at: "2026-07-29T17:20:00Z")
     assert {:ok, eligible} = reconcile(mission, admitted)
     assert eligible.observed

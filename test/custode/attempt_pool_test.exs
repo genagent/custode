@@ -146,6 +146,50 @@ defmodule Custode.AttemptPoolTest do
            }
   end
 
+  test "pinned work policy can only narrow spend, capacity, and posture", fixture do
+    policy = %{
+      posture: "auto",
+      controls: %{
+        budget: %{daily_budget_usd: 2.0, daily_budget_tokens: 1_000},
+        execution: %{max_concurrency: 1}
+      }
+    }
+
+    attempt = insert_model_attempt!("pinned-policy", fixture, work_policy: policy)
+    insert_active_lease!(attempt)
+    registry = registry!([worker!("local.claude", max_concurrency: 3)])
+
+    assert {:blocked, %Refusal{code: "spend_limit_reached"} = spend} =
+             AttemptPool.admit(attempt.attempt_id,
+               worker_registry: registry,
+               usage_fun: fn _routine -> %{cost_usd: 2.0, tokens: 0} end
+             )
+
+    assert spend.details["limit"] == 2.0
+
+    assert {:retry, %Refusal{code: "concurrency_limit"} = capacity} =
+             AttemptPool.admit(attempt.attempt_id,
+               worker_registry: registry,
+               usage_fun: &zero_usage/1,
+               active_count_fun: fn _worker, _attempt -> 1 end
+             )
+
+    assert capacity.details["limit"] == 1
+    assert capacity.details["worker_limit"] == 3
+    assert capacity.details["policy_limit"] == 1
+
+    ask =
+      insert_model_attempt!("ask-policy", fixture,
+        work_policy: %{posture: "ask", controls: policy.controls}
+      )
+
+    assert {:blocked, %Refusal{code: "work_policy_gate_required"}} =
+             AttemptPool.admit(ask.attempt_id,
+               worker_registry: registry,
+               usage_fun: &zero_usage/1
+             )
+  end
+
   test "an expired lease blocks launch without invoking a handler", fixture do
     attempt = insert_model_attempt!("expired-lease", fixture)
     insert_active_lease!(attempt, expires_at: DateTime.add(DateTime.utc_now(), -1, :second))
@@ -446,10 +490,12 @@ defmodule Custode.AttemptPoolTest do
                recipe_version: "1",
                expected_work_item_version: work_item.version,
                command_kind: "implement",
-               provenance: %{
-                 purpose: "github_issue_implementation",
-                 legacy_routine_id: "routine-pool"
-               }
+               provenance:
+                 %{
+                   purpose: "github_issue_implementation",
+                   legacy_routine_id: "routine-pool"
+                 }
+                 |> maybe_put(:work_policy, Keyword.get(options, :work_policy))
              })
 
     Map.put(model, :preparation_attempt, preparation)
@@ -565,6 +611,9 @@ defmodule Custode.AttemptPoolTest do
   end
 
   defp zero_usage(_routine_id), do: %{cost_usd: 0.0, tokens: 0}
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp cleanup! do
     Repo.delete_all(WorkspaceLease)

@@ -55,6 +55,7 @@ defmodule Custode.Operations.WorkItems.Transition do
       mission_id: work_item && work_item.mission.mission_id,
       work_item_id: work_item_id,
       expected_versions: %{work_item: expected_version},
+      policy: options[:work_policy],
       idempotency_key: Keyword.fetch!(options, :idempotency_key),
       correlation_id: options[:correlation_id],
       causation_id: options[:causation_id],

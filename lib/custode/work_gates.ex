@@ -109,7 +109,8 @@ defmodule Custode.WorkGates do
             "required_grants" =>
               inspection.definition.required_grants
               |> Enum.map(&to_string/1)
-              |> Enum.sort()
+              |> Enum.sort(),
+            "work_policy" => json(attrs[:work_policy])
           },
           external_preconditions: json(external),
           definition_fingerprint: OperationDefinition.fingerprint(inspection.definition),
@@ -398,6 +399,11 @@ defmodule Custode.WorkGates do
     )
     |> changed("policy_version", gate.policy_version, current[:policy_version])
     |> changed(
+      "work_policy",
+      get_in(gate.grant_decision || %{}, ["work_policy"]),
+      json(current[:work_policy])
+    )
+    |> changed(
       "external_preconditions",
       gate.external_preconditions,
       json(current[:external_preconditions])
@@ -635,6 +641,8 @@ defmodule Custode.WorkGates do
       attempt_id: attempt && attempt.attempt_id,
       expected_versions: %{work_item: work_item.version},
       idempotency_key: operation_key,
+      gate_id: attrs[:gate_id],
+      policy: attrs[:work_policy],
       correlation_id: attrs[:correlation_id],
       causation_id: attrs[:causation_id]
     }
@@ -656,6 +664,8 @@ defmodule Custode.WorkGates do
       attempt_id: gate.attempt && gate.attempt.attempt_id,
       expected_versions: %{work_item: gate.work_item_version},
       idempotency_key: gate.operation_idempotency_key,
+      gate_id: gate.gate_id,
+      policy: get_in(gate.grant_decision || %{}, ["work_policy"]),
       correlation_id: gate.correlation_id,
       causation_id: gate.causation_id
     }
