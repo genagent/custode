@@ -334,11 +334,18 @@ defmodule Custode.Attempts do
       "profile" => attrs[:profile],
       "recipe_version" => attrs[:recipe_version]
     })
+    |> maybe_put_worker_pool(attrs[:command_kind])
     |> Map.put(
       "role_binding",
       if(role_binding, do: RoleBindings.attempt_provenance(role_binding), else: nil)
     )
   end
+
+  defp maybe_put_worker_pool(provenance, command) when is_binary(command) do
+    Map.put(provenance, "worker_pool", %{"command" => command})
+  end
+
+  defp maybe_put_worker_pool(provenance, _command), do: provenance
 
   defp ensure_refs_match!(attempt, refs) do
     Enum.each([:oban_job_id, :workflow_run_id], fn key ->

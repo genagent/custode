@@ -28,6 +28,7 @@ defmodule Custode.WorkProcess do
     WorkKinds
   }
 
+  alias Custode.AttemptPool.Refusal
   alias Custode.Operations.WorkItems, as: WorkOperations
   alias Custode.WorkProcess.Decision
 
@@ -59,7 +60,7 @@ defmodule Custode.WorkProcess do
   this boundary.
   """
   @spec perform(String.t(), String.t(), pos_integer(), integer() | nil, keyword()) ::
-          :ok | {:discard, term()} | {:error, term()}
+          :ok | {:discard, term()} | {:snooze, pos_integer()} | {:error, term()}
   def perform(decision_id, work_item_id, expected_version, oban_job_id, options \\ []) do
     with %WorkEvent{} = event <- Repo.get_by(WorkEvent, event_id: decision_id),
          :ok <- verify_command(event, work_item_id, expected_version),
@@ -422,13 +423,18 @@ defmodule Custode.WorkProcess do
   end
 
   defp execute(%Decision{action: "dispatch_attempt"} = decision, event, job_id, options) do
-    case activate_attempt(decision, event, options) do
+    case admit_attempt(decision.attempt, options) do
       :ok ->
-        dispatch_attempt(decision.attempt, job_id, options)
+        activate_and_dispatch(decision, event, job_id, options)
 
-      {:stale, reason} ->
-        cancel_stale_attempt(decision.attempt, reason)
-        {:terminal, {:stale, reason}}
+      {:ok, _admission} ->
+        activate_and_dispatch(decision, event, job_id, options)
+
+      {:retry, %Refusal{} = refusal} ->
+        {:retry, refusal}
+
+      {kind, %Refusal{} = refusal} when kind in [:blocked, :cancelled] ->
+        refuse_attempt(decision, event, refusal, options)
 
       {:error, reason} ->
         {:error, reason}
@@ -531,6 +537,27 @@ defmodule Custode.WorkProcess do
     end
   end
 
+  defp finish_execution({:terminal, {:attempt_dispatch_refused, refusal}}, event) do
+    outcome = %{
+      "status" => Atom.to_string(refusal.kind),
+      "worker_pool" => json(Refusal.render(refusal))
+    }
+
+    case append_completion(event, outcome) do
+      {:ok, _completion} -> {:discard, {:attempt_dispatch_refused, refusal.code}}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp finish_execution({:retry, %Refusal{} = refusal}, _event) do
+    seconds =
+      refusal.retry_after_ms
+      |> Kernel.||(1_000)
+      |> then(&max(div(&1 + 999, 1_000), 1))
+
+    {:snooze, seconds}
+  end
+
   defp finish_execution({:error, reason}, _event), do: {:error, reason}
 
   defp cancel_stale_attempt(attempt, reason) do
@@ -548,6 +575,32 @@ defmodule Custode.WorkProcess do
 
       {:error, {:stale, reason}} ->
         if attempt_already_active?(decision, event), do: :ok, else: {:stale, reason}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp activate_and_dispatch(decision, event, job_id, options) do
+    case activate_attempt(decision, event, options) do
+      :ok ->
+        case dispatch_attempt(decision.attempt, job_id, options) do
+          :ok ->
+            :ok
+
+          {:retry, %Refusal{} = refusal} ->
+            {:retry, refusal}
+
+          {kind, %Refusal{} = refusal} when kind in [:blocked, :cancelled] ->
+            refuse_attempt(decision, event, refusal, options)
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      {:stale, reason} ->
+        cancel_stale_attempt(decision.attempt, reason)
+        {:terminal, {:stale, reason}}
 
       {:error, reason} ->
         {:error, reason}
@@ -582,6 +635,84 @@ defmodule Custode.WorkProcess do
       dispatcher ->
         dispatcher.dispatch(attempt, job_id, options)
     end
+  end
+
+  defp admit_attempt(attempt, options) do
+    case Keyword.get(options, :attempt_dispatcher) do
+      nil ->
+        :ok
+
+      dispatcher ->
+        if Code.ensure_loaded?(dispatcher) and function_exported?(dispatcher, :admit, 2),
+          do: dispatcher.admit(attempt, options),
+          else: :ok
+    end
+  end
+
+  defp refuse_attempt(decision, event, refusal, options) do
+    attempt_id = value(decision.attempt, :attempt_id)
+    work_item = WorkItems.get(event_work_item_id(event))
+    proposal = refusal_proposal(work_item, attempt_id, refusal)
+
+    finish_attrs =
+      %{
+        state: if(refusal.kind == :cancelled, do: "cancelled", else: "blocked"),
+        usage: %{},
+        outcome: %{
+          kind: "worker_pool_refusal",
+          worker_pool: Refusal.render(refusal),
+          proposal: proposal
+        }
+      }
+      |> maybe_put_refusal_error(refusal)
+
+    with {:ok, _attempt} <- Attempts.finish(attempt_id, finish_attrs),
+         {:ok, _response} <- transition_refusal(work_item, proposal, event, options) do
+      {:terminal, {:attempt_dispatch_refused, refusal}}
+    else
+      {:error, {:stale, reason}} -> {:terminal, {:stale, reason}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp refusal_proposal(work_item, attempt_id, refusal) do
+    rendered = Refusal.render(refusal)
+
+    %{
+      state: "blocked",
+      phase: work_item.phase,
+      blocked_reason: %{
+        code: "attempt_worker_unavailable",
+        attempt_id: attempt_id,
+        worker_pool: rendered
+      },
+      evidence: %{worker_pool: rendered}
+    }
+  end
+
+  defp maybe_put_refusal_error(attrs, %Refusal{kind: :cancelled}), do: attrs
+
+  defp maybe_put_refusal_error(attrs, refusal) do
+    attrs
+    |> Map.put(:error_class, error_class(refusal.code))
+    |> Map.put(:error_details, Refusal.render(refusal))
+  end
+
+  defp error_class("no_eligible_worker"), do: "capability_mismatch"
+  defp error_class("workspace_lease_" <> _rest), do: "lease_unavailable"
+  defp error_class("spend_limit_reached"), do: "limit"
+  defp error_class(_code), do: "worker_unavailable"
+
+  defp transition_refusal(work_item, proposal, event, _options) do
+    WorkOperations.Transition.dispatch(
+      work_item.work_item_id,
+      Map.put(proposal, :expected_version, work_item.version),
+      actor: %{kind: :system, id: "work-process"},
+      transport: :worker,
+      idempotency_key: "work-process:#{event.event_id}:worker-refusal",
+      correlation_id: event.correlation_id,
+      causation_id: event.event_id
+    )
   end
 
   defp block_failed_operation(event, reason, options) do

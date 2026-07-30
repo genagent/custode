@@ -70,6 +70,13 @@ defmodule Custode.Application do
       Supervisor.child_spec({Task, &Custode.WorkspaceLeases.reconcile!/0},
         id: :workspace_leases_reconcile
       ),
+      # A running Attempt whose lease or physical delivery was lost must not
+      # leave its WorkItem active forever. Preserve the Attempt and its
+      # provenance, record a typed worker-loss outcome, and block the WorkItem
+      # for deterministic recovery.
+      Supervisor.child_spec({Task, &Custode.AttemptPool.reconcile!/0},
+        id: :attempt_worker_reconcile
+      ),
       # orphaned sub-agents (#5) become revival-handle notices in their
       # parent's inbox -- offered, never auto-revived
       Supervisor.child_spec({Task, fn -> Custode.SubAgents.reconcile!() end},
