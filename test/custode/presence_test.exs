@@ -40,18 +40,122 @@ defmodule Custode.PresenceTest do
     assert last_before == nil or DateTime.compare(last, last_before) in [:gt, :eq]
   end
 
-  test "presence decays to away outside the window, and the override pins it" do
-    # evaluate NOW as if it were far in the future: whatever evidence exists
-    # is stale by then, so inference reads away
+  test "an explicit pin wins over inference in both directions" do
+    # evaluate NOW as if it were far in the future, so no recorded action is
+    # inside the window and only the pin can be deciding the answer
     future = DateTime.add(DateTime.utc_now(), 7 * 24 * 3600, :second)
-    assert {:away, _last} = Presence.status(future)
 
-    # the explicit override wins in both directions
     Application.put_env(:custode, :presence_override, :present)
     assert {:present, _} = Presence.status(future)
 
     Application.put_env(:custode, :presence_override, :away)
     assert {:away, _} = Presence.status()
+  end
+
+  test "a present pin lapses with the window; an away pin does not (#328)" do
+    now = DateTime.utc_now()
+    stale = DateTime.add(now, -46 * 60, :second)
+    fresh = DateTime.add(now, -5 * 60, :second)
+
+    # the failure this fixes: pin present, walk away, and every sweep all
+    # night is told a human is around. Once lapsed the pin stops deciding
+    # anything and the reading falls back to evidence.
+    Application.put_env(:custode, :presence_override, {:present, stale})
+    {_state, _at, why} = Presence.explain(now)
+    refute why == {:pinned, :present}
+
+    Application.put_env(:custode, :presence_override, {:present, fresh})
+    assert {:present, _at, {:pinned, :present}} = Presence.explain(now)
+
+    # away is intent, not a keystroke, so the clock never revokes it
+    Application.put_env(:custode, :presence_override, :away)
+    assert {:away, _at} = Presence.status(DateTime.add(now, 30 * 24 * 3600, :second))
+  end
+
+  describe "infer/5 (#328)" do
+    setup do
+      now = DateTime.utc_now()
+      %{now: now, window: 45 * 60, unanswered: 90 * 60}
+    end
+
+    test "a recent action reads present", %{now: now, window: w, unanswered: u} do
+      recent = DateTime.add(now, -10 * 60, :second)
+      assert {:present, ^recent, :recent_action} = Presence.infer(recent, nil, w, u, now)
+    end
+
+    test "an unanswered request past its window reads away", %{now: now, window: w, unanswered: u} do
+      stale = DateTime.add(now, -3 * 3600, :second)
+      waiting = DateTime.add(now, -2 * 3600, :second)
+
+      assert {:away, ^stale, {:unanswered, ^waiting}} =
+               Presence.infer(stale, waiting, w, u, now)
+    end
+
+    test "a request still inside its window is not yet absence", %{
+      now: now,
+      window: w,
+      unanswered: u
+    } do
+      stale = DateTime.add(now, -3 * 3600, :second)
+      waiting = DateTime.add(now, -30 * 60, :second)
+
+      assert {:present, ^stale, :nothing_waiting} = Presence.infer(stale, waiting, w, u, now)
+    end
+
+    test "nothing waiting and nothing recent stays present", %{now: now, window: w, unanswered: u} do
+      stale = DateTime.add(now, -8 * 3600, :second)
+
+      # a quiet fleet used to make a present operator look absent
+      assert {:present, ^stale, :nothing_waiting} = Presence.infer(stale, nil, w, u, now)
+      assert {:present, nil, :nothing_waiting} = Presence.infer(nil, nil, w, u, now)
+    end
+
+    test "a recent action outranks an aged request", %{now: now, window: w, unanswered: u} do
+      recent = DateTime.add(now, -2 * 60, :second)
+      waiting = DateTime.add(now, -5 * 3600, :second)
+
+      # someone who just clicked is here, whatever is sitting unanswered
+      assert {:present, ^recent, :recent_action} = Presence.infer(recent, waiting, w, u, now)
+    end
+  end
+
+  test "an open ask counts as an unanswered request until it is answered (#328)" do
+    before = Presence.oldest_unanswered_request()
+
+    {:ok, ask} = Custode.Asks.ask(uid("presence-agent"), "which repo first?")
+
+    oldest = Presence.oldest_unanswered_request()
+    assert oldest != nil
+    assert before == nil or DateTime.compare(oldest, before) in [:lt, :eq]
+
+    {:ok, _answered} = Custode.Asks.answer(ask.id, "the one with the red main")
+
+    after_answer = Presence.oldest_unanswered_request()
+    assert after_answer == before
+  end
+
+  test "render says what the reading rests on (#328)" do
+    now = DateTime.utc_now()
+
+    Application.put_env(:custode, :presence_override, {:present, now})
+    rendered = Presence.render(now)
+    assert rendered =~ "operator: PRESENT"
+    assert rendered =~ "pinned present"
+
+    Application.put_env(:custode, :presence_override, :away)
+    assert Presence.render(now) =~ "pinned away"
+  end
+
+  test "an assumed present does not read like an evidenced one (#328)" do
+    now = DateTime.utc_now()
+    recent = DateTime.add(now, -3 * 60, :second)
+    stale = DateTime.add(now, -9 * 3600, :second)
+    waiting = DateTime.add(now, -4 * 3600, :second)
+
+    # a sweep can only weigh the reading if it can see what it rests on
+    assert {:present, _at, :recent_action} = Presence.infer(recent, nil, 2700, 5400, now)
+    assert {:present, _at, :nothing_waiting} = Presence.infer(stale, nil, 2700, 5400, now)
+    assert {:away, _at, {:unanswered, _since}} = Presence.infer(stale, waiting, 2700, 5400, now)
   end
 
   test "render produces the one-line tick context either way" do
