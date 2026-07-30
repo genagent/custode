@@ -86,7 +86,44 @@ defmodule Custode.Sensor do
           end
 
         remember!(memory_key, current_keys)
+        observe(module, sensor_id, args, items)
         report(module, sensor_id, notify, args, current_keys, reject_seen(module, items, seen))
+    end
+  end
+
+  # Drift is measured over CURRENT items, not new ones (#246). The seen-set
+  # answers "is this new?", which is the wrong question here: a PR that has
+  # been red for a month is new exactly once and drifting the whole time.
+  # Recording every current item each run is what makes "how long has this
+  # been true?" answerable.
+  #
+  # Off by default. Enabling it lets threshold-crossing drift raise control
+  # WorkItems on a running fleet, which is the operator's call to make rather
+  # than a side effect of deploying.
+  defp observe(module, sensor_id, args, items) do
+    if Application.get_env(:custode, :observe_sensors, false) do
+      target = Map.get(args, "repo") || sensor_id
+
+      Enum.each(items, fn item ->
+        Custode.Observations.record(%{
+          source: sensor_id,
+          target: target,
+          dedup_key: sensor_id <> ":" <> module.key(item),
+          evidence: encodable(item)
+        })
+      end)
+    end
+
+    :ok
+  rescue
+    # a sensor must not fail because bookkeeping did
+    _error -> :ok
+  end
+
+  defp encodable(item) do
+    case Jason.encode(item) do
+      {:ok, json} -> Jason.decode!(json)
+      {:error, _reason} -> %{"summary" => inspect(item)}
     end
   end
 
