@@ -296,15 +296,31 @@ defmodule Custode.RepositoryHealthTest do
     })
   end
 
+  # Every table that references missions, child-first. An incomplete list
+  # passes when this file runs alone and fails with a foreign-key error the
+  # moment another module leaves a mission-referencing row behind, which is
+  # the "passes alone, fails on the third run" shape this repository has been
+  # bitten by before.
   defp cleanup! do
     Repo.query!("UPDATE attempts SET caused_by_attempt_id = NULL")
     Repo.query!("UPDATE artifacts SET producer_attempt_id = NULL")
-    Repo.delete_all(Attempt)
-    Repo.delete_all(ContextBundle)
-    Repo.delete_all(Artifact)
-    Repo.update_all(WorkItem, set: [parent_id: nil])
-    Repo.delete_all(WorkItem)
-    Repo.delete_all(MissionTarget)
-    Repo.delete_all(Mission)
+    Repo.query!("UPDATE work_items SET parent_id = NULL")
+
+    for table <- ~w(
+          work_events
+          work_gates
+          attempts
+          context_bundles
+          artifacts
+          workspace_leases
+          role_bindings
+          legacy_routine_mission_mappings
+          work_items
+          operation_calls
+          mission_targets
+          missions
+        ) do
+      Repo.query!("DELETE FROM #{table}")
+    end
   end
 end

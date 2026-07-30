@@ -42,10 +42,18 @@ defmodule Custode.RoleBindingsTest do
     assert first.executor_defaults["max_turns"] == 75
     assert first.recipe == %{"kind" => "legacy_routine_profile", "name" => "backlog_worker"}
 
-    assert [%{"module" => "Custode.Routine.Prompts", "role" => "backlog_worker"} = prompt] =
-             first.prompt_assets
+    # packaged assets rather than a module reference (#269), so the template
+    # version moves when the prompt text does
+    assert [charter, role_body] = first.prompt_assets
 
-    assert prompt["function"] == "for_role/2"
+    assert charter["kind"] == "packaged_asset"
+    assert charter["id"] == "charter"
+    assert charter["origin"] == "packaged"
+    assert charter["version"] == "sha256:" <> charter["digest"]
+
+    assert role_body["id"] == "backlog_worker"
+    assert role_body["version"] =~ ~r/^sha256:[0-9a-f]{64}$/
+
     assert "mcp__custode__repo_view_issue" in first.transport_allowlists["mcp"]
     refute "mcp__custode__pause_agent" in first.transport_allowlists["mcp"]
 
