@@ -9,6 +9,7 @@ defmodule Custode.RoleTemplates do
   """
 
   alias Custode.{Roles, RoleTemplate, Routine}
+  alias Custode.Routine.Prompts
 
   @executor_fields ~w(model effort timeout_ms max_turns hermetic agent mcp)a
   @budget_fields ~w(max_budget_usd daily_budget_usd daily_budget_tokens)a
@@ -86,14 +87,10 @@ defmodule Custode.RoleTemplates do
         "kind" => "legacy_routine_#{kind}",
         "name" => to_string(name)
       },
-      prompt_assets: [
-        %{
-          "kind" => "module_function",
-          "module" => "Custode.Routine.Prompts",
-          "function" => "for_role/2",
-          "role" => to_string(role)
-        }
-      ],
+      # Packaged assets rather than a module reference (#269), so the template
+      # version moves when the prompt text does and an Attempt can record the
+      # exact bytes it ran.
+      prompt_assets: Prompts.assets_for_role(role),
       executor_defaults: stringify(Map.take(defaults, @executor_fields)),
       budget_defaults: stringify(Map.take(defaults, @budget_fields)),
       limits: stringify(Map.take(defaults, @limit_fields)),

@@ -24,6 +24,8 @@ defmodule Custode.Application do
     Custode.SubAgents.attach()
     Custode.WorktreeBreadcrumb.attach()
     Custode.RunClock.attach()
+    # name any prompt-asset override before the first sweep reads one (#269)
+    Custode.Assets.report()
     Custode.Routine.ensure_workspaces!()
 
     children = [
