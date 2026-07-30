@@ -7,10 +7,23 @@ defmodule Custode.MCP.Server do
   claude's own tool permissions.
   """
 
+  alias Custode.MCP.WorkResources
+
   use Anubis.Server,
     name: "custode",
     version: "0.1.0",
-    capabilities: [:tools]
+    capabilities: [:tools, :resources]
+
+  @impl true
+  def init(_client_info, frame), do: {:ok, WorkResources.register(frame)}
+
+  @impl true
+  def handle_session_expired(_session_id, frame),
+    do: {:ok, WorkResources.register(frame)}
+
+  @impl true
+  def handle_resource_read(uri, frame),
+    do: WorkResources.read(uri, frame)
 
   component(Custode.MCP.Tools.ListRoutines, name: "list_routines")
   component(Custode.MCP.Tools.AgentStatus, name: "agent_status")
