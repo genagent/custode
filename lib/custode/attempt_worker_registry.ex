@@ -3,7 +3,7 @@ defmodule Custode.AttemptWorkerRegistry do
 
   alias Custode.{AttemptWorker, Executor}
   alias Custode.AttemptWorkers.GitHubIssue
-  alias Custode.Executors.Claude
+  alias Custode.Executors.{Claude, Codex}
 
   @enforce_keys [:workers]
   defstruct [:workers]
@@ -32,6 +32,7 @@ defmodule Custode.AttemptWorkerRegistry do
   @spec default() :: t()
   def default do
     %Executor.Capabilities{} = claude = Claude.capabilities()
+    %Executor.Capabilities{} = codex = Codex.capabilities()
 
     {:ok, deterministic} =
       AttemptWorker.new(
@@ -63,7 +64,22 @@ defmodule Custode.AttemptWorkerRegistry do
         handler: GitHubIssue
       )
 
-    {:ok, registry} = new([deterministic, model])
+    {:ok, codex_model} =
+      AttemptWorker.new(
+        name: "local.codex",
+        commands: ~w(implement repair handle_feedback resolve_conflict),
+        executor_kinds: codex.executor_kinds,
+        providers: [codex.provider],
+        repositories: :any,
+        tools: codex.tools,
+        operations: codex.operations,
+        isolation: codex.isolation,
+        features: codex.features,
+        max_concurrency: limit(:codex, 3),
+        handler: GitHubIssue
+      )
+
+    {:ok, registry} = new([deterministic, model, codex_model])
     registry
   end
 

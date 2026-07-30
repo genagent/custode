@@ -3,7 +3,7 @@ defmodule Custode.GitHubIssueVertical do
   The first bounded work-first vertical driven by a configured repository routine.
 
   It advances only the approved `github_issue_to_merge@1` pilot through
-  workspace preparation, reproducible context compilation, one Claude
+  workspace preparation, reproducible context compilation, one selected model
   implementation Attempt, deterministic verification, draft publication,
   and bounded review repair. Merge remains a separate later slice.
   """
@@ -28,6 +28,7 @@ defmodule Custode.GitHubIssueVertical do
   alias Custode.Workspace.Git
 
   @max_steps 8
+  @model_providers ~w(claude codex)
 
   @doc "Schedule one ID-only coordinator for each eligible intake result."
   def schedule(routine, results, options \\ []) when is_list(results) do
@@ -128,7 +129,8 @@ defmodule Custode.GitHubIssueVertical do
     with lease when not is_nil(lease) <- WorkspaceLeases.get_for_work_item(work_item.work_item_id),
          "active" <- lease.state,
          {:ok, compiled} <- GitHubIssueContext.latest_implementation(routine, work_item),
-         snapshot <- implementation_snapshot(routine, work_item, compiled),
+         {:ok, execution} <- model_execution(routine, work_item, options),
+         snapshot <- implementation_snapshot(routine, work_item, compiled, execution),
          :ok <- execute_claim(work_item, snapshot, options) do
       :ok
     else
@@ -164,7 +166,8 @@ defmodule Custode.GitHubIssueVertical do
     with lease when not is_nil(lease) <- WorkspaceLeases.get_for_work_item(work_item.work_item_id),
          "active" <- lease.state,
          {:ok, plan} <- RepairContext.plan(routine, work_item, lease, options),
-         snapshot <- repair_snapshot(routine, work_item, plan),
+         {:ok, execution} <- model_execution(routine, work_item, options),
+         snapshot <- repair_snapshot(routine, work_item, plan, execution),
          :ok <- execute_claim(work_item, snapshot, options) do
       :ok
     else
@@ -183,7 +186,8 @@ defmodule Custode.GitHubIssueVertical do
     with lease when not is_nil(lease) <- WorkspaceLeases.get_for_work_item(work_item.work_item_id),
          "active" <- lease.state,
          {:ok, plan} <- GitHubReviewContext.plan(routine, work_item, lease, options),
-         snapshot <- review_repair_snapshot(routine, work_item, plan),
+         {:ok, execution} <- model_execution(routine, work_item, options),
+         snapshot <- review_repair_snapshot(routine, work_item, plan, execution),
          :ok <- execute_claim(work_item, snapshot, options) do
       :ok
     else
@@ -321,24 +325,24 @@ defmodule Custode.GitHubIssueVertical do
     }
   end
 
-  defp implementation_snapshot(routine, work_item, compiled) do
+  defp implementation_snapshot(routine, work_item, compiled, execution) do
     bundle = compiled.bundle
     template = compiled.template
-    effort = routine.effort || "default"
 
     %{
       attempt: %{
-        attempt_id: stable_id("claude", work_item.work_item_id, bundle.digest),
+        attempt_id: stable_id(execution.provider, work_item.work_item_id, bundle.digest),
         role_binding_id: compiled.binding.binding_id,
         context_bundle_id: bundle.context_bundle_id,
         executor_kind: "model",
-        provider: "claude",
-        profile: "#{routine.model}:#{effort}",
+        provider: execution.provider,
+        profile: execution.profile,
         recipe_version: template.version,
         expected_work_item_version: work_item.version,
         provenance: %{
           purpose: "github_issue_implementation",
           legacy_routine_id: routine.id,
+          executor_selection: execution.selection,
           capabilities: GitHubIssueContext.capabilities()
         },
         dispatch: %{legacy_routine_id: routine.id}
@@ -373,7 +377,7 @@ defmodule Custode.GitHubIssueVertical do
     }
   end
 
-  defp repair_snapshot(_routine, _work_item, %{kind: :transition} = plan) do
+  defp repair_snapshot(_routine, _work_item, %{kind: :transition} = plan, _execution) do
     %{
       repair: %{
         kind: :transition,
@@ -382,27 +386,29 @@ defmodule Custode.GitHubIssueVertical do
     }
   end
 
-  defp repair_snapshot(routine, work_item, %{kind: :attempt} = plan) do
+  defp repair_snapshot(routine, work_item, %{kind: :attempt} = plan, execution) do
     disposition = plan.disposition
     source = plan.source_attempt
     model? = disposition.kind == "semantic_repair"
-    effort = routine.effort || "default"
+    provider = if(model?, do: execution.provider, else: "custode")
 
     %{
       repair: %{kind: :attempt},
       attempt: %{
-        attempt_id: stable_id("repair", work_item.work_item_id, plan.bundle.digest),
+        attempt_id:
+          stable_id(repair_prefix("repair", provider), work_item.work_item_id, plan.bundle.digest),
         role_binding_id: source.role_binding && source.role_binding.binding_id,
         caused_by_attempt_id: source.attempt_id,
         context_bundle_id: plan.bundle.context_bundle_id,
         executor_kind: if(model?, do: "model", else: "deterministic"),
-        provider: if(model?, do: "claude", else: "custode"),
-        profile: if(model?, do: "#{routine.model}:#{effort}", else: disposition.kind),
+        provider: provider,
+        profile: if(model?, do: execution.profile, else: disposition.kind),
         recipe_version: plan.policy_snapshot.policy.version,
         expected_work_item_version: work_item.version,
         provenance: %{
           purpose: "github_issue_repair",
           legacy_routine_id: routine.id,
+          executor_selection: if(model?, do: execution.selection),
           repair_disposition: Disposition.render(disposition),
           repair_policy: plan.policy_snapshot,
           failure_artifact_id: plan.failure_artifact.artifact_id,
@@ -414,7 +420,12 @@ defmodule Custode.GitHubIssueVertical do
     }
   end
 
-  defp review_repair_snapshot(_routine, _work_item, %{kind: :transition} = plan) do
+  defp review_repair_snapshot(
+         _routine,
+         _work_item,
+         %{kind: :transition} = plan,
+         _execution
+       ) do
     %{
       repair: %{
         kind: :transition,
@@ -423,23 +434,28 @@ defmodule Custode.GitHubIssueVertical do
     }
   end
 
-  defp review_repair_snapshot(routine, work_item, %{kind: :attempt} = plan) do
+  defp review_repair_snapshot(routine, work_item, %{kind: :attempt} = plan, execution) do
     disposition = plan.disposition
     source = plan.source_attempt
     evidence = plan.observation_evidence
     model? = disposition.kind == "semantic_repair"
-    effort = routine.effort || "default"
+    provider = if(model?, do: execution.provider, else: "custode")
 
     %{
       repair: %{kind: :attempt},
       attempt: %{
-        attempt_id: stable_id("review-repair", work_item.work_item_id, plan.bundle.digest),
+        attempt_id:
+          stable_id(
+            repair_prefix("review-repair", provider),
+            work_item.work_item_id,
+            plan.bundle.digest
+          ),
         role_binding_id: source.role_binding && source.role_binding.binding_id,
         caused_by_attempt_id: source.attempt_id,
         context_bundle_id: plan.bundle.context_bundle_id,
         executor_kind: if(model?, do: "model", else: "deterministic"),
-        provider: if(model?, do: "claude", else: "custode"),
-        profile: if(model?, do: "#{routine.model}:#{effort}", else: disposition.kind),
+        provider: provider,
+        profile: if(model?, do: execution.profile, else: disposition.kind),
         recipe_version: plan.policy_snapshot.policy.version,
         expected_work_item_version: work_item.version,
         provenance: %{
@@ -448,6 +464,7 @@ defmodule Custode.GitHubIssueVertical do
           repair_path: disposition.kind,
           active_phase: evidence["action"]["active_phase"],
           legacy_routine_id: routine.id,
+          executor_selection: if(model?, do: execution.selection),
           repair_disposition: Disposition.render(disposition),
           repair_policy: plan.policy_snapshot,
           failure_artifact_id: plan.observation_artifact.artifact_id,
@@ -521,6 +538,72 @@ defmodule Custode.GitHubIssueVertical do
         {:error, :repository_id_missing}
     end
   end
+
+  defp model_execution(routine, work_item, options) do
+    prior =
+      work_item.work_item_id
+      |> Attempts.list_for_work_item()
+      |> Enum.reverse()
+      |> Enum.find(&(&1.executor_kind == "model" and &1.provider in @model_providers))
+
+    provider =
+      Keyword.get(options, :executor_provider) ||
+        (prior && prior.provider) ||
+        Application.get_env(:custode, :github_issue_executor_provider, "claude")
+
+    if provider in @model_providers do
+      selection = model_selection(routine, provider, prior, options)
+
+      {:ok,
+       %{
+         provider: provider,
+         selection: selection,
+         profile: model_profile(routine, provider, selection)
+       }}
+    else
+      {:error, {:unsupported_model_executor_provider, provider}}
+    end
+  end
+
+  defp model_selection(routine, provider, prior, options) do
+    option_selection = Keyword.get(options, :executor_selection)
+
+    prior_selection =
+      if prior && prior.provider == provider,
+        do: get_in(prior.provenance || %{}, ["executor_selection"])
+
+    configured =
+      case provider do
+        "claude" ->
+          Routine.tick_args(routine)["start"]["args"] |> Map.take(~w(model effort agent))
+
+        "codex" ->
+          Application.get_env(:custode, :codex_executor_selection, %{})
+      end
+
+    (option_selection || prior_selection || configured)
+    |> stringify_keys()
+    |> Map.take(~w(model profile effort agent))
+  end
+
+  defp model_profile(routine, "claude", selection) do
+    model = selection["model"] || routine.model
+    effort = selection["effort"] || routine.effort || "default"
+    "#{model}:#{effort}"
+  end
+
+  defp model_profile(_routine, "codex", selection) do
+    selection["model"] || selection["profile"] || "codex:default"
+  end
+
+  defp repair_prefix(prefix, "claude"), do: prefix
+  defp repair_prefix(prefix, provider), do: "#{provider}-#{prefix}"
+
+  defp stringify_keys(map) when is_map(map) do
+    Map.new(map, fn {key, value} -> {to_string(key), value} end)
+  end
+
+  defp stringify_keys(_other), do: %{}
 
   defp eligible?(result) do
     work_item = value(result, :work_item)

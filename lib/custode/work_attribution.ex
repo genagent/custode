@@ -291,17 +291,26 @@ defmodule Custode.WorkAttribution do
         attempts: length(attempts),
         duration_ms: 0,
         commands: 0,
-        model_turns: 0
+        model_turns: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_tokens: 0,
+        cache_read_tokens: 0
       },
       fn attempt, totals ->
         usage = attempt.usage || %{}
+        tokens = logical_tokens(usage)
 
         %{
           reported_cost_usd: totals.reported_cost_usd + number(usage, "cost_usd"),
           attempts: totals.attempts,
           duration_ms: totals.duration_ms + integer(usage, "duration_ms"),
           commands: totals.commands + integer(usage, "commands"),
-          model_turns: totals.model_turns + integer(usage, "num_turns")
+          model_turns: totals.model_turns + integer(usage, "num_turns"),
+          input_tokens: totals.input_tokens + tokens.input,
+          output_tokens: totals.output_tokens + tokens.output,
+          cache_creation_tokens: totals.cache_creation_tokens + tokens.cache_creation,
+          cache_read_tokens: totals.cache_read_tokens + tokens.cache_read
         }
       end
     )
@@ -312,14 +321,17 @@ defmodule Custode.WorkAttribution do
 
     differences =
       Enum.flat_map(attempts, fn attempt ->
-        reported = number(attempt.usage || %{}, "cost_usd")
+        usage = attempt.usage || %{}
+        reported = number(usage, "cost_usd")
+        reported_tokens = logical_tokens(usage)
+        attempt_charges = Map.get(charges_by_attempt, attempt.attempt_id, [])
 
         recorded =
-          charges_by_attempt
-          |> Map.get(attempt.attempt_id, [])
-          |> Enum.reduce(0.0, &((&1.cost_usd || 0.0) + &2))
+          Enum.reduce(attempt_charges, 0.0, &((&1.cost_usd || 0.0) + &2))
 
-        if close?(reported, recorded) do
+        recorded_tokens = physical_tokens(attempt_charges)
+
+        if close?(reported, recorded) and reported_tokens == recorded_tokens do
           []
         else
           [
@@ -327,7 +339,9 @@ defmodule Custode.WorkAttribution do
               attempt_id: attempt.attempt_id,
               reported_cost_usd: reported,
               recorded_cost_usd: recorded,
-              delta_usd: recorded - reported
+              delta_usd: recorded - reported,
+              reported_tokens: reported_tokens,
+              recorded_tokens: recorded_tokens
             }
           ]
         end
@@ -588,6 +602,46 @@ defmodule Custode.WorkAttribution do
       value when is_number(value) -> value * 1.0
       _missing -> 0.0
     end
+  end
+
+  defp logical_tokens(usage) do
+    tokens = Map.get(usage, "tokens") || Map.get(usage, :tokens) || %{}
+
+    %{
+      input: token_integer(tokens, ["input", "input_tokens"]),
+      output: token_integer(tokens, ["output", "output_tokens"]),
+      cache_creation:
+        token_integer(tokens, [
+          "cache_creation",
+          "cache_creation_input_tokens",
+          "cache_write_input_tokens"
+        ]),
+      cache_read: token_integer(tokens, ["cache_read", "cached_input_tokens"])
+    }
+  end
+
+  defp physical_tokens(entries) do
+    Enum.reduce(
+      entries,
+      %{input: 0, output: 0, cache_creation: 0, cache_read: 0},
+      fn entry, totals ->
+        %{
+          input: totals.input + (entry.input_tokens || 0),
+          output: totals.output + (entry.output_tokens || 0),
+          cache_creation: totals.cache_creation + (entry.cache_creation_tokens || 0),
+          cache_read: totals.cache_read + (entry.cache_read_tokens || 0)
+        }
+      end
+    )
+  end
+
+  defp token_integer(tokens, keys) do
+    Enum.find_value(keys, 0, fn key ->
+      case Map.get(tokens, key) do
+        value when is_number(value) -> trunc(value)
+        _missing -> nil
+      end
+    end)
   end
 
   defp integer(map, key), do: trunc(number(map, key))

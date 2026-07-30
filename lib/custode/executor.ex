@@ -210,6 +210,7 @@ defmodule Custode.Executor do
       do: Map.new(map, fn {key, nested} -> {to_string(key), normalize(nested)} end)
 
     defp normalize(list) when is_list(list), do: Enum.map(list, &normalize/1)
+    defp normalize(value) when is_boolean(value), do: value
     defp normalize(value) when is_atom(value), do: to_string(value)
     defp normalize(value), do: value
   end

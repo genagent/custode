@@ -1,6 +1,6 @@
 defmodule Custode.SpendLedger do
   @moduledoc """
-  The durable money trail: one row per claude turn (successes and failures
+  The durable money trail: one row per model turn (successes and failures
   both carry spend), written from the same run telemetry the feed uses --
   so spend survives restarts, unlike the in-process `info/1` counters.
 
@@ -98,7 +98,9 @@ defmodule Custode.SpendLedger do
 
   @events [
     [:oban_claude, :run, :stop],
-    [:oban_claude, :run, :exception]
+    [:oban_claude, :run, :exception],
+    [:oban_codex, :run, :stop],
+    [:oban_codex, :run, :exception]
   ]
 
   def attach do
@@ -121,12 +123,13 @@ defmodule Custode.SpendLedger do
       :ok
   end
 
-  defp do_handle_event([:oban_claude, :run, outcome], measurements, meta, _config) do
+  defp do_handle_event([integration, :run, outcome], measurements, meta, _config)
+       when integration in [:oban_claude, :oban_codex] do
     case meta do
       %{job: %{meta: %{"agent_id" => agent_id}} = job} ->
         options =
           usage_of(meta) ++
-            [model: model_of(meta), provider: "claude"] ++
+            [model: model_of(meta), provider: provider(integration)] ++
             dimensions_of(meta) ++
             [ingestion_key: telemetry_ingestion_key(job, outcome)]
 
@@ -145,7 +148,27 @@ defmodule Custode.SpendLedger do
     end
   end
 
+  defp usage_of(%{result: %CodexWrapper.Result{} = result}) do
+    case ObanCodex.usage(result) do
+      nil ->
+        []
+
+      usage ->
+        [
+          usage: %{
+            input: usage["input_tokens"],
+            output: usage["output_tokens"],
+            cache_creation: usage["cache_write_input_tokens"],
+            cache_read: usage["cached_input_tokens"]
+          }
+        ]
+    end
+  end
+
   defp usage_of(_meta), do: []
+
+  defp provider(:oban_claude), do: "claude"
+  defp provider(:oban_codex), do: "codex"
 
   defp model_of(%{args: %{"model" => model}}), do: model
   defp model_of(_meta), do: nil
