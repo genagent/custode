@@ -2,9 +2,10 @@ defmodule Custode.WorkKinds do
   @moduledoc "Deterministic lookup and dispatch for versioned work-kind behavior."
 
   alias Custode.WorkItem
-  alias Custode.WorkKinds.GithubIssueToMerge.V1
+  alias Custode.WorkKinds.GithubIssueToMerge
+  alias Custode.WorkKinds.SystemicDriftControl
 
-  @definitions [V1]
+  @definitions [GithubIssueToMerge.V1, SystemicDriftControl.V1]
 
   @spec fetch(String.t(), pos_integer()) :: {:ok, module()} | {:error, term()}
   def fetch(kind, version) do

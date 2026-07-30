@@ -16,6 +16,7 @@ for table <- [
       "gates",
       "disowned_prs",
       "asks",
+      "observations",
       "feed_entries",
       "issue_drafts",
       "instance",
