@@ -19,6 +19,7 @@ defmodule Custode.GitHubIssueVertical do
     Routine,
     VerificationContext,
     WorkItems,
+    WorkPolicy,
     WorkProcess,
     WorkspaceLeases
   }
@@ -111,7 +112,11 @@ defmodule Custode.GitHubIssueVertical do
     with lease when not is_nil(lease) <- WorkspaceLeases.get_for_work_item(work_item.work_item_id),
          "active" <- lease.state,
          {:ok, compiled} <- GitHubIssueContext.compile(routine, work_item, lease, options),
-         snapshot <- context_wake_snapshot(compiled.bundle),
+         snapshot <-
+           context_wake_snapshot(
+             compiled.bundle,
+             policy!(routine, work_item, "custode", %{})
+           ),
          :ok <- execute_claim(work_item, snapshot, options) do
       continue(routine, work_item.work_item_id, options)
     else
@@ -289,7 +294,8 @@ defmodule Custode.GitHubIssueVertical do
         expected_work_item_version: work_item.version,
         provenance: %{
           purpose: "workspace_preparation",
-          legacy_routine_id: routine.id
+          legacy_routine_id: routine.id,
+          work_policy: policy!(routine, work_item, "custode", %{})
         },
         dispatch: %{
           work_item_id: work_item.work_item_id,
@@ -306,7 +312,7 @@ defmodule Custode.GitHubIssueVertical do
     }
   end
 
-  defp context_wake_snapshot(bundle) do
+  defp context_wake_snapshot(bundle, work_policy) do
     %{
       wake: %{
         kind: "reconciler",
@@ -318,7 +324,8 @@ defmodule Custode.GitHubIssueVertical do
             context_bundle_digest: %{
               context_bundle_id: bundle.context_bundle_id,
               digest: bundle.digest
-            }
+            },
+            work_policy: work_policy
           }
         }
       }
@@ -343,6 +350,7 @@ defmodule Custode.GitHubIssueVertical do
           purpose: "github_issue_implementation",
           legacy_routine_id: routine.id,
           executor_selection: execution.selection,
+          work_policy: policy!(routine, work_item, execution.provider, execution.selection),
           capabilities: GitHubIssueContext.capabilities()
         },
         dispatch: %{legacy_routine_id: routine.id}
@@ -369,6 +377,7 @@ defmodule Custode.GitHubIssueVertical do
         provenance: %{
           purpose: "github_issue_verification",
           legacy_routine_id: routine.id,
+          work_policy: policy!(routine, work_item, "custode", %{}),
           verification_recipe_digest: recipe.digest,
           workspace_revision: compiled.workspace_revision["revision"]
         },
@@ -377,11 +386,15 @@ defmodule Custode.GitHubIssueVertical do
     }
   end
 
-  defp repair_snapshot(_routine, _work_item, %{kind: :transition} = plan, _execution) do
+  defp repair_snapshot(routine, work_item, %{kind: :transition} = plan, _execution) do
     %{
       repair: %{
         kind: :transition,
-        transition: plan.transition
+        transition:
+          put_transition_policy(
+            plan.transition,
+            policy!(routine, work_item, "custode", %{})
+          )
       }
     }
   end
@@ -409,6 +422,13 @@ defmodule Custode.GitHubIssueVertical do
           purpose: "github_issue_repair",
           legacy_routine_id: routine.id,
           executor_selection: if(model?, do: execution.selection),
+          work_policy:
+            policy!(
+              routine,
+              work_item,
+              provider,
+              if(model?, do: execution.selection, else: %{})
+            ),
           repair_disposition: Disposition.render(disposition),
           repair_policy: plan.policy_snapshot,
           failure_artifact_id: plan.failure_artifact.artifact_id,
@@ -421,15 +441,19 @@ defmodule Custode.GitHubIssueVertical do
   end
 
   defp review_repair_snapshot(
-         _routine,
-         _work_item,
+         routine,
+         work_item,
          %{kind: :transition} = plan,
          _execution
        ) do
     %{
       repair: %{
         kind: :transition,
-        transition: plan.transition
+        transition:
+          put_transition_policy(
+            plan.transition,
+            policy!(routine, work_item, "custode", %{})
+          )
       }
     }
   end
@@ -465,6 +489,13 @@ defmodule Custode.GitHubIssueVertical do
           active_phase: evidence["action"]["active_phase"],
           legacy_routine_id: routine.id,
           executor_selection: if(model?, do: execution.selection),
+          work_policy:
+            policy!(
+              routine,
+              work_item,
+              provider,
+              if(model?, do: execution.selection, else: %{})
+            ),
           repair_disposition: Disposition.render(disposition),
           repair_policy: plan.policy_snapshot,
           failure_artifact_id: plan.observation_artifact.artifact_id,
@@ -500,6 +531,7 @@ defmodule Custode.GitHubIssueVertical do
         provenance: %{
           purpose: "github_issue_publication",
           legacy_routine_id: routine.id,
+          work_policy: policy!(routine, work_item, "custode", %{}),
           workspace_lease_id: compiled.lease.lease_id,
           workspace_revision: publication["expected_workspace_revision"],
           expected_head_revision: publication["expected_head_revision"],
@@ -594,6 +626,27 @@ defmodule Custode.GitHubIssueVertical do
 
   defp model_profile(_routine, "codex", selection) do
     selection["model"] || selection["profile"] || "codex:default"
+  end
+
+  defp policy!(routine, work_item, provider, selection) do
+    source_snapshot = WorkItems.latest_source_snapshot(work_item.work_item_id) || %{}
+
+    {:ok, decision} =
+      WorkPolicy.compatibility(routine, work_item,
+        provider: provider,
+        selection: selection,
+        source_snapshot: source_snapshot
+      )
+
+    WorkPolicy.render(decision)
+  end
+
+  defp put_transition_policy(transition, work_policy) do
+    evidence = value(transition, :evidence) || %{}
+
+    transition
+    |> Map.delete("evidence")
+    |> Map.put(:evidence, Map.put(evidence, :work_policy, work_policy))
   end
 
   defp repair_prefix(prefix, "claude"), do: prefix

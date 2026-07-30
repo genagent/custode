@@ -255,6 +255,19 @@ defmodule Custode.GitHubIssueVerticalTest do
     assert implementation.state == "running"
     assert implementation.provider == "claude"
 
+    assert get_in(implementation.provenance, ["work_policy", "posture"]) == "auto"
+
+    assert get_in(implementation.provenance, [
+             "work_policy",
+             "controls",
+             "execution",
+             "limits"
+           ]) == %{
+             "max_context_tokens" => nil,
+             "max_turns" => 12,
+             "timeout_ms" => 60_000
+           }
+
     assert implementation.expected_work_item_version + 1 ==
              WorkItems.get(work_item.work_item_id).version
 
@@ -263,6 +276,16 @@ defmodule Custode.GitHubIssueVerticalTest do
 
     job = provider_job!(implementation.attempt_id)
     test_pid = self()
+
+    [configured_routine] = Application.fetch_env!(:custode, :routines)
+
+    put_env!(:routines, [
+      Map.merge(configured_routine, %{
+        max_turns: 99,
+        max_budget_usd: 9.0,
+        timeout_ms: 900_000
+      })
+    ])
 
     query_fun = fn prompt, options ->
       send(test_pid, {:provider_args, prompt, options})
@@ -307,6 +330,9 @@ defmodule Custode.GitHubIssueVerticalTest do
              WorkspaceLeases.get_for_work_item(work_item.work_item_id).workspace_path
 
     assert provider_options[:permission_mode] == :accept_edits
+    assert provider_options[:max_turns] == 12
+    assert provider_options[:max_budget_usd] == 1.0
+    assert provider_options[:timeout] == 60_000
     assert provider_options[:allowed_tools] == ~w(Read Glob Grep Edit Write)
     assert "Bash" in provider_options[:disallowed_tools]
     refute Keyword.has_key?(provider_options, :mcp_config)
@@ -718,6 +744,8 @@ defmodule Custode.GitHubIssueVerticalTest do
     assert gate.arguments["expected_head_sha"] == pull_request.head_sha
     assert gate.arguments["expected_version"] == waiting.version + 1
     assert gate.external_preconditions["review_state"]["status"] == "approved"
+    assert gate.grant_decision["work_policy"]["posture"] == "ask"
+    assert gate.grant_decision["work_policy"]["version"] == waiting.policy_ref
     refute_receive {:merge_pr_at_head, _number, _head}, 50
 
     assert {:ok, approved, response} =
@@ -747,6 +775,7 @@ defmodule Custode.GitHubIssueVerticalTest do
     merge_call = Repo.get_by!(OperationCall, call_id: response.call_id)
     assert merge_call.correlation_id == gate.correlation_id
     assert merge_call.causation_id == gate.causation_id
+    assert merge_call.authorization_result["work_policy"]["posture"] == "ask"
 
     completion =
       waiting.work_item_id
@@ -2357,24 +2386,36 @@ defmodule Custode.GitHubIssueVerticalTest do
   end
 
   defp insert_running_merge_call!(gate) do
-    %{
-      call_id: Ecto.UUID.generate(),
-      operation: gate.operation,
-      arguments: gate.arguments,
-      actor: %{"kind" => "operator", "id" => "crashed-approver"},
-      transport: "cli",
-      risk: "external_write",
-      idempotency_scope: "github-merge:#{gate.work_item.work_item_id}",
-      idempotency_key: gate.operation_idempotency_key,
-      expected_versions: %{"work_item" => gate.work_item_version},
-      correlation_id: gate.correlation_id,
-      causation_id: gate.causation_id,
-      mission_id: gate.mission.mission_id,
-      work_item_id: gate.work_item.work_item_id,
-      status: "running"
-    }
-    |> OperationCall.create_changeset()
-    |> Repo.insert!()
+    call =
+      %{
+        call_id: Ecto.UUID.generate(),
+        operation: gate.operation,
+        arguments: gate.arguments,
+        actor: %{"kind" => "operator", "id" => "crashed-approver"},
+        transport: "cli",
+        risk: "external_write",
+        idempotency_scope: "github-merge:#{gate.work_item.work_item_id}",
+        idempotency_key: gate.operation_idempotency_key,
+        expected_versions: %{"work_item" => gate.work_item_version},
+        correlation_id: gate.correlation_id,
+        causation_id: gate.causation_id,
+        mission_id: gate.mission.mission_id,
+        work_item_id: gate.work_item.work_item_id,
+        status: "running"
+      }
+      |> OperationCall.create_changeset()
+      |> Repo.insert!()
+
+    call
+    |> OperationCall.update_changeset(%{
+      grant: "operator",
+      authorization_result: %{
+        "decision" => "allowed",
+        "grant" => "operator",
+        "work_policy" => gate.grant_decision["work_policy"]
+      }
+    })
+    |> Repo.update!()
   end
 
   defp review_observation(work_item, attrs) do

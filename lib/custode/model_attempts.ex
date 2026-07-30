@@ -545,11 +545,7 @@ defmodule Custode.ModelAttempts do
         features: ["cancellation", "heartbeat", "structured_output", "timeout"]
       },
       selection: selection,
-      limits: %{
-        max_turns: configured["max_turns"],
-        max_budget_usd: configured["max_budget_usd"],
-        timeout_ms: configured["timeout"]
-      },
+      limits: execution_limits(attempt, configured),
       workspace: %{
         lease_id: lease.lease_id,
         path: lease.workspace_path,
@@ -1063,7 +1059,15 @@ defmodule Custode.ModelAttempts do
   end
 
   defp executor_selection(attempt, configured) do
-    case get_in(attempt.provenance || %{}, ["executor_selection"]) do
+    pinned =
+      get_in(attempt.provenance || %{}, [
+        "work_policy",
+        "controls",
+        "execution",
+        "selection"
+      ])
+
+    case pinned || get_in(attempt.provenance || %{}, ["executor_selection"]) do
       selection when is_map(selection) ->
         normalize(selection)
 
@@ -1071,6 +1075,36 @@ defmodule Custode.ModelAttempts do
         configured
         |> Map.take(~w(model effort agent))
         |> maybe_put_map("profile", attempt.profile)
+    end
+  end
+
+  defp execution_limits(attempt, configured) do
+    case get_in(attempt.provenance || %{}, [
+           "work_policy",
+           "controls",
+           "execution",
+           "limits"
+         ]) do
+      limits when is_map(limits) ->
+        %{
+          max_turns: limits["max_turns"],
+          max_budget_usd:
+            get_in(attempt.provenance || %{}, [
+              "work_policy",
+              "controls",
+              "budget",
+              "max_spend_usd"
+            ]),
+          timeout_ms: limits["timeout_ms"],
+          max_context_tokens: limits["max_context_tokens"]
+        }
+
+      _legacy ->
+        %{
+          max_turns: configured["max_turns"],
+          max_budget_usd: configured["max_budget_usd"],
+          timeout_ms: configured["timeout"]
+        }
     end
   end
 

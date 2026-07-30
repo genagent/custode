@@ -18,6 +18,8 @@ defmodule Custode.OperationEnvelope do
                 :grant,
                 :idempotency_key,
                 :expected_versions,
+                :gate_id,
+                :policy,
                 :correlation_id,
                 :causation_id,
                 dry_run: false
@@ -36,6 +38,8 @@ defmodule Custode.OperationEnvelope do
           grant: atom() | nil,
           idempotency_key: String.t() | nil,
           expected_versions: map() | nil,
+          gate_id: String.t() | nil,
+          policy: map() | nil,
           correlation_id: String.t() | nil,
           causation_id: String.t() | nil,
           dry_run: boolean()
@@ -50,6 +54,8 @@ defmodule Custode.OperationEnvelope do
          :ok <- valid?(valid_actor?(envelope.actor), :actor),
          :ok <- valid?(envelope.transport in @transports, :transport),
          :ok <- valid?(is_boolean(envelope.dry_run), :dry_run),
+         :ok <- valid?(optional_binary?(envelope.gate_id), :gate_id),
+         :ok <- valid?(is_nil(envelope.policy) or is_map(envelope.policy), :policy),
          :ok <- valid?(optional_binary?(envelope.correlation_id), :correlation_id),
          :ok <- valid?(optional_binary?(envelope.causation_id), :causation_id) do
       {:ok, envelope}

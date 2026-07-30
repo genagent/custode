@@ -2,7 +2,7 @@ defmodule Custode.OperationDispatcherTest do
   use ExUnit.Case, async: false
 
   import Custode.TestHelpers
-  alias Custode.{OperationDispatcher, OperationRegistry}
+  alias Custode.{OperationCall, OperationDispatcher, OperationRegistry, Repo}
   alias Custode.Operations.Fleet.PauseAgent
   alias ObanClaude.Agent
 
@@ -48,7 +48,35 @@ defmodule Custode.OperationDispatcherTest do
   test "authorization refuses a non-operator actor" do
     assert {:error, {:denied, :operator_required}} =
              dispatch(%{agent_id: "anything"}, OperationRegistry.default(),
-               actor: %{kind: :sub_agent, id: "worker"}
+               actor: %{kind: :sub_agent, id: "worker"},
+               policy: %{version: "policy-v1", posture: "auto"}
+             )
+  end
+
+  test "an idempotency replay refuses a changed pinned policy" do
+    key = "policy-replay-#{System.unique_integer([:positive])}"
+    id = start_stub_agent!()
+    first = %{version: "policy-v1", posture: "auto", fingerprint: "first"}
+    changed = %{version: "policy-v1", posture: "auto", fingerprint: "changed"}
+
+    assert {:ok, _response} =
+             dispatch(%{agent_id: id}, OperationRegistry.default(),
+               idempotency_key: key,
+               policy: first
+             )
+
+    assert Repo.get_by!(OperationCall, idempotency_key: key).authorization_result[
+             "work_policy"
+           ] == %{
+             "fingerprint" => "first",
+             "posture" => "auto",
+             "version" => "policy-v1"
+           }
+
+    assert {:error, {:stale, :work_policy_changed}} =
+             dispatch(%{agent_id: id}, OperationRegistry.default(),
+               idempotency_key: key,
+               policy: changed
              )
   end
 
@@ -179,6 +207,7 @@ defmodule Custode.OperationDispatcherTest do
         end),
       correlation_id: options[:correlation_id],
       causation_id: options[:causation_id],
+      policy: options[:policy],
       dry_run: Keyword.get(options, :dry_run, false)
     }
 
