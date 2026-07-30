@@ -351,6 +351,10 @@ defmodule Custode.GitHubIssueVertical do
           legacy_routine_id: routine.id,
           executor_selection: execution.selection,
           work_policy: policy!(routine, work_item, execution.provider, execution.selection),
+          # what the provider's own quota said when this Attempt was selected
+          # (#393); recorded even when it said nothing, so an absent
+          # observation is distinguishable from an unchecked one
+          work_availability: Custode.Availability.provenance(execution.provider),
           capabilities: GitHubIssueContext.capabilities()
         },
         dispatch: %{legacy_routine_id: routine.id}

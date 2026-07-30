@@ -24,6 +24,8 @@ defmodule Custode.Application do
     Custode.SubAgents.attach()
     Custode.WorktreeBreadcrumb.attach()
     Custode.RunClock.attach()
+    # the provider-availability observation cache (#393)
+    Custode.Availability.attach()
     # name any prompt-asset override before the first sweep reads one (#269),
     # and fail loudly on a bad declarative definition before work is
     # scheduled rather than three phases into a sweep (#270)
