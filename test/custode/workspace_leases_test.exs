@@ -1,12 +1,12 @@
 defmodule Custode.WorkspaceLeasesTest do
   use ExUnit.Case, async: false
 
+  alias Custode.TestHelpers
+
   alias Custode.{
     Artifact,
     Artifacts,
-    Attempt,
     Attempts,
-    ContextBundle,
     ContextBundles,
     Mission,
     MissionTarget,
@@ -452,20 +452,6 @@ defmodule Custode.WorkspaceLeasesTest do
   end
 
   defp cleanup! do
-    Repo.delete_all(WorkspaceLease)
-    Repo.query!("UPDATE artifacts SET producer_attempt_id = NULL")
-    Repo.query!("UPDATE attempts SET caused_by_attempt_id = NULL")
-    Repo.delete_all(Attempt)
-    Repo.delete_all(ContextBundle)
-    Repo.delete_all(Artifact)
-    Repo.delete_all(Custode.WorkEvent)
-    Repo.delete_all(Custode.WorkGate)
-    Repo.update_all(WorkItem, set: [parent_id: nil])
-    Repo.delete_all(WorkItem)
-    Repo.delete_all(Custode.RoleBinding)
-    Repo.delete_all(Custode.LegacyRoutineMissionMapping)
-    Repo.delete_all(MissionTarget)
-    Repo.delete_all(Custode.OperationCall)
-    Repo.delete_all(Mission)
+    TestHelpers.truncate_work!()
   end
 end

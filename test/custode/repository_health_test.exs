@@ -4,6 +4,8 @@ defmodule Custode.RepositoryHealthTest do
   # the evidence, and determinism under replay.
   use ExUnit.Case, async: false
 
+  alias Custode.TestHelpers
+
   alias Custode.{
     Artifact,
     Attempt,
@@ -302,25 +304,6 @@ defmodule Custode.RepositoryHealthTest do
   # the "passes alone, fails on the third run" shape this repository has been
   # bitten by before.
   defp cleanup! do
-    Repo.query!("UPDATE attempts SET caused_by_attempt_id = NULL")
-    Repo.query!("UPDATE artifacts SET producer_attempt_id = NULL")
-    Repo.query!("UPDATE work_items SET parent_id = NULL")
-
-    for table <- ~w(
-          work_events
-          work_gates
-          attempts
-          context_bundles
-          artifacts
-          workspace_leases
-          role_bindings
-          legacy_routine_mission_mappings
-          work_items
-          operation_calls
-          mission_targets
-          missions
-        ) do
-      Repo.query!("DELETE FROM #{table}")
-    end
+    TestHelpers.truncate_work!()
   end
 end
