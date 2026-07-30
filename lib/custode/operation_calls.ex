@@ -137,6 +137,8 @@ defmodule Custode.OperationCalls do
   end
 
   defp continue_authorized(call, definition, envelope, executor, prior_status) do
+    envelope = %{envelope | call_id: call.call_id}
+
     call =
       update!(call, %{
         authorization_result: %{
@@ -236,8 +238,6 @@ defmodule Custode.OperationCalls do
         started_at: call.started_at || now()
       })
 
-    envelope = %{envelope | call_id: call.call_id}
-
     case executor.(definition, envelope) do
       {:ok, outcome} ->
         call =
@@ -245,6 +245,17 @@ defmodule Custode.OperationCalls do
             result: json(outcome.result),
             effect_preview: json(outcome.effect_preview),
             effects: effects(outcome.effects)
+          })
+
+        {:ok, response(call, false)}
+
+      {:error, {:operation_waiting, reason}} ->
+        call =
+          update!(call, %{
+            status: "waiting",
+            error: error("uncertain_external_outcome", reason),
+            lease_token: nil,
+            lease_expires_at: nil
           })
 
         {:ok, response(call, false)}

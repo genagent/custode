@@ -27,6 +27,7 @@ defmodule Custode.Attention.VerifyTest do
     def comment(_owner, _repo, _number, _body), do: {:error, :unused}
     def ready_pr(_owner, _repo, _number), do: {:error, :unused}
     def merge_pr(_owner, _repo, _number), do: {:error, :unused}
+    def merge_pr_at_head(_owner, _repo, _number, _head_sha), do: {:error, :unused}
     def list_issues(_owner, _repo, _opts), do: {:error, :unused}
     def view_issue(_owner, _repo, _number), do: {:error, :unused}
     def list_prs(_owner, _repo, _opts), do: {:error, :unused}

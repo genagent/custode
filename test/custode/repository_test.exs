@@ -32,6 +32,11 @@ defmodule Custode.RepositoryTest do
       {:ok, %{"merged" => true}}
     end
 
+    def merge_pr_at_head(owner, repo, number, head_sha) do
+      send(pid(), {:merge_pr_at_head, owner, repo, number, head_sha})
+      {:ok, %{"merged" => true, "sha" => "merge-sha"}}
+    end
+
     def review_state(_owner, _repo, _number) do
       Application.get_env(:custode, :fake_review_state, :unreviewed)
     end
@@ -190,6 +195,21 @@ defmodule Custode.RepositoryTest do
     put_env!(:fake_review_state, {:reviewed, "review: lgtm"})
     assert {:ok, %{"merged" => true}} = Repository.merge_pr(repo, 7)
     assert_receive {:merge_pr, "acme", _bare, 7}
+  end
+
+  test "the gated seam preserves the review floor and pins the expected head", %{repo: repo} do
+    put_env!(:fake_review_state, :unreviewed)
+
+    assert {:error, message} = Repository.merge_pr_at_head(repo, 7, "head-7")
+    assert message =~ "workflow review"
+    refute_receive {:merge_pr_at_head, _owner, _repo, _number, _head}, 50
+
+    put_env!(:fake_review_state, {:reviewed, "approving review"})
+
+    assert {:ok, %{"merged" => true, "sha" => "merge-sha"}} =
+             Repository.merge_pr_at_head(repo, 7, "head-7")
+
+    assert_receive {:merge_pr_at_head, "acme", _bare, 7, "head-7"}
   end
 
   test "comment and ready_pr pass through", %{repo: repo} do

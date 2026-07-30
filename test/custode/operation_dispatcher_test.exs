@@ -18,6 +18,7 @@ defmodule Custode.OperationDispatcherTest do
     assert [
              "fleet.pause_agent",
              "git.publish_branch",
+             "github.merge_pr",
              "github.open_pr",
              "mission.archive",
              "mission.create",

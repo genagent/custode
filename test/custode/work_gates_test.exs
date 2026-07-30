@@ -286,6 +286,44 @@ defmodule Custode.WorkGatesTest do
     assert WorkItems.get(work_item.work_item_id).state == "waiting"
   end
 
+  test "an uncertain external outcome keeps the gate and operation recoverable" do
+    {_mission, work_item} = insert_waiting_work!("waiting", "gate-waiting")
+    waiting = definition(handler: fn _arguments, _envelope -> {:waiting, :confirming} end)
+    {:ok, registry} = OperationRegistry.new([waiting])
+
+    assert {:ok, gate} =
+             propose(work_item, "gate-waiting",
+               registry: registry,
+               operation: "test.gated_command",
+               subject_kind: "operation_call",
+               arguments: command_arguments(work_item)
+             )
+
+    assert {:ok, pending, response} =
+             WorkGates.approve(
+               gate.gate_id,
+               current_preconditions(),
+               resolver(registry: registry)
+             )
+
+    assert pending.status == "open"
+    assert pending.operation_call_id == response.call_id
+    assert response.status == :waiting
+    assert Repo.get_by!(OperationCall, call_id: response.call_id).status == "waiting"
+
+    assert {:ok, still_pending, replay} =
+             WorkGates.approve(
+               gate.gate_id,
+               current_preconditions(),
+               resolver(registry: registry)
+             )
+
+    assert still_pending.status == "open"
+    assert replay.call_id == response.call_id
+    assert replay.status == :waiting
+    assert replay.replayed
+  end
+
   test "cancel and supersede are terminal and a replacement stays work-scoped" do
     {_mission, first_work} = insert_waiting_work!("cancel", "gate-cancel")
     assert {:ok, gate} = propose(first_work, "gate-cancel")
