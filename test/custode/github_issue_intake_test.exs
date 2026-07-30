@@ -7,12 +7,8 @@ defmodule Custode.GitHubIssueIntakeTest do
     Attempt,
     GitHubIssueIntake,
     LegacyRoutineMissionMapping,
-    Mission,
-    MissionTarget,
     OperationCall,
     Repo,
-    RoleBinding,
-    WorkEvent,
     WorkItem,
     WorkItems
   }
@@ -40,16 +36,7 @@ defmodule Custode.GitHubIssueIntakeTest do
   end
 
   setup do
-    Repo.delete_all(WorkEvent)
-    Repo.delete_all(Custode.WorkGate)
-    Repo.delete_all(Attempt)
-    Repo.update_all(WorkItem, set: [parent_id: nil])
-    Repo.delete_all(WorkItem)
-    Repo.delete_all(RoleBinding)
-    Repo.delete_all(OperationCall)
-    Repo.delete_all(LegacyRoutineMissionMapping)
-    Repo.delete_all(MissionTarget)
-    Repo.delete_all(Mission)
+    truncate_work!()
 
     mission = create_mission!()
     %{mission: mission}

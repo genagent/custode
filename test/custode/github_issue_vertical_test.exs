@@ -7,11 +7,9 @@ defmodule Custode.GitHubIssueVerticalTest do
   alias Custode.{
     Artifact,
     Artifacts,
-    Attempt,
     Attempts,
     ClaudeAttempts,
     CodexAttempts,
-    ContextBundle,
     ContextBundles,
     GitHubIssueIntake,
     GitHubIssueVertical,
@@ -25,16 +23,13 @@ defmodule Custode.GitHubIssueVerticalTest do
     RepairAttempts,
     Repo,
     Repository,
-    RoleBinding,
     RoleBindings,
     SpendLedger,
     VerificationAttempts,
     WorkAttribution,
-    WorkEvent,
     WorkGate,
     WorkItem,
     WorkItems,
-    WorkspaceLease,
     WorkspaceLeases
   }
 
@@ -2842,21 +2837,7 @@ defmodule Custode.GitHubIssueVerticalTest do
     )
 
     Repo.delete_all(SpendLedger.Entry)
-    Repo.delete_all(WorkspaceLease)
-    Repo.query!("UPDATE artifacts SET producer_attempt_id = NULL")
-    Repo.query!("UPDATE attempts SET caused_by_attempt_id = NULL")
-    Repo.delete_all(Attempt)
-    Repo.delete_all(ContextBundle)
-    Repo.delete_all(Artifact)
-    Repo.delete_all(WorkEvent)
-    Repo.delete_all(Custode.WorkGate)
-    Repo.update_all(WorkItem, set: [parent_id: nil])
-    Repo.delete_all(WorkItem)
-    Repo.delete_all(RoleBinding)
-    Repo.delete_all(Custode.LegacyRoutineMissionMapping)
-    Repo.delete_all(MissionTarget)
-    Repo.delete_all(Custode.OperationCall)
-    Repo.delete_all(Mission)
+    truncate_work!()
     Repo.delete_all(Custode.Memory.Entry)
   end
 end

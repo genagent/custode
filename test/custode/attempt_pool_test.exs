@@ -1,24 +1,21 @@
 defmodule Custode.AttemptPoolTest do
   use ExUnit.Case, async: false
 
+  alias Custode.TestHelpers
+
   import Ecto.Query, only: [from: 2]
 
   alias Custode.{
-    Artifact,
     Attempt,
     AttemptPool,
     Attempts,
     AttemptWorker,
     AttemptWorkerRegistry,
-    ContextBundle,
     ContextBundles,
     GitHubIssueAttemptDispatcher,
     Mission,
-    OperationCall,
     Repo,
     SpendLedger,
-    WorkEvent,
-    WorkGate,
     WorkItem,
     WorkItems,
     WorkProcess,
@@ -616,22 +613,8 @@ defmodule Custode.AttemptPoolTest do
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp cleanup! do
-    Repo.delete_all(WorkspaceLease)
-    Repo.query!("UPDATE artifacts SET producer_attempt_id = NULL")
-    Repo.query!("UPDATE attempts SET caused_by_attempt_id = NULL")
-    Repo.delete_all(Attempt)
-    Repo.delete_all(ContextBundle)
-    Repo.delete_all(Artifact)
+    TestHelpers.truncate_work!()
     Repo.delete_all(SpendLedger.Entry)
-    Repo.delete_all(WorkEvent)
-    Repo.delete_all(WorkGate)
-    Repo.update_all(WorkItem, set: [parent_id: nil])
-    Repo.delete_all(WorkItem)
-    Repo.delete_all(Custode.RoleBinding)
-    Repo.delete_all(Custode.LegacyRoutineMissionMapping)
-    Repo.delete_all(Custode.MissionTarget)
-    Repo.delete_all(OperationCall)
-    Repo.delete_all(Mission)
     Repo.delete_all(Oban.Job)
   end
 end

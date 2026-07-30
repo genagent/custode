@@ -4,6 +4,8 @@ defmodule Custode.ObservationsTest do
   # guards against a control item raising control work about itself.
   use ExUnit.Case, async: false
 
+  alias Custode.TestHelpers
+
   alias Custode.{Mission, MissionTarget, Observation, Observations, Repo, WorkItems}
   alias Custode.WorkKinds.SystemicDriftControl
 
@@ -263,26 +265,6 @@ defmodule Custode.ObservationsTest do
   # what happened once observations_test, definitions_test and
   # availability_test all landed and changed the execution order.
   defp cleanup! do
-    Repo.query!("UPDATE attempts SET caused_by_attempt_id = NULL")
-    Repo.query!("UPDATE artifacts SET producer_attempt_id = NULL")
-    Repo.query!("UPDATE work_items SET parent_id = NULL")
-
-    for table <- ~w(
-          observations
-          work_events
-          work_gates
-          attempts
-          context_bundles
-          artifacts
-          workspace_leases
-          role_bindings
-          legacy_routine_mission_mappings
-          work_items
-          operation_calls
-          mission_targets
-          missions
-        ) do
-      Repo.query!("DELETE FROM #{table}")
-    end
+    TestHelpers.truncate_work!()
   end
 end

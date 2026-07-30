@@ -16,6 +16,55 @@ defmodule Custode.TestHelpers do
   @doc "A unique id with a prefix."
   def uid(prefix), do: prefix <> "-" <> Integer.to_string(System.unique_integer([:positive]))
 
+  # Every work-kernel table, ordered so a row is always deleted before what it
+  # references (#419). Three tables were hand-maintained in fifteen different
+  # modules before this, no two lists agreed, and the disagreement turned
+  # `main` red twice: a module clearing too few passes alone and fails with a
+  # foreign-key error only once another module leaves one of the missing rows
+  # behind, so which module trips is a function of file ordering.
+  #
+  # `work_tables_complete_test.exs` derives the same set from the schema and
+  # fails if this list falls behind, which is the part that makes adding a
+  # table safe.
+  @work_tables ~w(
+    workflow_node_results
+    workflow_runs
+    work_events
+    work_gates
+    workspace_leases
+    observations
+    attempts
+    context_bundles
+    artifacts
+    role_bindings
+    legacy_routine_mission_mappings
+    work_items
+    mission_targets
+    operation_calls
+    missions
+  )
+
+  @doc "The work-kernel tables, in a safe deletion order."
+  def work_tables, do: @work_tables
+
+  @doc """
+  Clear every work-kernel table.
+
+  Three columns are nulled first because the schema has cycles that no
+  ordering can resolve: `attempts -> context_bundles -> artifacts -> attempts`,
+  plus `attempts.caused_by_attempt_id` and `work_items.parent_id` pointing at
+  their own tables.
+  """
+  def truncate_work! do
+    Custode.Repo.query!("UPDATE attempts SET caused_by_attempt_id = NULL")
+    Custode.Repo.query!("UPDATE artifacts SET producer_attempt_id = NULL")
+    Custode.Repo.query!("UPDATE work_items SET parent_id = NULL")
+
+    for table <- @work_tables, do: Custode.Repo.query!("DELETE FROM #{table}")
+
+    :ok
+  end
+
   @doc """
   Start an agent whose enqueues land in the calling test's mailbox as
   `{:enqueued, args, meta}`. Stopped on test exit.

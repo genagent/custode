@@ -1,33 +1,17 @@
 defmodule Custode.WorkItemsTest do
   use ExUnit.Case, async: false
 
+  alias Custode.TestHelpers
+
   import Ecto.Query, only: [from: 2]
 
-  alias Custode.{
-    LegacyRoutineMissionMapping,
-    Mission,
-    MissionTarget,
-    OperationCall,
-    Repo,
-    RoleBinding,
-    WorkEvent,
-    WorkItem,
-    WorkItems
-  }
+  alias Custode.{OperationCall, Repo, WorkEvent, WorkItem, WorkItems}
 
   alias Custode.Operations.Missions, as: MissionOperations
   alias Custode.Operations.WorkItems, as: WorkOperations
 
   setup do
-    Repo.delete_all(WorkEvent)
-    Repo.delete_all(Custode.WorkGate)
-    Repo.update_all(WorkItem, set: [parent_id: nil])
-    Repo.delete_all(WorkItem)
-    Repo.delete_all(RoleBinding)
-    Repo.delete_all(LegacyRoutineMissionMapping)
-    Repo.delete_all(MissionTarget)
-    Repo.delete_all(Mission)
-    Repo.delete_all(OperationCall)
+    TestHelpers.truncate_work!()
     :ok
   end
 

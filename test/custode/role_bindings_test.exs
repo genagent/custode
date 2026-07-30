@@ -6,9 +6,7 @@ defmodule Custode.RoleBindingsTest do
   alias Custode.{
     LegacyRoleBindingProjection,
     LegacyRoutineMissionMapping,
-    Mission,
     Missions,
-    MissionTarget,
     OperationCall,
     Repo,
     RoleBinding,
@@ -19,15 +17,7 @@ defmodule Custode.RoleBindingsTest do
   alias Custode.Operations.RoleBindings, as: RoleBindingOperations
 
   setup do
-    Repo.delete_all(Custode.WorkEvent)
-    Repo.delete_all(Custode.WorkGate)
-    Repo.update_all(Custode.WorkItem, set: [parent_id: nil])
-    Repo.delete_all(Custode.WorkItem)
-    Repo.delete_all(RoleBinding)
-    Repo.delete_all(LegacyRoutineMissionMapping)
-    Repo.delete_all(MissionTarget)
-    Repo.delete_all(OperationCall)
-    Repo.delete_all(Mission)
+    truncate_work!()
     :ok
   end
 

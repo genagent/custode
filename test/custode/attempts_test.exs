@@ -1,6 +1,8 @@
 defmodule Custode.AttemptsTest do
   use ExUnit.Case, async: false
 
+  alias Custode.TestHelpers
+
   alias Custode.{
     Artifact,
     Artifacts,
@@ -604,22 +606,7 @@ defmodule Custode.AttemptsTest do
   end
 
   defp cleanup! do
-    Repo.query!("DELETE FROM workflow_node_results")
-    Repo.query!("DELETE FROM workflow_runs")
-    Repo.query!("UPDATE artifacts SET producer_attempt_id = NULL")
-    Repo.query!("UPDATE attempts SET caused_by_attempt_id = NULL")
-    Repo.delete_all(Attempt)
-    Repo.delete_all(ContextBundle)
-    Repo.delete_all(Artifact)
+    TestHelpers.truncate_work!()
     Repo.delete_all(SpendLedger.Entry)
-    Repo.delete_all(Custode.WorkEvent)
-    Repo.delete_all(Custode.WorkGate)
-    Repo.update_all(WorkItem, set: [parent_id: nil])
-    Repo.delete_all(WorkItem)
-    Repo.delete_all(RoleBinding)
-    Repo.delete_all(Custode.LegacyRoutineMissionMapping)
-    Repo.delete_all(Custode.MissionTarget)
-    Repo.delete_all(Custode.OperationCall)
-    Repo.delete_all(Mission)
   end
 end

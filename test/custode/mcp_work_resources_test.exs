@@ -1,6 +1,8 @@
 defmodule Custode.MCPWorkResourcesTest do
   use ExUnit.Case, async: false
 
+  alias Custode.TestHelpers
+
   alias Anubis.Server.Frame
   alias Anubis.Server.Handlers.Resources
 
@@ -8,22 +10,14 @@ defmodule Custode.MCPWorkResourcesTest do
     Artifact,
     Artifacts,
     Asks,
-    Attempt,
     Attempts,
-    ContextBundle,
     ContextBundles,
     Gates,
-    LegacyRoutineMissionMapping,
     Mission,
-    MissionTarget,
-    OperationCall,
     Repo,
-    RoleBinding,
     SpendLedger,
     WorkEvent,
-    WorkGate,
-    WorkItem,
-    WorkspaceLease
+    WorkItem
   }
 
   alias Custode.MCP.{MemoryServer, Server}
@@ -513,24 +507,8 @@ defmodule Custode.MCPWorkResourcesTest do
   end
 
   defp cleanup! do
-    Repo.query!("DELETE FROM workflow_node_results")
-    Repo.query!("DELETE FROM workflow_runs")
+    TestHelpers.truncate_work!()
     Repo.delete_all(SpendLedger.Entry)
-    Repo.delete_all(WorkspaceLease)
-    Repo.query!("UPDATE artifacts SET producer_attempt_id = NULL")
-    Repo.query!("UPDATE attempts SET caused_by_attempt_id = NULL")
-    Repo.delete_all(WorkEvent)
-    Repo.delete_all(WorkGate)
-    Repo.delete_all(Attempt)
-    Repo.delete_all(ContextBundle)
-    Repo.delete_all(Artifact)
-    Repo.update_all(WorkItem, set: [parent_id: nil])
-    Repo.delete_all(WorkItem)
-    Repo.delete_all(RoleBinding)
-    Repo.delete_all(LegacyRoutineMissionMapping)
-    Repo.delete_all(MissionTarget)
-    Repo.delete_all(OperationCall)
-    Repo.delete_all(Mission)
     Repo.delete_all(Asks.Ask)
     Repo.delete_all(Gates.Gate)
   end

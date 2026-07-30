@@ -1,13 +1,13 @@
 defmodule Custode.WorkProcessTest do
   use ExUnit.Case, async: false
 
+  alias Custode.TestHelpers
+
   import Ecto.Query, only: [from: 2]
 
   alias Custode.{
-    Artifact,
     Attempt,
     Attempts,
-    ContextBundle,
     ContextBundles,
     Mission,
     OperationCall,
@@ -16,7 +16,6 @@ defmodule Custode.WorkProcessTest do
     Repo,
     WorkCommandJob,
     WorkEvent,
-    WorkGate,
     WorkItem,
     WorkItems,
     WorkProcess
@@ -782,19 +781,6 @@ defmodule Custode.WorkProcessTest do
 
   defp cleanup! do
     Repo.delete_all(from(job in Oban.Job, where: job.worker == "Custode.WorkCommandJob"))
-    Repo.query!("UPDATE artifacts SET producer_attempt_id = NULL")
-    Repo.query!("UPDATE attempts SET caused_by_attempt_id = NULL")
-    Repo.delete_all(WorkEvent)
-    Repo.delete_all(WorkGate)
-    Repo.delete_all(Attempt)
-    Repo.delete_all(ContextBundle)
-    Repo.delete_all(Artifact)
-    Repo.update_all(WorkItem, set: [parent_id: nil])
-    Repo.delete_all(WorkItem)
-    Repo.delete_all(OperationCall)
-    Repo.delete_all(Custode.RoleBinding)
-    Repo.delete_all(Custode.LegacyRoutineMissionMapping)
-    Repo.delete_all(Custode.MissionTarget)
-    Repo.delete_all(Mission)
+    TestHelpers.truncate_work!()
   end
 end
