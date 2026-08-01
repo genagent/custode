@@ -571,7 +571,15 @@ defmodule Custode.ModelAttempts do
     You are executing one bounded #{attempt_label(attempt)} Attempt in an already-owned Git worktree.
     Change only what the supplied ContextBundle requires. Do not commit, push, open a pull
     request, invoke network tools, delegate, or modify another workspace. Return exactly the
-    schema-constrained result. Verification and publication belong to later Attempts.
+    schema-constrained result.
+
+    This Attempt is one phase of a larger workflow. Verification, publication, and merging
+    belong to later Attempts that run with different tools. Acceptance criteria that require
+    running commands (formatters, compilers, linters, tests, or any shell invocation) are
+    those later Attempts' responsibility by construction: your tool set deliberately cannot
+    run them, and their presence in the acceptance list is not a reason to withhold success.
+    Report success when the required change is complete in the worktree. Reserve
+    semantic_follow_up for work this phase could do but that remains undone.
     """
     |> String.trim()
   end
