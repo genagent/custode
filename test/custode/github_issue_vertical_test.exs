@@ -2136,6 +2136,19 @@ defmodule Custode.GitHubIssueVerticalTest do
     )
   end
 
+  test "a block without a stated reason falls back to the summary", fixture do
+    work_item =
+      run_structured_outcome(fixture, %{
+        "outcome" => "semantic_follow_up",
+        "summary" => "made the change but could not verify it"
+      })
+
+    transitioned = WorkItems.get(work_item.work_item_id)
+    assert transitioned.state == "blocked"
+    assert transitioned.blocked_reason["reason"] == "made the change but could not verify it"
+    assert transitioned.blocked_reason["summary"] == "made the change but could not verify it"
+  end
+
   defp assert_provider_classification(
          fixture,
          structured,
@@ -2152,6 +2165,12 @@ defmodule Custode.GitHubIssueVerticalTest do
     assert transitioned.state == work_state
     assert transitioned.phase == "implementing"
     assert transitioned.blocked_reason["code"] == category
+
+    # The reason is the model's stated reason and the summary is its account
+    # of what was done; they must not collapse into each other (#429).
+    assert transitioned.blocked_reason["reason"] == structured["reason"]
+    assert transitioned.blocked_reason["summary"] == structured["summary"]
+    refute transitioned.blocked_reason["reason"] == transitioned.blocked_reason["summary"]
   end
 
   defp run_structured_outcome(fixture, structured) do
