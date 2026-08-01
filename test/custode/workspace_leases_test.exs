@@ -239,6 +239,16 @@ defmodule Custode.WorkspaceLeasesTest do
 
     assert lease.state == "active"
 
+    # The feed is not truncated per test, so count matching entries rather
+    # than assuming an empty feed.
+    reconcile_entries = fn ->
+      "janitor"
+      |> Custode.Feed.recent_by_event(limit: 1000)
+      |> Enum.count(&(&1["summary"] =~ "workspace lease"))
+    end
+
+    feed_before = reconcile_entries.()
+
     assert :ok = WorkspaceLeases.ReconcileJob.perform(%Oban.Job{args: %{}})
 
     reconciled = WorkspaceLeases.get(lease.lease_id)
@@ -247,8 +257,12 @@ defmodule Custode.WorkspaceLeasesTest do
     assert reconciled.cleanup_error == %{"code" => "lease_expired"}
     assert File.dir?(lease.workspace_path)
 
+    # A run that staled something fed a summary: no silent reclamation.
+    assert reconcile_entries.() == feed_before + 1
+
     # A second run finds nothing live to reconcile and stays quiet.
     assert :ok = WorkspaceLeases.ReconcileJob.perform(%Oban.Job{args: %{}})
+    assert reconcile_entries.() == feed_before + 1
   end
 
   test "containment resolves existing symlinks before workspace creation", fixture do
