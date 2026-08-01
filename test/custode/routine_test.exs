@@ -348,12 +348,12 @@ defmodule Custode.RoutineTest do
       ])
 
       crontab = Custode.Routine.crontab()
-      # one sensor + the always-on janitor + the three deterministic advisors
-      # (#125's trio) + the weekly judgment advisor Retro (#262) + Dryness
-      # (#274, deterministic, raises a launch gate rather than a suggestion) --
-      # routine firing moved to Custode.Scheduler (#142), so no routine ticks
-      # ride the static crontab
-      assert length(crontab) == 7
+      # one sensor + the always-on janitor + the workspace lease reconciler
+      # (#430) + the three deterministic advisors (#125's trio) + the weekly
+      # judgment advisor Retro (#262) + Dryness (#274, deterministic, raises
+      # a launch gate rather than a suggestion) -- routine firing moved to
+      # Custode.Scheduler (#142), so no routine ticks ride the static crontab
+      assert length(crontab) == 8
       refute Enum.any?(crontab, &(elem(&1, 1) == Custode.RoutineTick))
       refute Enum.any?(crontab, &(elem(&1, 1) == ObanClaude.Agent.Tick))
 
@@ -373,6 +373,19 @@ defmodule Custode.RoutineTest do
       assert sensor_opts[:queue] == :sensors
       assert sensor_opts[:args]["sensor_id"] == "s1"
       assert sensor_opts[:args]["notify"] == "whoever"
+
+      # The lease reconciler defaults to every 15 minutes, well under the
+      # one-hour lease TTL, and rides the same static lane as the janitor.
+      assert [{"*/15 * * * *", Custode.WorkspaceLeases.ReconcileJob, lease_opts}] =
+               Enum.filter(crontab, &(elem(&1, 1) == Custode.WorkspaceLeases.ReconcileJob))
+
+      assert lease_opts[:queue] == :sensors
+
+      # Setting the cron to false removes the line without touching the rest.
+      put_env!(:workspace_lease_reconcile_cron, false)
+      disabled = Custode.Routine.crontab()
+      refute Enum.any?(disabled, &(elem(&1, 1) == Custode.WorkspaceLeases.ReconcileJob))
+      assert length(disabled) == 7
     end
 
     test "on_note defaults to :beat and accepts :ignore" do

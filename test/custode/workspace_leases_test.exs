@@ -222,6 +222,35 @@ defmodule Custode.WorkspaceLeasesTest do
     assert File.dir?(lease.workspace_path)
   end
 
+  test "the cron worker stales a lease that expired during node uptime", fixture do
+    {work_item, attempt} = insert_work_and_attempt!("cron-reconcile", fixture)
+
+    # Acquired an hour ago with a 10-second TTL: expired long before "now",
+    # exactly the shape the one-shot boot Task can never see (#430).
+    acquired_at = DateTime.add(DateTime.utc_now(), -3_600, :second)
+
+    assert {:ok, {:created, lease}} =
+             WorkspaceLeases.acquire(lease_attrs(work_item, attempt, fixture),
+               workspace_root: fixture.workspaces,
+               artifact_dir: fixture.artifacts,
+               now: acquired_at,
+               ttl_seconds: 10
+             )
+
+    assert lease.state == "active"
+
+    assert :ok = WorkspaceLeases.ReconcileJob.perform(%Oban.Job{args: %{}})
+
+    reconciled = WorkspaceLeases.get(lease.lease_id)
+    assert reconciled.state == "stale"
+    assert reconciled.cleanup_state == "retained"
+    assert reconciled.cleanup_error == %{"code" => "lease_expired"}
+    assert File.dir?(lease.workspace_path)
+
+    # A second run finds nothing live to reconcile and stays quiet.
+    assert :ok = WorkspaceLeases.ReconcileJob.perform(%Oban.Job{args: %{}})
+  end
+
   test "containment resolves existing symlinks before workspace creation", fixture do
     {work_item, attempt} = insert_work_and_attempt!("symlink", fixture)
     outside = Path.join(fixture.root, "outside")

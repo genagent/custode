@@ -61,8 +61,8 @@ defmodule Custode.Routine do
 
   @doc """
   The static Oban Cron crontab: one entry per configured sensor plus the
-  daily janitor (plain workers on the `:sensors` queue; see
-  `Custode.Sensors.ContributorSearch`).
+  daily janitor and the workspace lease reconciler (plain workers on the
+  `:sensors` queue; see `Custode.Sensors.ContributorSearch`).
 
   Routines are NOT here anymore. `Custode.Scheduler` owns routine firing so a
   cron edit takes effect at the next minute with no restart (#142); the static
@@ -78,7 +78,18 @@ defmodule Custode.Routine do
 
     janitor_entries = [{"@daily", Custode.Janitor, args: %{}, queue: :sensors}]
 
-    sensor_entries ++ janitor_entries ++ advisor_entries()
+    sensor_entries ++ janitor_entries ++ lease_reconcile_entries() ++ advisor_entries()
+  end
+
+  # Expired workspace leases must be reclaimed while the node is UP, not only
+  # by the boot Task (#430). The default rides well under the one-hour lease
+  # TTL so an expired lease lingers for at most one interval; `false`
+  # disables the line (advisor semantics).
+  defp lease_reconcile_entries do
+    case Application.get_env(:custode, :workspace_lease_reconcile_cron, "*/15 * * * *") do
+      false -> []
+      cron -> [{cron, Custode.WorkspaceLeases.ReconcileJob, args: %{}, queue: :sensors}]
+    end
   end
 
   # The advisors ride the same static lane as the janitor (#125). Which ones
