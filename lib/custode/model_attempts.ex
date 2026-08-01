@@ -424,11 +424,22 @@ defmodule Custode.ModelAttempts do
       phase: active_phase(attempt),
       blocked_reason: %{
         code: if(disposition, do: "repair_terminal_block", else: classification["category"]),
-        reason: classification["summary"],
+        reason: blocked_reason_text(classification),
+        summary: classification["summary"],
         repair_disposition: disposition
       },
       evidence: failure_evidence(attempt, evidence, disposition)
     }
+  end
+
+  # The operator-facing reason is the model's account of WHY the Attempt
+  # stopped (error_details.reason), not its summary of what it did. The
+  # summary rides along under its own key so neither displaces the other (#429).
+  defp blocked_reason_text(classification) do
+    case get_in(classification, ["error_details", "reason"]) do
+      reason when is_binary(reason) and reason != "" -> reason
+      _missing -> classification["summary"]
+    end
   end
 
   defp repair_ready_proposal(attempt, evidence) do
