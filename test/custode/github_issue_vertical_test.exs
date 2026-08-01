@@ -2149,6 +2149,22 @@ defmodule Custode.GitHubIssueVerticalTest do
     assert transitioned.blocked_reason["summary"] == "made the change but could not verify it"
   end
 
+  test "an empty-string reason also falls back to the summary", fixture do
+    # "reason" => "" is schema-valid (type ["string", "null"], no minLength)
+    # and is a binary, so only the non-empty guard keeps it out of the
+    # operator-facing reason (#429).
+    work_item =
+      run_structured_outcome(fixture, %{
+        "outcome" => "semantic_follow_up",
+        "summary" => "made the change but could not verify it",
+        "reason" => ""
+      })
+
+    transitioned = WorkItems.get(work_item.work_item_id)
+    assert transitioned.state == "blocked"
+    assert transitioned.blocked_reason["reason"] == "made the change but could not verify it"
+  end
+
   defp assert_provider_classification(
          fixture,
          structured,
