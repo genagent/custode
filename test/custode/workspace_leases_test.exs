@@ -222,6 +222,49 @@ defmodule Custode.WorkspaceLeasesTest do
     assert File.dir?(lease.workspace_path)
   end
 
+  test "the cron worker stales a lease that expired during node uptime", fixture do
+    {work_item, attempt} = insert_work_and_attempt!("cron-reconcile", fixture)
+
+    # Acquired an hour ago with a 10-second TTL: expired long before "now",
+    # exactly the shape the one-shot boot Task can never see (#430).
+    acquired_at = DateTime.add(DateTime.utc_now(), -3_600, :second)
+
+    assert {:ok, {:created, lease}} =
+             WorkspaceLeases.acquire(lease_attrs(work_item, attempt, fixture),
+               workspace_root: fixture.workspaces,
+               artifact_dir: fixture.artifacts,
+               now: acquired_at,
+               ttl_seconds: 10
+             )
+
+    assert lease.state == "active"
+
+    # The feed is not truncated per test, so count matching entries rather
+    # than assuming an empty feed.
+    reconcile_entries = fn ->
+      "janitor"
+      |> Custode.Feed.recent_by_event(limit: 1000)
+      |> Enum.count(&(&1["summary"] =~ "workspace lease"))
+    end
+
+    feed_before = reconcile_entries.()
+
+    assert :ok = WorkspaceLeases.ReconcileJob.perform(%Oban.Job{args: %{}})
+
+    reconciled = WorkspaceLeases.get(lease.lease_id)
+    assert reconciled.state == "stale"
+    assert reconciled.cleanup_state == "retained"
+    assert reconciled.cleanup_error == %{"code" => "lease_expired"}
+    assert File.dir?(lease.workspace_path)
+
+    # A run that staled something fed a summary: no silent reclamation.
+    assert reconcile_entries.() == feed_before + 1
+
+    # A second run finds nothing live to reconcile and stays quiet.
+    assert :ok = WorkspaceLeases.ReconcileJob.perform(%Oban.Job{args: %{}})
+    assert reconcile_entries.() == feed_before + 1
+  end
+
   test "containment resolves existing symlinks before workspace creation", fixture do
     {work_item, attempt} = insert_work_and_attempt!("symlink", fixture)
     outside = Path.join(fixture.root, "outside")

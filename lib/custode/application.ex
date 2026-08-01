@@ -74,6 +74,9 @@ defmodule Custode.Application do
       Supervisor.child_spec({Task, &Custode.Gates.reconcile!/0}, id: :gates_reconcile),
       # Expired workspace ownership becomes stale and retained. Reconciliation
       # never deletes a directory because expiry is not proof of ownership.
+      # This boot pass covers leases orphaned by a hard stop; leases that
+      # expire while the node stays up are the cron line's job
+      # (Custode.WorkspaceLeases.ReconcileJob, #430).
       Supervisor.child_spec({Task, &Custode.WorkspaceLeases.reconcile!/0},
         id: :workspace_leases_reconcile
       ),

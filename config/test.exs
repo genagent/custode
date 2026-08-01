@@ -11,6 +11,12 @@ config :custode,
   # app-level scheduler fire them on a wall-clock minute. Its own tests drive
   # injected instances directly.
   scheduler_autostart: false,
+  # The lease reconciler's cron line stays out of the test crontab: the Cron
+  # plugin inserts rows at every matching minute even with no executing
+  # queues, and a */15 insert landing inside a test's unfiltered Oban.Job
+  # count assertion is the "passes alone, fails on the third run" class.
+  # Its tests set the env themselves and call the worker directly (#430).
+  workspace_lease_reconcile_cron: false,
   desktop_notifications: false,
   # No network in tests: repo overviews come from the fake fetcher.
   github_fetcher: Custode.Test.FakeGitHubFetcher,
