@@ -104,12 +104,25 @@ config :custode,
   # kernel worked and observed nothing, which is why #354's acceptance was
   # still unmet with every child issue shipped.
   #
-  # 425 is the first OPEN pilot subject: small, mechanical, independently
-  # worth doing, chosen so a misbehaving vertical fails legibly.
+  # 425 was the first OPEN pilot subject: small, mechanical, independently
+  # worth doing, chosen so a misbehaving vertical fails legibly. It did
+  # exactly that on 2026-07-30 -- the vertical ran end to end and stopped at
+  # `blocked/implementing` on a prose seam (#428, fixed by #432).
+  #
+  # 435 replaces it because 425's WorkItem CANNOT be re-run. A blocked item
+  # at a non-eligible phase has no clause in `apply_disposition/3`, so intake
+  # only re-observes it, and `work_items_source_external_key_index` is unique
+  # on (source, external_key), so no second WorkItem can be created for the
+  # same issue either. Verifying #432 against a live model therefore needs a
+  # fresh subject, not a retry. See #439.
+  #
+  # 435 was picked on the same criteria that made 425 a good subject: small,
+  # mechanical, and worth doing on its own. custode-dev is held off it (gate
+  # act_5187 rejected 2026-08-02) so the two paths do not collide.
   github_issue_intake_pilots: %{
     "custode-dev" => %{
       repository_id: "1307868502",
-      issue_numbers: [425],
+      issue_numbers: [435],
       policy_version: "github-issue-intake-v1"
     }
   },
