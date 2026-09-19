@@ -52,6 +52,7 @@ defmodule Custode.MCP.Probe do
             )
         end
 
+        discard_stale_ticks()
         :ok = Oban.start_queue(queue: :ticks, limit: limit)
 
       {:error, report} ->
@@ -65,6 +66,28 @@ defmodule Custode.MCP.Probe do
           },
           notify: true
         )
+
+        :ok
+    end
+  end
+
+  # Ticks inserted while a previous boot had the queue withheld (or while a
+  # drain had it paused) are still `available`, and starting the queue would
+  # run every one of them (#442). Discard them first, and say so: the operator
+  # is usually watching this boot to confirm it is clean.
+  defp discard_stale_ticks do
+    case Custode.Ticks.discard_stale() do
+      0 ->
+        :ok
+
+      count ->
+        Logger.info("discarded #{count} stale ticks before starting the queue (#442)")
+
+        Custode.Feed.record(%{
+          event: "stale_ticks_discarded",
+          agent: "custode",
+          summary: "discarded #{count} ticks that went stale while the queue was not running"
+        })
 
         :ok
     end

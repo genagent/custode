@@ -27,6 +27,10 @@ defmodule Custode.RoutineTick do
   MCP probe answers, #4) means a resolved tick still cannot fire before the
   MCP surface is up. The resolver inserts and returns immediately, so the
   concurrency-1 slot is free for the `Tick` it produced.
+
+  A beat that was never runnable is missed too (#442): one that waited out a
+  withheld or paused queue cancels itself rather than firing late. See
+  `Custode.Ticks`.
   """
 
   use Oban.Worker, queue: :ticks, max_attempts: 1
@@ -37,7 +41,22 @@ defmodule Custode.RoutineTick do
   alias ObanClaude.Agent.Tick
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"routine_id" => id}}) do
+  def perform(%Oban.Job{args: %{"routine_id" => id}} = job) do
+    if Custode.Ticks.stale?(job) do
+      # queued while the queue was withheld or paused and only reached now
+      # (#442): the beat it stood for is long past, and the next one is at
+      # most a cron interval away
+      {:cancel, {:stale_tick, id}}
+    else
+      beat(id)
+    end
+  end
+
+  def perform(%Oban.Job{args: args}) do
+    {:cancel, {:invalid_routine_tick, "missing \"routine_id\" in #{inspect(args)}"}}
+  end
+
+  defp beat(id) do
     case Routine.get(id) do
       nil ->
         # the routine was removed from config since boot; nothing to beat
@@ -48,10 +67,6 @@ defmodule Custode.RoutineTick do
         {:ok, _job} = Oban.insert(Tick.new(Routine.tick_args(routine), queue: :ticks))
         :ok
     end
-  end
-
-  def perform(%Oban.Job{args: args}) do
-    {:cancel, {:invalid_routine_tick, "missing \"routine_id\" in #{inspect(args)}"}}
   end
 
   defp run_intake(routine) do
