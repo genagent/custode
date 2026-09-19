@@ -421,6 +421,68 @@ defmodule Custode.GitHubIssueVerticalTest do
            )
   end
 
+  test "gate-set acceptance criteria do not block the implementation phase", fixture do
+    body = """
+    Remove the dead routine.
+
+    ## Acceptance
+
+    - [ ] The routine is gone from config
+    - [ ] The full gate set passes: `mix format --check-formatted`, `mix compile --warnings-as-errors`, `mix credo --strict`, `mix test`, `mix dialyzer`
+    """
+
+    work_item = ingest!(fixture, %{body: body})
+    assert :ok = dispatch_to_provider!(fixture, work_item)
+    implementation = implementation_attempt!(work_item)
+    assert :ok = ClaudeAttempts.dispatch(implementation.attempt_id, fixture.routine.id)
+    job = provider_job!(implementation.attempt_id)
+    test_pid = self()
+
+    query_fun = fn prompt, options ->
+      send(test_pid, {:provider_args, prompt, options})
+      File.write!(Path.join(options[:working_dir], "README.md"), "changed\n")
+
+      {:ok,
+       ObanClaude.Testing.structured_result(
+         %{"outcome" => "success", "summary" => "change complete; gates belong to verification"},
+         result: "done",
+         session_id: "session-428",
+         cost_usd: 0.01,
+         duration_ms: 25,
+         num_turns: 1
+       )}
+    end
+
+    assert :ok =
+             ClaudeAttempts.perform(job,
+               query_fun: query_fun,
+               artifact_dir: fixture.artifacts
+             )
+
+    assert_receive {:provider_args, prompt, provider_options}
+
+    # The gate-set acceptance line reaches the model through the issue
+    # snapshot in the prompt, exactly as it did in the first live run.
+    assert prompt =~ "mix dialyzer"
+
+    # The phase-scoping instruction reaches the provider alongside it:
+    # acceptance items that require commands are named as later Attempts'
+    # responsibility, so their presence is not a reason to withhold
+    # success (#428).
+    system_prompt = provider_options[:append_system_prompt]
+    assert system_prompt =~ "not a reason to withhold success"
+    assert system_prompt =~ "Verification, publication, and merging"
+    assert system_prompt =~ "Reserve\nsemantic_follow_up for work this phase could do"
+
+    # And with the model reporting success, the shell-command acceptance line
+    # does not block the WorkItem: it advances to verification, where the
+    # gates actually run.
+    advanced = WorkItems.get(work_item.work_item_id)
+    assert advanced.state == "ready"
+    assert advanced.phase == "verification_ready"
+    assert advanced.blocked_reason == nil
+  end
+
   test "an operator-selected Codex WorkItem executes through the worker pool", fixture do
     work_item = ingest!(fixture)
 
@@ -2136,6 +2198,35 @@ defmodule Custode.GitHubIssueVerticalTest do
     )
   end
 
+  test "a block without a stated reason falls back to the summary", fixture do
+    work_item =
+      run_structured_outcome(fixture, %{
+        "outcome" => "semantic_follow_up",
+        "summary" => "made the change but could not verify it"
+      })
+
+    transitioned = WorkItems.get(work_item.work_item_id)
+    assert transitioned.state == "blocked"
+    assert transitioned.blocked_reason["reason"] == "made the change but could not verify it"
+    assert transitioned.blocked_reason["summary"] == "made the change but could not verify it"
+  end
+
+  test "an empty-string reason also falls back to the summary", fixture do
+    # "reason" => "" is schema-valid (type ["string", "null"], no minLength)
+    # and is a binary, so only the non-empty guard keeps it out of the
+    # operator-facing reason (#429).
+    work_item =
+      run_structured_outcome(fixture, %{
+        "outcome" => "semantic_follow_up",
+        "summary" => "made the change but could not verify it",
+        "reason" => ""
+      })
+
+    transitioned = WorkItems.get(work_item.work_item_id)
+    assert transitioned.state == "blocked"
+    assert transitioned.blocked_reason["reason"] == "made the change but could not verify it"
+  end
+
   defp assert_provider_classification(
          fixture,
          structured,
@@ -2152,6 +2243,12 @@ defmodule Custode.GitHubIssueVerticalTest do
     assert transitioned.state == work_state
     assert transitioned.phase == "implementing"
     assert transitioned.blocked_reason["code"] == category
+
+    # The reason is the model's stated reason and the summary is its account
+    # of what was done; they must not collapse into each other (#429).
+    assert transitioned.blocked_reason["reason"] == structured["reason"]
+    assert transitioned.blocked_reason["summary"] == structured["summary"]
+    refute transitioned.blocked_reason["reason"] == transitioned.blocked_reason["summary"]
   end
 
   defp run_structured_outcome(fixture, structured) do
@@ -2169,23 +2266,27 @@ defmodule Custode.GitHubIssueVerticalTest do
     work_item
   end
 
-  defp ingest!(fixture) do
+  defp ingest!(fixture, issue_overrides \\ %{}) do
     pilot = %{
       repository_id: @repository_id,
       issue_numbers: [368],
       policy_version: "github-issue-intake-v1"
     }
 
-    issue = %{
-      number: 368,
-      title: "feat: compile context and run Claude",
-      body: "Implement the bounded provider slice.",
-      state: "open",
-      labels: ["enhancement"],
-      updated_at: "2026-07-29T17:00:00Z",
-      url: "https://github.com/genagent/custode/issues/368",
-      comments: []
-    }
+    issue =
+      Map.merge(
+        %{
+          number: 368,
+          title: "feat: compile context and run Claude",
+          body: "Implement the bounded provider slice.",
+          state: "open",
+          labels: ["enhancement"],
+          updated_at: "2026-07-29T17:00:00Z",
+          url: "https://github.com/genagent/custode/issues/368",
+          comments: []
+        },
+        issue_overrides
+      )
 
     assert {:ok, result} =
              GitHubIssueIntake.reconcile(

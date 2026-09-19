@@ -352,10 +352,12 @@ defmodule Custode.RoutineTest do
       # (#125's trio) + the weekly judgment advisor Retro (#262) + Dryness
       # (#274, deterministic, raises a launch gate rather than a suggestion) --
       # routine firing moved to Custode.Scheduler (#142), so no routine ticks
-      # ride the static crontab
+      # ride the static crontab, and the lease reconciler (#430) is disabled
+      # by config/test.exs so its */15 inserts cannot land inside other tests
       assert length(crontab) == 7
       refute Enum.any?(crontab, &(elem(&1, 1) == Custode.RoutineTick))
       refute Enum.any?(crontab, &(elem(&1, 1) == ObanClaude.Agent.Tick))
+      refute Enum.any?(crontab, &(elem(&1, 1) == Custode.WorkspaceLeases.ReconcileJob))
 
       for advisor <- [
             Custode.Advisors.Cadence,
@@ -373,6 +375,35 @@ defmodule Custode.RoutineTest do
       assert sensor_opts[:queue] == :sensors
       assert sensor_opts[:args]["sensor_id"] == "s1"
       assert sensor_opts[:args]["notify"] == "whoever"
+
+      # register restoration of the test-env `false`, then exercise the
+      # UNSET default: every 15 minutes, well under the one-hour lease TTL,
+      # riding the same static lane as the janitor (#430).
+      put_env!(:workspace_lease_reconcile_cron, false)
+      Application.delete_env(:custode, :workspace_lease_reconcile_cron)
+
+      assert [{"*/15 * * * *", Custode.WorkspaceLeases.ReconcileJob, lease_opts}] =
+               Enum.filter(
+                 Custode.Routine.crontab(),
+                 &(elem(&1, 1) == Custode.WorkspaceLeases.ReconcileJob)
+               )
+
+      assert lease_opts[:queue] == :sensors
+
+      # A configured cron string is honored, not just the default.
+      Application.put_env(:custode, :workspace_lease_reconcile_cron, "*/5 * * * *")
+
+      assert [{"*/5 * * * *", Custode.WorkspaceLeases.ReconcileJob, _opts}] =
+               Enum.filter(
+                 Custode.Routine.crontab(),
+                 &(elem(&1, 1) == Custode.WorkspaceLeases.ReconcileJob)
+               )
+
+      # And false removes the line without touching the rest.
+      Application.put_env(:custode, :workspace_lease_reconcile_cron, false)
+      disabled = Custode.Routine.crontab()
+      refute Enum.any?(disabled, &(elem(&1, 1) == Custode.WorkspaceLeases.ReconcileJob))
+      assert length(disabled) == 7
     end
 
     test "on_note defaults to :beat and accepts :ignore" do

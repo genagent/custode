@@ -424,11 +424,22 @@ defmodule Custode.ModelAttempts do
       phase: active_phase(attempt),
       blocked_reason: %{
         code: if(disposition, do: "repair_terminal_block", else: classification["category"]),
-        reason: classification["summary"],
+        reason: blocked_reason_text(classification),
+        summary: classification["summary"],
         repair_disposition: disposition
       },
       evidence: failure_evidence(attempt, evidence, disposition)
     }
+  end
+
+  # The operator-facing reason is the model's account of WHY the Attempt
+  # stopped (error_details.reason), not its summary of what it did. The
+  # summary rides along under its own key so neither displaces the other (#429).
+  defp blocked_reason_text(classification) do
+    case get_in(classification, ["error_details", "reason"]) do
+      reason when is_binary(reason) and reason != "" -> reason
+      _missing -> classification["summary"]
+    end
   end
 
   defp repair_ready_proposal(attempt, evidence) do
@@ -571,7 +582,15 @@ defmodule Custode.ModelAttempts do
     You are executing one bounded #{attempt_label(attempt)} Attempt in an already-owned Git worktree.
     Change only what the supplied ContextBundle requires. Do not commit, push, open a pull
     request, invoke network tools, delegate, or modify another workspace. Return exactly the
-    schema-constrained result. Verification and publication belong to later Attempts.
+    schema-constrained result.
+
+    This Attempt is one phase of a larger workflow. Verification, publication, and merging
+    belong to later Attempts that run with different tools. Acceptance criteria that require
+    running commands (formatters, compilers, linters, tests, or any shell invocation) are
+    those later Attempts' responsibility by construction: your tool set deliberately cannot
+    run them, and their presence in the acceptance list is not a reason to withhold success.
+    Report success when the required change is complete in the worktree. Reserve
+    semantic_follow_up for work this phase could do but that remains undone.
     """
     |> String.trim()
   end
