@@ -110,6 +110,38 @@ defmodule CustodeWeb.MetricsLive do
           <.gate_latency gates={@gates} median={@gate_median} />
         </section>
 
+        <%!-- Whether a gate is a decision or a formality (#448). An agent at
+              100% over many gates is one whose gates cost latency and buy
+              nothing; that is the evidence for relaxing a class (#451). --%>
+        <section class="rounded-lg bg-base-100 p-4 shadow-sm">
+          <h3 class="mb-3 font-semibold text-base-content/70">
+            approval rate <span class="text-xs font-normal">(decided approval gates, all time)</span>
+          </h3>
+          <p :if={@approval_rates == []} class="text-sm text-base-content/50">
+            no decided approval gates yet
+          </p>
+          <div :if={@approval_rates != []} class="overflow-x-auto">
+            <table class="table table-xs">
+              <thead>
+                <tr>
+                  <th>agent</th>
+                  <th class="text-right">approved</th>
+                  <th class="text-right">rejected</th>
+                  <th class="text-right">rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={row <- @approval_rates}>
+                  <td class="font-mono">{row.agent_id}</td>
+                  <td class="text-right font-mono">{row.approved}</td>
+                  <td class="text-right font-mono">{row.rejected}</td>
+                  <td class="text-right font-mono">{round(row.rate * 100)}%</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <section class="rounded-lg bg-base-100 p-4 shadow-sm xl:col-span-2">
           <h3 class="mb-3 font-semibold text-base-content/70">
             by model
@@ -175,6 +207,7 @@ defmodule CustodeWeb.MetricsLive do
     today = Date.utc_today() |> Date.to_iso8601()
 
     assign(socket,
+      approval_rates: Custode.Gates.approval_rates(),
       by_model: Custode.Metrics.by_model(@days),
       digest: Custode.Digest.build(7) |> Custode.Digest.to_markdown(),
       tokens_today: Custode.SpendLedger.fleet_today_tokens(),

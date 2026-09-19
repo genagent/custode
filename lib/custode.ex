@@ -67,14 +67,30 @@ defmodule Custode do
   end
 
   @doc """
+  Approve an agent's pending action. The one way a surface approves a gate
+  (#448): it stamps who decided and from where onto the gate row, then tells
+  the engine. `opts`: `:via` (`:liveview` / `:cli` / `:mcp`), `:by` (defaults
+  to the operator), `:reason` (an approval may carry one too).
+  """
+  @spec approve_action(String.t(), String.t(), keyword()) :: term()
+  def approve_action(agent_id, action_id, opts \\ []) do
+    Custode.Gates.record_decision(agent_id, action_id, opts)
+    Agent.approve_action(agent_id, action_id)
+  end
+
+  @doc """
   Reject an agent's pending action AND teach it (the learning loop on
   "no"): the rejection reason lands in the routine's inbox as a note, so
   the next sweep files it and can remember a standing exception. Without
   this, a reject was silence -- the reason died in the machine log and
   the agent re-proposed variations forever.
+
+  The reason also lands on the gate row (#448), with `opts` as for
+  `approve_action/3`, so it outlives the note file.
   """
-  def reject_with_note(agent_id, action_id, reason) do
+  def reject_with_note(agent_id, action_id, reason, opts \\ []) do
     detail = proposal_detail(agent_id, action_id)
+    Custode.Gates.record_decision(agent_id, action_id, Keyword.put(opts, :reason, reason))
     result = Agent.reject_action(agent_id, action_id, reason)
 
     if result == :rejected and Custode.Routine.get(agent_id) do
