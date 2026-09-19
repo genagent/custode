@@ -225,7 +225,26 @@ defmodule CustodeWeb.Components do
           fleet today ${usd(@fleet_today)}
         </span>
       </header>
+      <.host_banner />
       {render_slot(@inner_block)}
+    </div>
+    """
+  end
+
+  @doc """
+  The one condition that outranks a page's own content: the host cannot run
+  turns (#443). Drawn by the shared chrome so no page can forget it, and
+  because the fleet page builds its tiles per agent and this has no agent.
+  """
+  def host_banner(assigns) do
+    assigns = assign(assigns, :signal, Attention.host(Custode.Host.facts()))
+
+    ~H"""
+    <div :if={@signal} role="alert" class="alert alert-error mb-6 items-start">
+      <div>
+        <p class="font-bold">{@signal.headline}</p>
+        <p class="mt-1 font-mono text-xs">{@signal.detail}</p>
+      </div>
     </div>
     """
   end
@@ -650,6 +669,7 @@ defmodule CustodeWeb.Components do
     end
   end
 
+  defp chip_word(:host_down), do: "cannot run turns"
   defp chip_word(:needs_answer), do: "asked you"
   defp chip_word(:approval), do: "needs approval"
   defp chip_word(:rail_hit), do: "at its rail"

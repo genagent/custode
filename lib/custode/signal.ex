@@ -31,6 +31,7 @@ defmodule Custode.Signal do
   site, so the fleet page, the inbox and the CLI cannot disagree about what
   counts as needing a human.
 
+      :host_down                                                -> :needs_you
       :red_main  :needs_answer  :approval  :rail_hit  :stalled  -> :needs_you
       :disowned_check                                           -> :needs_you
       :red_check                                                -> :watching
@@ -60,7 +61,8 @@ defmodule Custode.Signal do
 
   @typedoc "What the agent's state is, most-urgent first. See `Custode.Attention`."
   @type kind ::
-          :red_main
+          :host_down
+          | :red_main
           | :needs_answer
           | :approval
           | :disowned_check
