@@ -101,8 +101,16 @@ Operator actions: `claude login`; cancel the 704 stale queued ticks (#442);
 set an ntfy topic so the push channel that is already built starts working;
 review #437 and #427; close #440.
 
-PRs: this note and the design import; the freeze and the `artifacts/` ignore
-rule; the 2026-09-14 lockfile bump; #442.
+PRs, in merge order: #455 first, because `main` had failed `mix test` on
+every date since 2026-08-25 and nothing reported it (#454: a cost window
+measured from the wall clock behind an injected `:now`; CI last ran on `main`
+on 2026-08-01). Then this note and the design import (#441), the freeze and
+the `artifacts/` ignore rule (#456), the 2026-09-14 lockfile bump with `mint`
+taken to its patched version (#457), and a fix for #442.
+
+Found along the way and not scheduled: `earmark` is retired and carries an
+unpatched XSS advisory. Agent markdown renders through it behind a pre-escape
+(#460).
 
 ### Rung 1: attention that cannot be missed
 
@@ -126,6 +134,14 @@ it.
 subject grouped by the resolver, a subject pane with tabs and a message box
 that is always present, an item pane whose buttons are the signal's own
 `resolving` ops. #450 lists the input gaps it closes.
+
+Dollars are not the headline number. The operator is on Max plans: cost and
+tokens are worth recording, and what they want to see is usage percentage
+against the plan's limits. `Custode.Availability` (#393) already has
+collectors for Claude and Codex, a snapshot with per-bucket utilization and
+reset times, and freshness rules. No code in `lib/` calls a collector. #458
+wires them and puts utilization where the dollar figure is today. The dollar
+rails stay as the runaway guard.
 
 ### Rung 3: the right hand
 
@@ -152,6 +168,16 @@ call sites name `ObanClaude.Agent` directly. `oban_codex` mirrors the Agent
 lifecycle file for file. The work is a facade, a `provider` field, and a
 token-denominated rail, because Codex reports no cost. First user: a Codex
 reviewer on Claude-authored PRs. #452.
+
+### Later: missions
+
+The operator's definition: this project should take on a specific large
+task, self-organize workers, delegate and track the work. They want to
+emphasize it once the pivots above are in use, and not before. #459 holds the
+idea and what it would stand on: the frozen kernel's Mission tables, the
+workflow runner, sub-agents, the mission mockups in `design/ui/`, and the
+reopen trigger on crews (#421), which a mission is. It depends on rung 3,
+because something has to stand up a mission's workers and answer for them.
 
 ## Deferred, with what is already known
 
