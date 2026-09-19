@@ -314,10 +314,10 @@ defmodule Custode.Attention do
         headline: "#{branch.name} is red",
         detail: branch.headline,
         item: {:branch, branch.name},
-        resolving: [
-          op("Open agent", :open_agent, %{agent: view.id}),
-          op("Re-run checks", :rerun_checks, %{agent: view.id})
-        ]
+        # No "Re-run checks" op here or on the two red-check signals below:
+        # nothing handles one yet, so it rendered as a mislabelled link. It
+        # returns with the re-run verb (#449).
+        resolving: [op("Open agent", :open_agent, %{agent: view.id})]
       )
     end
   end
@@ -393,10 +393,7 @@ defmodule Custode.Attention do
           detail: "the agent disowned #{pluralise(length(disowned), "it")}; nobody else will",
           item: {:prs, Enum.map(disowned, & &1.number)},
           raised_at: nil,
-          resolving: [
-            op("Inspect", :open_agent, %{agent: view.id}),
-            op("Re-run checks", :rerun_checks, %{agent: view.id})
-          ]
+          resolving: [op("Inspect", :open_agent, %{agent: view.id})]
         )
     end
   end
@@ -413,10 +410,7 @@ defmodule Custode.Attention do
           # no raised_at and ranks after any dated signal. Better than
           # inventing a timestamp that would then sort against real ones.
           raised_at: nil,
-          resolving: [
-            op("Inspect", :open_agent, %{agent: view.id}),
-            op("Re-run checks", :rerun_checks, %{agent: view.id})
-          ]
+          resolving: [op("Inspect", :open_agent, %{agent: view.id})]
         )
     end
   end

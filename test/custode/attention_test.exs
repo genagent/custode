@@ -111,6 +111,33 @@ defmodule Custode.AttentionTest do
     end
   end
 
+  describe "resolving ops a surface can perform (#449)" do
+    # "Re-run checks" was offered on three signals and handled nowhere, so the
+    # inbox drew it as a link to the agent page under a label that promised a
+    # re-run. Until the verb exists the three offer only the navigation op.
+    test "red_main offers only opening the agent" do
+      signal =
+        resolve(view("a", default_branch: %{name: "main", state: "FAILURE", headline: "x"}))
+
+      assert signal.kind == :red_main
+      assert [%{label: "Open agent", op: :open_agent, args: %{agent: "a"}}] = signal.resolving
+    end
+
+    test "disowned_check offers only inspecting the agent" do
+      signal = resolve(view("a", failing_prs: [pr(400, true)]))
+
+      assert signal.kind == :disowned_check
+      assert [%{label: "Inspect", op: :open_agent, args: %{agent: "a"}}] = signal.resolving
+    end
+
+    test "red_check offers only inspecting the agent" do
+      signal = resolve(view("a", failing_prs: [pr(187)]))
+
+      assert signal.kind == :red_check
+      assert [%{label: "Inspect", op: :open_agent, args: %{agent: "a"}}] = signal.resolving
+    end
+  end
+
   describe "needs_answer from a non-blocking ask (#299)" do
     test "an open ask raises the signal whatever the agent is doing" do
       ask = %{id: 7, question: "is the uncommitted diff yours?", asked_at: @now}
