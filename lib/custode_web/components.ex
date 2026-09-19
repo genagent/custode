@@ -236,6 +236,47 @@ defmodule CustodeWeb.Components do
     """
   end
 
+  attr(:agent, :string, required: true)
+  attr(:action, :string, required: true)
+  attr(:size, :string, default: "btn-xs")
+
+  @doc """
+  Reject, with a reason (#438). One disclosure shared by every surface that
+  can reject a gate, so none of them can send a placeholder again: the form
+  will not submit without text, and "one-off" tells the agent not to turn the
+  rejection into a standing rule.
+
+  `phx-update="ignore"` keeps a half-typed reason alive across the re-renders
+  a live page does every second. The id carries the action id, so a new gate
+  is a new element with its own hidden inputs.
+  """
+  def reject_form(assigns) do
+    ~H"""
+    <details id={"reject-#{@action}"} phx-update="ignore" class="dropdown dropdown-end">
+      <summary class={["btn btn-ghost", @size]}>reject</summary>
+      <form
+        phx-submit="reject"
+        class="dropdown-content z-10 mt-1 flex w-80 flex-col gap-2 rounded-box bg-base-100 p-3 text-left shadow-lg"
+      >
+        <input type="hidden" name="agent" value={@agent} />
+        <input type="hidden" name="action" value={@action} />
+        <textarea
+          name="reason"
+          rows="3"
+          required
+          class="textarea textarea-bordered w-full text-sm"
+          placeholder="why? the agent reads this, and may make it a rule"
+        ></textarea>
+        <label class="flex cursor-pointer items-center gap-2 text-xs text-base-content/70">
+          <input type="checkbox" name="one_off" value="true" class="checkbox checkbox-xs" />
+          one-off: this proposal only, not a standing rule
+        </label>
+        <button type="submit" class="btn btn-error btn-xs self-end">reject</button>
+      </form>
+    </details>
+    """
+  end
+
   @doc """
   The one condition that outranks a page's own content: the host cannot run
   turns (#443). Drawn by the shared chrome so no page can forget it, and
