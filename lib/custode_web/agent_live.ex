@@ -131,7 +131,7 @@ defmodule CustodeWeb.AgentLive do
   end
 
   def handle_event("approve", %{"action" => action_id}, socket) do
-    Agent.approve_action(socket.assigns.id, action_id)
+    Custode.approve_action(socket.assigns.id, action_id, via: :liveview)
     {:noreply, refresh(socket)}
   end
 
@@ -166,7 +166,10 @@ defmodule CustodeWeb.AgentLive do
   end
 
   def handle_event("reject", %{"action" => action_id}, socket) do
-    Custode.reject_with_note(socket.assigns.id, action_id, "rejected from dashboard")
+    Custode.reject_with_note(socket.assigns.id, action_id, "rejected from dashboard",
+      via: :liveview
+    )
+
     {:noreply, refresh(socket)}
   end
 

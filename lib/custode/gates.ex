@@ -27,6 +27,12 @@ defmodule Custode.Gates do
       field(:action_id, :string)
       field(:detail, :string)
       field(:status, :string, default: "open")
+      # what was decided, by whom, from which surface, and why (#448). `status`
+      # says the gate is over; these say how it ended.
+      field(:outcome, :string)
+      field(:decided_by, :string)
+      field(:decided_via, :string)
+      field(:reason, :string)
       timestamps(type: :utc_datetime_usec)
     end
   end
@@ -62,8 +68,9 @@ defmodule Custode.Gates do
 
   defp do_handle_event([:oban_claude, :agent, :transition], _measurements, meta, _config) do
     if meta.from in @gated do
-      resolve_open(meta.agent_id)
-      Custode.Feed.mark_gate_resolved(meta.agent_id, resolution(meta.from, meta.to))
+      outcome = resolution(meta.from, meta.to)
+      resolve_open(meta.agent_id, outcome)
+      Custode.Feed.mark_gate_resolved(meta.agent_id, outcome)
     end
 
     if meta.to in @gated, do: open(meta.agent_id, meta.to)
@@ -94,6 +101,68 @@ defmodule Custode.Gates do
     from(g in Gate, where: g.status == "open", order_by: [desc: g.id])
     |> Repo.all()
     |> Enum.group_by(& &1.agent_id)
+  end
+
+  @doc """
+  Stamp a decision onto an agent's open gate before it is carried out (#448):
+  who decided, from which surface, and why.
+
+  Called BEFORE the engine call on purpose. The engine call causes the
+  transition that resolves the row, so writing first means the row that gets
+  resolved already says why. Returns how many rows it stamped; zero is not an
+  error, because a decision can outrun the asynchronous insert of its gate row
+  (#436), and the decision still has to go through.
+
+  `action_id` narrows to one action when the caller has it. `nil` stamps the
+  agent's open gates, which is one row in practice.
+  """
+  @spec record_decision(String.t(), String.t() | nil, keyword()) :: non_neg_integer()
+  def record_decision(agent_id, action_id, opts) do
+    query = from(g in Gate, where: g.agent_id == ^agent_id and g.status == "open")
+
+    query =
+      if action_id, do: from(g in query, where: g.action_id == ^action_id), else: query
+
+    {count, _rows} =
+      Repo.update_all(query,
+        set: [
+          decided_by: opts |> Keyword.get(:by, "operator") |> to_string(),
+          decided_via: opts |> Keyword.get(:via) |> stringify(),
+          reason: Keyword.get(opts, :reason)
+        ]
+      )
+
+    count
+  end
+
+  defp stringify(nil), do: nil
+  defp stringify(value), do: to_string(value)
+
+  @doc """
+  How often each agent's approval gates are approved (#448): approved and
+  rejected counts and the rate, busiest first. Gates with no recorded outcome
+  are left out of the rate, not counted as either.
+
+  This is the number that says whether a gate class is a decision or a
+  formality, which is what relaxing one (or handing it to the caretaker,
+  #451) should rest on.
+  """
+  @spec approval_rates() :: [
+          %{agent_id: String.t(), approved: integer(), rejected: integer(), rate: float()}
+        ]
+  def approval_rates do
+    from(g in Gate,
+      where: g.kind == "approval" and g.outcome in ["approved", "rejected"],
+      group_by: g.agent_id,
+      select: %{
+        agent_id: g.agent_id,
+        approved: fragment("SUM(CASE WHEN ? = 'approved' THEN 1 ELSE 0 END)", g.outcome),
+        rejected: fragment("SUM(CASE WHEN ? = 'rejected' THEN 1 ELSE 0 END)", g.outcome)
+      }
+    )
+    |> Repo.all()
+    |> Enum.map(fn row -> Map.put(row, :rate, row.approved / (row.approved + row.rejected)) end)
+    |> Enum.sort_by(&{-(&1.approved + &1.rejected), &1.agent_id})
   end
 
   @doc "Recent gates fleet-wide, newest first, optionally filtered by status."
@@ -144,10 +213,12 @@ defmodule Custode.Gates do
     Repo.insert!(%Gate{agent_id: agent_id, kind: kind, action_id: action_id, detail: detail})
   end
 
-  defp resolve_open(agent_id) do
+  # The outcome goes on the row as well as the feed card (#448): the card is
+  # JSON inside a feed entry, which nothing can aggregate over.
+  defp resolve_open(agent_id, outcome) do
     Repo.update_all(
       from(g in Gate, where: g.agent_id == ^agent_id and g.status == "open"),
-      set: [status: "resolved", updated_at: DateTime.utc_now()]
+      set: [status: "resolved", outcome: outcome, updated_at: DateTime.utc_now()]
     )
   end
 

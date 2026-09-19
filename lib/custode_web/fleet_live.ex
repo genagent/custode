@@ -59,12 +59,12 @@ defmodule CustodeWeb.FleetLive do
   end
 
   def handle_event("approve", %{"id" => id, "action" => action_id}, socket) do
-    Agent.approve_action(id, action_id)
+    Custode.approve_action(id, action_id, via: :liveview)
     {:noreply, refresh(socket)}
   end
 
   def handle_event("reject", %{"id" => id, "action" => action_id}, socket) do
-    Custode.reject_with_note(id, action_id, "rejected from dashboard")
+    Custode.reject_with_note(id, action_id, "rejected from dashboard", via: :liveview)
     {:noreply, refresh(socket)}
   end
 

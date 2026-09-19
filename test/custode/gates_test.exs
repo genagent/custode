@@ -37,6 +37,95 @@ defmodule Custode.GatesTest do
     assert Gates.open_gates(id) == []
   end
 
+  # drives a stub agent to an open approval gate and returns {id, action_id}
+  defp gated_agent!(action) do
+    id = start_stub_agent!()
+    :processing = Agent.submit_prompt(id, "x")
+
+    :ok =
+      Agent.job_finished(
+        id,
+        {:ok, structured_result(%{"directive" => "request_permission", "action" => action})}
+      )
+
+    {:ok, {:awaiting_permission, %{id: action_id}}} = Agent.await(id, :awaiting_permission, 1_000)
+    eventually(fn -> assert [_gate] = Gates.open_gates(id) end)
+    {id, action_id}
+  end
+
+  defp gate_for(id) do
+    import Ecto.Query, only: [from: 2]
+    Custode.Repo.one!(from(g in Gates.Gate, where: g.agent_id == ^id))
+  end
+
+  describe "the outcome of a gate (#448)" do
+    test "a rejection records that it was one, who, from where, and why" do
+      {id, action_id} = gated_agent!("force-push main")
+
+      :rejected =
+        Custode.reject_with_note(id, action_id, "never force-push a default branch",
+          via: :cli,
+          by: "operator"
+        )
+
+      gate = gate_for(id)
+      assert gate.status == "resolved"
+      assert gate.outcome == "rejected"
+      assert gate.reason == "never force-push a default branch"
+      assert gate.decided_via == "cli"
+      assert gate.decided_by == "operator"
+    end
+
+    test "an approval records that it was one, and from which surface" do
+      {id, action_id} = gated_agent!("open a draft PR")
+
+      :processing = Custode.approve_action(id, action_id, via: :liveview)
+
+      gate = gate_for(id)
+      assert gate.status == "resolved"
+      assert gate.outcome == "approved"
+      assert gate.decided_via == "liveview"
+      assert gate.decided_by == "operator"
+      assert gate.reason == nil
+    end
+
+    test "a decision that reaches the engine directly still records its outcome" do
+      {id, action_id} = gated_agent!("prune")
+
+      :rejected = Agent.reject_action(id, action_id, "test")
+
+      gate = gate_for(id)
+      assert gate.outcome == "rejected"
+      assert gate.decided_via == nil
+    end
+
+    test "record_decision narrows to the action and is not an error when nothing is open" do
+      {id, action_id} = gated_agent!("prune")
+
+      assert Gates.record_decision(id, "act_someone_else", via: :mcp) == 0
+      assert Gates.record_decision(id, action_id, via: :mcp, by: "custode") == 1
+      assert Gates.record_decision(uid("nobody"), nil, via: :mcp) == 0
+
+      assert gate_for(id).decided_by == "custode"
+    end
+
+    test "approval_rates counts decided approvals per agent and leaves the undecided out" do
+      {approved_id, a1} = gated_agent!("one")
+      :processing = Custode.approve_action(approved_id, a1, via: :cli)
+
+      {rejected_id, a2} = gated_agent!("two")
+      :rejected = Custode.reject_with_note(rejected_id, a2, "no", via: :cli)
+
+      {open_id, _a3} = gated_agent!("three")
+
+      rates = Map.new(Gates.approval_rates(), &{&1.agent_id, &1})
+
+      assert %{approved: 1, rejected: 0, rate: 1.0} = rates[approved_id]
+      assert %{approved: 0, rejected: 1, rate: +0.0} = rates[rejected_id]
+      refute Map.has_key?(rates, open_id)
+    end
+  end
+
   test "question gates record the question and resolve on the answer" do
     id = start_stub_agent!()
     :processing = Agent.submit_prompt(id, "x")

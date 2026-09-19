@@ -16,7 +16,6 @@ defmodule CustodeWeb.InboxLive do
   import CustodeWeb.Components
 
   alias Custode.Operator.Inbox
-  alias ObanClaude.Agent
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
@@ -38,12 +37,12 @@ defmodule CustodeWeb.InboxLive do
 
   @impl Phoenix.LiveView
   def handle_event("approve", %{"agent" => id, "action" => action_id}, socket) do
-    Agent.approve_action(id, action_id)
+    Custode.approve_action(id, action_id, via: :liveview)
     {:noreply, refresh(socket)}
   end
 
   def handle_event("reject", %{"agent" => id, "action" => action_id}, socket) do
-    Custode.reject_with_note(id, action_id, "rejected from the inbox")
+    Custode.reject_with_note(id, action_id, "rejected from the inbox", via: :liveview)
     {:noreply, refresh(socket)}
   end
 

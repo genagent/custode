@@ -23,6 +23,19 @@ defmodule Custode.MCP.Tools do
   def fail(frame, message), do: {:reply, Response.error(Response.tool(), message), frame}
 
   @doc """
+  Who is deciding a gate and from which surface, for the gate row (#448).
+  """
+  def decided(frame) do
+    by =
+      case Custode.MCP.caller(frame) do
+        %{kind: :operator} -> "operator"
+        %{id: id} -> id
+      end
+
+    [by: by, via: Custode.MCP.origin_transport(frame)]
+  end
+
+  @doc """
   The sibling-gate ban as a verb-guarantee (#2): a ROUTINE caller may
   operate gates of its own sub-agents, but never of another routine.
   Operators (the human, the CLI) pass. Returns :ok or {:error, reason}.
@@ -307,7 +320,7 @@ defmodule Custode.MCP.Tools.ApproveAction do
   end
 
   defp do_approve(agent_id, action_id, frame) do
-    case ObanClaude.Agent.approve_action(agent_id, action_id) do
+    case Custode.approve_action(agent_id, action_id, decided(frame)) do
       :processing -> reply(frame, %{agent_id: agent_id, approved: action_id})
       other -> fail(frame, "approve failed: #{inspect(other)}")
     end
@@ -335,7 +348,9 @@ defmodule Custode.MCP.Tools.RejectAction do
   end
 
   defp do_reject(agent_id, action_id, params, frame) do
-    case Custode.reject_with_note(agent_id, action_id, Map.get(params, :reason, "denied")) do
+    reason = Map.get(params, :reason, "denied")
+
+    case Custode.reject_with_note(agent_id, action_id, reason, decided(frame)) do
       :rejected -> reply(frame, %{agent_id: agent_id, rejected: action_id})
       other -> fail(frame, "reject failed: #{inspect(other)}")
     end
