@@ -234,18 +234,6 @@ config :custode,
       working_dir: "/Users/joshrotenberg/Code/github.com/redis/redisctl",
       tags: [:rust, :external]
     },
-    # redisctl's steward (design/006 slice 1): the first repo to get a
-    # groundskeeper, since it just became a product. Paired with the worker
-    # above -- same repo, different phone number (@daily condition-watching
-    # vs */window board-draining). Prove the profile here before the
-    # fleet-wide rollout (design/006 slice 4); every further add is one gate.
-    %{
-      id: "redisctl-steward",
-      profile: :steward,
-      repo: "redis/redisctl",
-      working_dir: "/Users/joshrotenberg/Code/github.com/redis/redisctl",
-      tags: [:rust, :external]
-    },
     # The reviewer (#86 rung 3): reads siblings' ready PRs and posts gated
     # review: verdicts; a needs-human verdict mechanically blocks merging.
     %{
