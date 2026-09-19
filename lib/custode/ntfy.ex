@@ -9,6 +9,12 @@ defmodule Custode.Ntfy do
   pocket). Tapping a notification opens the agent's dashboard page
   (pair with tailscale serve, #65, for links that work away from home).
 
+  A non-blocking question (`asked`, #445) is deliberately NOT in the ringing
+  set. There are two weights here, ring and accumulate, and an ask belongs to
+  the second: the agent carried on, so nothing is waiting on the phone being
+  picked up. It still reaches the app under `publish: :all`, and the inbox
+  and the agent's tile carry it regardless of this channel.
+
   Disabled until a topic is configured:
 
       config :custode, ntfy: [

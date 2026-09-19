@@ -22,12 +22,27 @@ defmodule Custode.Asks do
   ## The shape of the loop
 
       agent calls ask_operator      -> a row, status "open", turn completes
+                                       plus an `asked` feed entry (#445)
       operator answers              -> status "answered", plus an inbox note
+                                       plus an `answered` feed entry
       the agent's next sweep        -> reads the note with its own Read tool
 
   The return channel is the inbox note, exactly as `Custode.Gates.requeue!/1`
   already does for restart notices. There is no resume and no state to
   restore, because nothing was suspended.
+
+  ## How the operator hears about it (#445)
+
+  Not blocking the agent must not mean not telling the human. Until #445 an
+  ask was a row and nothing else, so it reached the operator only if they
+  opened `/inbox` or ran `mix custode asks`: the 1h07m of invisibility that
+  motivated asks had moved from the agent to the question.
+
+  Both ends now record a feed entry, which puts the ask on the agent's tile,
+  in the feed, and on ntfy through `Custode.Feed.Notify`. Neither passes
+  `notify: true`. The desktop notification means "a human is needed NOW", and
+  an ask, by construction, is not that: the weight of the notification says
+  the same thing the non-blocking turn does.
 
   ## What this is not
 
@@ -39,6 +54,7 @@ defmodule Custode.Asks do
 
   import Ecto.Query, only: [from: 2]
 
+  alias Custode.Feed
   alias Custode.Repo
 
   defmodule Ask do
@@ -72,12 +88,15 @@ defmodule Custode.Asks do
     if question == "" do
       {:error, "a question needs text"}
     else
-      {:ok,
-       Repo.insert!(%Ask{
-         agent_id: agent_id,
-         question: question,
-         detail: opts[:detail]
-       })}
+      ask =
+        Repo.insert!(%Ask{
+          agent_id: agent_id,
+          question: question,
+          detail: opts[:detail]
+        })
+
+      record_asked(ask)
+      {:ok, ask}
     end
   end
 
@@ -139,9 +158,39 @@ defmodule Custode.Asks do
           |> Repo.update!()
 
         deliver(answered)
+        record_answered(answered)
         {:ok, answered}
     end
   end
+
+  # The feed is how the operator hears about an ask without going looking
+  # (#445). No `notify: true`: see the moduledoc for why an ask stays below
+  # the desktop-notification weight. `ask_id` rides both entries so the pair
+  # can be read back from the feed alone.
+  defp record_asked(%Ask{} = ask) do
+    Feed.record(%{
+      event: "asked",
+      agent: ask.agent_id,
+      ask_id: ask.id,
+      question: ask.question,
+      summary: "asked the operator: " <> clip(ask.question)
+    })
+  end
+
+  defp record_answered(%Ask{} = ask) do
+    Feed.record(%{
+      event: "answered",
+      agent: ask.agent_id,
+      ask_id: ask.id,
+      question: ask.question,
+      answer: ask.answer,
+      summary: "operator answered ask #{ask.id}: " <> clip(ask.answer)
+    })
+  end
+
+  # A feed card is a line, not a transcript; the full text is on the row and
+  # in the entry's own `question` / `answer` keys.
+  defp clip(text), do: String.slice(text, 0, 160)
 
   # The agent-native return channel: a file its Read tool picks up, the same
   # mechanism Gates.requeue!/1 uses for restart notices. Inbox.drop/3 also
