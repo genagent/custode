@@ -93,6 +93,7 @@ defmodule Custode.Advisors.Record do
   @spec all(keyword()) :: [Entry.t()]
   def all(opts \\ []) do
     since = Keyword.get(opts, :since, @window_s)
+    now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
     history = Outcome.history(Keyword.put(opts, :since, since))
     standing = Suggestions.standing()
 
@@ -102,7 +103,7 @@ defmodule Custode.Advisors.Record do
       |> Enum.uniq()
 
     advisors
-    |> Enum.map(&entry(&1, history, standing, since))
+    |> Enum.map(&entry(&1, history, standing, since, now))
     |> Enum.sort_by(&{-total(&1), &1.advisor})
   end
 
@@ -115,7 +116,7 @@ defmodule Custode.Advisors.Record do
     end
   end
 
-  defp entry(advisor, history, standing, since) do
+  defp entry(advisor, history, standing, since, now) do
     mine = Enum.filter(history, &(&1.advisor == advisor))
     dismissals = Enum.filter(mine, &(&1.decision == :dismissed))
 
@@ -130,7 +131,7 @@ defmodule Custode.Advisors.Record do
       superseded: count(mine, :superseded),
       dismissed: length(dismissals),
       dismissed_by_reason: by_reason(dismissals),
-      cost_usd: cost(advisor, since)
+      cost_usd: cost(advisor, since, now)
     }
   end
 
@@ -144,9 +145,12 @@ defmodule Custode.Advisors.Record do
   end
 
   # A deterministic advisor attributes no spend, so this is 0.0 and that is
-  # the answer rather than a missing value.
-  defp cost(advisor, since) do
-    SpendLedger.total(advisor, DateTime.add(DateTime.utc_now(), -since, :second))
+  # the answer rather than a missing value. The window is measured from the
+  # same `now` as the history beside it: measured from the wall clock, a
+  # caller that injects `:now` gets history for one window and cost for
+  # another (#454).
+  defp cost(advisor, since, now) do
+    SpendLedger.total(advisor, DateTime.add(now, -since, :second))
   end
 
   defp total(%Entry{} = entry) do
