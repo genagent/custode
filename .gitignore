@@ -42,3 +42,8 @@ dev-workspace/
 
 # live roster written by the runtime in dev-loop mode; never commit
 /routines.toml
+
+# The work kernel's artifact root (context bundles, diffs, workspace
+# preparations). Runtime output, not source. It resolves under CUSTODE_HOME
+# when that is set and lands here otherwise.
+/artifacts/
