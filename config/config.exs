@@ -93,26 +93,28 @@ config :custode,
       sensors: [:ci]
     }
   },
-  # P1 intake pilot (#366): one approved repository identity and one exact
-  # issue. The stable repository ID survives owner/name renames; the legacy
-  # custode-dev cadence remains the compatibility driver.
+  # P1 intake pilot (#366). This allowlist IS the operator approval design/008
+  # asks for: a routine with an entry here has its beats drive the work
+  # kernel's GitHub issue intake as well as its legacy tick.
   #
-  # This allowlist IS the operator approval design/008 asks for, so the issue
-  # number is a deliberate choice and not a default. It pointed at 368 until
-  # 2026-07-30, and 368 had closed: intake ingested it, correctly cancelled at
-  # `discovered` with disposition "closed", and repeated every sweep. The
-  # kernel worked and observed nothing, which is why #354's acceptance was
-  # still unmet with every child issue shipped.
+  # EMPTY ON PURPOSE since 2026-09-19 (design/010): the work kernel is frozen.
+  # With no pilot, `GitHubIssueIntake.on_routine_tick/1` returns `:noop` and a
+  # beat inserts the legacy tick and nothing else.
   #
-  # 425 is the first OPEN pilot subject: small, mechanical, independently
-  # worth doing, chosen so a misbehaving vertical fails legibly.
-  github_issue_intake_pilots: %{
-    "custode-dev" => %{
-      repository_id: "1307868502",
-      issue_numbers: [425],
-      policy_version: "github-issue-intake-v1"
-    }
-  },
+  # History, so nobody repeats it: the pilot pointed at 368 until 2026-07-30,
+  # and 368 had closed, so intake cancelled it at `discovered` every sweep and
+  # the kernel observed nothing. It then pointed at 425, the first OPEN
+  # subject, and on 2026-07-30 the vertical ran end to end and stopped at
+  # `blocked/implementing` on a prose seam (#428, fixed by #432). That
+  # WorkItem can never re-run and its issue can never get a second one (#439),
+  # so resuming the kernel means a FRESH issue number here, never a retry:
+  #
+  #   "custode-dev" => %{
+  #     repository_id: "1307868502",
+  #     issue_numbers: [<an open, small, mechanical issue>],
+  #     policy_version: "github-issue-intake-v1"
+  #   }
+  github_issue_intake_pilots: %{},
   routines: [
     %{
       id: "custode",
