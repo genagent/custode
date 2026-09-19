@@ -68,6 +68,38 @@ defmodule Custode.RoutineTickTest do
     assert second.args["start"]["args"]["model"] == "sonnet"
   end
 
+  test "a beat that waited out a withheld queue cancels itself and inserts nothing (#442)" do
+    workspace = tmp_workspace!()
+    id = uid("stale")
+
+    put_env!(:routines, [
+      %{id: id, cron: "@daily", workspace: workspace, prompt: "sweep", model: "haiku"}
+    ])
+
+    queued_days_ago = DateTime.add(DateTime.utc_now(), -3 * 86_400, :second)
+
+    assert {:cancel, {:stale_tick, ^id}} =
+             RoutineTick.perform(%Oban.Job{
+               args: %{"routine_id" => id},
+               scheduled_at: queued_days_ago,
+               inserted_at: queued_days_ago
+             })
+
+    assert ticks_for(id) == []
+
+    # the same beat a few seconds late is just a beat
+    just_now = DateTime.add(DateTime.utc_now(), -5, :second)
+
+    assert :ok =
+             RoutineTick.perform(%Oban.Job{
+               args: %{"routine_id" => id},
+               scheduled_at: just_now,
+               inserted_at: just_now
+             })
+
+    assert [_tick] = ticks_for(id)
+  end
+
   test "cancels when the routine no longer exists" do
     ghost = uid("ghost")
 
