@@ -39,6 +39,67 @@ defmodule Custode.AsksTest do
     end
   end
 
+  describe "the feed trail (#445)" do
+    test "filing an ask records an asked entry against the asking agent", %{routine: routine} do
+      {:ok, ask} = Asks.ask(routine.id, "is the uncommitted diff yours?", detail: "on main")
+
+      assert [entry] = feed_events(routine.id, "asked")
+      assert entry["ask_id"] == ask.id
+      assert entry["question"] == "is the uncommitted diff yours?"
+      assert entry["summary"] =~ "is the uncommitted diff yours?"
+    end
+
+    test "a refused ask records nothing, because nothing was asked", %{routine: routine} do
+      assert {:error, _reason} = Asks.ask(routine.id, "   ")
+      assert feed_events(routine.id, "asked") == []
+    end
+
+    test "answering records the matching answered entry, so the pair reads back",
+         %{routine: routine} do
+      {:ok, ask} = Asks.ask(routine.id, "which env?")
+      {:ok, _answered} = Asks.answer(ask.id, "staging")
+
+      assert [asked] = feed_events(routine.id, "asked")
+      assert [answered] = feed_events(routine.id, "answered")
+      assert answered["ask_id"] == asked["ask_id"]
+      assert answered["question"] == "which env?"
+      assert answered["answer"] == "staging"
+    end
+
+    test "a refused answer records nothing", %{routine: routine} do
+      {:ok, ask} = Asks.ask(routine.id, "once")
+      {:ok, _first} = Asks.answer(ask.id, "yes")
+      assert {:error, _reason} = Asks.answer(ask.id, "no, wait")
+
+      assert [_only] = feed_events(routine.id, "answered")
+    end
+
+    test "an ask reaches ntfy at the quiet weight, below a blocking gate", %{routine: routine} do
+      test_pid = self()
+      put_env!(:ntfy_sink, fn message -> send(test_pid, {:ntfy, message}) end)
+      put_env!(:ntfy, topic: "custode-test", publish: :all)
+      title = "#{routine.id} asked"
+
+      {:ok, _ask} = Asks.ask(routine.id, "may I carry on?")
+
+      assert_receive {:ntfy, %{title: ^title} = message}, 500
+      assert message.priority == 1
+      assert message.body =~ "may I carry on?"
+    end
+
+    test "with ntfy narrowed to attention events, an ask does not ring the phone",
+         %{routine: routine} do
+      test_pid = self()
+      put_env!(:ntfy_sink, fn message -> send(test_pid, {:ntfy, message}) end)
+      put_env!(:ntfy, topic: "custode-test", publish: :attention)
+      title = "#{routine.id} asked"
+
+      {:ok, _ask} = Asks.ask(routine.id, "may I carry on?")
+
+      refute_receive {:ntfy, %{title: ^title}}, 100
+    end
+  end
+
   describe "open/0 and open_by_agent/0" do
     test "open asks come back oldest first", %{routine: routine} do
       {:ok, first} = Asks.ask(routine.id, "asked first")
@@ -114,5 +175,11 @@ defmodule Custode.AsksTest do
       assert {:ok, answered} = Asks.answer(ask.id, "noted")
       assert answered.status == "answered"
     end
+  end
+
+  # The feed table is shared by the whole suite, so every read here is scoped
+  # to this test's own routine id.
+  defp feed_events(agent_id, event) do
+    agent_id |> Custode.Feed.for_agent(50) |> Enum.filter(&(&1["event"] == event))
   end
 end

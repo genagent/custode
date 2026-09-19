@@ -12,6 +12,22 @@ defmodule CustodeWeb.ComponentsTest do
     end
   end
 
+  describe "the ask pair in the feed vocabulary (#445)" do
+    test "an asked entry is an attention event, styled below a blocking question" do
+      assert feed_category_match?("asked", "attention")
+      assert feed_badge("asked") =~ "badge-accent"
+      assert feed_badge("asked") =~ "badge-outline"
+      refute feed_badge("needs_input") =~ "badge-outline"
+      assert event_dot("asked") == "text-accent"
+    end
+
+    test "an answered entry is the operator's act, not something waiting on them" do
+      refute feed_category_match?("answered", "attention")
+      assert feed_badge("answered") =~ "badge-success"
+      assert event_dot("answered") == "text-success"
+    end
+  end
+
   describe "ago_text/1" do
     test "buckets seconds/minutes/hours/days and tolerates junk" do
       now = DateTime.utc_now()

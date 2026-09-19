@@ -96,7 +96,8 @@ defmodule CustodeWeb.Components do
   # you often want to hide. Everything not named here still shows under
   # "all".
   @feed_categories %{
-    "attention" => ~w(needs_approval needs_input paused budget_paused turn_failed doctor_failed),
+    "attention" =>
+      ~w(needs_approval needs_input asked paused budget_paused turn_failed doctor_failed),
     "turns" => ~w(turn prompted),
     "sensors" => ~w(sensor)
   }
@@ -136,6 +137,10 @@ defmodule CustodeWeb.Components do
   def feed_badge("turn_failed"), do: "badge-error"
   def feed_badge("needs_approval"), do: "badge-warning"
   def feed_badge("needs_input"), do: "badge-accent"
+  # An ask is a question like needs_input, so it shares the accent hue, but
+  # outlined: it did not stop the agent and should not read as loudly (#445).
+  def feed_badge("asked"), do: "badge-accent badge-outline"
+  def feed_badge("answered"), do: "badge-success badge-outline"
   def feed_badge("budget_paused"), do: "badge-error"
   def feed_badge("workflow_launch_proposed"), do: "badge-warning"
   def feed_badge("workflow_budget_paused"), do: "badge-warning"
@@ -332,6 +337,8 @@ defmodule CustodeWeb.Components do
   def event_dot("turn_failed"), do: "text-error"
   def event_dot("needs_approval"), do: "text-warning"
   def event_dot("needs_input"), do: "text-accent"
+  def event_dot("asked"), do: "text-accent"
+  def event_dot("answered"), do: "text-success"
   def event_dot("budget_paused"), do: "text-error"
   def event_dot("doctor_failed"), do: "text-error"
   def event_dot("repo_verb"), do: "text-success"
