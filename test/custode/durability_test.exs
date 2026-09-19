@@ -97,6 +97,64 @@ defmodule Custode.DurabilityTest do
       assert content =~ "too destructive, never this"
       assert content =~ "REMEMBER"
     end
+
+    test "the note names the proposal even with no gate row, and never the wrong gate" do
+      import ObanClaude.Testing
+
+      workspace = tmp_workspace!()
+      routine = routine_fixture!(workspace)
+      test_pid = self()
+
+      {:ok, _pid} =
+        Agent.start_agent(routine.id,
+          enqueue_fun: fn _a, _m ->
+            send(test_pid, :enqueued)
+            {:ok, :queued}
+          end
+        )
+
+      on_exit(fn -> Agent.stop_agent(routine.id) end)
+
+      :processing = Agent.submit_prompt(routine.id, "go")
+
+      :ok =
+        Agent.job_finished(
+          routine.id,
+          {:ok,
+           structured_result(%{
+             "directive" => "request_permission",
+             "action" => "drop the production table"
+           })}
+        )
+
+      {:ok, {:awaiting_permission, action}} = Agent.await(routine.id, :awaiting_permission, 1_000)
+
+      # The gate row is a side effect of a telemetry handler that swallows
+      # its own Repo errors, so under load it can be missing entirely. That
+      # used to degrade the note to an opaque action id (#436). Deleting the
+      # rows reproduces that state deterministically, without a sleep.
+      Custode.Repo.delete_all(Custode.Gates.Gate)
+
+      # A stale open gate for the SAME agent, describing different work: the
+      # old lookup took the first open gate by position and would have
+      # described this one instead of what was rejected.
+      Custode.Repo.insert!(%Custode.Gates.Gate{
+        agent_id: routine.id,
+        kind: "approval",
+        action_id: "act_unrelated",
+        detail: "some entirely different proposal",
+        status: "open"
+      })
+
+      :rejected = Custode.reject_with_note(routine.id, action.id, "no, never that")
+
+      assert [note] = Path.wildcard(Path.join([workspace, "inbox", "rejection-*"]))
+      content = File.read!(note)
+      assert content =~ "drop the production table"
+      assert content =~ "no, never that"
+      refute content =~ "some entirely different proposal"
+      refute content =~ "Proposal: #{action.id}"
+    end
   end
 
   describe "deadman (#3)" do

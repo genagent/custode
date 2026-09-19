@@ -74,12 +74,7 @@ defmodule Custode do
   the agent re-proposed variations forever.
   """
   def reject_with_note(agent_id, action_id, reason) do
-    detail =
-      case Custode.Gates.open_gates(agent_id) do
-        [gate | _rest] -> gate.detail
-        [] -> nil
-      end
-
+    detail = proposal_detail(agent_id, action_id)
     result = Agent.reject_action(agent_id, action_id, reason)
 
     if result == :rejected and Custode.Routine.get(agent_id) do
@@ -101,6 +96,33 @@ defmodule Custode do
     end
 
     result
+  end
+
+  # What the agent actually proposed, for the rejection note (#436).
+  #
+  # Read from the pending action the agent process holds, never from the
+  # gates table. The gate row is a side effect of a telemetry handler that
+  # deliberately swallows its own errors (`Custode.Gates.handle_event/4`, so
+  # one transient Repo error cannot detach the pipeline), so it is not a
+  # dependable source for the note: under load a busy Repo means no row, the
+  # old lookup returned nothing, and the operator's lesson note degraded to
+  # an opaque action id -- teaching the agent nothing about what was
+  # refused. Taking the FIRST open gate could also describe a different
+  # proposal entirely when two were pending.
+  #
+  # Must be read BEFORE the rejection clears `pending_action`. A rejection
+  # only succeeds when the agent holds this exact action, so the fallback is
+  # unreachable on the success path and the note is complete whenever it is
+  # written at all.
+  defp proposal_detail(agent_id, action_id) do
+    case Agent.status(agent_id) do
+      {:ok, {:awaiting_permission, %{id: ^action_id, description: description}}}
+      when is_binary(description) ->
+        description
+
+      _other ->
+        nil
+    end
   end
 
   @doc "Reject whatever action the agent is blocked on (console shorthand)."
