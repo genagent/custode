@@ -98,6 +98,90 @@ defmodule Custode.DurabilityTest do
       assert content =~ "REMEMBER"
     end
 
+    # drives a routine to an open approval gate; returns {routine, workspace, action}
+    defp gated_routine!(proposal) do
+      import ObanClaude.Testing
+
+      workspace = tmp_workspace!()
+      routine = routine_fixture!(workspace)
+
+      {:ok, _pid} = Agent.start_agent(routine.id, enqueue_fun: fn _a, _m -> {:ok, :queued} end)
+      on_exit(fn -> Agent.stop_agent(routine.id) end)
+
+      :processing = Agent.submit_prompt(routine.id, "go")
+
+      :ok =
+        Agent.job_finished(
+          routine.id,
+          {:ok, structured_result(%{"directive" => "request_permission", "action" => proposal})}
+        )
+
+      {:ok, {:awaiting_permission, action}} = Agent.await(routine.id, :awaiting_permission, 1_000)
+      {routine, workspace, action}
+    end
+
+    defp rejection_note!(workspace) do
+      assert [note] = Path.wildcard(Path.join([workspace, "inbox", "rejection-*"]))
+      File.read!(note)
+    end
+
+    # `redisctl` permanently stopped readying a green PR because a dashboard
+    # click sent "rejected from dashboard" under a REMEMBER instruction (#438)
+    for placeholder <- ["rejected from dashboard", "rejected from the inbox", "denied", "  ", nil] do
+      test "a rejection with no real reason (#{inspect(placeholder)}) forbids a standing exception" do
+        {routine, workspace, action} = gated_routine!("ready PR 1075")
+
+        :rejected = Custode.reject_with_note(routine.id, action.id, unquote(placeholder))
+
+        content = rejection_note!(workspace)
+        assert content =~ "ready PR 1075"
+        assert content =~ "Reason: (none given)"
+        assert content =~ "Do NOT record a standing exception"
+        refute content =~ "REMEMBER"
+        refute content =~ "rejected from"
+      end
+    end
+
+    test "a stated reason marked one-off is filed and not generalized" do
+      {routine, workspace, action} = gated_routine!("ready PR 1075")
+
+      :rejected =
+        Custode.reject_with_note(routine.id, action.id, "hold until the release is cut",
+          standing: false
+        )
+
+      content = rejection_note!(workspace)
+      assert content =~ "hold until the release is cut"
+      assert content =~ "ONE-OFF"
+      assert content =~ "Do NOT record a standing exception"
+      refute content =~ "REMEMBER"
+    end
+
+    test "the gate row keeps a stated reason and stores nothing for a placeholder" do
+      import Ecto.Query, only: [from: 2]
+
+      gate_reason = fn id ->
+        eventually(fn ->
+          assert [reason] =
+                   Custode.Repo.all(
+                     from(g in Custode.Gates.Gate, where: g.agent_id == ^id, select: g.reason)
+                   )
+
+          reason
+        end)
+      end
+
+      {stated, _w1, a1} = gated_routine!("one")
+      eventually(fn -> assert [_gate] = Custode.Gates.open_gates(stated.id) end)
+      :rejected = Custode.reject_with_note(stated.id, a1.id, "never this", via: :liveview)
+      assert gate_reason.(stated.id) == "never this"
+
+      {blank, _w2, a2} = gated_routine!("two")
+      eventually(fn -> assert [_gate] = Custode.Gates.open_gates(blank.id) end)
+      :rejected = Custode.reject_with_note(blank.id, a2.id, "rejected from dashboard")
+      assert gate_reason.(blank.id) == nil
+    end
+
     test "the note names the proposal even with no gate row, and never the wrong gate" do
       import ObanClaude.Testing
 

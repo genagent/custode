@@ -283,7 +283,15 @@ defmodule Custode.CLI.Reject do
     about("Reject an agent's pending action.")
     argument(:agent_id, required: true, help: "The gated agent.")
     argument(:action_id, required: true, help: "The action id (see: mix custode gates).")
-    argument(:reason, help: "Why (default: \"rejected from CLI\").")
+
+    argument(:reason,
+      help: "Why. The agent reads it and may make it a rule. Omitted = no reason, no rule."
+    )
+
+    option(:one_off,
+      type: :boolean,
+      help: "This proposal only: tell the agent not to make it a standing rule."
+    )
   end
 
   @impl Cheer.Command
@@ -291,7 +299,8 @@ defmodule Custode.CLI.Reject do
     arguments = %{
       agent_id: args[:agent_id],
       action_id: args[:action_id],
-      reason: args[:reason] || "rejected from CLI"
+      reason: args[:reason],
+      one_off: args[:one_off] == true
     }
 
     Custode.CLI.emit("reject_action", arguments, false, &inspect/1)
