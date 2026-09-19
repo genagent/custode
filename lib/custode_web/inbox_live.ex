@@ -276,6 +276,7 @@ defmodule CustodeWeb.InboxLive do
     "since you last looked, " <> ago_text(at)
   end
 
+  defp kind_label(:host_down), do: "host down"
   defp kind_label(:red_main), do: "red branch"
   defp kind_label(:disowned_check), do: "not its work"
   defp kind_label(:needs_answer), do: "question"
@@ -284,6 +285,7 @@ defmodule CustodeWeb.InboxLive do
   defp kind_label(:suggestion), do: "suggestion"
   defp kind_label(kind), do: to_string(kind)
 
+  defp kind_class(:host_down), do: "badge-error"
   defp kind_class(:red_main), do: "badge-error"
   defp kind_class(:disowned_check), do: "badge-warning"
   defp kind_class(:needs_answer), do: "badge-accent"
