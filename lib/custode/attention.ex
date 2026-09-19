@@ -98,6 +98,7 @@ defmodule Custode.Attention do
   # Ranked kinds, most urgent first. The index into this list IS the
   # precedence, so the table in the moduledoc and the ordering cannot drift.
   @precedence [
+    :host_down,
     :red_main,
     :needs_answer,
     :approval,
@@ -112,6 +113,7 @@ defmodule Custode.Attention do
   ]
 
   @groups %{
+    host_down: :needs_you,
     red_main: :needs_you,
     needs_answer: :needs_you,
     approval: :needs_you,
@@ -155,6 +157,37 @@ defmodule Custode.Attention do
   """
   @spec group_of(Signal.kind()) :: Signal.group()
   def group_of(kind), do: Map.fetch!(@groups, kind)
+
+  @doc """
+  The fleet-scoped signal, or `nil`: a condition with no single agent as its
+  subject, so there is no view to resolve it from (#443).
+
+  Today that is one thing, a failed boot doctor. It outranks every per-agent
+  kind because it invalidates all of them: with ticks withheld no agent will
+  act on anything, so an open gate below it is waiting on a fleet that cannot
+  run. The subject is `"custode"`, the system itself.
+
+  `resolving` is empty on purpose. Nothing the running node can do clears it;
+  the fix is on the host and then a restart, and the detail says so.
+
+      iex> Custode.Attention.host(%{doctor: :unknown})
+      nil
+  """
+  @spec host(%{doctor: Custode.Host.doctor()}) :: Signal.t() | nil
+  def host(%{doctor: {:failed, report, at}}) do
+    %Signal{
+      subject: "custode",
+      kind: :host_down,
+      group: group_of(:host_down),
+      urgency: :high,
+      headline: "no agent can run: the boot doctor failed",
+      detail: report <> ". Ticks are withheld. Fix the host, then restart.",
+      raised_at: at,
+      resolving: []
+    }
+  end
+
+  def host(_facts), do: nil
 
   @doc """
   Resolve one agent's view to its single signal.

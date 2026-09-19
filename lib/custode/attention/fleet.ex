@@ -69,8 +69,12 @@ defmodule Custode.Attention.Fleet do
   def signals do
     context = %{now: DateTime.utc_now()}
 
-    views()
-    |> Enum.map(&Attention.resolve(&1, context))
+    per_agent = Enum.map(views(), &Attention.resolve(&1, context))
+
+    # The host signal has no view to come from, so it joins here and every
+    # reader of this list (chip, inbox, CLI, MCP) gets it unchanged (#443).
+    [Attention.host(Custode.Host.facts()) | per_agent]
+    |> Enum.reject(&is_nil/1)
     |> Attention.rank()
   end
 

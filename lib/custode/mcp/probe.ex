@@ -52,11 +52,16 @@ defmodule Custode.MCP.Probe do
             )
         end
 
+        Custode.Host.put_doctor(:ok)
         discard_stale_ticks()
         :ok = Oban.start_queue(queue: :ticks, limit: limit)
 
       {:error, report} ->
         Logger.error("claude doctor failed; ticks withheld: #{report}")
+
+        # the feed entry below scrolls away; this is what keeps the condition
+        # in front of the operator for as long as it is true (#443)
+        Custode.Host.put_doctor({:failed, report})
 
         Custode.Feed.record(
           %{
