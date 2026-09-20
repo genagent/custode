@@ -167,8 +167,14 @@ defmodule Custode.Advisors.Record do
 
   defp grade(nil), do: :unknown
 
+  # `function_exported?/3` does not load a module, and answers false for one
+  # that is not loaded yet. Until #435 the Cron plugin happened to load every
+  # advisor at boot by holding it in the crontab; without that, the judgment
+  # advisor read as :deterministic and its spend as "free".
   defp grade(module) do
-    if function_exported?(module, :grade, 0), do: module.grade(), else: :deterministic
+    if Code.ensure_loaded?(module) and function_exported?(module, :grade, 0),
+      do: module.grade(),
+      else: :deterministic
   end
 
   defp advisor_id(nil), do: nil
