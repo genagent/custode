@@ -495,6 +495,65 @@ defmodule CustodeWeb.ConsoleLiveTest do
     end
   end
 
+  describe "adding an agent" do
+    setup do
+      roster = Path.join(System.tmp_dir!(), uid("console-new-roster") <> ".toml")
+      System.put_env("CUSTODE_CONFIG", roster)
+      previous = Application.get_env(:custode, :routines)
+
+      on_exit(fn ->
+        System.delete_env("CUSTODE_CONFIG")
+        File.rm(roster)
+        Application.put_env(:custode, :routines, previous)
+      end)
+
+      %{roster: roster}
+    end
+
+    test "the form previews the TOML as you type, creates, and opens the new agent",
+         %{conn: conn, roster: roster} do
+      id = uid("newcomer")
+      {:ok, view, _html} = live(conn, "/console")
+
+      html = view |> element("button[phx-click=new_open]") |> render_click()
+      assert html =~ "new agent"
+
+      html =
+        view
+        |> form("#new-routine", %{
+          "routine" => %{"id" => id, "cron" => "@daily", "prompt" => "sweep"}
+        })
+        |> render_change()
+
+      assert html =~ "appended to the roster"
+      assert html =~ "id = &quot;#{id}&quot;"
+
+      view
+      |> form("#new-routine", %{
+        "routine" => %{"id" => id, "cron" => "@daily", "prompt" => "sweep"}
+      })
+      |> render_submit()
+
+      assert_patch(view, "/console/#{id}")
+      assert File.read!(roster) =~ ~s(id = "#{id}")
+      assert %{cron: "@daily"} = Custode.Routine.get(id)
+      assert render(view) =~ "live now, scheduled at its next cron minute"
+    end
+
+    test "a form with no id says so and creates nothing", %{conn: conn, roster: roster} do
+      {:ok, view, _html} = live(conn, "/console")
+      view |> element("button[phx-click=new_open]") |> render_click()
+
+      html =
+        view
+        |> form("#new-routine", %{"routine" => %{"id" => "", "cron" => "@daily"}})
+        |> render_change()
+
+      assert html =~ "id is required"
+      refute File.exists?(roster)
+    end
+  end
+
   test "the tabs switch the subject pane", %{conn: conn, sleeper: sleeper} do
     {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
 
