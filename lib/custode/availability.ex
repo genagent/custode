@@ -101,6 +101,68 @@ defmodule Custode.Availability do
   end
 
   @doc """
+  What a page draws (#458): each window's utilization and reset, and how much
+  to trust it.
+
+  The operator is on a Max plan, where the dollar figure is accounting and the
+  number that decides whether the fleet can keep working is how much of each
+  window is used. `freshness` is `:unknown` when nothing has been observed,
+  and a surface must show that as nothing: unknown is not 0%.
+  """
+  @spec usage(String.t(), keyword()) :: %{
+          freshness: :fresh | :stale | :unknown,
+          observed_at: DateTime.t() | nil,
+          windows: [
+            %{
+              id: String.t(),
+              label: String.t(),
+              utilization: float() | nil,
+              resets_at: DateTime.t() | nil,
+              status: Custode.Availability.Bucket.status()
+            }
+          ]
+        }
+  def usage(provider, options \\ []) when is_binary(provider) do
+    now = Keyword.get(options, :now, DateTime.utc_now())
+
+    case current(provider) do
+      nil ->
+        %{freshness: :unknown, observed_at: nil, windows: []}
+
+      snapshot ->
+        %{
+          freshness: Snapshot.freshness(snapshot, posture(options).max_age_seconds, now),
+          observed_at: snapshot.observed_at,
+          windows:
+            snapshot.buckets
+            |> Enum.map(&window/1)
+            |> Enum.sort_by(&window_order/1)
+        }
+    end
+  end
+
+  defp window(bucket) do
+    %{
+      id: bucket.id,
+      label: window_label(bucket.id),
+      utilization: bucket.utilization,
+      resets_at: bucket.resets_at,
+      status: bucket.status
+    }
+  end
+
+  defp window_label("five_hour"), do: "5h"
+  defp window_label("seven_day"), do: "7d"
+  defp window_label("seven_day_opus"), do: "7d opus"
+  defp window_label("seven_day_sonnet"), do: "7d sonnet"
+  defp window_label(id), do: String.replace(id, "_", " ")
+
+  # shortest window first: it is the one that bites first
+  defp window_order(%{id: "five_hour"}), do: {0, ""}
+  defp window_order(%{id: "seven_day"}), do: {1, ""}
+  defp window_order(%{id: id}), do: {2, id}
+
+  @doc """
   What availability advises for `provider` right now.
 
   Options: `:now`, and any posture key to override configuration.

@@ -6,6 +6,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
   import Phoenix.LiveViewTest
 
   alias Custode.Asks
+  alias Custode.Availability.Collectors.Claude, as: ClaudeUsage
   alias Custode.GitHub.Cache
   alias Custode.Workflow
   alias Custode.Workflow.Launch
@@ -629,6 +630,47 @@ defmodule CustodeWeb.ConsoleLiveTest do
       [_, path] = Regex.run(~r/attached image: (\S+)/, tick.args["prompt"])
       assert Path.dirname(path) == Path.join(Path.expand(sleeper.workspace), "uploads")
       assert File.read!(path) == @png
+    end
+  end
+
+  describe "plan usage in the header (#458)" do
+    setup do
+      Custode.Availability.forget(:all)
+      on_exit(fn -> Custode.Availability.forget(:all) end)
+      :ok
+    end
+
+    test "nothing observed draws nothing: unknown is not zero percent", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/console")
+      header = view |> element("header") |> render()
+
+      refute header =~ "5h"
+      refute header =~ "7d"
+      refute header =~ "%"
+    end
+
+    test "an observation shows each window, and updates when the probe lands", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/console")
+
+      {:ok, _snapshot} =
+        ClaudeUsage.observe(%{
+          "rate_limit_info" => %{
+            "status" => "allowed",
+            "rateLimitType" => "five_hour",
+            "unifiedWindows" => %{
+              "five_hour" => %{"utilization" => 0.15, "resetsAt" => 1_789_892_400},
+              "seven_day" => %{"utilization" => 0.87, "resetsAt" => 1_790_218_800}
+            }
+          }
+        })
+
+      send(view.pid, {:usage_changed, "claude"})
+      html = render(view)
+
+      assert html =~ "5h 15%"
+      assert html =~ "7d 87%"
+      # past the warn threshold reads as a warning
+      assert html =~ ~r/text-warning[^>]*>\s*7d 87%/
     end
   end
 

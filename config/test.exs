@@ -19,6 +19,8 @@ config :custode,
   workspace_lease_reconcile_cron: false,
   # Same reasoning for the aging re-notifier (#446).
   aging_cron: false,
+  # ...and for the usage probe, which would otherwise spawn a real claude (#458)
+  usage_probe_cron: false,
   desktop_notifications: false,
   # the suite spawns no claude; leave the test VM's environment alone
   claude_env: %{},

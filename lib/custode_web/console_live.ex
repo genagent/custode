@@ -79,6 +79,7 @@ defmodule CustodeWeb.ConsoleLive do
   def handle_info({:feed_entry, _entry}, socket), do: {:noreply, refresh(socket)}
   def handle_info({:notebook_changed, _routine_id}, socket), do: {:noreply, refresh(socket)}
   def handle_info({:repo_overview, _repo}, socket), do: {:noreply, refresh(socket)}
+  def handle_info({:usage_changed, _provider}, socket), do: {:noreply, refresh(socket)}
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl Phoenix.LiveView
@@ -386,7 +387,8 @@ defmodule CustodeWeb.ConsoleLive do
             </li>
           </ul>
         </details>
-        <span class="whitespace-nowrap font-mono text-sm text-base-content/60">
+        <.usage usage={@usage} />
+        <span class="whitespace-nowrap font-mono text-xs text-base-content/40">
           ${usd(@fleet_today)}
         </span>
       </header>
@@ -424,6 +426,58 @@ defmodule CustodeWeb.ConsoleLive do
     </div>
     """
   end
+
+  # -- usage ------------------------------------------------------------------
+
+  attr(:usage, :map, required: true)
+
+  # How much of the plan's windows is used (#458). On a Max plan this is the
+  # number that decides whether the fleet can keep working; dollars are
+  # accounting. Unknown draws NOTHING: an empty header is honest and "0%" is
+  # not. Stale is dimmed and says so.
+  defp usage(assigns) do
+    ~H"""
+    <span
+      :if={@usage.freshness != :unknown and @usage.windows != []}
+      class={[
+        "flex items-baseline gap-2 whitespace-nowrap font-mono text-sm",
+        @usage.freshness == :stale && "opacity-50"
+      ]}
+      title={usage_title(@usage)}
+    >
+      <span :for={window <- @usage.windows} class={usage_tone(window)}>
+        {window.label} {percent(window.utilization)}
+      </span>
+      <span :if={@usage.freshness == :stale} class="text-xs text-base-content/50">stale</span>
+    </span>
+    """
+  end
+
+  defp percent(nil), do: "?"
+  defp percent(utilization), do: "#{round(utilization * 100)}%"
+
+  # one meaning per color (guides/ui-hierarchy.md): red is blocked, yellow
+  # wants you, grey is ambient
+  defp usage_tone(%{status: :rejected}), do: "font-bold text-error"
+
+  defp usage_tone(%{utilization: used}) when is_number(used) and used >= 0.95,
+    do: "font-bold text-error"
+
+  defp usage_tone(%{status: :warning}), do: "text-warning"
+  defp usage_tone(%{utilization: used}) when is_number(used) and used >= 0.8, do: "text-warning"
+  defp usage_tone(_window), do: "text-base-content/70"
+
+  defp usage_title(%{windows: windows, observed_at: observed_at}) do
+    resets =
+      Enum.map_join(windows, "; ", fn window ->
+        "#{window.label} resets #{reset_words(window.resets_at)}"
+      end)
+
+    "claude plan usage. #{resets}. Observed #{reset_words(observed_at)}."
+  end
+
+  defp reset_words(nil), do: "at an unknown time"
+  defp reset_words(%DateTime{} = at), do: Calendar.strftime(at, "%a %H:%M UTC")
 
   # -- the rail ---------------------------------------------------------------
 
@@ -1270,6 +1324,7 @@ defmodule CustodeWeb.ConsoleLive do
       in_flight: Custode.RunClock.running(),
       needs_you: Enum.count(signals, &Signal.needs_you?/1),
       fleet_today: Custode.SpendLedger.fleet_today(),
+      usage: Custode.Availability.usage("claude"),
       caretaker: Actions.caretaker(),
       presence: Custode.Presence.status()
     )
