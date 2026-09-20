@@ -43,6 +43,19 @@ defmodule CustodeWeb.FleetLiveTest do
     assert html =~ "beat"
   end
 
+  # #481: the chip counts signals with no agent behind them, which this page
+  # does not draw, so it leads to the page that draws all of them
+  test "the header's need-you chip opens the console", %{conn: conn} do
+    clear_attention!()
+    asker = uid("asker")
+    {:ok, _ask} = Custode.Asks.ask(asker, "is the diff yours?")
+    on_exit(fn -> Custode.Repo.query!("DELETE FROM asks") end)
+
+    {:ok, view, _html} = live(conn, "/")
+
+    assert has_element?(view, "#meta-rail a[href='/console']", "#{asker} asked")
+  end
+
   test "the 'while you were away' digest greets the operator on return, then dismisses",
        %{conn: conn} do
     previous = Application.get_env(:custode, :presence_override)
@@ -656,7 +669,7 @@ defmodule CustodeWeb.FleetMetaRailTest do
 
     {:ok, view, _html} = live(build_conn(), "/")
 
-    assert has_element?(view, "#meta-rail a[href='/']", "#{gated} needs approval")
+    assert has_element?(view, "#meta-rail a[href='/console']", "#{gated} needs approval")
     refute has_element?(view, "header .badge-warning")
   end
 

@@ -340,6 +340,12 @@ defmodule CustodeWeb.Components do
   A badge stays a one-liner; long attention lists (several agents at
   once) need `wrap` -- a soft warning block that wraps instead of
   spilling out of its pill (#31's rail).
+
+  It opens the console (#481). The count comes from every signal, including
+  the ones with no agent behind them (a workflow launch, a parked run), and
+  the fleet page draws only per-agent tiles, so the chip used to say "1 need
+  you" above a page showing nothing that did. The console draws every signal
+  the chip counts and opens on the one that most needs the operator.
   """
   attr(:wrap, :boolean, default: false)
 
@@ -349,7 +355,7 @@ defmodule CustodeWeb.Components do
     ~H"""
     <.link
       :if={@attention != [] && @wrap}
-      navigate="/"
+      navigate="/console"
       class={[
         "block rounded-lg bg-warning/20 px-2 py-1 text-xs font-medium text-warning-content/80",
         @class
@@ -359,7 +365,7 @@ defmodule CustodeWeb.Components do
     </.link>
     <.link
       :if={@attention != [] && !@wrap}
-      navigate="/"
+      navigate="/console"
       class={["badge badge-warning gap-1 whitespace-nowrap", @class]}
     >
       {attention_text(@attention)}
