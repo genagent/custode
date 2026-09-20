@@ -10,12 +10,10 @@ defmodule CustodeWeb.AgentLive do
   import CustodeWeb.Components
 
   alias Custode.Operations.Fleet.PauseAgent
+  alias Custode.Operator.Attachments
   alias Custode.Operator.RoutineEdit
   alias CustodeWeb.WorkflowLaunch
   alias ObanClaude.Agent
-
-  @image_types ~w(.png .jpg .jpeg .gif .webp)
-  @max_image_bytes 10_000_000
 
   @impl Phoenix.LiveView
   def mount(%{"id" => id}, _session, socket) do
@@ -776,9 +774,9 @@ defmodule CustodeWeb.AgentLive do
 
   defp allow_image_upload(socket, name) do
     allow_upload(socket, name,
-      accept: @image_types,
+      accept: Attachments.image_types(),
       max_entries: 1,
-      max_file_size: @max_image_bytes
+      max_file_size: Attachments.max_bytes()
     )
   end
 
@@ -809,49 +807,17 @@ defmodule CustodeWeb.AgentLive do
   # change at all (#180). The path is absolute because a routine's working_dir
   # is not always its workspace (a repo-tied routine runs in the checkout), and
   # a relative `uploads/` would not resolve from there.
-  defp compose_prompt(socket, text, upload) do
-    case save_images(socket, upload) do
-      [] ->
-        text
-
-      paths ->
-        [
-          String.trim(text)
-          | Enum.map(paths, &"attached image: #{&1} -- Read it before answering")
-        ]
-        |> Enum.join("\n")
-        |> String.trim()
-    end
-  end
+  defp compose_prompt(socket, text, upload),
+    do: Attachments.compose(text, save_images(socket, upload))
 
   defp save_images(%{assigns: %{routine: nil}}, _upload), do: []
 
   defp save_images(socket, upload) do
-    dir = Path.join(Path.expand(socket.assigns.routine.workspace), "uploads")
+    routine = socket.assigns.routine
 
     consume_uploaded_entries(socket, upload, fn %{path: path}, entry ->
-      File.mkdir_p!(dir)
-      dest = Path.join(dir, image_name(path, entry))
-      File.cp!(path, dest)
-      {:ok, dest}
+      {:ok, Attachments.store!(routine, path, entry.client_name)}
     end)
-  end
-
-  # Content-hashed: the same screenshot dropped twice is one file, and a client
-  # filename never steers the write.
-  defp image_name(path, entry) do
-    hash =
-      :sha256
-      |> :crypto.hash(File.read!(path))
-      |> Base.encode16(case: :lower)
-      |> binary_part(0, 16)
-
-    hash <> image_extension(entry)
-  end
-
-  defp image_extension(entry) do
-    extension = entry.client_name |> Path.extname() |> String.downcase()
-    if extension in @image_types, do: extension, else: ".png"
   end
 
   attr(:upload, :map, required: true)
