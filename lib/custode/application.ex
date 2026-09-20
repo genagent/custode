@@ -49,8 +49,10 @@ defmodule Custode.Application do
       Supervisor.child_spec(
         {Task,
          fn ->
-           Custode.LegacyMissionProjection.project_all!()
-           Custode.LegacyRoleBindingProjection.project_all!()
+           # not the bang versions: a repository GitHub refuses is weather,
+           # not a boot failure, and raising skipped the second projection (#476)
+           Custode.LegacyMissionProjection.project_at_boot()
+           Custode.LegacyRoleBindingProjection.project_at_boot()
          end},
         id: :legacy_scope_projection
       ),
