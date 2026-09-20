@@ -394,7 +394,14 @@ config :custode,
   # silently); :attention sends alerts only. ntfy.sh topics are public to
   # anyone who guesses the name -- use a long random suffix or self-host
   # (url: defaults to https://ntfy.sh).
-  ntfy: [topic: nil]
+  ntfy: [topic: nil],
+  # Environment for every agent's `claude` subprocess, applied at boot unless
+  # the operator already exported the variable (#483). The CLI defers MCP tool
+  # schemas by default, so agents call custode tools blind, waste their first
+  # calls, and can fail to journal a sweep. "false" loads every schema up
+  # front at the cost of context per turn; "auto:20" defers only when the
+  # definitions exceed 20% of the window.
+  claude_env: %{"ENABLE_TOOL_SEARCH" => "false"}
 
 config :custode, Custode.Repo,
   database: "custode.db",

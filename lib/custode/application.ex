@@ -16,6 +16,9 @@ defmodule Custode.Application do
 
   @impl Application
   def start(_type, _args) do
+    # before anything can spawn a turn: agents inherit this environment (#483)
+    Custode.ClaudeEnv.apply!()
+
     Custode.Observer.attach()
     Feed.Ingest.attach()
     Custode.PubSubBridge.attach()
