@@ -206,6 +206,49 @@ defmodule Custode.IdentityTest do
     assert tool_error(reply) =~ "may not write"
   end
 
+  # #488: check_self used to refuse only a :routine caller, so everyone else
+  # fell through to :ok
+  test "a sub-agent writes only its own records, not its parent's or a sibling's" do
+    workspace = tmp_workspace!()
+    parent = routine_fixture!(workspace, %{id: uid("parent")})
+    sibling = routine_fixture!(workspace, %{id: uid("sibling")})
+    sub = uid("sub")
+
+    for target <- [parent.id, sibling.id] do
+      reply =
+        MemoryTools.Remember.execute(
+          %{agent_id: target, key: "k", value: "planted"},
+          frame_for(:sub_agent, sub)
+        )
+
+      assert tool_error(reply) =~ "#{sub} may not write #{target}'s records"
+      assert Custode.Memory.recall(target, "k") == :error
+
+      reply =
+        NotebookTools.JournalAppend.execute(
+          %{routine_id: target, body: "sneaky"},
+          frame_for(:sub_agent, sub)
+        )
+
+      assert tool_error(reply) =~ "may not write"
+    end
+
+    # its own memories are its own
+    reply =
+      MemoryTools.Remember.execute(
+        %{agent_id: sub, key: "k", value: "mine"},
+        frame_for(:sub_agent, sub)
+      )
+
+    assert tool_json(reply)
+    assert Custode.Memory.recall(sub, "k") == {:ok, "mine"}
+
+    # and reads stay open: that is the written rule, not an accident
+    :ok = Custode.Memory.remember(parent.id, "note", "readable")
+    reply = MemoryTools.Recall.execute(%{agent_id: parent.id}, frame_for(:sub_agent, sub))
+    assert inspect(tool_json(reply)) =~ "readable"
+  end
+
   test "per-routine configs carry bearer headers; sub-agent configs mint on demand" do
     workspace = tmp_workspace!()
     routine = routine_fixture!(workspace, %{mcp: true})
