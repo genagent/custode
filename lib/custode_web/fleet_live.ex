@@ -247,7 +247,7 @@ defmodule CustodeWeb.FleetLive do
         <div class="min-w-0 flex-1">
           <p class="mb-2 text-xs text-base-content/40">grouped by attention</p>
           <div class="flex flex-col gap-6">
-            <section :for={{group, members, rows} <- @attention_rows}>
+            <section :for={{group, members, loose, rows} <- @attention_rows}>
               <div class="mb-2 flex flex-wrap items-baseline gap-2">
                 <h2 class={[
                   "font-mono text-xs font-semibold uppercase tracking-wider",
@@ -255,7 +255,9 @@ defmodule CustodeWeb.FleetLive do
                 ]}>
                   {group_label(group)}
                 </h2>
-                <span class="font-mono text-xs text-base-content/40">{length(members)}</span>
+                <span class="font-mono text-xs text-base-content/40">
+                  {length(members) + length(loose)}
+                </span>
                 <span :if={group_note(group)} class="text-xs text-base-content/30">
                   {group_note(group)}
                 </span>
@@ -266,6 +268,13 @@ defmodule CustodeWeb.FleetLive do
                 >
                   {(@quiet_open && "collapse") || "expand"}
                 </button>
+              </div>
+              <%!-- The signals with no agent behind them (#481): a workflow launch
+                    or a parked run has no tile to land on, so without this the
+                    header chip counted them and the group drew nothing. Above
+                    the tiles, because they are only ever in NEEDS YOU. --%>
+              <div :if={loose != []} class="mb-3 flex flex-col gap-2">
+                <.loose_signal :for={signal <- loose} signal={signal} />
               </div>
               <%!-- Quiet agents collapse to a line of names: page length should
                     track how much needs the operator, not how many agents
@@ -607,6 +616,41 @@ defmodule CustodeWeb.FleetLive do
     """
   end
 
+  attr(:signal, :any, required: true)
+
+  # A signal with no agent behind it (#481). It cannot be a tile -- there is no
+  # agent to name, no spend to draw, no beat to fire -- so it is a line, and
+  # the button leads to the page that can act on it rather than pretending the
+  # fleet page can.
+  defp loose_signal(assigns) do
+    ~H"""
+    <div class="flex items-start gap-3 rounded-xl border border-warning/40 bg-warning/10 p-3">
+      <div class="min-w-0 flex-1">
+        <div class="flex flex-wrap items-baseline gap-2">
+          <span class="font-mono text-xs text-base-content/60">{@signal.subject}</span>
+          <span :if={@signal.raised_at} class="font-mono text-xs text-base-content/40">
+            <.ago at={@signal.raised_at} />
+          </span>
+        </div>
+        <p class="text-sm font-semibold">{@signal.headline}</p>
+        <p :if={@signal.detail} class="mt-1 line-clamp-2 text-xs text-base-content/60">
+          {@signal.detail}
+        </p>
+      </div>
+      <.link navigate={loose_path(@signal)} class="btn btn-outline btn-xs">open</.link>
+    </div>
+    """
+  end
+
+  # Where an agentless signal leads. A workflow signal's subject names a
+  # workflow and a repository rather than an agent, so `/agents/<subject>` is
+  # the wrong fallthrough (#447). Anything else goes to the inbox, which draws
+  # every signal kind with working buttons.
+  defp loose_path(%{kind: kind}) when kind in [:workflow_launch, :workflow_rail],
+    do: "/workflows"
+
+  defp loose_path(_signal), do: "/inbox"
+
   attr(:repo, :string, required: true)
   attr(:members, :list, required: true)
 
@@ -782,13 +826,15 @@ defmodule CustodeWeb.FleetLive do
   # groups dropped. Repo grouping (#243) applies WITHIN a group rather than
   # across the whole grid: a repo's two agents stay adjacent while they share a
   # group, and separate correctly the moment one of them needs a human.
-  defp attention_rows(tiles) do
+  defp attention_rows(tiles, agentless) do
     bucketed = Enum.group_by(tiles, fn {_id, tile} -> tile.signal.group end)
+    loose = Enum.group_by(agentless, & &1.group)
 
     for group <- Attention.groups(),
         members = Map.get(bucketed, group, []),
-        members != [] do
-      {group, members, group_tiles(members)}
+        signals = Map.get(loose, group, []),
+        members != [] or signals != [] do
+      {group, members, signals, group_tiles(members)}
     end
   end
 
@@ -943,9 +989,14 @@ defmodule CustodeWeb.FleetLive do
     states = Enum.map(running, fn {_id, status} -> state_of(status) end)
     standing_suggestions = Custode.Suggestions.standing()
 
+    # The signals with no agent behind them (#481). The page builds its groups
+    # from per-agent tiles, so without this read a workflow launch is counted
+    # by the header chip (which reads the whole ranked list) and drawn nowhere.
+    agentless = Attention.Fleet.agentless()
+
     assign(socket,
       tiles: tiles,
-      attention_rows: attention_rows(tiles),
+      attention_rows: attention_rows(tiles, agentless),
       meta_tiles: Enum.sort_by(meta_tiles, fn {id, _tile} -> id end),
       suggestions: Enum.take(standing_suggestions, @suggestion_limit),
       suggestion_count: length(standing_suggestions),

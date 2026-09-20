@@ -336,6 +336,19 @@ defmodule Custode.WorkflowLaunchTest do
       assert workflow_signals() == []
     end
 
+    # The fleet page builds its groups per agent, so it needs the agentless set
+    # named as its own list or it counts them in the chip and draws none (#481).
+    test "agentless/0 is exactly what signals/0 joins with no agent behind it" do
+      workflow = register(fixed_workflow(uid("fixed")))
+      {:ok, _proposal} = Launch.propose(workflow.name, "owner/repo", why: "the board is dry")
+
+      assert MapSet.new(Fleet.agentless()) == MapSet.new(workflow_signals())
+
+      # the host signal is agentless too, but the shared banner draws it on
+      # every page, so a caller adding this list to its own would draw it twice
+      refute Enum.any?(Fleet.agentless(), &(&1.kind == :host_down))
+    end
+
     test "approving clears the proposal's signal and raises none for the healthy run" do
       workflow = register(fixed_workflow(uid("fixed")))
       {:ok, proposal} = Launch.propose(workflow.name, "owner/repo")

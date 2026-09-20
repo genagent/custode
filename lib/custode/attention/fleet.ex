@@ -86,10 +86,27 @@ defmodule Custode.Attention.Fleet do
     #
     # The workflow signals join the same way (#447): a launch proposal and a
     # parked run have no agent behind them either.
-    [Attention.host(Custode.Host.facts()) | Attention.workflows(workflow_facts()) ++ per_agent]
+    [Attention.host(Custode.Host.facts()) | agentless() ++ per_agent]
     |> Enum.reject(&is_nil/1)
     |> Attention.rank()
   end
+
+  @doc """
+  The signals with no agent behind them and no chrome of their own: a launch
+  proposal waiting on a decision, a run parked on its budget rail (#447).
+
+  `signals/0` joins these to the per-agent list, so a surface that builds its
+  page from `signals_by_id/0` instead -- the fleet page does, because it draws
+  a tile per agent -- counted them in its header chip and drew none of them
+  (#481). Reading this list is how such a surface draws the same set the chip
+  counts, and a later agentless source lands in both at once.
+
+  The host signal is deliberately NOT here even though it is agentless too:
+  `CustodeWeb.Components.host_banner/1` draws it on every page already, so a
+  caller that added this list to its own would draw it twice.
+  """
+  @spec agentless() :: [Signal.t()]
+  def agentless, do: Attention.workflows(workflow_facts())
 
   @doc """
   The facts `Custode.Attention.workflows/1` resolves (#447): the launch

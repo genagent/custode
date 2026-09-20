@@ -1008,3 +1008,71 @@ defmodule CustodeWeb.FleetLiveFormStateTest do
     assert html =~ "profile = &quot;backlog_worker&quot;"
   end
 end
+
+# The page builds its groups from per-agent tiles, so a signal with no agent
+# behind it was counted by the header chip and drawn nowhere (#481).
+defmodule CustodeWeb.FleetLiveAgentlessSignalTest do
+  use ExUnit.Case, async: false
+
+  import Custode.TestHelpers
+  import Phoenix.ConnTest
+  import Phoenix.LiveViewTest
+
+  alias Custode.Workflow
+  alias Custode.Workflow.Launch
+  alias Custode.Workflow.Node
+
+  @endpoint CustodeWeb.Endpoint
+
+  setup do
+    path = Path.join(System.tmp_dir!(), uid("lv-agentless") <> ".jsonl")
+    put_env!(:feed_path, path)
+    on_exit(fn -> File.rm(path) end)
+
+    # This asserts on what the NEEDS YOU group holds, so nothing that leaks
+    # from another module may be in it.
+    clear_attention!()
+
+    workspace = tmp_workspace!()
+    routine_fixture!(workspace)
+    %{conn: build_conn()}
+  end
+
+  defp register_workflow! do
+    workflow =
+      Workflow.new!(uid("fleet-wf"), [
+        %Workflow.Stage{
+          name: :mine,
+          nodes: [%Node{name: :spec, prompt: "do <%= @repo %>", schema: %{}}]
+        }
+      ])
+
+    Application.put_env(:custode, :extra_workflows, %{workflow.name => workflow})
+    on_exit(fn -> Application.delete_env(:custode, :extra_workflows) end)
+    workflow
+  end
+
+  test "a launch proposal draws in NEEDS YOU even though it has no tile",
+       %{conn: conn} do
+    workflow = register_workflow!()
+    {:ok, proposal} = Launch.propose(workflow.name, "owner/repo", why: "the board is dry")
+
+    {:ok, view, html} = live(conn, "/")
+
+    # the group renders at all: no agent is in it, and before #481 that meant
+    # the section was dropped while the chip still said one thing needs you
+    assert html =~ "needs you"
+    assert html =~ "#{workflow.name} on owner/repo"
+    assert html =~ "wants your approval to launch"
+    assert html =~ "the board is dry"
+
+    # the fleet page cannot approve a launch, so the line leads to the page
+    # that can rather than offering a button that does nothing
+    assert has_element?(view, ~s(a[href="/workflows"]), "open")
+
+    # and it leaves the group when it is decided
+    assert :ok = Launch.reject(proposal.id, "not now")
+    {:ok, _view, html} = live(conn, "/")
+    refute html =~ "wants your approval to launch"
+  end
+end
