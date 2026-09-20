@@ -113,6 +113,21 @@ defmodule CustodeWeb.ConsoleLive do
     {:noreply, refresh(socket)}
   end
 
+  def handle_event("drop_draft", %{"id" => id}, socket),
+    do: id |> Actions.drop_draft(@opts) |> after_action(socket, nil)
+
+  def handle_event("keep_draft", %{"id" => id}, socket),
+    do: id |> Actions.keep_draft(@opts) |> after_action(socket, nil)
+
+  def handle_event("todo_done", %{"todo" => id}, socket),
+    do: id |> Actions.complete_todo(@opts) |> after_action(socket, nil)
+
+  def handle_event("forget_memory", %{"key" => key}, socket) do
+    socket.assigns.selected
+    |> Actions.forget_memory(key, @opts)
+    |> after_action(socket, nil)
+  end
+
   def handle_event("beat", _params, socket),
     do: socket.assigns.selected |> Actions.beat(@opts) |> after_action(socket, "beat queued")
 
@@ -241,7 +256,7 @@ defmodule CustodeWeb.ConsoleLive do
 
         <%!-- under the subject at medium widths, its own column when there is room --%>
         <aside class="border-base-300 bg-base-100 p-6 md:col-start-2 md:border-l md:border-t xl:col-start-auto xl:border-t-0">
-          <.item :if={@subject} signal={@signal} message_gen={@message_gen} />
+          <.item :if={@subject} signal={@signal} subject={@subject} message_gen={@message_gen} />
         </aside>
       </div>
     </div>
@@ -460,9 +475,37 @@ defmodule CustodeWeb.ConsoleLive do
       todo <span class="font-normal">{length(@subject.todos)}</span>
     </h3>
     <p :if={@subject.todos == []} class="text-sm text-base-content/50">nothing queued</p>
-    <ul class="list-inside list-disc text-sm">
-      <li :for={todo <- @subject.todos}>{todo.text}</li>
+    <ul class="space-y-1 text-sm">
+      <li :for={todo <- @subject.todos} class="group flex items-baseline gap-2">
+        <button
+          class="btn btn-ghost btn-xs"
+          phx-click="todo_done"
+          phx-value-todo={todo.id}
+          title="mark done"
+        >
+          done
+        </button>
+        <span class="min-w-0">{todo.text}</span>
+      </li>
     </ul>
+
+    <h3 class="mb-2 mt-6 text-xs font-bold uppercase tracking-widest text-base-content/50">
+      memory <span class="font-normal">{length(@subject.memories)}</span>
+    </h3>
+    <p :if={@subject.memories == []} class="text-sm text-base-content/50">nothing remembered</p>
+    <div :for={memory <- @subject.memories} class="group mb-1 flex items-baseline gap-1 text-sm">
+      <span class="font-mono text-xs text-base-content/50">{memory.key}:</span>
+      <span class="min-w-0 break-words">{memory.value}</span>
+      <button
+        class="btn btn-ghost btn-xs text-base-content/30 opacity-0 group-hover:opacity-100"
+        title={"forget #{memory.key}"}
+        phx-click="forget_memory"
+        phx-value-key={memory.key}
+        data-confirm={"forget #{memory.key}? The agent will not miss what it cannot recall."}
+      >
+        forget
+      </button>
+    </div>
 
     <h3 class="mb-2 mt-6 text-xs font-bold uppercase tracking-widest text-base-content/50">
       journal
@@ -577,6 +620,7 @@ defmodule CustodeWeb.ConsoleLive do
   # -- the item pane ----------------------------------------------------------
 
   attr(:signal, :any, required: true)
+  attr(:subject, :map, required: true)
   attr(:message_gen, :integer, required: true)
 
   defp item(assigns) do
@@ -592,6 +636,9 @@ defmodule CustodeWeb.ConsoleLive do
       {@signal.detail}
     </p>
 
+    <.evidence item={@signal.item} repo={@subject.repo} />
+    <.draft_batch :if={@subject.draft_batch} drafts={@subject.draft_batch} />
+
     <h3
       :if={@ops != []}
       class="mb-2 mt-6 text-xs font-bold uppercase tracking-widest text-base-content/50"
@@ -601,6 +648,113 @@ defmodule CustodeWeb.ConsoleLive do
     <div class="flex flex-wrap items-start gap-2">
       <.op :for={op <- @ops} op={op} message_gen={@message_gen} />
     </div>
+    """
+  end
+
+  attr(:item, :any, required: true)
+  attr(:repo, :string, default: nil)
+
+  # What the signal points at, as something to click. On the live fleet
+  # "main is red" arrived with no way to see what was red.
+  defp evidence(%{item: {:branch, branch}, repo: repo} = assigns) when is_binary(repo) do
+    assigns = assign(assigns, branch: branch)
+
+    ~H"""
+    <p class="mt-3 text-sm">
+      <a href={runs_url(@repo, @branch)} target="_blank" rel="noopener" class="link">
+        failing runs on {@branch}
+      </a>
+    </p>
+    """
+  end
+
+  defp evidence(%{item: {:prs, numbers}, repo: repo} = assigns) when is_binary(repo) do
+    assigns = assign(assigns, numbers: numbers)
+
+    ~H"""
+    <p class="mt-3 flex flex-wrap gap-x-3 text-sm">
+      <a
+        :for={number <- @numbers}
+        href={"https://github.com/#{@repo}/pull/#{number}"}
+        target="_blank"
+        rel="noopener"
+        class="link font-mono"
+      >
+        #{number}
+      </a>
+    </p>
+    """
+  end
+
+  defp evidence(%{item: {:sensors, ids}} = assigns) do
+    assigns = assign(assigns, ids: ids)
+
+    ~H"""
+    <p class="mt-3 flex flex-wrap gap-1">
+      <span :for={id <- @ids} class="badge badge-outline badge-sm font-mono">{id}</span>
+    </p>
+    """
+  end
+
+  defp evidence(assigns), do: ~H""
+
+  @doc false
+  # `evidence/1` is private like every component here; this is its one door
+  # for a component-level test, which is cheaper than building a red default
+  # branch through the GitHub fake.
+  def evidence_for_test(assigns), do: evidence(assigns)
+
+  defp runs_url(repo, branch),
+    do:
+      "https://github.com/#{repo}/actions?query=" <>
+        URI.encode_www_form("branch:#{branch} is:failure")
+
+  attr(:drafts, :list, required: true)
+
+  # A gated batch of drafted issues (#215): prune it here, then approve below.
+  # Only the kept entries file. This used to exist only on the agent page,
+  # which is the part of #447 the inbox could not carry.
+  defp draft_batch(assigns) do
+    ~H"""
+    <h3 class="mb-1 mt-6 text-xs font-bold uppercase tracking-widest text-warning">
+      drafted issues: {Enum.count(@drafts, &(&1.status == "drafted"))} of {length(@drafts)} kept
+    </h3>
+    <p class="mb-2 text-xs text-base-content/50">drop what you do not want, then approve</p>
+    <ul class="space-y-2">
+      <li :for={draft <- @drafts} class="rounded bg-base-200/60 p-2 text-sm">
+        <div class="flex items-start gap-2">
+          <div class="min-w-0 flex-1">
+            <span class={[
+              "font-medium",
+              draft.status == "dropped" && "text-base-content/40 line-through"
+            ]}>
+              {draft.title}
+            </span>
+            <span class="ml-1 font-mono text-xs text-base-content/40">{draft.repo}</span>
+          </div>
+          <button
+            :if={draft.status == "drafted"}
+            class="btn btn-ghost btn-xs"
+            phx-click="drop_draft"
+            phx-value-id={draft.id}
+          >
+            drop
+          </button>
+          <button
+            :if={draft.status == "dropped"}
+            class="btn btn-ghost btn-xs"
+            phx-click="keep_draft"
+            phx-value-id={draft.id}
+          >
+            keep
+          </button>
+        </div>
+        <details :if={draft.body not in [nil, ""]} class="mt-1">
+          <summary class="cursor-pointer text-xs text-base-content/50">evidence</summary>
+          <pre class="mt-1 max-h-60 overflow-y-auto whitespace-pre-wrap text-xs">{draft.body}</pre>
+        </details>
+      </li>
+    </ul>
     """
   end
 
@@ -697,6 +851,8 @@ defmodule CustodeWeb.ConsoleLive do
       feed: Custode.Feed.for_agent(id, 30),
       todos: Custode.Notebook.todos(id),
       journal: Custode.Notebook.journal(id, 10),
+      draft_batch: Custode.Drafts.pending_batch(id),
+      memories: Custode.Memory.recall(id),
       history: history(id),
       sensors: Enum.filter(Custode.Routine.sensors(), &(&1.notify == id)),
       policies: (routine && Custode.Policy.ids_for(routine)) || []

@@ -174,6 +174,41 @@ defmodule Custode.Operator.Actions do
   end
 
   @doc """
+  Drop one drafted issue from a pending batch (#215). Available while the
+  batch is unfiled: a drop is a judgment until the approved continuation runs.
+  """
+  @spec drop_draft(integer() | String.t(), keyword()) :: result()
+  def drop_draft(draft_id, opts \\ []) do
+    _draft =
+      Custode.Drafts.drop(to_id(draft_id), "dropped via #{Keyword.get(opts, :via, :liveview)}")
+
+    :ok
+  end
+
+  @doc "Put a dropped draft back in its batch."
+  @spec keep_draft(integer() | String.t(), keyword()) :: result()
+  def keep_draft(draft_id, _opts \\ []) do
+    _draft = Custode.Drafts.restore(to_id(draft_id))
+    :ok
+  end
+
+  @doc "Mark one of an agent's todos done."
+  @spec complete_todo(integer() | String.t(), keyword()) :: result()
+  def complete_todo(todo_id, _opts \\ []) do
+    _todo = Custode.Notebook.todo_complete(to_id(todo_id))
+    :ok
+  end
+
+  @doc "Forget one of an agent's memories. The agent will not miss what it cannot recall."
+  @spec forget_memory(String.t(), String.t(), keyword()) :: result()
+  def forget_memory(agent_id, key, _opts \\ []) do
+    :ok = Custode.Memory.forget(agent_id, key)
+  end
+
+  defp to_id(id) when is_integer(id), do: id
+  defp to_id(id) when is_binary(id), do: String.to_integer(id)
+
+  @doc """
   The caretaker: the routine tagged `:meta` (design/000's custode, the
   operator's right hand). `nil` when the roster has none.
   """
