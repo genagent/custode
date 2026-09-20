@@ -29,6 +29,9 @@ defmodule Custode.Routine.PromptsTest do
       assert prompt =~ "one-line sweep report"
       # the mcp-proxy #187 lesson: permission policies invite proposals
       assert prompt =~ "INVITATION to ask"
+      # tool schemas are deferred by the CLI: load before the first use (#483)
+      assert prompt =~ "load its schema"
+      assert prompt =~ "ToolSearch with select:"
 
       # exactly one role section
       assert count(prompt, "## Your role") == 1, "#{role} role count"
