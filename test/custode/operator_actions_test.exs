@@ -69,6 +69,35 @@ defmodule Custode.Operator.ActionsTest do
     end
   end
 
+  test "beat on an id with no routine is an error, not a crash" do
+    assert {:error, :no_routine} = Actions.beat(uid("no-such-routine"))
+  end
+
+  describe "the caretaker" do
+    test "is the routine tagged :meta, and tell_custode reaches it" do
+      workspace = tmp_workspace!()
+      # oban_jobs is shared across the suite: a fixed id collides with every
+      # other test that beats a caretaker
+      caretaker = uid("caretaker")
+
+      put_env!(:routines, [
+        %{id: uid("worker"), cron: "@daily", workspace: workspace, prompt: "sweep"},
+        %{id: caretaker, cron: "@daily", workspace: workspace, prompt: "sweep", tags: [:meta]}
+      ])
+
+      assert Actions.caretaker() == caretaker
+      assert {:ok, :started} = Actions.tell_custode("what needs me today?")
+      assert [tick] = ticks_for(caretaker)
+      assert tick.args["prompt"] == "what needs me today?"
+    end
+
+    test "a roster with no caretaker says so" do
+      put_env!(:routines, [])
+      assert Actions.caretaker() == nil
+      assert {:error, :no_caretaker} = Actions.tell_custode("hello")
+    end
+  end
+
   describe "run/4 carries out a signal's own op" do
     defp gated!(action) do
       id = start_stub_agent!()
