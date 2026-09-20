@@ -212,6 +212,7 @@ defmodule CustodeWeb.Components do
         <.link navigate="/" class="text-3xl font-bold hover:opacity-70">custode</.link>
         <nav class="flex gap-3 text-sm">
           <.link navigate="/" class={nav_class(@active == :fleet)}>fleet</.link>
+          <.link navigate="/console" class={nav_class(false)}>console</.link>
           <.link navigate="/inbox" class={nav_class(@active == :inbox)}>
             inbox<span :if={@unread > 0} class="ml-1 font-mono text-warning">{@unread}</span>
           </.link>
@@ -258,6 +259,7 @@ defmodule CustodeWeb.Components do
     <details id={"reject-#{@action}"} phx-update="ignore" class="dropdown dropdown-end">
       <summary class={["btn btn-ghost", @size]}>reject</summary>
       <form
+        id={"reject-form-#{@action}"}
         phx-submit="reject"
         class="dropdown-content z-10 mt-1 flex w-80 flex-col gap-2 rounded-box bg-base-100 p-3 text-left shadow-lg"
       >
