@@ -17,8 +17,8 @@ defmodule CustodeWeb.InboxLive do
 
   import CustodeWeb.Components
 
+  alias Custode.Operator.Actions
   alias Custode.Operator.Inbox
-  alias Custode.Workflow.Launch
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
@@ -53,11 +53,11 @@ defmodule CustodeWeb.InboxLive do
     {:noreply, refresh(socket)}
   end
 
-  # The workflow decisions (#447). The same three calls the workflows page
-  # makes, because `Custode.Workflow.Launch` is the one place a launch gate is
-  # decided and a parked run is let go, whichever page the click came from.
+  # The workflow decisions (#447), through `Custode.Operator.Actions` like
+  # every handler should be (design/010 decision 4): the workflows page makes
+  # the same three calls, so the two pages cannot come to differ.
   def handle_event("approve_launch", %{"id" => id}, socket) do
-    case Launch.approve(id) do
+    case Actions.approve_launch(id, via: :liveview) do
       {:ok, run} ->
         {:noreply,
          socket
@@ -70,12 +70,12 @@ defmodule CustodeWeb.InboxLive do
   end
 
   def handle_event("reject_launch", %{"id" => id}, socket) do
-    Launch.reject(id, "rejected from the inbox")
+    Actions.reject_launch(id, "rejected from the inbox", via: :liveview)
     {:noreply, socket |> put_flash(:info, "launch rejected") |> refresh()}
   end
 
   def handle_event("resume_run", %{"id" => id}, socket) do
-    case Launch.raise_and_resume(id) do
+    case Actions.resume_run(id, via: :liveview) do
       {:ok, _run} ->
         {:noreply, socket |> put_flash(:info, "run #{id} resumed on a raised rail") |> refresh()}
 

@@ -21,7 +21,17 @@ defmodule Custode.WorkflowLaunchTest do
     Repo.delete_all(Feed.Entry)
     Repo.delete_all(SpendLedger.Entry)
     Repo.delete_all(from(j in Oban.Job, where: j.worker == "Custode.Workflow.NodeJob"))
-    on_exit(fn -> Application.delete_env(:custode, :extra_workflows) end)
+
+    on_exit(fn ->
+      Application.delete_env(:custode, :extra_workflows)
+      # A standing proposal and a parked run are needs-you signals now (#447),
+      # so one left behind shows up in every later test that reads the inbox,
+      # the chip or the console.
+      Repo.query!("DELETE FROM feed_entries WHERE event LIKE 'workflow_%'")
+      Repo.delete_all(Results.Result)
+      Repo.delete_all(Run.Row)
+    end)
+
     :ok
   end
 
@@ -368,6 +378,56 @@ defmodule Custode.WorkflowLaunchTest do
 
       assert {:error, :not_paused} = Launch.raise_and_resume(run.run_id)
       assert {:error, :no_such_run} = Launch.raise_and_resume(uid("ghost"))
+    end
+  end
+
+  describe "the operator's ops (#447)" do
+    alias Custode.Operator.Actions
+
+    test "run/4 approves a launch from the signal's own args" do
+      workflow = register(fixed_workflow(uid("fixed")))
+      {:ok, proposal} = Launch.propose(workflow.name, "owner/repo", budget_usd: 3.5)
+
+      assert Actions.handles?(:approve_launch)
+      assert :ok = Actions.run(:approve_launch, %{proposal: proposal.id}, %{}, via: :liveview)
+      assert [%{status: "running", budget_usd: 3.5}] = Run.list()
+      assert Launch.pending() == []
+
+      # answered once: the same click again is an error, not a second run
+      assert {:error, :no_such_proposal} =
+               Actions.run(:approve_launch, %{proposal: proposal.id}, %{}, via: :liveview)
+    end
+
+    test "run/4 rejects a launch, with the reason given or the surface it came from" do
+      workflow = register(fixed_workflow(uid("fixed")))
+      {:ok, first} = Launch.propose(workflow.name, "owner/one")
+      {:ok, second} = Launch.propose(workflow.name, "owner/two")
+
+      assert Actions.handles?(:reject_launch)
+
+      assert :ok =
+               Actions.run(:reject_launch, %{proposal: first.id}, %{"reason" => "not this week"})
+
+      assert :ok = Actions.run(:reject_launch, %{proposal: second.id}, %{}, via: :cli)
+
+      summaries =
+        "workflow_launch_rejected" |> Feed.recent_by_event() |> Enum.map(& &1["summary"])
+
+      assert Enum.any?(summaries, &(&1 =~ "owner/one: not this week"))
+      assert Enum.any?(summaries, &(&1 =~ "owner/two: rejected via cli"))
+      assert Run.list() == []
+    end
+
+    test "run/4 raises the rail of a parked run and lets it go on" do
+      workflow = register(fanning_workflow(uid("railed")))
+      {:ok, proposal} = Launch.propose(workflow.name, "owner/repo", budget_usd: 1.0)
+      {:ok, run} = Launch.approve(proposal.id)
+      park!(run)
+
+      assert Actions.handles?(:resume_run)
+      assert :ok = Actions.run(:resume_run, %{run: run.run_id}, %{}, via: :liveview)
+      assert %{status: "running", budget_usd: 2.0} = Run.get(run.run_id)
+      assert {:error, :not_paused} = Actions.run(:resume_run, %{run: run.run_id})
     end
   end
 
