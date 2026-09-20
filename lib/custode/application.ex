@@ -14,10 +14,20 @@ defmodule Custode.Application do
   alias Custode.Feed
   alias Custode.Workflow
 
+  require Logger
+
   @impl Application
   def start(_type, _args) do
     # before anything can spawn a turn: agents inherit this environment (#483)
     Custode.ClaudeEnv.apply!()
+
+    # anubis_mcp 2.0 logs every MCP message at :debug: about forty lines per
+    # agent turn, which buries the lines an operator reads (`turn done`,
+    # transitions). Its warnings and errors still come through.
+    Logger.put_application_level(
+      :anubis_mcp,
+      Application.get_env(:custode, :mcp_library_log_level, :warning)
+    )
 
     Custode.Observer.attach()
     Feed.Ingest.attach()
