@@ -6,6 +6,7 @@ defmodule CustodeWeb.MetricsLiveTest do
   import Phoenix.LiveViewTest
 
   alias Custode.Gates.Gate
+  alias Custode.Gates.Grant
   alias Custode.Repo
 
   @endpoint CustodeWeb.Endpoint
@@ -65,5 +66,22 @@ defmodule CustodeWeb.MetricsLiveTest do
     assert table =~ ~r/ready_pr.*>3<.*>0<.*100%/s
     assert table =~ ~r/merge.*>0<.*>1<.*0%/s
     refute table =~ "no decided gate"
+  end
+
+  # what the fleet writes outside an approved action (#451)
+  test "writes outside a grant are counted by agent, verb and verdict", %{conn: conn} do
+    Repo.query!("DELETE FROM feed_entries WHERE event = 'grant_outside'")
+
+    {:ok, _view, html} = live(conn, "/metrics")
+    assert html =~ "none observed"
+    assert html =~ "mode: observe"
+
+    sweeper = uid("sweeper")
+    for _n <- 1..2, do: Grant.check(sweeper, :comment)
+
+    {:ok, view, _html} = live(conn, "/metrics")
+    table = view |> element("section", "writes outside a grant") |> render()
+
+    assert table =~ ~r/#{sweeper}.*comment.*no_grant.*>2</s
   end
 end

@@ -36,6 +36,9 @@ defmodule Custode.Gates do
       field(:decided_by, :string)
       field(:decided_via, :string)
       field(:reason, :string)
+      # when an approved gate's continuation ended (#451); nil on an approved
+      # row means its turn is still running and the grant is live
+      field(:continuation_ended_at, :utc_datetime_usec)
       timestamps(type: :utc_datetime_usec)
     end
   end
@@ -76,8 +79,24 @@ defmodule Custode.Gates do
       Custode.Feed.mark_gate_resolved(meta.agent_id, outcome)
     end
 
+    # An approval is a live grant only while its continuation runs (#451).
+    # The approve itself is awaiting_permission -> running, so this never
+    # closes the grant it just opened.
+    if meta.from == :running, do: end_continuations(meta.agent_id)
+
     if meta.to in @gated, do: open(meta.agent_id, meta.to)
     :ok
+  end
+
+  defp end_continuations(agent_id) do
+    Repo.update_all(
+      from(g in Gate,
+        where:
+          g.agent_id == ^agent_id and g.outcome == "approved" and
+            is_nil(g.continuation_ended_at)
+      ),
+      set: [continuation_ended_at: DateTime.utc_now()]
+    )
   end
 
   # what actually happened to the gated item, for the feed card's chip
@@ -166,6 +185,27 @@ defmodule Custode.Gates do
     |> Repo.all()
     |> Enum.map(fn row -> Map.put(row, :rate, row.approved / (row.approved + row.rejected)) end)
     |> Enum.sort_by(&{-(&1.approved + &1.rejected), &1.agent_id})
+  end
+
+  @typedoc "An approved gate whose continuation is still running."
+  @type grant :: %{gate_id: integer(), class: String.t() | nil, detail: String.t() | nil}
+
+  @doc """
+  The agent's live grant (#451): its approved gate whose continuation has not
+  ended, or `nil`. `Custode.Gates.Grant` judges a write verb against it.
+  """
+  @spec active_grant(String.t()) :: grant() | nil
+  def active_grant(agent_id) do
+    Repo.one(
+      from(g in Gate,
+        where:
+          g.agent_id == ^agent_id and g.kind == "approval" and g.outcome == "approved" and
+            is_nil(g.continuation_ended_at),
+        order_by: [desc: g.id],
+        limit: 1,
+        select: %{gate_id: g.id, class: g.class, detail: g.detail}
+      )
+    )
   end
 
   @doc """

@@ -12,6 +12,8 @@ defmodule CustodeWeb.MetricsLive do
   import CustodeWeb.Charts
   import CustodeWeb.Components, only: [page: 1, usd: 1, tok: 1]
 
+  alias Custode.Gates.Grant
+
   @days 14
   @coalesce_ms 5_000
 
@@ -177,6 +179,38 @@ defmodule CustodeWeb.MetricsLive do
           </div>
         </section>
 
+        <%!-- Writes made outside an approved action (#451). Observed, not yet
+              refused: this table is what says whether refusing is safe. --%>
+        <section class="rounded-lg bg-base-100 p-4 shadow-sm">
+          <h3 class="mb-3 font-semibold text-base-content/70">
+            writes outside a grant
+            <span class="text-xs font-normal">(mode: {@grant_mode})</span>
+          </h3>
+          <p :if={@grant_observations == []} class="text-sm text-base-content/50">
+            none observed: every write verb ran inside an approved action of its class
+          </p>
+          <div :if={@grant_observations != []} class="overflow-x-auto">
+            <table class="table table-xs">
+              <thead>
+                <tr>
+                  <th>agent</th>
+                  <th>verb</th>
+                  <th>verdict</th>
+                  <th class="text-right">count</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={row <- @grant_observations}>
+                  <td class="font-mono">{row.agent}</td>
+                  <td class="font-mono">{row.verb}</td>
+                  <td class="font-mono">{row.verdict}</td>
+                  <td class="text-right font-mono">{row.count}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <section class="rounded-lg bg-base-100 p-4 shadow-sm xl:col-span-2">
           <h3 class="mb-3 font-semibold text-base-content/70">
             by model
@@ -244,6 +278,8 @@ defmodule CustodeWeb.MetricsLive do
     assign(socket,
       approval_rates: Custode.Gates.approval_rates(),
       approval_rates_by_class: Custode.Gates.approval_rates_by_class(),
+      grant_observations: Grant.observations(),
+      grant_mode: Grant.mode(),
       by_model: Custode.Metrics.by_model(@days),
       digest: Custode.Digest.build(7) |> Custode.Digest.to_markdown(),
       tokens_today: Custode.SpendLedger.fleet_today_tokens(),
