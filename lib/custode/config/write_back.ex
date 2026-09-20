@@ -46,6 +46,9 @@ defmodule Custode.Config.WriteBack do
       # (boot only does this for the roster it saw): without the file, every
       # mcp: true turn dies command_failed until the next restart
       Custode.MCP.write_routine_config!(attrs.id)
+      # ...and its workspace (#496): the notebook re-renders journal.md into it
+      # on every write, and boot only created workspaces for the roster it saw
+      attrs.id |> Custode.Routine.get() |> Custode.Routine.ensure_workspace!()
       # ...and its repo server (#221): served?/1 is a Registry lookup, and
       # boot only starts servers for the roster it saw
       if is_binary(attrs[:repo]), do: Custode.Repository.ensure_served(attrs.repo, attrs.id)

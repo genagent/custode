@@ -212,6 +212,8 @@ defmodule Custode.Notebook do
 
       routine ->
         workspace = Path.expand(routine.workspace)
+        # the views are regenerable, so the directory is too (#496)
+        File.mkdir_p!(workspace)
         File.write!(Path.join(workspace, "journal.md"), render_journal(routine_id))
         File.write!(Path.join(workspace, "TODO.md"), render_todos(routine_id))
         :ok
@@ -255,8 +257,22 @@ defmodule Custode.Notebook do
     """
   end
 
+  # journal.md and TODO.md are VIEWS of rows that are already committed
+  # (design/002). A view that cannot be written must not turn a write that
+  # succeeded into an error: an agent told its journal entry failed will
+  # journal it again (#496).
   defp after_mutation(routine_id) do
-    render!(routine_id)
+    try do
+      render!(routine_id)
+    rescue
+      error in File.Error ->
+        require Logger
+
+        Logger.warning(
+          "notebook views for #{routine_id} not rendered: #{Exception.message(error)}"
+        )
+    end
+
     Custode.PubSubBridge.broadcast({:notebook_changed, routine_id})
     :ok
   end

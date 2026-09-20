@@ -156,19 +156,28 @@ defmodule Custode.Routine do
   would send an agent into a void.
   """
   def ensure_workspaces! do
-    for routine <- all() do
-      routine.workspace |> Path.expand() |> Path.join("inbox") |> File.mkdir_p!()
+    for routine <- all(), do: ensure_workspace!(routine)
+    :ok
+  end
 
-      working_dir = Path.expand(routine.working_dir)
+  @doc """
+  The same guarantee for ONE routine, for a routine that arrives after boot
+  (#496). `ensure_workspaces!/0` only ever saw the roster the node booted
+  with, so a routine added from the dashboard had no workspace until the next
+  restart, and its first notebook write crashed re-rendering `journal.md`.
+  """
+  def ensure_workspace!(routine) do
+    routine.workspace |> Path.expand() |> Path.join("inbox") |> File.mkdir_p!()
 
-      unless File.dir?(working_dir) do
-        require Logger
+    working_dir = Path.expand(routine.working_dir)
 
-        Logger.warning(
-          "routine #{routine.id}: working_dir #{working_dir} does not exist; " <>
-            "its turns will fail with command_failed until it does"
-        )
-      end
+    unless File.dir?(working_dir) do
+      require Logger
+
+      Logger.warning(
+        "routine #{routine.id}: working_dir #{working_dir} does not exist; " <>
+          "its turns will fail with command_failed until it does"
+      )
     end
 
     :ok
