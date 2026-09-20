@@ -64,6 +64,117 @@ defmodule Custode.AttentionTest do
     end
   end
 
+  describe "sensor_failing (#444)" do
+    defp streak(id, failures, fields \\ []) do
+      Enum.into(fields, %{
+        id: id,
+        failures: failures,
+        last_error: "Resource protected by organization SAML enforcement",
+        since: ~U[2026-07-26 01:15:00Z]
+      })
+    end
+
+    test "three failed runs in a row name the sensor and the error" do
+      signal = resolve(view("redisctl", sensor_failures: [streak("ci-redisctl", 3)]))
+
+      assert signal.kind == :sensor_failing
+      assert signal.urgency == :normal
+
+      assert signal.headline ==
+               "ci-redisctl has failed 3 runs: Resource protected by organization SAML enforcement"
+
+      assert signal.detail =~ "ci-redisctl (3 runs)"
+      assert signal.item == {:sensors, ["ci-redisctl"]}
+      assert [%{label: "Inspect", op: :open_agent, args: %{agent: "redisctl"}}] = signal.resolving
+    end
+
+    test "it sits in watching: a channel is dark, the operator is not blocked" do
+      signal = resolve(view("redisctl", sensor_failures: [streak("ci-redisctl", 9)]))
+
+      assert signal.group == :watching
+      refute Signal.needs_you?(signal)
+    end
+
+    test "below the threshold a failure is a blip and raises nothing" do
+      view = view("redisctl", cron: "@daily", sensor_failures: [streak("ci-redisctl", 2)])
+
+      assert resolve(view).kind == :scheduled
+    end
+
+    test "the threshold comes from the context, because the resolver reads no config" do
+      view = view("redisctl", cron: "@daily", sensor_failures: [streak("ci-redisctl", 2)])
+
+      assert Attention.resolve(view, Map.put(@context, :sensor_failure_threshold, 2)).kind ==
+               :sensor_failing
+
+      assert Attention.resolve(view, Map.put(@context, :sensor_failure_threshold, 5)).kind ==
+               :scheduled
+    end
+
+    test "it is dated from the start of the streak, so an older outage ranks first" do
+      older = streak("ci-a", 40, since: ~U[2026-07-25 09:00:00Z])
+      newer = streak("ci-b", 3, since: ~U[2026-07-26 01:15:00Z])
+
+      signals = [
+        resolve(view("b", sensor_failures: [newer])),
+        resolve(view("a", sensor_failures: [older]))
+      ]
+
+      assert hd(signals).raised_at == ~U[2026-07-26 01:15:00Z]
+      assert Attention.rank(signals) |> Enum.map(& &1.subject) == ["a", "b"]
+    end
+
+    test "several failing sensors on one agent are one signal that names them all" do
+      signal =
+        resolve(
+          view("watcher",
+            sensor_failures: [
+              streak("quakes", 4, since: ~U[2026-07-26 00:00:00Z]),
+              streak("ci-x", 12, since: ~U[2026-07-25 00:00:00Z]),
+              streak("blip", 1)
+            ]
+          )
+        )
+
+      assert signal.headline == "2 sensors are failing: ci-x, quakes"
+      assert signal.item == {:sensors, ["ci-x", "quakes"]}
+      assert signal.raised_at == ~U[2026-07-25 00:00:00Z]
+      refute signal.detail =~ "blip"
+    end
+
+    test "it ranks right after a red check and ahead of a reached rail" do
+      kinds = Attention.kinds()
+      index = Enum.find_index(kinds, &(&1 == :sensor_failing))
+
+      assert Enum.at(kinds, index - 1) == :red_check
+      assert Enum.at(kinds, index + 1) == :rail_hit
+      assert hd(kinds) == :host_down
+    end
+
+    test "a red check on the same agent wins, and a gate wins over both" do
+      failing = [streak("ci-redisctl", 3)]
+
+      assert resolve(view("a", sensor_failures: failing, failing_prs: [pr(1)])).kind == :red_check
+
+      gated =
+        view("a",
+          sensor_failures: failing,
+          state: :awaiting_permission,
+          gate: gate("approval", @now)
+        )
+
+      assert resolve(gated).kind == :approval
+    end
+
+    test "a long error is clipped in the headline and whole in the detail" do
+      error = String.duplicate("e", 200)
+      signal = resolve(view("a", sensor_failures: [streak("s", 3, last_error: error)]))
+
+      assert String.length(signal.headline) < 120
+      assert signal.detail =~ error
+    end
+  end
+
   describe "red_main (#310)" do
     defp branch(state), do: %{name: "main", state: state, headline: "the merge that broke it"}
 

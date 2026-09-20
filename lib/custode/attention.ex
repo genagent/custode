@@ -44,12 +44,13 @@ defmodule Custode.Attention do
   | 3 | `:approval` | a gate is open that only the operator can pass |
   | 4 | `:disowned_check` | a red check the agent declared not its work (#313) |
   | 5 | `:red_check` | failing checks on the agent's own open PRs |
-  | 6 | `:rail_hit` | the daily rail is reached |
-  | 7 | `:stalled` | scheduled, running, producing no outcome (NOT IMPLEMENTED) |
-  | 8 | `:working` | a turn is executing right now |
-  | 9 | `:paused` | deliberately stopped |
-  | 10 | `:scheduled` | healthy, next beat known |
-  | 11 | `:quiet` | healthy, nothing found, nothing queued |
+  | 6 | `:sensor_failing` | one of the agent's sensors has failed N runs in a row (#444) |
+  | 7 | `:rail_hit` | the daily rail is reached |
+  | 8 | `:stalled` | scheduled, running, producing no outcome (NOT IMPLEMENTED) |
+  | 9 | `:working` | a turn is executing right now |
+  | 10 | `:paused` | deliberately stopped |
+  | 11 | `:scheduled` | healthy, next beat known |
+  | 12 | `:quiet` | healthy, nothing found, nothing queued |
 
   A question outranks an approval because a question is blocked on a human by
   definition, whereas a gate is a structured hold the agent chose to raise and
@@ -104,6 +105,7 @@ defmodule Custode.Attention do
     :approval,
     :disowned_check,
     :red_check,
+    :sensor_failing,
     :rail_hit,
     :stalled,
     :working,
@@ -119,6 +121,7 @@ defmodule Custode.Attention do
     approval: :needs_you,
     disowned_check: :needs_you,
     red_check: :watching,
+    sensor_failing: :watching,
     rail_hit: :needs_you,
     stalled: :needs_you,
     working: :working,
@@ -129,6 +132,11 @@ defmodule Custode.Attention do
 
   @group_order [:needs_you, :watching, :working, :scheduled, :quiet]
   @urgency_order [:high, :normal, :low]
+
+  # Consecutive failed runs before a sensor is worth a signal, when the caller
+  # hands no threshold in. Production passes the configured one through the
+  # context (`Custode.Sensor.Health.threshold/0`).
+  @sensor_failure_threshold 3
 
   # A rail is "hit" at 100%; the fleet page's own 80% banner (#211) stays a
   # separate, softer warning and is not an attention signal.
@@ -212,6 +220,10 @@ defmodule Custode.Attention do
       or `nil` (#310). `nil` means unknown, not green: an empty repository and
       a rollup that has not reported yet both land here, and only a reported
       failure is a signal.
+    * `:sensor_failures` -- the agent's sensors whose last run failed, each as
+      `%{id:, failures:, last_error:, since:}` (#444). Every streak, however
+      short: the gatherer reports counts and the resolver holds the threshold,
+      the same division as `:spend_today` and the rail.
     * `:spend_today` / `:budget` -- the daily ledger and the rail.
     * `:running_since` -- when the in-flight turn started, or `nil`.
     * `:cron` -- the schedule, or `nil` for a manual agent.
@@ -222,6 +234,8 @@ defmodule Custode.Attention do
     * `:now` -- the clock. Defaults to `DateTime.utc_now/0`, which is the one
       concession to convenience; pass it in tests.
     * `:stalled?` -- opt in to `:stalled` detection. Off, and unimplemented.
+    * `:sensor_failure_threshold` -- consecutive failed runs before a sensor
+      raises `:sensor_failing`. Defaults to 3.
   """
   @spec resolve(map(), map()) :: Signal.t()
   def resolve(view, context \\ %{}) do
@@ -243,6 +257,7 @@ defmodule Custode.Attention do
       &approval/2,
       &disowned_check/2,
       &red_check/2,
+      &sensor_failing/2,
       &rail_hit/2,
       &stalled/2,
       &working/2,
@@ -413,6 +428,52 @@ defmodule Custode.Attention do
           resolving: [op("Inspect", :open_agent, %{agent: view.id})]
         )
     end
+  end
+
+  # A sensor that fails every run used to look exactly like one with nothing
+  # to report (#444), so a detection channel could be dark for days and read
+  # as quiet. In `:watching`, not `:needs_you`: nothing is blocked on the
+  # operator, the fleet has noticed that one of its eyes is shut.
+  #
+  # The streak's start is a real timestamp, so unlike a red check this signal
+  # is dated and ranks oldest-first among its own kind.
+  defp sensor_failing(view, context) do
+    threshold = Map.get(context, :sensor_failure_threshold, @sensor_failure_threshold)
+
+    view
+    |> Map.get(:sensor_failures, [])
+    |> Enum.filter(&(&1.failures >= threshold))
+    |> Enum.sort_by(&{-&1.failures, &1.id})
+    |> case do
+      [] ->
+        nil
+
+      failing ->
+        signal(view, :sensor_failing, :normal,
+          headline: sensor_headline(failing),
+          detail: Enum.map_join(failing, "\n", &sensor_line/1),
+          item: {:sensors, Enum.map(failing, & &1.id)},
+          raised_at: failing |> Enum.map(& &1.since) |> oldest(),
+          resolving: [op("Inspect", :open_agent, %{agent: view.id})]
+        )
+    end
+  end
+
+  # The tile draws only the headline, so for the common case of one sensor it
+  # carries the error too: "ci-redisctl has failed 3 runs: SAML enforcement"
+  # says what to fix, and "a sensor is failing" says to go and find out.
+  defp sensor_headline([one]) do
+    "#{one.id} has failed #{one.failures} runs: #{String.slice(one.last_error, 0, 80)}"
+  end
+
+  defp sensor_headline(many) do
+    "#{length(many)} sensors are failing: #{Enum.map_join(many, ", ", & &1.id)}"
+  end
+
+  defp sensor_line(sensor), do: "#{sensor.id} (#{sensor.failures} runs): #{sensor.last_error}"
+
+  defp oldest(times) do
+    times |> Enum.reject(&is_nil/1) |> Enum.min(DateTime, fn -> nil end)
   end
 
   # Named PRs rather than a bare count: "#400 red" tells the operator which

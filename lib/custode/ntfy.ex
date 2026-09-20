@@ -9,6 +9,11 @@ defmodule Custode.Ntfy do
   pocket). Tapping a notification opens the agent's dashboard page
   (pair with tailscale serve, #65, for links that work away from home).
 
+  A failing sensor (`sensor_failed`, #444) rings ONCE per streak: on the run
+  that reaches the failure threshold, which `Custode.Sensor` marks on the
+  entry. The failures before it are blips and the ones after it are the same
+  news again, every cron interval, for as long as the sensor stays broken.
+
   A non-blocking question (`asked`, #445) is deliberately NOT in the ringing
   set. There are two weights here, ring and accumulate, and an ask belongs to
   the second: the agent carried on, so nothing is waiting on the phone being
@@ -34,7 +39,7 @@ defmodule Custode.Ntfy do
   @doc "Publish one feed entry (string-keyed map) if ntfy is configured for it."
   def publish(entry) do
     topic = conf(:topic)
-    urgent? = entry["event"] in @attention
+    urgent? = urgent?(entry)
 
     if is_binary(topic) and (urgent? or conf(:publish, :all) == :all) do
       message = build(entry, topic, urgent?)
@@ -44,6 +49,9 @@ defmodule Custode.Ntfy do
 
     :ok
   end
+
+  defp urgent?(%{"event" => "sensor_failed"} = entry), do: entry["crossed_threshold"] == true
+  defp urgent?(entry), do: entry["event"] in @attention
 
   @doc false
   def build(entry, topic, urgent?) do

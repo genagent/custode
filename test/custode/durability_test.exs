@@ -191,6 +191,40 @@ defmodule Custode.DurabilityTest do
       refute content =~ "never-one"
     end
 
+    test "a sensor whose runs are failing is not silent, so it is not reported dead (#444)" do
+      workspace = tmp_workspace!()
+      meta = routine_fixture!(workspace)
+      failing = uid("failing-one")
+
+      put_env!(:sensors, [
+        %{id: failing, cron: "*/15 * * * *", module: Custode.Sensors.CiStatus, notify: "x"}
+      ])
+
+      # its last GOOD line is three hours old ...
+      Custode.Feed.record(%{event: "sensor", agent: "x", sensor_id: failing, summary: "old"})
+      old = DateTime.utc_now() |> DateTime.add(-3 * 3600) |> DateTime.to_iso8601()
+
+      Custode.Repo.query!(
+        "UPDATE feed_entries SET at = ? WHERE json_extract(entry, '$.sensor_id') = ?",
+        [old, failing]
+      )
+
+      # ... but it ran a moment ago and failed, which has its own signal
+      Custode.Feed.record(%{
+        event: "sensor_failed",
+        agent: "x",
+        sensor_id: failing,
+        summary: "fetch failed"
+      })
+
+      :ok =
+        Deadman.perform(%Oban.Job{
+          args: %{"sensor_id" => uid("deadman"), "notify" => meta.id}
+        })
+
+      assert [] == Path.wildcard(Path.join([workspace, "inbox", "sensor-*"]))
+    end
+
     test "cron cadences parse" do
       assert Deadman.interval_minutes("*/15 * * * *") == 15
       assert Deadman.interval_minutes("@daily") == 1_440

@@ -5,8 +5,13 @@ defmodule Custode.Sensor do
   queue that fetches through a seam, normalizes to keyed items, diffs
   against its own `sensor:<id>` memory (seen-set replaced wholesale, so
   items age out with the source window), drops ONE inbox note through the
-  funnel for genuinely-new items, feeds a status line either way, and
-  skips quietly on fetch errors. Cheap sensor, expensive brain.
+  funnel for genuinely-new items, and feeds a status line either way.
+  Cheap sensor, expensive brain.
+
+  A fetch error skips the diff and leaves the seen-set alone, but it is not
+  quiet (#444): it feeds a `sensor_failed` line and counts toward
+  `Custode.Sensor.Health`, so a sensor that fails every run becomes a signal
+  on its agent instead of looking like one with nothing to report.
 
   A sensor implements three decisions:
 
@@ -25,6 +30,8 @@ defmodule Custode.Sensor do
   (CiStatus, UsgsQuakes) notes immediately: a currently-failing PR or a
   fresh quake is actionable regardless of history.
   """
+
+  alias Custode.Sensor.Health
 
   @doc "Fetch and normalize current items (already filtered to relevance)."
   @callback fetch(args :: map()) :: {:ok, [map()]} | {:error, term()}
@@ -57,12 +64,38 @@ defmodule Custode.Sensor do
 
     case module.fetch(args) do
       {:ok, items} ->
+        Health.record_success(sensor_id)
         diff(module, baseline, sensor_id, notify, items, args)
 
       {:error, reason} ->
-        feed(sensor_id, notify, "#{sensor_id}: fetch failed (#{inspect(reason)}), will retry")
+        failed(sensor_id, notify, Health.record_failure(sensor_id, reason))
     end
   end
+
+  # Its own event, not a `sensor` line with sadder wording (#444): the feed
+  # badge, the feed's attention lens and ntfy all key on the event name, and a
+  # failure that shares a name with "nothing new" shares its grey too.
+  #
+  # `crossed_threshold` is true on exactly one entry per streak, the run that
+  # reaches `Health.threshold/0`. That is the one `Custode.Ntfy` rings for; a
+  # sensor on a 15-minute cron would otherwise ring 96 times a day for as long
+  # as it stayed broken.
+  defp failed(sensor_id, notify, health) do
+    Custode.Feed.record(%{
+      event: "sensor_failed",
+      agent: notify,
+      sensor_id: sensor_id,
+      failures: health.failures,
+      error: health.last_error,
+      crossed_threshold: health.failures == Health.threshold(),
+      summary: "#{sensor_id}: fetch failed, #{runs(health.failures)} (#{health.last_error})"
+    })
+
+    :ok
+  end
+
+  defp runs(1), do: "will retry"
+  defp runs(count), do: "#{count} runs in a row"
 
   defp diff(module, baseline, sensor_id, notify, items, args) do
     memory_key = "sensor:" <> sensor_id
