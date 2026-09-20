@@ -45,7 +45,7 @@ defmodule Custode.MixProject do
       {:ecto_sqlite3, "~> 0.17"},
       {:jason, "~> 1.4"},
       # The MCP server: agents running here can drive sibling agents/jobs.
-      {:anubis_mcp, "~> 1.10"},
+      {:anubis_mcp, "~> 2.0"},
       # Typed GitHub client: repo panels on agent pages (reads); verb tools later.
       {:gh_ex, "~> 0.3"},
       # HTTP client (also a gh_ex dep): the boot MCP probe and CLI transport.
