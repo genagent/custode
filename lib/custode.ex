@@ -80,7 +80,13 @@ defmodule Custode do
     args = agent_id |> Custode.Gates.open_class(action_id) |> Grant.approval_args()
 
     Custode.Gates.record_decision(agent_id, action_id, opts)
-    Agent.approve_action(agent_id, action_id, args: args)
+
+    # With no override this is the call every engine has. Only an actual
+    # override needs approve_action/3 (oban_claude >= 0.5), so a checkout whose
+    # engine is behind still approves gates in the default :observe mode.
+    if args == %{},
+      do: Agent.approve_action(agent_id, action_id),
+      else: Agent.approve_action(agent_id, action_id, args: args)
   end
 
   @doc """
