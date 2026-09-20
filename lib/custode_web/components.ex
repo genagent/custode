@@ -654,7 +654,12 @@ defmodule CustodeWeb.Components do
   attr(:item, :map, required: true)
   attr(:closed, :boolean, default: false)
 
-  defp repo_item(assigns) do
+  @doc """
+  One issue or pull request row of a repo overview: its number and title as a
+  link, a check dot when the item carries checks, a draft badge. Public so the
+  console's attention tab draws a row exactly as the overview panel does.
+  """
+  def repo_item(assigns) do
     ~H"""
     <p class="flex items-center gap-2 truncate py-0.5 text-sm">
       <span :if={Map.has_key?(@item, :checks)} class={["inline-block h-2 w-2 shrink-0 rounded-full", check_dot(@item.checks)]} title={"checks: #{@item.checks || "none"}"}>

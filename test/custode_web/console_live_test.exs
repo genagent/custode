@@ -437,6 +437,80 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ repo
   end
 
+  describe "the attention tab is the one-page summary of a subject" do
+    test "the agent's own read is on it, with when it was written",
+         %{conn: conn, sleeper: sleeper} do
+      {:ok, _view, html} = live(conn, "/console/#{sleeper.id}")
+      refute html =~ "agent's own read"
+
+      :ok =
+        Custode.Memory.remember(sleeper.id, "panel", "**Watch**\n\n- the macOS perf test flakes")
+
+      {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+      read = view |> element("#own-read") |> render()
+
+      assert read =~ "self-curated"
+      assert read =~ ~r/written <span[^>]*>\d+s ago/
+      assert read =~ "<strong>Watch</strong>"
+      assert read =~ "the macOS perf test flakes"
+    end
+
+    test "open pull requests and the top of the backlog are on it", %{conn: conn} do
+      repo = "acme/" <> uid("summary")
+      on_exit(fn -> Cache.forget(repo) end)
+
+      issues =
+        for n <- 1..7 do
+          %{number: 400 + n, title: "backlog item #{n}", url: "https://x/#{n}", at: nil}
+        end
+
+      overview = %{
+        open_issues: %{total: 7, items: issues},
+        closed_issues: %{total: 0, items: []},
+        open_prs: %{
+          total: 1,
+          items: [
+            %{
+              number: 589,
+              title: "convert ignore to no_run",
+              url: "https://x",
+              at: nil,
+              draft: true,
+              checks: "FAILURE"
+            }
+          ]
+        },
+        merged_prs: %{total: 0, items: []}
+      }
+
+      overviews = Application.get_env(:custode, :fake_repo_overviews, %{})
+      put_env!(:fake_repo_overviews, Map.put(overviews, repo, {:ok, overview}))
+
+      routine = routine_fixture!(tmp_workspace!(), %{repo: repo})
+      {:ok, view, _html} = live(conn, "/console/#{routine.id}")
+
+      # the first render races the async fetch; the broadcast settles it
+      work = eventually(fn -> view |> element("#open-work") |> render() end)
+
+      assert work =~ "1 pull request(s), 7 issue(s)"
+      assert work =~ "convert ignore to no_run"
+      assert work =~ "bg-error"
+      assert work =~ "backlog item 5"
+      refute work =~ "backlog item 6"
+
+      # the rest is one click away, and nothing left the work tab
+      html = view |> element("#open-work button", "all 7 on the work tab") |> render_click()
+      assert html =~ "backlog item 7"
+    end
+
+    test "a subject with no repository and no panel draws neither section",
+         %{conn: conn, sleeper: sleeper} do
+      {:ok, _view, html} = live(conn, "/console/#{sleeper.id}")
+      refute html =~ ~s(id="own-read")
+      refute html =~ ~s(id="open-work")
+    end
+  end
+
   describe "the work tab" do
     setup %{conn: conn} do
       workspace = tmp_workspace!()

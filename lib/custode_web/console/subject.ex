@@ -150,8 +150,83 @@ defmodule CustodeWeb.Console.Subject do
     <div id="last-said" class="flex flex-col gap-2">
       <.feed_entry :for={entry <- said(@subject.feed)} entry={entry} show_agent={false} />
     </div>
+
+    <.own_read panel={@subject.panel} written_at={panel_written_at(@subject.memories)} />
+    <.open_work overview={@subject.overview} />
     """
   end
+
+  attr(:panel, :string, default: nil)
+  attr(:written_at, :any, default: nil)
+
+  # The agent's self-curated notes (memory key "panel"): on the live fleet a
+  # plan ledger, the untriaged bugs, what is not its work, what to watch. It
+  # is the best summary of a subject there is, and it was the last section of
+  # the fifth tab.
+  defp own_read(assigns) do
+    ~H"""
+    <section :if={@panel} id="own-read" class="mt-6">
+      <h3 class="mb-2 text-xs font-bold uppercase tracking-widest text-base-content/50">
+        agent's own read
+        <span class="font-normal normal-case tracking-normal">
+          self-curated<span :if={@written_at}>, written <.ago at={@written_at} /></span>
+        </span>
+      </h3>
+      <div class="max-h-96 overflow-y-auto rounded-lg bg-base-100 p-4 shadow-sm">
+        <.markdown text={@panel} />
+      </div>
+    </section>
+    """
+  end
+
+  defp panel_written_at(memories) do
+    case Enum.find(memories, &(&1.key == "panel")) do
+      %{updated_at: %DateTime{} = at} -> at
+      _none -> nil
+    end
+  end
+
+  @backlog_shown 5
+
+  attr(:overview, :any, required: true)
+
+  # What is open on the repository, at a glance: every open pull request with
+  # its check state, and the top of the backlog. The work tab has all of it.
+  # A loading or refused overview draws nothing here; the work tab says why.
+  defp open_work(%{overview: %{open_prs: prs, open_issues: issues}} = assigns) do
+    assigns =
+      assign(assigns,
+        prs: prs,
+        issues: issues,
+        shown: Enum.take(issues.items, @backlog_shown)
+      )
+
+    ~H"""
+    <section :if={@prs.items != [] or @shown != []} id="open-work" class="mt-6">
+      <h3 class="mb-2 text-xs font-bold uppercase tracking-widest text-base-content/50">
+        open work
+        <span class="font-normal normal-case tracking-normal">
+          {@prs.total} pull request(s), {@issues.total} issue(s)
+        </span>
+      </h3>
+      <div class="rounded-lg bg-base-100 p-3 shadow-sm">
+        <.repo_item :for={item <- @prs.items} item={item} />
+        <div :if={@prs.items != [] and @shown != []} class="my-2 border-t border-base-200"></div>
+        <.repo_item :for={item <- @shown} item={item} />
+        <button
+          :if={@issues.total > length(@shown)}
+          class="link mt-2 text-xs text-base-content/50"
+          phx-click="tab"
+          phx-value-tab="work"
+        >
+          all {@issues.total} on the work tab
+        </button>
+      </div>
+    </section>
+    """
+  end
+
+  defp open_work(assigns), do: ~H""
 
   # What the AGENT said, not what was said about it: sensor pings, aging
   # notices and inbox drops are all on the activity tab. The feed arrives
