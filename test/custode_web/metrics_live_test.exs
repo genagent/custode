@@ -17,10 +17,11 @@ defmodule CustodeWeb.MetricsLiveTest do
     %{conn: build_conn()}
   end
 
-  defp gate!(agent_id, outcome) do
+  defp gate!(agent_id, outcome, class \\ nil) do
     Repo.insert!(%Gate{
       agent_id: agent_id,
       kind: "approval",
+      class: class,
       action_id: uid("act"),
       detail: "x",
       status: "resolved",
@@ -44,5 +45,25 @@ defmodule CustodeWeb.MetricsLiveTest do
     assert html =~ "100%"
     assert html =~ contested
     assert html =~ "50%"
+  end
+
+  # the same question by class of action (#451)
+  test "the by-class table counts only gates that declared a class", %{conn: conn} do
+    Repo.delete_all(Gate)
+
+    {:ok, _view, html} = live(conn, "/metrics")
+    assert html =~ "no decided gate has declared a class yet"
+
+    agent = uid("classy")
+    for _n <- 1..3, do: gate!(agent, "approved", "ready_pr")
+    gate!(agent, "rejected", "merge")
+    gate!(agent, "approved")
+
+    {:ok, view, _html} = live(conn, "/metrics")
+    table = view |> element("section", "approval rate by class") |> render()
+
+    assert table =~ ~r/ready_pr.*>3<.*>0<.*100%/s
+    assert table =~ ~r/merge.*>0<.*>1<.*0%/s
+    refute table =~ "no decided gate"
   end
 end

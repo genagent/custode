@@ -425,6 +425,21 @@ defmodule Custode.AttentionTest do
                signal.resolving
     end
 
+    test "an approval says which class of action it is, when the agent declared one (#451)" do
+      gated = fn fields ->
+        resolve(
+          view("git-spawn",
+            state: :awaiting_permission,
+            gate: gate("approval", ~U[2026-07-26 01:30:39Z], [action_id: "act_1"] ++ fields)
+          )
+        )
+      end
+
+      assert gated.(class: "ready_pr").headline == "wants your approval (ready_pr)"
+      assert gated.(class: nil).headline == "wants your approval"
+      assert gated.([]).headline == "wants your approval"
+    end
+
     test "needs_answer outranks approval when both could apply" do
       signal =
         resolve(view("both", state: :waiting_for_user, gate: gate("approval", @now)))

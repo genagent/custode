@@ -233,6 +233,7 @@ defmodule Custode.Attention.Fleet do
   defp gate_view(gate) do
     %{
       kind: gate.kind,
+      class: gate.class,
       detail: gate.detail,
       action_id: gate.action_id,
       opened_at: gate.inserted_at

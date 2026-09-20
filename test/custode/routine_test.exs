@@ -3,6 +3,8 @@ defmodule Custode.RoutineTest do
 
   import Custode.TestHelpers
 
+  alias Custode.Gates.Class
+
   describe "normalize and defaults" do
     test "fills model, budget, system prompt, and mcp from the shared defaults" do
       routine = routine_fixture!("workspace")
@@ -188,6 +190,12 @@ defmodule Custode.RoutineTest do
       assert schema["properties"]["issues_touched"]["items"] == %{"type" => "integer"}
       # a sweep that touched nothing must still validate
       assert schema["required"] == ["directive", "summary"]
+
+      # the class of a gated action (#451): an enum of the one list, and
+      # optional, so a turn that omits it is still valid output
+      assert schema["properties"]["action_class"]["enum"] == Class.ids()
+      assert schema["properties"]["action_class"]["description"] =~ "ready_pr = mark a draft"
+      assert claude_args["append_system_prompt"] =~ "action_class"
       assert claude_args["append_system_prompt"] =~ "assistant"
       assert claude_args["append_system_prompt"] =~ routine.id
       assert claude_args["append_system_prompt"] =~ "inbox_list"

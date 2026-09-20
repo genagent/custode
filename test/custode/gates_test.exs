@@ -4,8 +4,11 @@ defmodule Custode.GatesTest do
   import Custode.TestHelpers
   import ObanClaude.Testing
 
+  alias Custode.Feed.Ingest
   alias Custode.Gates
   alias ObanClaude.Agent
+
+  doctest Custode.Gates.Class
 
   test "gates open from transitions with their payload, and resolve on exit" do
     id = start_stub_agent!()
@@ -123,6 +126,100 @@ defmodule Custode.GatesTest do
       assert %{approved: 1, rejected: 0, rate: 1.0} = rates[approved_id]
       assert %{approved: 0, rejected: 1, rate: +0.0} = rates[rejected_id]
       refute Map.has_key?(rates, open_id)
+    end
+  end
+
+  describe "the class of action a gate asks for (#451)" do
+    # The engine's worker emits [:oban_claude, :run, :stop] and THEN casts
+    # job_finished, so the turn's feed entry exists before the gate opens.
+    # These drive the two in the same order.
+    defp gated_agent!(action, fields) do
+      id = start_stub_agent!()
+      :processing = Agent.submit_prompt(id, "x")
+
+      result =
+        structured_result(
+          Map.merge(%{"directive" => "request_permission", "action" => action}, fields)
+        )
+
+      :ok =
+        Ingest.handle_event(
+          [:oban_claude, :run, :stop],
+          %{cost_usd: 0.0},
+          %{result: result, job: %{meta: %{"agent_id" => id}}},
+          nil
+        )
+
+      :ok = Agent.job_finished(id, {:ok, result})
+
+      {:ok, {:awaiting_permission, %{id: action_id}}} =
+        Agent.await(id, :awaiting_permission, 1_000)
+
+      eventually(fn -> assert [_gate] = Gates.open_gates(id) end)
+      {id, action_id}
+    end
+
+    test "a gate carries the class its turn declared" do
+      {id, _action_id} = gated_agent!("mark #490 ready", %{"action_class" => "ready_pr"})
+      assert [%{class: "ready_pr", detail: "mark #490 ready"}] = Gates.open_gates(id)
+    end
+
+    test "a value outside the list is other, and nothing declared is nil" do
+      {unknown, _a1} = gated_agent!("ship it", %{"action_class" => "deploy"})
+      assert [%{class: "other"}] = Gates.open_gates(unknown)
+
+      {silent, _a2} = gated_agent!("prune", %{})
+      assert [%{class: nil}] = Gates.open_gates(silent)
+    end
+
+    test "a class is not inherited from an earlier turn" do
+      {id, action_id} = gated_agent!("mark #490 ready", %{"action_class" => "ready_pr"})
+      :rejected = Agent.reject_action(id, action_id, "not yet")
+
+      # the next gate is raised by a turn that says nothing about its class
+      :processing = Agent.submit_prompt(id, "y")
+      silent = structured_result(%{"directive" => "request_permission", "action" => "prune"})
+
+      :ok =
+        Ingest.handle_event(
+          [:oban_claude, :run, :stop],
+          %{cost_usd: 0.0},
+          %{result: silent, job: %{meta: %{"agent_id" => id}}},
+          nil
+        )
+
+      :ok = Agent.job_finished(id, {:ok, silent})
+      {:ok, _status} = Agent.await(id, :awaiting_permission, 1_000)
+
+      assert [%{class: nil, detail: "prune"}] =
+               eventually(fn ->
+                 assert [%{detail: "prune"}] = gates = Gates.open_gates(id)
+                 gates
+               end)
+    end
+
+    test "approval_rates_by_class counts only gates that declared one, in class order" do
+      Custode.Repo.query!("DELETE FROM gates")
+
+      {a, a1} = gated_agent!("open a PR", %{"action_class" => "implement"})
+      :processing = Custode.approve_action(a, a1, via: :cli)
+
+      {b, b1} = gated_agent!("open another", %{"action_class" => "implement"})
+      :rejected = Custode.reject_with_note(b, b1, "no", via: :cli)
+
+      {c, c1} = gated_agent!("say thanks", %{"action_class" => "comment"})
+      :processing = Custode.approve_action(c, c1, via: :cli)
+
+      # decided, but it never said what it was
+      {d, d1} = gated_agent!("prune", %{})
+      :processing = Custode.approve_action(d, d1, via: :cli)
+
+      assert [
+               %{class: "comment", approved: 1, rejected: 0, rate: 1.0},
+               %{class: "implement", approved: 1, rejected: 1, rate: 0.5}
+             ] = Gates.approval_rates_by_class()
+
+      assert Enum.all?(Gates.approval_rates_by_class(), &is_float(&1.median_wait_min))
     end
   end
 
