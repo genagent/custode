@@ -75,9 +75,10 @@ defmodule CustodeWeb.ConsoleLive do
     do: {:noreply, assign(socket, tab: tab)}
 
   def handle_event("message", %{"text" => text}, socket) do
-    socket.assigns.selected
-    |> Actions.message(text, @opts)
-    |> after_action(socket, "sent")
+    case Actions.message(socket.assigns.selected, text, @opts) do
+      {:ok, how} -> after_action(:ok, socket, sent_notice(how))
+      {:error, reason} -> after_action({:error, reason}, socket, nil)
+    end
   end
 
   def handle_event("beat", _params, socket),
@@ -107,6 +108,10 @@ defmodule CustodeWeb.ConsoleLive do
       _stale -> {:noreply, socket |> assign(notice: "that is no longer pending") |> refresh()}
     end
   end
+
+  defp sent_notice(:delivered), do: "sent"
+  defp sent_notice(:resumed), do: "resumed, then sent"
+  defp sent_notice(:started), do: "started a turn with your message"
 
   defp after_action(:ok, socket, notice) do
     {:noreply,

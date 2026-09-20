@@ -206,6 +206,8 @@ defmodule Custode.MCP.Tools.PromptAgent do
 
   import Custode.MCP.Tools
 
+  alias Custode.Operator.Actions
+
   schema do
     field(:agent_id, :string, required: true)
     field(:prompt, :string, required: true)
@@ -213,18 +215,30 @@ defmodule Custode.MCP.Tools.PromptAgent do
 
   @impl true
   def execute(%{agent_id: agent_id, prompt: prompt}, frame) do
+    case Custode.MCP.caller(frame) do
+      %{kind: :operator} -> operator_prompt(agent_id, prompt, frame)
+      _agent -> delegated_prompt(agent_id, prompt, frame)
+    end
+  end
+
+  # The operator can reach an agent in any state (#472): a paused one is
+  # resumed first and an offline routine is started with the prompt. `how`
+  # says which, because "delivered" used to be reported for a prompt the
+  # engine had dropped. The prompt lands in the activity too (#187).
+  defp operator_prompt(agent_id, prompt, frame) do
+    case Actions.message(agent_id, prompt, decided(frame)) do
+      {:ok, how} -> reply(frame, %{agent_id: agent_id, delivered: true, how: how})
+      {:error, reason} -> fail(frame, "prompt failed: #{inspect(reason)}")
+    end
+  end
+
+  # An agent prompting its own sub-agent is delegation: it stays out of the
+  # activity, and it keeps the direct cast. A sub-agent has no routine to
+  # start, and a parent must not resume what the operator paused.
+  defp delegated_prompt(agent_id, prompt, frame) do
     case ObanClaude.Agent.cast_prompt(agent_id, prompt) do
-      :ok ->
-        # the operator's question belongs in the activity (#187); an agent
-        # prompting its own sub-agents is delegation and stays out
-        if match?(%{kind: :operator}, Custode.MCP.caller(frame)) do
-          Custode.Feed.record_prompted(agent_id, prompt)
-        end
-
-        reply(frame, %{agent_id: agent_id, delivered: true})
-
-      {:error, reason} ->
-        fail(frame, "prompt failed: #{inspect(reason)}")
+      :ok -> reply(frame, %{agent_id: agent_id, delivered: true, how: :delivered})
+      {:error, reason} -> fail(frame, "prompt failed: #{inspect(reason)}")
     end
   end
 end

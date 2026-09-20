@@ -29,7 +29,7 @@ defmodule Custode.Operator.ActionsTest do
     test "an idle agent takes it as a prompt" do
       id = start_stub_agent!()
 
-      assert :ok = Actions.message(id, "what changed on main?")
+      assert {:ok, :delivered} = Actions.message(id, "what changed on main?")
       assert_receive {:enqueued, args, _meta}, 1_000
       assert args["prompt"] =~ "what changed on main?"
     end
@@ -40,7 +40,7 @@ defmodule Custode.Operator.ActionsTest do
     test "an OFFLINE routine is started with the message as the turn's prompt" do
       routine = routine_fixture!(tmp_workspace!())
 
-      assert :ok = Actions.message(routine.id, "look at issue 42 first")
+      assert {:ok, :started} = Actions.message(routine.id, "look at issue 42 first")
 
       assert [tick] = ticks_for(routine.id)
       assert tick.args["prompt"] == "look at issue 42 first"
@@ -58,7 +58,7 @@ defmodule Custode.Operator.ActionsTest do
       :ok = Agent.emergency_pause(id)
       {:ok, :paused} = Agent.await(id, :paused, 1_000)
 
-      assert :ok = Actions.message(id, "carry on with the release")
+      assert {:ok, :resumed} = Actions.message(id, "carry on with the release")
 
       assert_receive {:enqueued, args, _meta}, 1_000
       assert args["prompt"] =~ "carry on with the release"

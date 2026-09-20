@@ -40,10 +40,12 @@ defmodule Custode.Operator.Actions do
       no caller to refuse). The agent is resumed first, so the surface must
       say that sending will resume it
 
-  The agent page used to hide its composer for the last two. Hiding the box
-  was honest about the engine and unhelpful to the operator.
+  The agent page used to hide its composer for the last two, and `mix custode
+  prompt` reported success for a paused agent while the engine dropped the
+  text (#472). Returns what it did, so a surface can say so.
   """
-  @spec message(String.t(), String.t(), keyword()) :: result()
+  @spec message(String.t(), String.t(), keyword()) ::
+          {:ok, :delivered | :resumed | :started} | {:error, term()}
   def message(agent_id, text, opts \\ []) do
     case String.trim(to_string(text)) do
       "" -> {:error, :empty}
@@ -60,21 +62,23 @@ defmodule Custode.Operator.Actions do
         args = Map.put(Custode.Routine.tick_args(routine), "prompt", text)
         {:ok, _job} = Oban.insert(Agent.Tick.new(args, queue: :ticks))
         Custode.Feed.record_prompted(agent_id, text)
-        :ok
+        {:ok, :started}
     end
   end
 
   defp deliver(agent_id, text, :paused, opts) do
-    with :ok <- resume(agent_id, opts), do: cast(agent_id, text)
+    with :ok <- resume(agent_id, opts), do: cast(agent_id, text, :resumed)
   end
 
-  defp deliver(agent_id, text, _state, _opts), do: cast(agent_id, text)
+  defp deliver(agent_id, text, _state, _opts), do: cast(agent_id, text, :delivered)
 
-  defp cast(agent_id, text) do
+  # `how` is what the caller is told happened (#472), so a surface can say
+  # "resumed" or "started" and not only "sent".
+  defp cast(agent_id, text, how) do
     case Agent.cast_prompt(agent_id, text) do
       :ok ->
         Custode.Feed.record_prompted(agent_id, text)
-        :ok
+        {:ok, how}
 
       {:error, reason} ->
         {:error, reason}
@@ -120,7 +124,12 @@ defmodule Custode.Operator.Actions do
 
   @doc "Answer an agent parked in `waiting_for_user`. The answer is a message."
   @spec answer(String.t(), String.t(), keyword()) :: result()
-  def answer(agent_id, text, opts \\ []), do: message(agent_id, text, opts)
+  def answer(agent_id, text, opts \\ []) do
+    case message(agent_id, text, opts) do
+      {:ok, _how} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   @doc "Start a sweep now instead of at the next cron match."
   @spec beat(String.t(), keyword()) :: result()
