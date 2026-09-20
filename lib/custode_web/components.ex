@@ -729,6 +729,8 @@ defmodule CustodeWeb.Components do
   defp chip_word(:host_down), do: "cannot run turns"
   defp chip_word(:needs_answer), do: "asked you"
   defp chip_word(:approval), do: "needs approval"
+  defp chip_word(:workflow_launch), do: "awaits your launch approval"
+  defp chip_word(:workflow_rail), do: "is parked on its run rail"
   defp chip_word(:rail_hit), do: "at its rail"
   defp chip_word(kind), do: to_string(kind)
 

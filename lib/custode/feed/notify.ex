@@ -18,19 +18,48 @@ defmodule Custode.Feed.Notify do
   # telemetry handler runs in. terminal-notifier (brew) is preferred: clicking
   # the notification deep-links to the agent's dashboard page, where
   # osascript's display notification can only focus Script Editor.
+  #
+  # The delivery is a seam (`:desktop_sink`, as `:ntfy_sink` is for the other
+  # channel), so a test can assert that an event raises a notification, or
+  # that it deliberately does not, without one appearing on a screen.
   defp desktop(entry) do
-    if Application.get_env(:custode, :desktop_notifications, true) and
-         match?({:unix, :darwin}, :os.type()) do
-      body = entry[:action] || entry[:question] || to_string(entry[:kind] || entry.event)
-      title = "custode: #{entry.agent} #{entry.event}"
-      url = dashboard_url(entry)
+    if Application.get_env(:custode, :desktop_notifications, true) do
+      {title, body} = banner(entry)
+      message = %{title: title, body: body, url: dashboard_url(entry), agent: entry[:agent]}
+      sink = Application.get_env(:custode, :desktop_sink, &__MODULE__.deliver/1)
 
-      Task.Supervisor.start_child(Custode.TaskSupervisor, fn ->
-        deliver_notification(title, body, url, entry.agent)
-      end)
+      Task.Supervisor.start_child(Custode.TaskSupervisor, fn -> sink.(message) end)
     end
 
     :ok
+  end
+
+  @doc false
+  def deliver(message) do
+    if match?({:unix, :darwin}, :os.type()) do
+      deliver_notification(message.title, message.body, message.url, message.agent)
+    end
+
+    :ok
+  end
+
+  @doc """
+  The `{title, body}` a desktop notification shows for `entry`.
+
+  `:summary` is a body source and the agent is optional (#447). The workflow
+  events have no agent and say what happened in `:summary`, so without both
+  the notification read "custode:  workflow_launch_proposed" over a body of
+  the event name again.
+  """
+  @spec banner(map()) :: {String.t(), String.t()}
+  def banner(entry) do
+    body =
+      entry[:action] || entry[:question] || entry[:summary] ||
+        to_string(entry[:kind] || entry.event)
+
+    title = Enum.join(["custode:", entry[:agent], entry.event] |> Enum.reject(&is_nil/1), " ")
+
+    {title, body}
   end
 
   defp deliver_notification(title, body, url, agent) do

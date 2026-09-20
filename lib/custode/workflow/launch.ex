@@ -110,17 +110,23 @@ defmodule Custode.Workflow.Launch do
         |> Map.put(:why, Keyword.get(opts, :why))
         |> Map.put(:launch_opts, launch_opts(opts))
 
-      Feed.record(%{
-        event: @proposed,
-        agent: nil,
-        proposal: proposal.id,
-        workflow: proposal.workflow,
-        repo: proposal.repo,
-        estimate: Map.drop(proposal, [:launch_opts]),
-        launch_opts: proposal.launch_opts,
-        why: proposal.why,
-        summary: summary(proposal)
-      })
+      # `notify: true` (#447): a launch gate waits on the operator and on
+      # nobody else, which is what the desktop notification is for. Before,
+      # it reached ntfy only, and ntfy is off unless a topic is configured.
+      Feed.record(
+        %{
+          event: @proposed,
+          agent: nil,
+          proposal: proposal.id,
+          workflow: proposal.workflow,
+          repo: proposal.repo,
+          estimate: Map.drop(proposal, [:launch_opts]),
+          launch_opts: proposal.launch_opts,
+          why: proposal.why,
+          summary: summary(proposal)
+        },
+        notify: true
+      )
 
       {:ok, proposal}
     end
@@ -131,15 +137,22 @@ defmodule Custode.Workflow.Launch do
   once approved or rejected -- the resolving entry masks it by proposal id.
   """
   def pending do
-    resolved =
-      for event <- [@approved, @rejected],
-          entry <- Feed.recent_by_event(event, limit: 50, since: @window_s),
-          into: MapSet.new(),
-          do: entry["proposal"]
+    # Proposals first, and nothing else when there are none. This now runs
+    # under every attention read (#447), and "no proposal this week" is the
+    # common case by a wide margin.
+    case Feed.recent_by_event(@proposed, limit: 50, since: @window_s) do
+      [] ->
+        []
 
-    @proposed
-    |> Feed.recent_by_event(limit: 50, since: @window_s)
-    |> Enum.reject(&(&1["proposal"] in resolved))
+      proposed ->
+        resolved =
+          for event <- [@approved, @rejected],
+              entry <- Feed.recent_by_event(event, limit: 50, since: @window_s),
+              into: MapSet.new(),
+              do: entry["proposal"]
+
+        Enum.reject(proposed, &(&1["proposal"] in resolved))
+    end
   end
 
   @doc """
@@ -270,6 +283,23 @@ defmodule Custode.Workflow.Launch do
 
       _running ->
         {:error, :not_paused}
+    end
+  end
+
+  @doc """
+  Let a parked run go on with its rail DOUBLED: the one act every surface
+  offers for a budget pause (#447).
+
+  Resuming onto the same ceiling parks the run again on its next advance, so
+  the button raises the rail rather than pretending the limit is gone. The
+  factor lives here because the workflows page and the inbox both offer the
+  button, and two pages must not come to hold two ideas of what it does. A run
+  with no rail is resumed as it is.
+  """
+  def raise_and_resume(run_id) do
+    case Run.get(run_id) do
+      %{budget_usd: budget} when is_number(budget) -> unpause(run_id, budget_usd: budget * 2)
+      _no_rail_or_no_run -> unpause(run_id)
     end
   end
 

@@ -280,10 +280,13 @@ defmodule Custode.Workflow.Runner do
 
     Run.budget_pause(run.run_id, reason, names)
 
+    # `notify: true` (#447): a parked run stays parked until the operator
+    # raises its rail, so it is theirs now and not at the next glance.
     record(
       run,
       "workflow_budget_paused",
-      reason <> " -- #{length(names)} node(s) not run: #{Enum.join(names, ", ")}"
+      reason <> " -- #{length(names)} node(s) not run: #{Enum.join(names, ", ")}",
+      notify: true
     )
 
     {:ok, Run.get(run.run_id)}
@@ -582,15 +585,18 @@ defmodule Custode.Workflow.Runner do
   # `agent` stays nil rather than naming the run's spend agent id: the feed's
   # agent column is the click-through to an agent page, and a workflow run has
   # no such page. The run id rides its own field.
-  defp record(run, event, summary) do
-    Custode.Feed.record(%{
-      event: event,
-      agent: nil,
-      run: run.run_id,
-      workflow: run.workflow,
-      repo: run.repo,
-      summary: "#{run.workflow} [#{run.run_id}] #{summary}"
-    })
+  defp record(run, event, summary, opts \\ []) do
+    Custode.Feed.record(
+      %{
+        event: event,
+        agent: nil,
+        run: run.run_id,
+        workflow: run.workflow,
+        repo: run.repo,
+        summary: "#{run.workflow} [#{run.run_id}] #{summary}"
+      },
+      opts
+    )
   end
 
   # design/005 slice 5: the report is "saved to the workspace and linked from
