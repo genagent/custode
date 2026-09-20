@@ -511,8 +511,17 @@ defmodule Custode.CLI.Prompt do
   def run(args, _raw) do
     arguments = %{agent_id: args[:agent_id], prompt: args[:text]}
 
-    Custode.CLI.emit("prompt_agent", arguments, false, fn _reply -> "delivered" end)
+    Custode.CLI.emit("prompt_agent", arguments, false, &delivery/1)
   end
+
+  # say what actually happened (#472): "delivered" used to be printed for a
+  # prompt the engine had dropped
+  defp delivery(%{"how" => "resumed"}), do: "the agent was paused: resumed, then delivered"
+
+  defp delivery(%{"how" => "started"}),
+    do: "the agent was offline: started a turn with this prompt"
+
+  defp delivery(_reply), do: "delivered"
 end
 
 defmodule Custode.CLI.Away do

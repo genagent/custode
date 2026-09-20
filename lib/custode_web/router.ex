@@ -39,6 +39,8 @@ defmodule CustodeWeb.Router do
     # cannot forget it and silently lose its flash messages (#337).
     live_session :dashboard, layout: {CustodeWeb.Layouts, :app} do
       live("/", CustodeWeb.FleetLive)
+      live("/console", CustodeWeb.ConsoleLive)
+      live("/console/:id", CustodeWeb.ConsoleLive)
       live("/repos", CustodeWeb.ReposLive)
       live("/suggestions", CustodeWeb.SuggestionsLive)
       live("/workflows", CustodeWeb.WorkflowsLive)

@@ -169,6 +169,20 @@ lifecycle file for file. The work is a facade, a `provider` field, and a
 token-denominated rail, because Codex reports no cost. First user: a Codex
 reviewer on Claude-authored PRs. #452.
 
+### Later: the agent mesh
+
+The operator's framing: very often one project needs something from another.
+Filing an issue on the other repository and letting its agent pick it up is
+usually the right move, and sometimes direct communication would be faster.
+Both should exist, Claude to Codex included, and the mesh is the goal. #461.
+
+The delivery mechanism exists and is provider-blind: `Custode.Inbox.drop/3`
+writes a note and schedules a tick, and neither step knows what runs the
+recipient. The constraint that shapes the design is the charter's rule that a
+note is an event and never a command. A message from a sibling is evidence
+and a request; the recipient still proposes its own gated action, and the
+permission tree gains no sideways edge.
+
 ### Later: missions
 
 The operator's definition: this project should take on a specific large
@@ -178,6 +192,40 @@ idea and what it would stand on: the frozen kernel's Mission tables, the
 workflow runner, sub-agents, the mission mockups in `design/ui/`, and the
 reopen trigger on crews (#421), which a mission is. It depends on rung 3,
 because something has to stand up a mission's workers and answer for them.
+
+## Progress
+
+Kept current as rungs land. The tracking issue (#453) has the checklist.
+
+**2026-09-19.** Rung 0's code and all of rung 1 except #447 merged in one day,
+plus a first slice of rung 2.
+
+| Rung | Landed |
+|---|---|
+| 0 | #455 (`main` had been red since 2026-08-25), #456 (the freeze), #457 (lockfile, `mint` CVE), #462 (stale ticks are discarded, so the 704 queued jobs need no manual cleanup) |
+| 1 | #463 doctor signal and banner, #464 asks notify, #465 gate outcomes, #466 the dead "Re-run checks" op, #467 reject reasons, #468 failing sensors, #469 mechanical re-notify |
+| 2 | #470 the console's first slice at `/console`, #473 operator prompts reach a paused or offline agent |
+
+Three things learned that change later rungs:
+
+1. **The operator approves 98% of gates**: 351 approved, 7 rejected, nine
+   agents at 100% (#465 put the outcome on the gate row; the history was
+   recoverable from feed entries). Against a median wait of 5.9 minutes and a
+   worst of 13.5 hours, most gates are a formality that costs wall-clock time.
+   That is the evidence rung 3 asked for. Its limit: the rate is per agent,
+   not per gate class, because a gate's class is free prose. A class field is
+   the prerequisite for letting custode decide some classes and escalate
+   others.
+2. **The engine drops a prompt cast at a paused agent and errors for an
+   offline one.** The agent page hid its composer because of it, and `mix
+   custode prompt` reported success while the text was discarded.
+   `Custode.Operator.Actions.message/3` resumes a paused agent first and
+   starts an offline routine with the message as its turn, and says which it
+   did. No operator surface should call `cast_prompt/3` directly.
+3. **Decision 4 has a home.** `Custode.Operator.Actions` is the module a
+   surface's handlers call. Its `run/4` takes the op atoms from a signal's
+   `resolving` list, so a surface renders a signal's own buttons and hands
+   the click back. The console is built on it; the older pages are not yet.
 
 ## Deferred, with what is already known
 
