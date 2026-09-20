@@ -25,6 +25,7 @@ defmodule Custode.Attention.Fleet do
   alias Custode.Gates
   alias Custode.Routine
   alias Custode.RunClock
+  alias Custode.Sensor.Health
   alias Custode.Signal
   alias Custode.SpendLedger
   alias ObanClaude.Agent
@@ -45,6 +46,7 @@ defmodule Custode.Attention.Fleet do
       in_flight: Map.new(RunClock.running()),
       spend: SpendLedger.today_by_agent(),
       disowned: Disowned.by_repo(),
+      sensor_failures: sensor_failures(),
       routines: Map.new(routines, &{&1.id, &1})
     }
 
@@ -53,8 +55,16 @@ defmodule Custode.Attention.Fleet do
     # it: a routine removed from the roster mid-question would otherwise leave
     # a row nobody can see and nobody can answer, which is a leak rather than
     # a tidy-up. Something is owed, so something is shown.
+    #
+    # The owner of a failing sensor is included on the same reasoning (#444).
+    # A sensor's `notify` is not checked against the roster, and removing a
+    # routine leaves its sensors in place (`Config.WriteBack.remove_routine/1`),
+    # so a sensor can be failing for an agent that is in neither list.
     ids =
-      Enum.uniq(Enum.map(routines, & &1.id) ++ Map.keys(running) ++ Map.keys(sources.asks))
+      Enum.uniq(
+        Enum.map(routines, & &1.id) ++
+          Map.keys(running) ++ Map.keys(sources.asks) ++ Map.keys(sources.sensor_failures)
+      )
 
     for id <- ids, do: view(id, Map.get(running, id, :offline), sources)
   end
@@ -67,9 +77,7 @@ defmodule Custode.Attention.Fleet do
   """
   @spec signals() :: [Signal.t()]
   def signals do
-    context = %{now: DateTime.utc_now()}
-
-    per_agent = Enum.map(views(), &Attention.resolve(&1, context))
+    per_agent = Enum.map(views(), &Attention.resolve(&1, context()))
 
     # The host signal has no view to come from, so it joins here and every
     # reader of this list (chip, inbox, CLI, MCP) gets it unchanged (#443).
@@ -93,9 +101,15 @@ defmodule Custode.Attention.Fleet do
   """
   @spec signals_by_id() :: %{String.t() => Signal.t()}
   def signals_by_id do
-    context = %{now: DateTime.utc_now()}
+    context = context()
 
     Map.new(views(), fn view -> {view.id, Attention.resolve(view, context)} end)
+  end
+
+  # Everything the resolver must not read for itself: the clock, and the one
+  # piece of configuration a resolver decision depends on (#444).
+  defp context do
+    %{now: DateTime.utc_now(), sensor_failure_threshold: Health.threshold()}
   end
 
   defp view(id, status, sources) do
@@ -110,12 +124,34 @@ defmodule Custode.Attention.Fleet do
       # agent with three open questions is owed the first one first.
       ask: sources.asks |> Map.get(id, []) |> List.last() |> ask_view(),
       failing_prs: failing_prs(routine, sources.disowned),
+      sensor_failures: Map.get(sources.sensor_failures, id, []),
       default_branch: default_branch(routine),
       spend_today: Map.get(sources.spend, id, 0.0),
       budget: routine && routine.daily_budget_usd,
       running_since: Map.get(sources.in_flight, id),
       cron: routine && routine.cron
     }
+  end
+
+  # Failure streaks of the CONFIGURED sensors, grouped by the agent each one
+  # notifies (#444). The configured list is the join's left side on purpose: a
+  # sensor removed from config leaves its `health` memory behind, and a streak
+  # for a sensor that no longer runs can never be cleared by a success.
+  #
+  # Every streak is passed through, however short. Whether one is long enough
+  # to raise a signal is the resolver's decision, not the gatherer's.
+  defp sensor_failures do
+    health = Health.failing()
+
+    if health == %{} do
+      %{}
+    else
+      for sensor <- Routine.sensors(), streak = Map.get(health, sensor.id), reduce: %{} do
+        by_agent ->
+          fact = Map.put(streak, :id, sensor.id)
+          Map.update(by_agent, sensor.notify, [fact], &[fact | &1])
+      end
+    end
   end
 
   # The gen_statem knows it is gated; only the durable row knows since when,

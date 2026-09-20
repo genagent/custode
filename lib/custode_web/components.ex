@@ -97,9 +97,11 @@ defmodule CustodeWeb.Components do
   # "all".
   @feed_categories %{
     "attention" => ~w(needs_approval needs_input asked gate_aging ask_aging paused budget_paused
-         turn_failed doctor_failed),
+         turn_failed doctor_failed sensor_failed),
     "turns" => ~w(turn prompted),
-    "sensors" => ~w(sensor)
+    # A failed run is under both lenses (#444): it is a sensor line, and it is
+    # the one sensor line that is not noise.
+    "sensors" => ~w(sensor sensor_failed)
   }
 
   @doc "The feed filter categories, in display order (#211)."
@@ -150,6 +152,7 @@ defmodule CustodeWeb.Components do
   def feed_badge("workflow_complete"), do: "badge-success"
   def feed_badge("workflow_failed"), do: "badge-error"
   def feed_badge("doctor_failed"), do: "badge-error"
+  def feed_badge("sensor_failed"), do: "badge-error"
   def feed_badge(_event), do: "badge-ghost"
 
   attr(:entry, :map, required: true)
@@ -389,6 +392,7 @@ defmodule CustodeWeb.Components do
   def event_dot("answered"), do: "text-success"
   def event_dot("budget_paused"), do: "text-error"
   def event_dot("doctor_failed"), do: "text-error"
+  def event_dot("sensor_failed"), do: "text-error"
   def event_dot("repo_verb"), do: "text-success"
   def event_dot(_event), do: "text-base-content/30"
 

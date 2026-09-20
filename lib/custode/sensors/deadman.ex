@@ -8,6 +8,10 @@ defmodule Custode.Sensors.Deadman do
   SILENT SENSORS standing orders escalate to a human. Silence is the one
   failure nothing else detects.
 
+  A sensor whose fetch FAILED still ran, so its `sensor_failed` line counts as
+  a stamp (#444). Failing and silent are different faults with different
+  signals, and a sensor that errors every run must not also be reported dead.
+
   A sensor that has NEVER fed is skipped (fresh boots would false-alarm);
   the tripwire arms after first light. Seen-keys include the date, so a
   still-dead sensor re-notes daily rather than every poll.
@@ -62,7 +66,7 @@ defmodule Custode.Sensors.Deadman do
     Custode.Repo.one(
       from(f in Custode.Feed.Entry,
         where:
-          f.event == "sensor" and
+          f.event in ["sensor", "sensor_failed"] and
             fragment("json_extract(?, '$.sensor_id')", f.entry) == ^sensor_id,
         select: max(f.at)
       )

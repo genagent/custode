@@ -34,7 +34,7 @@ defmodule Custode.Signal do
       :host_down                                                -> :needs_you
       :red_main  :needs_answer  :approval  :rail_hit  :stalled  -> :needs_you
       :disowned_check                                           -> :needs_you
-      :red_check                                                -> :watching
+      :red_check  :sensor_failing                               -> :watching
       :working                                       -> :working
       :scheduled                                     -> :scheduled
       :quiet         :paused                         -> :quiet
@@ -46,6 +46,11 @@ defmodule Custode.Signal do
   belongs in the second: an agent that beats daily will look at it on its next
   beat, so counting it as a thing the operator owes is how a needs-you group
   stops being believed.
+
+  A failing sensor (#444) sits beside it for the same reason. The operator is
+  not blocked by a sensor whose fetch keeps erroring; what they are owed is
+  the knowledge that a detection channel is dark, which is what "the fleet
+  noticed" means.
 
   `:red_main` shows the split is about OWNERSHIP rather than severity. A red
   pull request blocks nobody but the agent, so the fleet keeps it. A red
@@ -67,6 +72,7 @@ defmodule Custode.Signal do
           | :approval
           | :disowned_check
           | :red_check
+          | :sensor_failing
           | :rail_hit
           | :stalled
           | :working

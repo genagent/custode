@@ -707,7 +707,9 @@ defmodule CustodeWeb.AgentLive do
   # finding, so this needs no new config surface -- which matters, because a
   # threshold that lives in a config file the agent cannot read is a fiction.
   def watch_body(assigns) do
-    assigns = assign(assigns, :sensor_feed, Enum.filter(assigns.feed, &(&1["event"] == "sensor")))
+    # a failed run is something the sensor reported too (#444)
+    sensor_feed = Enum.filter(assigns.feed, &(&1["event"] in ["sensor", "sensor_failed"]))
+    assigns = assign(assigns, :sensor_feed, sensor_feed)
 
     ~H"""
     <section class="mb-6">
@@ -725,7 +727,11 @@ defmodule CustodeWeb.AgentLive do
       <ul :if={@sensor_feed != []} class="divide-y divide-base-300/60 rounded-lg bg-base-100 shadow-sm">
         <li :for={entry <- @sensor_feed} class="flex flex-wrap items-baseline gap-2 p-3 text-sm">
           <span class="font-mono text-xs text-base-content/50"><.ago at={entry["at"]} /></span>
-          <span class="text-base-content/80">{entry["summary"] || entry["kind"]}</span>
+          <span class={
+            (entry["event"] == "sensor_failed" && "text-error") || "text-base-content/80"
+          }>
+            {entry["summary"] || entry["kind"]}
+          </span>
         </li>
       </ul>
     </section>
