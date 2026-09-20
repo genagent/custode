@@ -213,6 +213,53 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ ~r/note dropped.*a gate has waited.*sweep number 4/s
   end
 
+  # seen on the live fleet 2026-09-20: 19 of mcp-proxy's last 30 entries were
+  # the same "nothing new" sensor ping
+  test "the activity tab draws a run of identical sensor arrivals once",
+       %{conn: conn, sleeper: sleeper} do
+    ping = %{event: "sensor", agent: sleeper.id, sensor_id: "ci", summary: "ci: nothing new"}
+
+    Custode.Feed.record(ping)
+    Custode.Feed.record(%{event: "turn", agent: sleeper.id, summary: "swept the backlog"})
+    for _n <- 1..4, do: Custode.Feed.record(ping)
+
+    {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+    view |> element("button[phx-value-tab=activity]") |> render_click()
+    activity = view |> element("#activity") |> render()
+
+    # newest first: the run of four, the turn, then the lone ping before it
+    assert activity =~ ~r/×4 since.*swept the backlog.*ci: nothing new/su
+    assert length(Regex.scan(~r/ci: nothing new/, activity)) == 2
+    # a short feed has nothing further back
+    refute has_element?(view, "button[phx-click=feed_older]")
+  end
+
+  test "show older reads further back, and a new subject starts over",
+       %{conn: conn, asker: asker, sleeper: sleeper} do
+    # distinct summaries and events that never collapse
+    for n <- 1..151 do
+      Custode.Feed.record(%{event: "turn", agent: sleeper.id, summary: "sweep-#{n}-end"})
+    end
+
+    {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+    html = view |> element("button[phx-value-tab=activity]") |> render_click()
+
+    assert html =~ "sweep-151-end"
+    assert html =~ "sweep-2-end"
+    refute html =~ "sweep-1-end"
+
+    html = view |> element("button[phx-click=feed_older]") |> render_click()
+    assert html =~ "sweep-1-end"
+    # everything is on the page now, so there is nothing older to offer
+    refute has_element?(view, "button[phx-click=feed_older]")
+
+    # the longer read belongs to the subject it was asked for
+    view |> element(~s(a[href="/console/#{asker.id}"])) |> render_click()
+    view |> element(~s(a[href="/console/#{sleeper.id}"])) |> render_click()
+    html = render(view)
+    refute html =~ "sweep-1-end"
+  end
+
   test "a scheduled agent says when it next runs, in the rail and in the item pane",
        %{conn: conn, sleeper: sleeper} do
     {:ok, view, html} = live(conn, "/console/#{sleeper.id}")

@@ -177,6 +177,11 @@ defmodule CustodeWeb.Components do
             </.link>
             <span :if={@show_agent && !agent_linkable?(@entry["agent"])}>{@entry["agent"]}</span>
           </span>
+          <%!-- a collapsed run (`Custode.Feed.collapse_repeats/1`): this is the
+                newest of N identical arrivals --%>
+          <span :if={@entry["repeats"]} class="badge badge-ghost badge-sm font-mono">
+            &times;{@entry["repeats"]} since&nbsp;<.ago at={@entry["repeats_since"]} />
+          </span>
           <span :if={@entry["cost_usd"]} class="ml-auto font-mono text-xs">
             ${usd(@entry["cost_usd"])}<span :if={@entry["tokens"]} class="text-base-content/50"> &middot; {tok(@entry["tokens"])}</span>
           </span>
