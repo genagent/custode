@@ -906,29 +906,6 @@ defmodule CustodeWeb.AgentLive do
   defp upload_error_text(:not_accepted), do: "not an image"
   defp upload_error_text(error), do: to_string(error)
 
-  attr(:html, :string, required: true)
-
-  # THE security boundary for agent-authored panels (#100). The untrusted
-  # HTML is rendered ONLY here, inside an iframe with an EMPTY sandbox
-  # attribute: no scripts run (no allow-scripts), no same-origin, no forms,
-  # no navigation, no popups. Inline SVG and CSS render fully, which covers
-  # maps/charts/diagrams. HEEx attribute-escapes srcdoc, and the BEAM never
-  # executes the content. This component is the ONLY place agent HTML may
-  # appear -- never interpolate it into the page anywhere else, including
-  # previews (the pending preview reuses THIS component for exactly that
-  # reason).
-  defp sandboxed_panel(assigns) do
-    ~H"""
-    <iframe
-      sandbox=""
-      srcdoc={@html}
-      class="h-64 w-full rounded-lg border border-base-300 bg-base-100"
-      title="agent panel (sandboxed)"
-    >
-    </iframe>
-    """
-  end
-
   attr(:edit, :map, required: true)
   attr(:id, :string, required: true)
 

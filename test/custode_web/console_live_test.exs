@@ -306,6 +306,64 @@ defmodule CustodeWeb.ConsoleLiveTest do
     refute html =~ "pool flakes on macOS CI"
   end
 
+  # seeing many things at once is the point: a rail of bare names made every
+  # one of them a click
+  test "the rail says what is wrong for a subject that needs you, and stays quiet otherwise",
+       %{conn: conn, asker: asker, sleeper: sleeper} do
+    {:ok, _ask} = Asks.ask(asker.id, "which env?")
+
+    {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+    rail = view |> element("nav[aria-label=subjects]") |> render()
+
+    assert rail =~ "asked you a question"
+    # a scheduled agent pays no second line
+    refute rail =~ "next beat"
+  end
+
+  describe "the panel tab" do
+    test "an agent with no panel says so", %{conn: conn, sleeper: sleeper} do
+      {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+      html = view |> element("button[phx-value-tab=panel]") |> render_click()
+      assert html =~ "this agent keeps no panel"
+    end
+
+    # the same boundary the agent page holds (#100): there is ONE sandbox
+    # component, and the console must not grow a second way to draw agent HTML
+    test "proposed HTML is previewed in the sandbox, then approved from here",
+         %{conn: conn, sleeper: sleeper} do
+      {:ok, _} = Custode.Panels.set(sleeper.id, "<script>alert(1)</script><b>swarm map</b>")
+
+      {:ok, view, html} = live(conn, "/console/#{sleeper.id}")
+      # the tab carries a count while a panel waits on the operator
+      assert html =~ ~r/panel<span[^>]*>\s*1/
+
+      html = view |> element("button[phx-value-tab=panel]") |> render_click()
+      assert html =~ "proposed panel"
+      assert html =~ ~s(sandbox="")
+      assert html =~ "srcdoc="
+      refute html =~ "<script>alert(1)</script>"
+
+      html = view |> element("button[phx-click=approve_panel]") |> render_click()
+      refute html =~ "proposed panel"
+      assert Custode.Panels.current(sleeper.id) =~ "swarm map"
+    end
+
+    test "the markdown panel an agent curates for the operator is shown",
+         %{conn: conn, sleeper: sleeper} do
+      Custode.Memory.remember(
+        sleeper.id,
+        "panel",
+        "| repo | state |\n|---|---|\n| tower | green |"
+      )
+
+      {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+      html = view |> element("button[phx-value-tab=panel]") |> render_click()
+
+      assert html =~ "notes to you"
+      assert html =~ "<table>"
+    end
+  end
+
   test "the tabs switch the subject pane", %{conn: conn, sleeper: sleeper} do
     {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
 
