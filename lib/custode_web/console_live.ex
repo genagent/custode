@@ -28,6 +28,7 @@ defmodule CustodeWeb.ConsoleLive do
 
   alias Custode.Attention
   alias Custode.Operator.Actions
+  alias Custode.Operator.Attachments
   alias Custode.Operator.RoutineEdit
   alias Custode.Operator.RoutineNew
   alias Custode.Signal
@@ -49,7 +50,13 @@ defmodule CustodeWeb.ConsoleLive do
     if connected?(socket), do: Custode.PubSubBridge.subscribe()
 
     {:ok,
-     assign(socket,
+     socket
+     |> allow_upload(:image,
+       accept: Attachments.image_types(),
+       max_entries: 1,
+       max_file_size: Attachments.max_bytes()
+     )
+     |> assign(
        filter: "",
        tab: "attention",
        selected: nil,
@@ -81,7 +88,17 @@ defmodule CustodeWeb.ConsoleLive do
   def handle_event("tab", %{"tab" => tab}, socket) when tab in @tabs,
     do: {:noreply, assign(socket, tab: tab)}
 
+  # phx-change on the message form: uploads are validated as they are chosen
+  def handle_event("validate_message", _params, socket), do: {:noreply, socket}
+
+  def handle_event("drop_image", %{"ref" => ref}, socket),
+    do: {:noreply, cancel_upload(socket, :image, ref)}
+
   def handle_event("message", %{"text" => text}, socket) do
+    # An image alone is a message. The stored paths join the text before it is
+    # delivered, so every delivery path (queue, resume, start) carries them.
+    text = Attachments.compose(text, save_images(socket))
+
     case Actions.message(socket.assigns.selected, text, @opts) do
       {:ok, how} -> after_action(:ok, socket, sent_notice(how))
       {:error, reason} -> after_action({:error, reason}, socket, nil)
@@ -281,6 +298,15 @@ defmodule CustodeWeb.ConsoleLive do
     end
   end
 
+  # A subject with no routine has no workspace to put an image in.
+  defp save_images(%{assigns: %{subject: %{routine: %{} = routine}}} = socket) do
+    consume_uploaded_entries(socket, :image, fn %{path: path}, entry ->
+      {:ok, Attachments.store!(routine, path, entry.client_name)}
+    end)
+  end
+
+  defp save_images(_socket), do: []
+
   defp sent_notice(:delivered), do: "sent"
   defp sent_notice(:resumed), do: "resumed, then sent"
   defp sent_notice(:started), do: "started a turn with your message"
@@ -386,6 +412,7 @@ defmodule CustodeWeb.ConsoleLive do
             notice={@notice}
             message_gen={@message_gen}
             edit={@edit}
+            upload={@uploads.image}
           />
         </main>
 
@@ -553,6 +580,7 @@ defmodule CustodeWeb.ConsoleLive do
   attr(:notice, :string, default: nil)
   attr(:message_gen, :integer, required: true)
   attr(:edit, :any, default: nil)
+  attr(:upload, :map, required: true)
 
   defp subject(assigns) do
     ~H"""
@@ -582,17 +610,48 @@ defmodule CustodeWeb.ConsoleLive do
       :if={@subject.kind != :other}
       id={"message-#{@message_gen}"}
       phx-submit="message"
-      class="mt-4 flex gap-2"
+      phx-change="validate_message"
+      class="mt-4"
     >
-      <textarea
-        name="text"
-        rows="2"
-        class="textarea textarea-bordered w-full text-sm"
-        placeholder={"message #{@subject.id}... #{message_hint(@subject.state)}"}
-      ></textarea>
-      <button type="submit" class="btn btn-primary btn-sm self-end">
-        {message_label(@subject.state)}
-      </button>
+      <div :for={entry <- @upload.entries} class="mb-1 flex items-center gap-2 text-xs">
+        <span class="badge badge-ghost badge-sm font-mono">{entry.client_name}</span>
+        <button
+          type="button"
+          class="link text-base-content/50"
+          phx-click="drop_image"
+          phx-value-ref={entry.ref}
+        >
+          remove
+        </button>
+        <span :for={error <- upload_errors(@upload, entry)} class="text-error">
+          {upload_error_text(error)}
+        </span>
+      </div>
+      <p :for={error <- upload_errors(@upload)} class="mb-1 text-xs text-error">
+        {upload_error_text(error)}
+      </p>
+
+      <div class="flex gap-2" phx-drop-target={@subject.routine && @upload.ref}>
+        <textarea
+          name="text"
+          rows="2"
+          class="textarea textarea-bordered w-full text-sm"
+          placeholder={"message #{@subject.id}... #{message_hint(@subject.state)}"}
+        ></textarea>
+        <button type="submit" class="btn btn-primary btn-sm self-end">
+          {message_label(@subject.state)}
+        </button>
+      </div>
+
+      <%!-- An image reaches the agent as a path in its own workspace (#180),
+            so a subject with no routine has nowhere to put one. --%>
+      <label
+        :if={@subject.routine}
+        class="mt-1 flex items-center gap-2 text-xs text-base-content/40"
+      >
+        <.live_file_input upload={@upload} class="file-input file-input-xs w-52" />
+        or drop an image on the box
+      </label>
     </form>
     <p :if={@notice} class="mt-1 text-xs text-base-content/60">{@notice}</p>
 
@@ -1348,6 +1407,11 @@ defmodule CustodeWeb.ConsoleLive do
 
   # The label says what sending will DO, because for two states it does more
   # than send (see `Custode.Operator.Actions.message/3`).
+  defp upload_error_text(:too_large), do: "too large (10MB max)"
+  defp upload_error_text(:too_many_files), do: "one image at a time"
+  defp upload_error_text(:not_accepted), do: "not an image type custode accepts"
+  defp upload_error_text(other), do: to_string(other)
+
   defp message_label(:running), do: "queue"
   defp message_label(:waiting_for_user), do: "answer"
   defp message_label(:paused), do: "resume + send"

@@ -554,6 +554,51 @@ defmodule CustodeWeb.ConsoleLiveTest do
     end
   end
 
+  describe "an image on a message (#180)" do
+    # a 1x1 png, small enough to live inline
+    @png Base.decode64!(
+           "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+         )
+
+    test "a chosen image shows as a chip, can be removed, and rides the message as a path",
+         %{conn: conn, sleeper: sleeper} do
+      {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+
+      upload = fn name ->
+        view
+        |> file_input("form[phx-submit=message]", :image, [
+          %{name: name, content: @png, type: "image/png"}
+        ])
+        |> render_upload(name)
+      end
+
+      upload.("mistake.png")
+      assert render(view) =~ "mistake.png"
+      view |> element("button[phx-click=drop_image]") |> render_click()
+      refute render(view) =~ "mistake.png"
+
+      upload.("screenshot.png")
+      view |> form("form[phx-submit=message]", %{"text" => "what is this"}) |> render_submit()
+
+      # the sleeper is offline, so the message starts a turn: the path has to
+      # ride that delivery too, not only a cast to a running agent
+      import Ecto.Query, only: [from: 2]
+
+      [tick] =
+        Custode.Repo.all(
+          from(j in Oban.Job,
+            where: j.worker == "ObanClaude.Agent.Tick",
+            where: fragment("json_extract(?, '$.agent_id')", j.args) == ^sleeper.id
+          )
+        )
+
+      assert tick.args["prompt"] =~ "what is this"
+      [_, path] = Regex.run(~r/attached image: (\S+)/, tick.args["prompt"])
+      assert Path.dirname(path) == Path.join(Path.expand(sleeper.workspace), "uploads")
+      assert File.read!(path) == @png
+    end
+  end
+
   test "the tabs switch the subject pane", %{conn: conn, sleeper: sleeper} do
     {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
 
