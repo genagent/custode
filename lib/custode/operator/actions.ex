@@ -174,6 +174,51 @@ defmodule Custode.Operator.Actions do
   end
 
   @doc """
+  Take a pull request out of the fleet's hands (#308): it is a human's work,
+  and agents should stop treating its red checks as theirs. `agent_id` is the
+  agent on whose behalf the operator is saying so.
+  """
+  @spec disown(String.t(), String.t(), integer() | String.t(), String.t() | nil, keyword()) ::
+          result()
+  def disown(agent_id, repo, number, reason, _opts \\ []) do
+    with {:ok, number} <- pr_number(number),
+         {:ok, _row} <- Custode.Disowned.disown(agent_id, repo, number, blank_to_nil(reason)) do
+      :ok
+    end
+  end
+
+  @doc "Undo a disownment: the pull request is the fleet's work again."
+  @spec reclaim(String.t(), integer() | String.t(), keyword()) :: result()
+  def reclaim(repo, number, _opts \\ []) do
+    with {:ok, number} <- pr_number(number), do: Custode.Disowned.reclaim(repo, number)
+  end
+
+  defp pr_number(number) when is_integer(number) and number > 0, do: {:ok, number}
+
+  defp pr_number(number) when is_binary(number) do
+    case Integer.parse(String.trim_leading(String.trim(number), "#")) do
+      {parsed, ""} when parsed > 0 -> {:ok, parsed}
+      _other -> {:error, :not_a_pr_number}
+    end
+  end
+
+  defp pr_number(_other), do: {:error, :not_a_pr_number}
+
+  defp blank_to_nil(text) do
+    case String.trim(to_string(text)) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  @doc """
+  Drain for a restart (#132): pause the queues, let executing turns finish,
+  stop the node. Returns at once with how many turns it is waiting on.
+  """
+  @spec drain(keyword()) :: {:ok, non_neg_integer()}
+  def drain(opts \\ []), do: {:ok, Custode.start_drain(opts[:timeout_ms])}
+
+  @doc """
   Approve the HTML panel an agent proposed for its own page (#100). The
   operator is the authority: nothing an agent authored renders until this.
   """

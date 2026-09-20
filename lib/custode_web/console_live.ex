@@ -28,7 +28,10 @@ defmodule CustodeWeb.ConsoleLive do
 
   alias Custode.Attention
   alias Custode.Operator.Actions
+  alias Custode.Operator.RoutineEdit
+  alias Custode.Operator.RoutineNew
   alias Custode.Signal
+  alias CustodeWeb.WorkflowLaunch
 
   @tabs ~w(attention activity work notebook panel turns config)
   @opts [via: :liveview]
@@ -53,13 +56,15 @@ defmodule CustodeWeb.ConsoleLive do
        message_gen: 0,
        tell_gen: 0,
        notice: nil,
-       fleet_notice: nil
+       fleet_notice: nil,
+       edit: nil,
+       new_agent: nil
      )}
   end
 
   @impl Phoenix.LiveView
   def handle_params(params, _uri, socket) do
-    {:noreply, socket |> assign(selected: params["id"], notice: nil) |> refresh()}
+    {:noreply, socket |> assign(selected: params["id"], notice: nil, edit: nil) |> refresh()}
   end
 
   @impl Phoenix.LiveView
@@ -113,6 +118,36 @@ defmodule CustodeWeb.ConsoleLive do
     {:noreply, refresh(socket)}
   end
 
+  # The shared handler, unchanged (design/005): a launch from here opens the
+  # same gate as one from /repos, and the gate says where the click came from.
+  def handle_event("propose_workflow", params, socket) do
+    why = "launched by hand from the console, on #{socket.assigns.selected}"
+    {:noreply, socket |> WorkflowLaunch.propose(params, why) |> refresh()}
+  end
+
+  def handle_event("disown", %{"number" => number} = params, socket) do
+    %{id: agent_id, repo: repo} = socket.assigns.subject
+
+    agent_id
+    |> Actions.disown(repo, number, params["reason"], @opts)
+    |> after_action(socket, "disowned ##{String.trim_leading(number, "#")}")
+  end
+
+  def handle_event("reclaim", %{"number" => number}, socket) do
+    socket.assigns.subject.repo
+    |> Actions.reclaim(number, @opts)
+    |> after_action(socket, "reclaimed ##{number}")
+  end
+
+  def handle_event("drain", _params, socket) do
+    {:ok, executing} = Actions.drain(@opts)
+
+    notice =
+      "draining: queues paused, #{executing} turn(s) executing. The node stops when they finish."
+
+    {:noreply, socket |> assign(fleet_notice: notice) |> refresh()}
+  end
+
   def handle_event("approve_panel", _params, socket),
     do: socket.assigns.selected |> Actions.approve_panel(@opts) |> after_action(socket, nil)
 
@@ -121,6 +156,87 @@ defmodule CustodeWeb.ConsoleLive do
 
   def handle_event("revert_panel", _params, socket),
     do: socket.assigns.selected |> Actions.revert_panel(@opts) |> after_action(socket, nil)
+
+  # Adding a routine (#450). The form's conversions and the TOML preview are
+  # RoutineNew's; what is previewed is the literal text a create appends.
+  def handle_event("new_open", _params, socket),
+    do: {:noreply, assign(socket, new_agent: %{params: %{}, preview: nil, error: nil})}
+
+  def handle_event("new_close", _params, socket), do: {:noreply, assign(socket, new_agent: nil)}
+
+  def handle_event("new_change", %{"routine" => params}, socket) do
+    new_agent =
+      case RoutineNew.preview(params) do
+        {:ok, toml} -> %{params: params, preview: toml, error: nil}
+        {:error, message} -> %{params: params, preview: nil, error: message}
+      end
+
+    {:noreply, assign(socket, new_agent: new_agent)}
+  end
+
+  def handle_event("new_create", %{"routine" => params}, socket) do
+    case RoutineNew.create(params, surface: "console") do
+      {:ok, id} ->
+        {:noreply,
+         socket
+         |> assign(
+           new_agent: nil,
+           fleet_notice: "#{id} added: live now, scheduled at its next cron minute"
+         )
+         |> push_patch(to: subject_path(id))}
+
+      {:error, reason} ->
+        error = "refused: " <> if(is_binary(reason), do: reason, else: inspect(reason))
+        {:noreply, update(socket, :new_agent, &%{&1 | params: params, error: error})}
+    end
+  end
+
+  # Editing a routine (#450). The form's rules (blank clears an override, the
+  # first value that does not parse refuses the save) are RoutineEdit's.
+  def handle_event("edit_open", _params, socket) do
+    case RoutineEdit.load(socket.assigns.selected) do
+      {:ok, strings} ->
+        {:noreply, assign(socket, edit: %{original: strings, params: strings, error: nil})}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, notice: "cannot edit: #{inspect(reason)}")}
+    end
+  end
+
+  def handle_event("edit_close", _params, socket), do: {:noreply, assign(socket, edit: nil)}
+
+  def handle_event("edit_change", %{"routine" => params}, socket),
+    do: {:noreply, update(socket, :edit, &%{&1 | params: params})}
+
+  def handle_event("edit_save", %{"routine" => params}, socket) do
+    case RoutineEdit.save(socket.assigns.selected, socket.assigns.edit.original, params) do
+      {:ok, :unchanged} ->
+        {:noreply, socket |> assign(edit: nil, notice: "no changes") |> refresh()}
+
+      {:ok, :saved} ->
+        {:noreply,
+         socket |> assign(edit: nil, notice: "saved: live at the next minute") |> refresh()}
+
+      {:error, reason} ->
+        error = "refused: " <> if(is_binary(reason), do: reason, else: inspect(reason))
+        {:noreply, update(socket, :edit, &%{&1 | params: params, error: error})}
+    end
+  end
+
+  def handle_event("edit_remove", _params, socket) do
+    id = socket.assigns.selected
+
+    case RoutineEdit.remove(id, surface: "console") do
+      :ok ->
+        {:noreply,
+         socket
+         |> assign(edit: nil, fleet_notice: "#{id} removed: its notebook and workspace are kept")
+         |> push_patch(to: "/console")}
+
+      {:error, reason} ->
+        {:noreply, update(socket, :edit, &%{&1 | error: "remove refused: #{inspect(reason)}"})}
+    end
+  end
 
   def handle_event("drop_draft", %{"id" => id}, socket),
     do: id |> Actions.drop_draft(@opts) |> after_action(socket, nil)
@@ -234,6 +350,14 @@ defmodule CustodeWeb.ConsoleLive do
               </button>
             </li>
             <li><button phx-click="resume_all">resume all</button></li>
+            <li>
+              <button
+                phx-click="drain"
+                data-confirm="Drain for a restart? Queues pause, executing turns finish, then the node STOPS and this page goes away."
+              >
+                drain for restart
+              </button>
+            </li>
           </ul>
         </details>
         <span class="whitespace-nowrap font-mono text-sm text-base-content/60">
@@ -250,16 +374,18 @@ defmodule CustodeWeb.ConsoleLive do
         <.rail groups={@groups} selected={@selected} filter={@filter} in_flight={@in_flight} />
 
         <main class="min-w-0 border-base-300 p-6 md:border-l">
-          <p :if={@subject == nil} class="text-base-content/50">
+          <.new_agent_form :if={@new_agent} new_agent={@new_agent} />
+          <p :if={@subject == nil and @new_agent == nil} class="text-base-content/50">
             Pick a subject from the rail.
           </p>
           <.subject
-            :if={@subject}
+            :if={@subject && @new_agent == nil}
             subject={@subject}
             signal={@signal}
             tab={@tab}
             notice={@notice}
             message_gen={@message_gen}
+            edit={@edit}
           />
         </main>
 
@@ -295,6 +421,7 @@ defmodule CustodeWeb.ConsoleLive do
       </form>
 
       <p :if={@groups == []} class="text-sm text-base-content/50">nothing matches</p>
+      <button class="btn btn-outline btn-xs mb-4 w-full" phx-click="new_open">new agent</button>
 
       <section :for={{group, signals} <- @groups} class="mb-5">
         <h2 class={["mb-1 text-xs font-bold uppercase tracking-widest", group_tone(group)]}>
@@ -335,6 +462,89 @@ defmodule CustodeWeb.ConsoleLive do
     """
   end
 
+  # -- adding an agent --------------------------------------------------------
+
+  attr(:new_agent, :map, required: true)
+
+  defp new_agent_form(assigns) do
+    ~H"""
+    <h1 class="text-2xl font-bold">new agent</h1>
+    <p class="mt-1 text-sm text-base-content/60">
+      A profile supplies the role, model, rails and prompt. Leave it empty for a bespoke agent
+      and give it a prompt. Anything left blank is inherited, and everything is editable later.
+    </p>
+
+    <form id="new-routine" phx-change="new_change" phx-submit="new_create" class="mt-4">
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <label class="form-control">
+          <span class="mb-1 font-mono text-xs text-base-content/60">id</span>
+          <input
+            type="text"
+            name="routine[id]"
+            value={@new_agent.params["id"]}
+            required
+            autocomplete="off"
+            placeholder="my-repo"
+            class="input input-bordered input-sm w-full font-mono"
+          />
+        </label>
+        <label class="form-control">
+          <span class="mb-1 font-mono text-xs text-base-content/60">profile</span>
+          <select name="routine[profile]" class="select select-bordered select-sm w-full">
+            <option value="">(none: bespoke)</option>
+            <option
+              :for={profile <- RoutineNew.profiles()}
+              value={profile}
+              selected={to_string(profile) == @new_agent.params["profile"]}
+            >
+              {profile}
+            </option>
+          </select>
+        </label>
+        <label :for={field <- ~w(repo working_dir tags cron)} class="form-control">
+          <span class="mb-1 font-mono text-xs text-base-content/60">{field}</span>
+          <input
+            type="text"
+            name={"routine[#{field}]"}
+            value={@new_agent.params[field]}
+            autocomplete="off"
+            placeholder={new_placeholder(field)}
+            class="input input-bordered input-sm w-full font-mono"
+          />
+        </label>
+        <label class="form-control md:col-span-2">
+          <span class="mb-1 font-mono text-xs text-base-content/60">prompt</span>
+          <textarea
+            name="routine[prompt]"
+            rows="3"
+            class="textarea textarea-bordered w-full text-sm"
+            placeholder="only for a bespoke agent: what it does each sweep"
+          >{@new_agent.params["prompt"]}</textarea>
+        </label>
+      </div>
+
+      <p :if={@new_agent.error} class="mt-3 text-xs text-error">{@new_agent.error}</p>
+
+      <div :if={@new_agent.preview} class="mt-4">
+        <p class="mb-1 text-xs font-bold uppercase tracking-widest text-base-content/50">
+          appended to the roster
+        </p>
+        <pre class="overflow-x-auto rounded bg-base-100 p-3 text-xs">{@new_agent.preview}</pre>
+      </div>
+
+      <div class="mt-4 flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm">create</button>
+        <button type="button" class="btn btn-ghost btn-sm" phx-click="new_close">cancel</button>
+      </div>
+    </form>
+    """
+  end
+
+  defp new_placeholder("repo"), do: "owner/name"
+  defp new_placeholder("working_dir"), do: "/path/to/the/checkout"
+  defp new_placeholder("tags"), do: "repo, rust"
+  defp new_placeholder("cron"), do: "*/30 9-18 * * *"
+
   # -- the subject pane -------------------------------------------------------
 
   attr(:subject, :map, required: true)
@@ -342,6 +552,7 @@ defmodule CustodeWeb.ConsoleLive do
   attr(:tab, :string, required: true)
   attr(:notice, :string, default: nil)
   attr(:message_gen, :integer, required: true)
+  attr(:edit, :any, default: nil)
 
   defp subject(assigns) do
     ~H"""
@@ -402,11 +613,11 @@ defmodule CustodeWeb.ConsoleLive do
     <div class="mt-4">
       <.attention_tab :if={@tab == "attention"} subject={@subject} signal={@signal} />
       <.activity_tab :if={@tab == "activity"} subject={@subject} />
-      <.work_tab :if={@tab == "work"} subject={@subject} />
+      <.work_tab :if={@tab == "work"} subject={@subject} message_gen={@message_gen} />
       <.notebook_tab :if={@tab == "notebook"} subject={@subject} />
       <.panel_tab :if={@tab == "panel"} subject={@subject} />
       <.turns_tab :if={@tab == "turns"} subject={@subject} />
-      <.config_tab :if={@tab == "config"} subject={@subject} />
+      <.config_tab :if={@tab == "config"} subject={@subject} edit={@edit} />
     </div>
     """
   end
@@ -468,6 +679,7 @@ defmodule CustodeWeb.ConsoleLive do
   end
 
   attr(:subject, :map, required: true)
+  attr(:message_gen, :integer, required: true)
 
   defp work_tab(assigns) do
     ~H"""
@@ -483,7 +695,58 @@ defmodule CustodeWeb.ConsoleLive do
       >
         {@subject.repo}
       </a>
+      <WorkflowLaunch.launch_button
+        repo={@subject.repo}
+        standing={@subject.workflow_gates}
+        class="ml-2 inline-block"
+      />
       <div class="mt-3"><.repo_overview_panel overview={@subject.overview} /></div>
+
+      <%!-- Take a PR out of the fleet's hands, or give it back (#308). CLI
+            only until the console: `mix custode disown`. --%>
+      <h3 class="mb-2 mt-6 text-xs font-bold uppercase tracking-widest text-base-content/50">
+        not the fleet's work <span class="font-normal">{length(@subject.disowned)}</span>
+      </h3>
+      <ul class="mb-3 space-y-1 text-sm">
+        <li :for={row <- @subject.disowned} class="flex items-baseline gap-2">
+          <a
+            href={"https://github.com/#{@subject.repo}/pull/#{row.number}"}
+            target="_blank"
+            rel="noopener"
+            class="link font-mono"
+          >
+            #{row.number}
+          </a>
+          <span class="min-w-0 flex-1 text-base-content/70">
+            {row.reason || "no reason given"}
+            <span class="text-xs text-base-content/40">({row.agent_id})</span>
+          </span>
+          <button class="btn btn-ghost btn-xs" phx-click="reclaim" phx-value-number={row.number}>
+            reclaim
+          </button>
+        </li>
+      </ul>
+      <form
+        id={"disown-#{@message_gen}"}
+        phx-submit="disown"
+        class="flex flex-wrap items-center gap-2"
+      >
+        <input
+          type="text"
+          name="number"
+          required
+          inputmode="numeric"
+          placeholder="PR #"
+          class="input input-bordered input-sm w-24 font-mono"
+        />
+        <input
+          type="text"
+          name="reason"
+          placeholder="why it is yours (the agents read this)"
+          class="input input-bordered input-sm min-w-0 flex-1"
+        />
+        <button type="submit" class="btn btn-outline btn-sm">disown</button>
+      </form>
     </div>
     """
   end
@@ -616,6 +879,7 @@ defmodule CustodeWeb.ConsoleLive do
   end
 
   attr(:subject, :map, required: true)
+  attr(:edit, :any, default: nil)
 
   defp config_tab(assigns) do
     ~H"""
@@ -680,10 +944,61 @@ defmodule CustodeWeb.ConsoleLive do
         <pre class="mt-2 max-h-96 overflow-y-auto whitespace-pre-wrap rounded bg-base-100 p-3 text-xs">{@subject.routine.system_prompt}</pre>
       </details>
 
-      <p class="text-xs text-base-content/50">
-        Editing still lives on
-        <.link navigate={"/agents/#{@subject.id}"} class="link">the agent page</.link>.
-      </p>
+      <button :if={@edit == nil} class="btn btn-outline btn-sm" phx-click="edit_open">
+        edit
+      </button>
+
+      <form
+        :if={@edit}
+        id="edit-routine"
+        phx-change="edit_change"
+        phx-submit="edit_save"
+        class="rounded-xl border border-base-300 bg-base-100 p-4"
+      >
+        <p :if={RoutineEdit.migrates?()} class="mb-3 rounded bg-warning/20 p-2 text-xs">
+          Saving migrates your roster to <span class="font-mono">routines.toml</span>: from then
+          on the file is the roster, and the one in application config is ignored.
+        </p>
+        <p class="mb-3 text-xs text-base-content/60">
+          A blank field clears the override, so the routine inherits its profile or the default
+          again. Saved edits are live at the next minute, with no restart.
+        </p>
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <label
+            :for={field <- RoutineEdit.fields()}
+            class={["form-control", field == "prompt" && "md:col-span-2"]}
+          >
+            <span class="mb-1 font-mono text-xs text-base-content/60">{field}</span>
+            <textarea
+              :if={field == "prompt"}
+              name={"routine[#{field}]"}
+              rows="4"
+              class="textarea textarea-bordered w-full text-sm"
+            >{@edit.params[field]}</textarea>
+            <input
+              :if={field != "prompt"}
+              type="text"
+              name={"routine[#{field}]"}
+              value={@edit.params[field]}
+              autocomplete="off"
+              class="input input-bordered input-sm w-full font-mono"
+            />
+          </label>
+        </div>
+        <p :if={@edit.error} class="mt-3 text-xs text-error">{@edit.error}</p>
+        <div class="mt-4 flex items-center gap-2">
+          <button type="submit" class="btn btn-primary btn-sm">save</button>
+          <button type="button" class="btn btn-ghost btn-sm" phx-click="edit_close">cancel</button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm ml-auto text-error"
+            phx-click="edit_remove"
+            data-confirm={"Remove #{@subject.id} from the roster? Its notebook and workspace are kept."}
+          >
+            remove from the roster
+          </button>
+        </div>
+      </form>
     </div>
     """
   end
@@ -918,6 +1233,8 @@ defmodule CustodeWeb.ConsoleLive do
       state: Custode.state_of(status),
       repo: repo,
       overview: repo && overview(repo),
+      workflow_gates: (repo && WorkflowLaunch.standing_for(repo)) || %{},
+      disowned: disowned(repo),
       spend_today: Custode.SpendLedger.today(id),
       feed: Custode.Feed.for_agent(id, 30),
       todos: Custode.Notebook.todos(id),
@@ -933,6 +1250,9 @@ defmodule CustodeWeb.ConsoleLive do
       policies: (routine && Custode.Policy.ids_for(routine)) || []
     }
   end
+
+  defp disowned(nil), do: []
+  defp disowned(repo), do: Enum.filter(Custode.Disowned.all(), &(&1.repo == repo))
 
   defp panel_markdown(id) do
     case Custode.Memory.recall(id, "panel") do

@@ -46,27 +46,7 @@ defmodule Custode.MCP.Tools.Drain do
     end
   end
 
-  # Pause synchronously (the race-closing half must not wait on a task being
-  # scheduled), then hand the blocking wait+stop to a task. drain/1 skips its
-  # own pause step via :queues [] and re-pauses idempotently otherwise -- but
-  # simplest is letting drain/1 do everything except we need the executing
-  # count for the reply; read it after drain/1's pause by racing? No: pause
-  # first here, count, then run drain/1 whose re-pause of paused queues is a
-  # no-op.
-  defp start_drain(timeout_ms) do
-    for queue <- [:ticks, :agents, :sensors], do: Oban.pause_queue(queue: queue)
-
-    executing = length(Custode.executing_turns())
-
-    opts = if timeout_ms, do: [timeout: timeout_ms], else: []
-
-    # seam: tests must never let the background task reach System.stop/0 on
-    # their own VM; production uses Custode.drain/1 unchanged
-    drain_fun = Application.get_env(:custode, :drain_fun, &Custode.drain/1)
-
-    {:ok, _pid} =
-      Task.Supervisor.start_child(Custode.TaskSupervisor, fn -> drain_fun.(opts) end)
-
-    executing
-  end
+  # The pause-then-hand-off lives on the facade so the console drains the
+  # same way (#450).
+  defp start_drain(timeout_ms), do: Custode.start_drain(timeout_ms)
 end
