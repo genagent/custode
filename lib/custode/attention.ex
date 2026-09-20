@@ -512,6 +512,9 @@ defmodule Custode.Attention do
       failing ->
         signal(view, :red_check, :normal,
           headline: "#{numbers(failing)} red on its open PRs",
+          # the same shape the disowned signal carries, so a surface can show
+          # which check is red on each one
+          item: {:prs, Enum.map(failing, & &1.number)},
           # The overview cache cannot date a check result, so this signal has
           # no raised_at and ranks after any dated signal. Better than
           # inventing a timestamp that would then sort against real ones.

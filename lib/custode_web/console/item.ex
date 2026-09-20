@@ -18,6 +18,7 @@ defmodule CustodeWeb.Console.Item do
   attr(:subject, :map, required: true)
   attr(:message_gen, :integer, required: true)
   attr(:next_up, :any, default: nil)
+  attr(:checks, :map, default: %{})
 
   def item(assigns) do
     assigns =
@@ -32,7 +33,7 @@ defmodule CustodeWeb.Console.Item do
       {@signal.detail}
     </p>
 
-    <.evidence item={@signal.item} repo={@subject.repo} />
+    <.evidence item={@signal.item} repo={@subject.repo} checks={@checks} />
     <.draft_batch :if={@subject.draft_batch} drafts={@subject.draft_batch} />
 
     <h3
@@ -62,6 +63,9 @@ defmodule CustodeWeb.Console.Item do
 
   attr(:item, :any, required: true)
   attr(:repo, :string, default: nil)
+  # `{repo, number} => {:ok, [check]} | {:error, reason}`, filled in by the
+  # LiveView as GitHub answers; a missing key is a read still in flight
+  attr(:checks, :map, default: %{})
 
   # What the signal points at, as something to click. On the live fleet
   # "main is red" arrived with no way to see what was red.
@@ -81,9 +85,8 @@ defmodule CustodeWeb.Console.Item do
     assigns = assign(assigns, numbers: numbers)
 
     ~H"""
-    <p class="mt-3 flex flex-wrap gap-x-3 text-sm">
+    <div :for={number <- @numbers} class="mt-3 text-sm">
       <a
-        :for={number <- @numbers}
         href={"https://github.com/#{@repo}/pull/#{number}"}
         target="_blank"
         rel="noopener"
@@ -91,7 +94,8 @@ defmodule CustodeWeb.Console.Item do
       >
         #{number}
       </a>
-    </p>
+      <.checks result={Map.get(@checks, {@repo, number})} />
+    </div>
     """
   end
 
@@ -117,6 +121,50 @@ defmodule CustodeWeb.Console.Item do
   end
 
   def evidence(assigns), do: ~H""
+
+  attr(:result, :any, required: true)
+
+  # Which check is red, not only that one is. Failed first, as returned by
+  # `CustodeWeb.ConsoleLive`; each row links to its run, which is where the
+  # log is.
+  defp checks(%{result: {:ok, rows}} = assigns) do
+    assigns = assign(assigns, rows: rows)
+
+    ~H"""
+    <ul class="mt-1 divide-y divide-base-200 rounded-lg border border-base-300">
+      <li :if={@rows == []} class="px-3 py-1.5 text-xs text-base-content/50">no check runs</li>
+      <li :for={row <- @rows} class="flex items-center gap-2 px-3 py-1.5 font-mono text-xs">
+        <span class={["inline-block size-2 shrink-0 rounded-full", check_tone(row)]}></span>
+        <a :if={row[:url]} href={row.url} target="_blank" rel="noopener" class="link-hover truncate">
+          {row.name}
+        </a>
+        <span :if={!row[:url]} class="truncate">{row.name}</span>
+        <span class="ml-auto shrink-0 text-base-content/50">{row.conclusion || row.status}</span>
+      </li>
+    </ul>
+    """
+  end
+
+  defp checks(%{result: {:error, reason}} = assigns) do
+    assigns = assign(assigns, reason: reason)
+
+    ~H"""
+    <p class="mt-1 text-xs text-warning">checks unavailable: {@reason}</p>
+    """
+  end
+
+  defp checks(assigns) do
+    ~H"""
+    <p class="mt-1 text-xs text-base-content/40">reading checks...</p>
+    """
+  end
+
+  defp check_tone(%{conclusion: conclusion}) when conclusion in ~w(failure timed_out cancelled),
+    do: "bg-error"
+
+  defp check_tone(%{conclusion: "success"}), do: "bg-success"
+  defp check_tone(%{conclusion: nil}), do: "bg-warning"
+  defp check_tone(_row), do: "bg-base-content/20"
 
   defp runs_url(repo, branch),
     do:

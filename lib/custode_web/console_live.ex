@@ -69,7 +69,8 @@ defmodule CustodeWeb.ConsoleLive do
        fleet_notice: nil,
        edit: nil,
        new_agent: nil,
-       feed_limit: @feed_page
+       feed_limit: @feed_page,
+       checks: %{}
      )}
   end
 
@@ -77,9 +78,56 @@ defmodule CustodeWeb.ConsoleLive do
   def handle_params(params, _uri, socket) do
     {:noreply,
      socket
-     |> assign(selected: params["id"], notice: nil, edit: nil, feed_limit: @feed_page)
-     |> refresh()}
+     |> assign(
+       selected: params["id"],
+       notice: nil,
+       edit: nil,
+       feed_limit: @feed_page,
+       checks: %{}
+     )
+     |> refresh()
+     |> read_checks()}
   end
+
+  # The checks on the pull requests the selected signal points at (#450), read
+  # off the page's critical path: the page renders, and each PR's rows arrive
+  # when GitHub answers. Only on selection, never on refresh, so a busy feed
+  # does not turn into a stream of GitHub reads.
+  defp read_checks(
+         %{assigns: %{signal: %Signal{item: {:prs, numbers}}, subject: %{repo: repo}}} = socket
+       )
+       when is_binary(repo) do
+    Enum.reduce(numbers, socket, fn number, socket ->
+      start_async(socket, {:checks, repo, number}, fn ->
+        Custode.Repository.pr_checks(repo, number)
+      end)
+    end)
+  end
+
+  defp read_checks(socket), do: socket
+
+  @impl Phoenix.LiveView
+  def handle_async({:checks, repo, number}, {:ok, result}, socket) do
+    rows =
+      case result do
+        {:ok, %{checks: checks}} -> {:ok, Enum.sort_by(checks, &check_rank/1)}
+        {:error, reason} -> {:error, to_string(reason)}
+      end
+
+    {:noreply, update(socket, :checks, &Map.put(&1, {repo, number}, rows))}
+  end
+
+  def handle_async({:checks, repo, number}, {:exit, reason}, socket),
+    do:
+      {:noreply, update(socket, :checks, &Map.put(&1, {repo, number}, {:error, inspect(reason)}))}
+
+  # failed first, then still running, then the rest, each by name
+  defp check_rank(%{conclusion: conclusion, name: name})
+       when conclusion in ~w(failure timed_out cancelled),
+       do: {0, name}
+
+  defp check_rank(%{conclusion: nil, name: name}), do: {1, name}
+  defp check_rank(%{name: name}), do: {2, name}
 
   @impl Phoenix.LiveView
   def handle_info({:status_changed, _agent_id}, socket), do: {:noreply, refresh(socket)}
@@ -380,6 +428,7 @@ defmodule CustodeWeb.ConsoleLive do
             subject={@subject}
             message_gen={@message_gen}
             next_up={@next_up}
+            checks={@checks}
           />
         </aside>
       </div>
