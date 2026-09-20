@@ -26,11 +26,10 @@ defmodule Custode.MCP.AskTools.AskOperator do
 
   import Custode.MCP.Tools
 
+  @question "the question, in one or two sentences the operator can answer without context"
+
   schema do
-    field(:question, :string,
-      required: true,
-      description: "the question, in one or two sentences the operator can answer without context"
-    )
+    field(:question, :string, description: @question)
 
     field(:detail, :string,
       description: "what you were doing when it came up, for the operator's context"
@@ -39,15 +38,19 @@ defmodule Custode.MCP.AskTools.AskOperator do
     field(:agent_id, :string,
       description: "whose question (defaults to the caller; a routine may only file its own)"
     )
+
+    field(:routine_id, :string, description: alias_for("agent_id"))
   end
 
+  # `question` is enforced here and not by the schema (#483): a schema miss is
+  # a protocol error the calling model never reads, and `params.question` on a
+  # direct call without it raised KeyError.
   @impl true
   def execute(params, frame) do
-    caller = Custode.MCP.caller(frame)
-    agent_id = params[:agent_id] || caller.id
-
-    with :ok <- check_self(frame, agent_id),
-         {:ok, ask} <- Custode.Asks.ask(agent_id, params.question, detail: params[:detail]) do
+    with {:ok, agent_id} <- fetch_self(params, frame),
+         :ok <- check_self(frame, agent_id),
+         {:ok, question} <- need(params, :question, @question),
+         {:ok, ask} <- Custode.Asks.ask(agent_id, question, detail: params[:detail]) do
       reply(frame, %{
         ask_id: ask.id,
         status: ask.status,

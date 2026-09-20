@@ -5,9 +5,11 @@ defmodule Custode.MCP.NotebookTools do
   file edits -- so a routine agent needs NO filesystem write permission for
   its bookkeeping.
 
-  Identity caveat: tool calls carry no caller identity, so `routine_id` is a
-  trusted parameter. Fine on a localhost demo; per-agent credentials are the
-  fix before any of this leaves the machine.
+  Identity: the bearer token says who is calling, so `routine_id` is optional
+  on every self-scoped tool here and `agent_id` is accepted as its alias
+  (#483, see `Custode.MCP.Tools.self_id/2`). A content field is enforced in
+  `execute/2` rather than by the schema, so leaving one out comes back as a
+  tool error the calling model can read (`Custode.MCP.Tools.need/3`).
   """
 
   @doc false
@@ -25,26 +27,29 @@ defmodule Custode.MCP.NotebookTools.JournalAppend do
 
   import Custode.MCP.Tools
 
+  @body "the entry text (markdown ok)"
+
   schema do
-    field(:routine_id, :string, required: true)
-    field(:body, :string, required: true, description: "the entry text (markdown ok)")
+    field(:routine_id, :string, description: "whose journal (defaults to the caller)")
+    field(:agent_id, :string, description: alias_for("routine_id"))
+    field(:body, :string, description: @body)
     field(:title, :string, description: "optional short title")
   end
 
   @impl true
-  def execute(%{routine_id: routine_id, body: body} = params, frame) do
-    case check_self(frame, routine_id) do
-      :ok ->
-        {:ok, entry} =
-          Custode.Notebook.journal_append(routine_id, body,
-            title: params[:title],
-            source: "sweep"
-          )
+  def execute(params, frame) do
+    with {:ok, routine_id} <- fetch_self(params, frame),
+         :ok <- check_self(frame, routine_id),
+         {:ok, body} <- need(params, :body, @body) do
+      {:ok, entry} =
+        Custode.Notebook.journal_append(routine_id, body,
+          title: params[:title],
+          source: "sweep"
+        )
 
-        reply(frame, %{entry_id: entry.id})
-
-      {:error, message} ->
-        fail(frame, message)
+      reply(frame, %{entry_id: entry.id})
+    else
+      {:error, message} -> fail(frame, message)
     end
   end
 end
@@ -61,18 +66,19 @@ defmodule Custode.MCP.NotebookTools.SetPanel do
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:routine_id, :string, required: true)
+  @html "the panel markup -- inline SVG/CSS only, no scripts (they will not run)"
 
-    field(:html, :string,
-      required: true,
-      description: "the panel markup -- inline SVG/CSS only, no scripts (they will not run)"
-    )
+  schema do
+    field(:routine_id, :string, description: "whose page (defaults to the caller)")
+    field(:agent_id, :string, description: alias_for("routine_id"))
+    field(:html, :string, description: @html)
   end
 
   @impl true
-  def execute(%{routine_id: routine_id, html: html}, frame) do
-    with :ok <- check_self(frame, routine_id),
+  def execute(params, frame) do
+    with {:ok, routine_id} <- fetch_self(params, frame),
+         :ok <- check_self(frame, routine_id),
+         {:ok, html} <- need(params, :html, @html),
          {:ok, row} <- Custode.Panels.set(routine_id, html) do
       reply(frame, %{status: row.status})
     else
@@ -95,24 +101,23 @@ defmodule Custode.MCP.NotebookTools.CompactJournal do
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:routine_id, :string, required: true)
+  @summary "the distillation: what your journal so far still means, in a few lines"
 
-    field(:summary, :string,
-      required: true,
-      description: "the distillation: what your journal so far still means, in a few lines"
-    )
+  schema do
+    field(:routine_id, :string, description: "whose journal (defaults to the caller)")
+    field(:agent_id, :string, description: alias_for("routine_id"))
+    field(:summary, :string, description: @summary)
   end
 
   @impl true
-  def execute(%{routine_id: routine_id, summary: summary}, frame) do
-    case check_self(frame, routine_id) do
-      :ok ->
-        {:ok, %{summarized: count}} = Custode.Notebook.compact_journal(routine_id, summary)
-        reply(frame, %{summarized: count})
-
-      {:error, message} ->
-        fail(frame, message)
+  def execute(params, frame) do
+    with {:ok, routine_id} <- fetch_self(params, frame),
+         :ok <- check_self(frame, routine_id),
+         {:ok, summary} <- need(params, :summary, @summary) do
+      {:ok, %{summarized: count}} = Custode.Notebook.compact_journal(routine_id, summary)
+      reply(frame, %{summarized: count})
+    else
+      {:error, message} -> fail(frame, message)
     end
   end
 end
@@ -123,15 +128,21 @@ defmodule Custode.MCP.NotebookTools.TodoAdd do
 
   import Custode.MCP.Tools
 
+  @text "the todo, one line"
+
   schema do
-    field(:routine_id, :string, required: true)
-    field(:text, :string, required: true)
+    field(:routine_id, :string, description: "whose list (defaults to the caller)")
+    field(:agent_id, :string, description: alias_for("routine_id"))
+    field(:text, :string, description: @text)
   end
 
   @impl true
-  def execute(%{routine_id: routine_id, text: text}, frame) do
-    case check_self(frame, routine_id) do
-      :ok -> add(routine_id, text, frame)
+  def execute(params, frame) do
+    with {:ok, routine_id} <- fetch_self(params, frame),
+         :ok <- check_self(frame, routine_id),
+         {:ok, text} <- need(params, :text, @text) do
+      add(routine_id, text, frame)
+    else
       {:error, message} -> fail(frame, message)
     end
   end
@@ -149,15 +160,19 @@ defmodule Custode.MCP.NotebookTools.TodoList do
   import Custode.MCP.Tools
 
   schema do
-    field(:routine_id, :string, required: true)
+    field(:routine_id, :string, description: "whose list (defaults to the caller)")
+    field(:agent_id, :string, description: alias_for("routine_id"))
     field(:status, :string, description: "one of \"open\" (default), \"done\", \"all\"")
   end
 
+  # A read, so no check_self/2: reads are not scoped (transparency is a
+  # feature), and the id only defaults to the caller (#483).
   @impl true
-  def execute(%{routine_id: routine_id} = params, frame) do
+  def execute(params, frame) do
     status = params[:status] || "open"
 
-    if status in ~w(open done all) do
+    with {:ok, routine_id} <- fetch_self(params, frame),
+         :ok <- known_status(status) do
       todos =
         for todo <- Custode.Notebook.todos(routine_id, status) do
           %{id: todo.id, text: todo.text, status: todo.status}
@@ -165,9 +180,14 @@ defmodule Custode.MCP.NotebookTools.TodoList do
 
       reply(frame, %{todos: todos})
     else
-      fail(frame, "unknown status #{inspect(status)}; expected \"open\", \"done\", or \"all\"")
+      {:error, message} -> fail(frame, message)
     end
   end
+
+  defp known_status(status) when status in ~w(open done all), do: :ok
+
+  defp known_status(status),
+    do: {:error, "unknown status #{inspect(status)}; expected \"open\", \"done\", or \"all\""}
 end
 
 defmodule Custode.MCP.NotebookTools.TodoComplete do
@@ -198,13 +218,17 @@ defmodule Custode.MCP.NotebookTools.InboxList do
   alias Custode.MCP.NotebookTools
 
   schema do
-    field(:routine_id, :string, required: true)
+    field(:routine_id, :string, description: "whose inbox (defaults to the caller)")
+    field(:agent_id, :string, description: alias_for("routine_id"))
   end
 
+  # A read, so no check_self/2 (see TodoList).
   @impl true
-  def execute(%{routine_id: routine_id}, frame) do
-    case NotebookTools.fetch_routine(routine_id) do
-      {:ok, routine} -> reply(frame, %{notes: Custode.Notebook.unfiled_notes(routine)})
+  def execute(params, frame) do
+    with {:ok, routine_id} <- fetch_self(params, frame),
+         {:ok, routine} <- NotebookTools.fetch_routine(routine_id) do
+      reply(frame, %{notes: Custode.Notebook.unfiled_notes(routine)})
+    else
       {:error, message} -> fail(frame, message)
     end
   end
@@ -218,15 +242,21 @@ defmodule Custode.MCP.NotebookTools.InboxMarkFiled do
 
   alias Custode.MCP.NotebookTools
 
+  @name "the note's file name (not a path)"
+
   schema do
-    field(:routine_id, :string, required: true)
-    field(:name, :string, required: true, description: "the note's file name (not a path)")
+    field(:routine_id, :string, description: "whose inbox (defaults to the caller)")
+    field(:agent_id, :string, description: alias_for("routine_id"))
+    field(:name, :string, description: @name)
   end
 
   @impl true
-  def execute(%{routine_id: routine_id, name: name}, frame) do
-    case check_self(frame, routine_id) do
-      :ok -> mark(routine_id, name, frame)
+  def execute(params, frame) do
+    with {:ok, routine_id} <- fetch_self(params, frame),
+         :ok <- check_self(frame, routine_id),
+         {:ok, name} <- need(params, :name, @name) do
+      mark(routine_id, name, frame)
+    else
       {:error, message} -> fail(frame, message)
     end
   end

@@ -73,6 +73,93 @@ defmodule Custode.MCP.Tools do
         :ok
     end
   end
+
+  @doc """
+  The id a self-scoped tool acts on (#483): an explicit `routine_id`, then an
+  explicit `agent_id`, then the CALLER's own id when the caller is an agent.
+
+  The `claude` CLI defers MCP tool schemas, so an agent's first call to a
+  tool is a guess at its parameter names. The memory tools said `agent_id`,
+  the notebook tools said `routine_id`, and an agent that had learned one
+  guessed it for the other. The bearer token already says who is calling, so
+  the id is optional and either name works. An operator has no records of its
+  own: with no id given the answer is `nil`, and the tool asks whose.
+
+  This only RESOLVES the id. `check_self/2` is still what authorizes it, so a
+  routine naming a sibling is refused exactly as before.
+  """
+  @spec self_id(map(), Anubis.Server.Frame.t()) :: String.t() | nil
+  def self_id(params, frame) do
+    present(params[:routine_id]) || present(params[:agent_id]) || caller_agent_id(frame)
+  end
+
+  @doc """
+  `self_id/2` for a `with` chain: `{:ok, id}`, or the tool error to `fail/2`
+  with when nobody can tell whose records the call is about (#483).
+  """
+  @spec fetch_self(map(), Anubis.Server.Frame.t()) :: {:ok, String.t()} | {:error, String.t()}
+  def fetch_self(params, frame) do
+    case self_id(params, frame) do
+      nil ->
+        {:error,
+         "whose records? This call carries no agent identity, so the server cannot " <>
+           "default the id. Pass `routine_id` (or its alias `agent_id`)."}
+
+      id ->
+        {:ok, id}
+    end
+  end
+
+  @doc """
+  A content field the schema no longer requires, enforced here instead (#483):
+  `{:ok, value}`, or `{:error, message}` naming the field, what it means, and
+  how to see the rest of the schema.
+
+  Anubis validates the schema BEFORE `execute/2`, and a missing required field
+  there is a JSON-RPC protocol error whose detail sits in `error.data`. The
+  CLI shows the model only the message, which is the two words "Invalid
+  params". An agent that sent `text` and then `entry` for `journal_append`'s
+  `body` never learned the name and its sweep went unjournaled. A TOOL error
+  (`isError: true`) is text the model does read, so the check moves to where
+  it can answer.
+  """
+  @spec need(map(), atom(), String.t()) :: {:ok, term()} | {:error, String.t()}
+  def need(params, key, meaning) do
+    case present(params[key]) do
+      nil ->
+        {:error,
+         "missing `#{key}`: #{meaning}. Load this tool's schema with ToolSearch " <>
+           "before calling it again."}
+
+      value ->
+        {:ok, value}
+    end
+  end
+
+  @doc """
+  The schema description of an identity parameter's second name (#483).
+  Peri drops a key the schema does not declare, so an alias the schema left
+  out would never reach `self_id/2`: both names are declared, one as this.
+  """
+  @spec alias_for(String.t()) :: String.t()
+  def alias_for(documented) do
+    "alias for #{documented}; either works, and both may be omitted: " <>
+      "the server knows who is calling"
+  end
+
+  # A blank string is as absent as nil: a model guessing at parameters sends
+  # "" for a field it has no value for.
+  defp present(value) when is_binary(value),
+    do: if(String.trim(value) == "", do: nil, else: value)
+
+  defp present(value), do: value
+
+  defp caller_agent_id(frame) do
+    case Custode.MCP.caller(frame) do
+      %{kind: kind, id: id} when kind in [:routine, :sub_agent] -> id
+      _operator -> nil
+    end
+  end
 end
 
 defmodule Custode.MCP.Tools.ListRoutines do

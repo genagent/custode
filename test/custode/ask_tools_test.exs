@@ -59,12 +59,14 @@ defmodule Custode.AskToolsTest do
       refute Enum.any?(Asks.open(), &(&1.agent_id == "someone-else"))
     end
 
+    # a blank question is a missing one, and the error names the field (#483)
     test "an empty question is refused", %{routine: routine} do
       error =
         AskTools.AskOperator.execute(%{question: "   "}, routine_frame(routine.id))
         |> tool_error()
 
-      assert error =~ "needs text"
+      assert error =~ "missing `question`"
+      refute Enum.any?(Asks.open(), &(&1.agent_id == routine.id))
     end
   end
 
