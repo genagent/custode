@@ -17,6 +17,8 @@ config :custode,
   # count assertion is the "passes alone, fails on the third run" class.
   # Its tests set the env themselves and call the worker directly (#430).
   workspace_lease_reconcile_cron: false,
+  # Same reasoning for the aging re-notifier (#446).
+  aging_cron: false,
   desktop_notifications: false,
   # No network in tests: repo overviews come from the fake fetcher.
   github_fetcher: Custode.Test.FakeGitHubFetcher,

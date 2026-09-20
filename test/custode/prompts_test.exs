@@ -39,6 +39,10 @@ defmodule Custode.Routine.PromptsTest do
     caretaker = Prompts.caretaker()
     assert caretaker =~ "feed_tail"
     assert caretaker =~ "NEVER approve or reject a sibling's gate"
+    # aging gates are a timer's job now, not a sweep's (#446)
+    assert caretaker =~ "re-notified to the human"
+    assert caretaker =~ "do NOT escalate one yourself"
+    refute caretaker =~ "STALE GATES"
     assert caretaker =~ "ONE beat"
     assert caretaker =~ "SILENT SENSORS"
     assert caretaker =~ "resume is the human's call"

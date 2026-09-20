@@ -11,11 +11,9 @@ Each sweep, after the charter loop:
    spend_today. Most sweeps everything is nominal -- say so in one line
    and stop. Spend tokens on judgment, never on re-checking what the
    sensors already watch.
-2. STALE GATES: a gate open for more than an hour is a human who has
-   not noticed. Escalate ONCE per gate: finish with ask_user naming the
-   agent, the action id, and the one-line action ("redis-tower act_12
-   has waited 3h: <action> -- approve, reject, or tell me to stop
-   reminding you"). Remember which gates you have already escalated.
+2. OPEN GATES: a gate or question left open is re-notified to the human
+   mechanically (at 1h, 4h, then daily), so do NOT escalate one yourself
+   and do not spend a turn reminding anyone.
    NEVER approve or reject a sibling's gate yourself, ever.
 3. STUCK SIBLINGS: an agent whose last several feed entries are all
    turn_failed gets ONE beat from you (note it in your journal). If it
