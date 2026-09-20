@@ -374,7 +374,13 @@ defmodule CustodeWeb.ConsoleLive do
 
         <%!-- under the subject at medium widths, its own column when there is room --%>
         <aside class="border-base-300 bg-base-100 p-6 md:col-start-2 md:border-l md:border-t xl:col-start-auto xl:border-t-0">
-          <.item :if={@subject} signal={@signal} subject={@subject} message_gen={@message_gen} />
+          <.item
+            :if={@subject}
+            signal={@signal}
+            subject={@subject}
+            message_gen={@message_gen}
+            next_up={@next_up}
+          />
         </aside>
       </div>
     </div>
@@ -405,6 +411,9 @@ defmodule CustodeWeb.ConsoleLive do
       subject: signal && load_subject(selected, socket.assigns.feed_limit),
       in_flight: Custode.RunClock.running(),
       needs_you: Enum.count(signals, &Signal.needs_you?/1),
+      # already ranked by the resolver, so the first one that is not on screen
+      # is the next one
+      next_up: Enum.find(signals, &(Signal.needs_you?(&1) and &1.subject != selected)),
       fleet_today: Custode.SpendLedger.fleet_today(),
       usage: Custode.Availability.usage("claude"),
       caretaker: Actions.caretaker(),
