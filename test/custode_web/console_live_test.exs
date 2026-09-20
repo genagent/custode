@@ -6,6 +6,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
   import Phoenix.LiveViewTest
 
   alias Custode.Asks
+  alias Custode.GitHub.Cache
   alias Custode.Workflow
   alias Custode.Workflow.Launch
   alias Custode.Workflow.Run
@@ -362,6 +363,38 @@ defmodule CustodeWeb.ConsoleLiveTest do
       assert html =~ "notes to you"
       assert html =~ "<table>"
     end
+  end
+
+  # #485: the work tab draws the same panel the agent page does, and the same
+  # repo GitHub refuses used to leave it blank.
+  @tag :capture_log
+  test "the work tab says when GitHub refuses the subject's repository", %{conn: conn} do
+    repo = "acme/" <> uid("refused")
+    on_exit(fn -> Cache.forget(repo) end)
+
+    refusal = %GhEx.Error{
+      status: 403,
+      message: "Resource protected by organization SAML enforcement"
+    }
+
+    overviews = Application.get_env(:custode, :fake_repo_overviews, %{})
+    put_env!(:fake_repo_overviews, Map.put(overviews, repo, {:error, refusal}))
+
+    routine = routine_fixture!(tmp_workspace!(), %{repo: repo})
+
+    {:ok, view, _html} = live(conn, "/console/#{routine.id}")
+    view |> element("button[phx-value-tab=work]") |> render_click()
+
+    # the first render races the async fetch; the failure broadcasts, and the
+    # console re-pulls on it
+    html =
+      eventually(fn ->
+        html = render(view)
+        assert html =~ "GitHub refused this repository: HTTP 403: Resource protected"
+        html
+      end)
+
+    assert html =~ repo
   end
 
   describe "the work tab" do

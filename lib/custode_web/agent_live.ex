@@ -1041,10 +1041,13 @@ defmodule CustodeWeb.AgentLive do
   defp cadence_words("*/" <> rest), do: "every #{rest |> String.split(" ") |> hd()}m"
   defp cadence_words(cron), do: to_string(cron)
 
+  # `{:error, reason}` passes through as it is (#485): the panel draws the
+  # reason where the overview would be.
   defp repo_overview(repo) do
     case Custode.GitHub.overview(repo) do
       {:ok, overview} -> overview
       :loading -> :loading
+      {:error, reason} -> {:error, reason}
     end
   end
 

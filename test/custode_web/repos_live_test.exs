@@ -6,6 +6,7 @@ defmodule CustodeWeb.ReposLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
+  alias Custode.GitHub.Cache
   alias Custode.Test.FakeGitHubFetcher
   alias Custode.Workflow.Launch
   alias Custode.Workflow.Run
@@ -65,6 +66,39 @@ defmodule CustodeWeb.ReposLiveTest do
 
     assert html =~ "3 open"
     assert html =~ "coverage is slipping"
+  end
+
+  # #485: a repo GitHub refuses never gets an overview, and the tile used to
+  # show loading dots for as long as the page was open.
+  @tag :capture_log
+  test "a repo GitHub refuses says so in its tile in place of loading forever", %{conn: conn} do
+    repo = "acme/" <> uid("refused")
+    on_exit(fn -> Cache.forget(repo) end)
+
+    refusal = %GhEx.Error{
+      status: 403,
+      message: "Resource protected by organization SAML enforcement"
+    }
+
+    overviews = Application.get_env(:custode, :fake_repo_overviews, %{})
+    put_env!(:fake_repo_overviews, Map.put(overviews, repo, {:error, refusal}))
+
+    put_env!(:routines, [
+      %{id: uid("worker"), profile: :backlog_worker, workspace: tmp_workspace!(), repo: repo}
+    ])
+
+    {:ok, view, _html} = live(conn, "/repos")
+
+    # the first render races the async fetch; the failure broadcasts, and the
+    # page re-pulls on it
+    html =
+      eventually(fn ->
+        html = render(view)
+        assert html =~ "GitHub refused this repository: HTTP 403: Resource protected"
+        html
+      end)
+
+    refute html =~ "loading-dots"
   end
 
   test "an empty roster explains itself", %{conn: conn} do

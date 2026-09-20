@@ -4,12 +4,21 @@ defmodule Custode.Test.FakeGitHubFetcher do
   via `Application.put_env(:custode, :fake_repo_overviews, %{"owner/name" =>
   {:ok, overview} | {:error, reason}})`. Unlisted repos error, so a test
   never hits the network by accident.
+
+  A test that needs to know whether a fetch HAPPENED (#485: a failure inside
+  its backoff window must not refetch) points `:fake_github_fetch_observer` at
+  its own pid and gets `{:github_fetch, repo}` per call.
   """
 
   @behaviour Custode.GitHub.FetcherBehaviour
 
   @impl true
   def fetch(repo) do
+    case Application.get_env(:custode, :fake_github_fetch_observer) do
+      observer when is_pid(observer) -> send(observer, {:github_fetch, repo})
+      _none -> :ok
+    end
+
     overviews = Application.get_env(:custode, :fake_repo_overviews, %{})
     Map.get(overviews, repo, {:error, :not_faked})
   end

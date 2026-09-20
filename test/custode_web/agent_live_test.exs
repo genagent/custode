@@ -7,6 +7,7 @@ defmodule CustodeWeb.AgentLiveTest do
   import Phoenix.LiveViewTest
 
   alias Custode.Config.Loader
+  alias Custode.GitHub.Cache
   alias Custode.{OperationCall, Repo}
   alias Custode.Test.FakeGitHubFetcher
   alias Custode.Workflow.Launch
@@ -187,6 +188,38 @@ defmodule CustodeWeb.AgentLiveTest do
     assert html =~ "draft"
     assert html =~ "recently merged"
     assert html =~ "flat slot table"
+  end
+
+  # #485: the panel has nothing to draw for a repo GitHub refuses, and drawing
+  # nothing read as a loading state that never ended.
+  @tag :capture_log
+  test "a repo GitHub refuses says so where the repository panels would be", %{conn: conn} do
+    repo = "acme/" <> uid("refused")
+    on_exit(fn -> Cache.forget(repo) end)
+
+    refusal = %GhEx.Error{
+      status: 403,
+      message: "Resource protected by organization SAML enforcement"
+    }
+
+    overviews = Application.get_env(:custode, :fake_repo_overviews, %{})
+    put_env!(:fake_repo_overviews, Map.put(overviews, repo, {:error, refusal}))
+
+    routine = routine_fixture!(tmp_workspace!(), %{repo: repo})
+    stub_routine_agent!(routine)
+
+    {:ok, view, _html} = live(conn, "/agents/#{routine.id}")
+
+    # the first render races the async fetch; the failure broadcasts, and the
+    # page re-pulls on it
+    html =
+      eventually(fn ->
+        html = render(view)
+        assert html =~ "GitHub refused this repository: HTTP 403: Resource protected"
+        html
+      end)
+
+    refute html =~ "loading-dots"
   end
 
   # design/005 slice 3 (#273): the same affordance the repositories page has,
