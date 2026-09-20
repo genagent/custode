@@ -77,6 +77,14 @@ defmodule Custode.LegacyMissionProjection do
     end
   end
 
+  @doc """
+  The boot entry point (#476): project what can be, warn about what cannot,
+  never raise. One unreachable repository is not a reason to fail a boot Task.
+  """
+  @spec project_at_boot() :: :ok
+  def project_at_boot,
+    do: Custode.BootProjection.run("legacy Mission projection", &project_all/0)
+
   @spec project_all!() :: :ok
   def project_all! do
     case project_all() do
