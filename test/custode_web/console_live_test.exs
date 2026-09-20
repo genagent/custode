@@ -213,6 +213,25 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ ~r/note dropped.*a gate has waited.*sweep number 4/s
   end
 
+  test "the item pane points at the next subject that needs you, and only then",
+       %{conn: conn, asker: asker, sleeper: sleeper} do
+    {:ok, _ask} = Asks.ask(asker.id, "is the diff yours?")
+
+    # nothing else needs the operator while they look at the one that does
+    {:ok, view, _html} = live(conn, "/console/#{asker.id}")
+    refute has_element?(view, "#next-up")
+
+    # from anywhere else, the one that does is a click away
+    {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+    next_up = view |> element("#next-up") |> render()
+    assert next_up =~ asker.id
+    assert next_up =~ "asked you a question"
+
+    html = view |> element("#next-up a") |> render_click()
+    assert html =~ "is the diff yours?"
+    assert_patched(view, "/console/#{asker.id}")
+  end
+
   # seen on the live fleet 2026-09-20: 19 of mcp-proxy's last 30 entries were
   # the same "nothing new" sensor ping
   test "the activity tab draws a run of identical sensor arrivals once",

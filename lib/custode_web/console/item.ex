@@ -12,10 +12,12 @@ defmodule CustodeWeb.Console.Item do
   alias Custode.Operator.Actions
   alias Custode.Signal
   alias CustodeWeb.Components
+  alias CustodeWeb.Console.Rail
 
   attr(:signal, :any, required: true)
   attr(:subject, :map, required: true)
   attr(:message_gen, :integer, required: true)
+  attr(:next_up, :any, default: nil)
 
   def item(assigns) do
     assigns =
@@ -42,6 +44,19 @@ defmodule CustodeWeb.Console.Item do
     <div class="flex flex-wrap items-start gap-2">
       <.op :for={op <- @ops} op={op} message_gen={@message_gen} />
     </div>
+
+    <%!-- the next thing in the resolver's order, so a run of decisions is
+          decide, click, decide. A link and never a jump: a page that moves
+          after a click hides what the click did. --%>
+    <p :if={@next_up} id="next-up" class="mt-8 border-t border-base-300 pt-4 text-sm">
+      <span class="text-xs font-bold uppercase tracking-widest text-base-content/50">
+        also needs you
+      </span>
+      <.link patch={Rail.subject_path(@next_up.subject)} class="mt-1 block hover:underline">
+        <span class="font-mono font-semibold">{@next_up.subject}</span>
+        <span class="text-base-content/60">{@next_up.headline} &rarr;</span>
+      </.link>
+    </p>
     """
   end
 
