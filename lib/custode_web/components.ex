@@ -714,6 +714,24 @@ defmodule CustodeWeb.Components do
 
   def ago_text(_other), do: "?"
 
+  @doc """
+  How long until `at`, as the rail prints it beside a scheduled agent: "40s",
+  "12m", "3h", "2d". A time already past is "now": the beat is due and the
+  queue has it.
+  """
+  @spec until_text(DateTime.t(), DateTime.t()) :: String.t()
+  def until_text(%DateTime{} = at, %DateTime{} = now \\ DateTime.utc_now()) do
+    seconds = DateTime.diff(at, now)
+
+    cond do
+      seconds <= 0 -> "now"
+      seconds < 60 -> "#{seconds}s"
+      seconds < 3_600 -> "#{div(seconds, 60)}m"
+      seconds < 86_400 -> "#{div(seconds, 3_600)}h"
+      true -> "#{div(seconds, 86_400)}d"
+    end
+  end
+
   @doc "Token counts render compact: 900, 45k, 2.4M (#30)."
   def tok(count) when count >= 1_000_000, do: "#{Float.round(count / 1_000_000, 1)}M tok"
   def tok(count) when count >= 1_000, do: "#{round(count / 1_000)}k tok"

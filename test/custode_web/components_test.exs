@@ -55,6 +55,18 @@ defmodule CustodeWeb.ComponentsTest do
     end
   end
 
+  describe "until_text/2" do
+    test "buckets the wait, and a time already past is now" do
+      now = ~U[2026-09-20 10:00:00Z]
+      assert until_text(DateTime.add(now, 40), now) == "40s"
+      assert until_text(DateTime.add(now, 720), now) == "12m"
+      assert until_text(DateTime.add(now, 3 * 3_600 + 59), now) == "3h"
+      assert until_text(DateTime.add(now, 2 * 86_400), now) == "2d"
+      assert until_text(now, now) == "now"
+      assert until_text(DateTime.add(now, -30), now) == "now"
+    end
+  end
+
   describe "markdown rendering" do
     import Phoenix.LiveViewTest, only: [render_component: 2]
 

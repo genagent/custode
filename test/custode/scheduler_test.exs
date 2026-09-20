@@ -190,4 +190,34 @@ defmodule Custode.SchedulerTest do
       refute_received {:fired, "boot"}
     end
   end
+
+  describe "next_beat_at/2" do
+    test "the next matching minute after now, in UTC" do
+      assert Scheduler.next_beat_at("*/15 * * * *", ~U[2026-09-20 10:07:30Z]) ==
+               ~U[2026-09-20 10:15:00Z]
+
+      # a minute that matches right now is this beat, not the next one
+      assert Scheduler.next_beat_at("*/15 * * * *", ~U[2026-09-20 10:15:00Z]) ==
+               ~U[2026-09-20 10:30:00Z]
+    end
+
+    test "evaluated on the local wall clock, the same as the scheduler fires (#17)" do
+      put_env!(:timezone, "America/Los_Angeles")
+
+      # @daily is the operator's midnight: 07:00 UTC while PDT is in force
+      assert Scheduler.next_beat_at("@daily", ~U[2026-09-20 10:00:00Z]) ==
+               ~U[2026-09-21 07:00:00Z]
+
+      # working hours only: after 18:00 local the next beat is tomorrow's 09:00
+      assert Scheduler.next_beat_at("*/30 9-18 * * *", ~U[2026-09-21 02:10:00Z]) ==
+               ~U[2026-09-21 16:00:00Z]
+    end
+
+    test "nil when there is no next beat to know" do
+      assert Scheduler.next_beat_at("@reboot") == nil
+      assert Scheduler.next_beat_at("manual") == nil
+      assert Scheduler.next_beat_at("") == nil
+      assert Scheduler.next_beat_at(nil) == nil
+    end
+  end
 end

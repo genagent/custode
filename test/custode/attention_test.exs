@@ -499,6 +499,16 @@ defmodule Custode.AttentionTest do
       assert signal.kind == :scheduled
       assert signal.group == :scheduled
       assert signal.headline == "next beat @daily"
+      # no gatherer fact, no guess
+      assert signal.item == nil
+    end
+
+    test "a scheduled signal carries when the next beat is, as a time and not as words" do
+      at = ~U[2026-09-21 07:00:00Z]
+      signal = resolve(view("mdbook-lint", state: :offline, cron: "@daily", next_beat_at: at))
+
+      assert signal.item == {:next_beat, at}
+      assert signal.headline == "next beat @daily"
     end
 
     test "offline without a real cron is quiet" do

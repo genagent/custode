@@ -49,6 +49,12 @@ defmodule Custode.Feed do
 
   @gate_events ~w(needs_approval needs_input)
 
+  # What an agent AUTHORS: its turn reports, the two gated states (the action
+  # or question it is blocked on), a non-blocking ask, and a failed turn.
+  # Everything else in the feed is something said ABOUT the agent: a sensor
+  # ping, an aging notice, an inbox drop, a repo verb, the operator's prompt.
+  @agent_events ~w(turn needs_approval needs_input asked turn_failed)
+
   @doc "The jsonl mirror path (nil disables the mirror)."
   def path, do: Application.get_env(:custode, :feed_path, "feed.jsonl")
 
@@ -156,6 +162,21 @@ defmodule Custode.Feed do
         :ok
     end
   end
+
+  @doc """
+  The entries of `feed` the agent itself authored, in the order given.
+
+  On the live fleet (2026-09-20) the three newest non-sensor entries for
+  `redisctl` were an `ask_aging` and two `sensor_failed`: custode talking
+  about the agent, under a heading that said the agent was talking. A surface
+  that means "what did it say" filters with this.
+
+      iex> feed = [%{"event" => "gate_aging"}, %{"event" => "turn", "summary" => "swept"}]
+      iex> Custode.Feed.said(feed)
+      [%{"event" => "turn", "summary" => "swept"}]
+  """
+  @spec said([map()]) :: [map()]
+  def said(feed) when is_list(feed), do: Enum.filter(feed, &(&1["event"] in @agent_events))
 
   @doc "The timestamp of an agent's most recent feed entry (nil if none)."
   def last_activity_at(agent_id) do

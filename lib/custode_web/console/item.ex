@@ -11,6 +11,7 @@ defmodule CustodeWeb.Console.Item do
 
   alias Custode.Operator.Actions
   alias Custode.Signal
+  alias CustodeWeb.Components
 
   attr(:signal, :any, required: true)
   attr(:subject, :map, required: true)
@@ -85,6 +86,17 @@ defmodule CustodeWeb.Console.Item do
     ~H"""
     <p class="mt-3 flex flex-wrap gap-1">
       <span :for={id <- @ids} class="badge badge-outline badge-sm font-mono">{id}</span>
+    </p>
+    """
+  end
+
+  # The headline carries the cron; this is what the cron means right now.
+  def evidence(%{item: {:next_beat, at}} = assigns) do
+    assigns = assign(assigns, at: at)
+
+    ~H"""
+    <p class="mt-3 text-sm text-base-content/70" title={@at}>
+      runs in <span class="font-mono">{Components.until_text(@at)}</span>
     </p>
     """
   end
