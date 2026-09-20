@@ -44,6 +44,10 @@ defmodule CustodeWeb.ConsoleLive do
   @tabs Subject.tabs()
   @opts [via: :liveview]
 
+  # How many feed entries the subject pane reads, and how many "show older"
+  # adds. Sensor pings collapse on the page, so 150 entries is days, not hours.
+  @feed_page 150
+
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
     if connected?(socket), do: Custode.PubSubBridge.subscribe()
@@ -64,13 +68,17 @@ defmodule CustodeWeb.ConsoleLive do
        notice: nil,
        fleet_notice: nil,
        edit: nil,
-       new_agent: nil
+       new_agent: nil,
+       feed_limit: @feed_page
      )}
   end
 
   @impl Phoenix.LiveView
   def handle_params(params, _uri, socket) do
-    {:noreply, socket |> assign(selected: params["id"], notice: nil, edit: nil) |> refresh()}
+    {:noreply,
+     socket
+     |> assign(selected: params["id"], notice: nil, edit: nil, feed_limit: @feed_page)
+     |> refresh()}
   end
 
   @impl Phoenix.LiveView
@@ -87,6 +95,11 @@ defmodule CustodeWeb.ConsoleLive do
 
   def handle_event("tab", %{"tab" => tab}, socket) when tab in @tabs,
     do: {:noreply, assign(socket, tab: tab)}
+
+  # One more page of the selected subject's feed. Reset by handle_params, so
+  # a long read of one agent is not carried to the next.
+  def handle_event("feed_older", _params, socket),
+    do: {:noreply, socket |> update(:feed_limit, &(&1 + @feed_page)) |> refresh()}
 
   # phx-change on the message form: uploads are validated as they are chosen
   def handle_event("validate_message", _params, socket), do: {:noreply, socket}
@@ -389,7 +402,7 @@ defmodule CustodeWeb.ConsoleLive do
       groups: groups,
       selected: selected,
       signal: signal,
-      subject: signal && load_subject(selected),
+      subject: signal && load_subject(selected, socket.assigns.feed_limit),
       in_flight: Custode.RunClock.running(),
       needs_you: Enum.count(signals, &Signal.needs_you?/1),
       fleet_today: Custode.SpendLedger.fleet_today(),
@@ -403,7 +416,7 @@ defmodule CustodeWeb.ConsoleLive do
   defp default_selection([first | _rest]), do: first.subject
   defp default_selection([]), do: nil
 
-  defp load_subject(id) do
+  defp load_subject(id, feed_limit) do
     routine = Custode.Routine.get(id)
     {:ok, status} = ObanClaude.Agent.status(id)
     repo = routine && routine.repo
@@ -421,7 +434,8 @@ defmodule CustodeWeb.ConsoleLive do
       spend_today: Custode.SpendLedger.today(id),
       # newest first: the store reads oldest first, and both tabs that draw it
       # lead with what just happened
-      feed: id |> Custode.Feed.for_agent(30) |> Enum.reverse(),
+      feed: id |> Custode.Feed.for_agent(feed_limit) |> Enum.reverse(),
+      feed_limit: feed_limit,
       todos: Custode.Notebook.todos(id),
       journal: Custode.Notebook.journal(id, 10),
       panel: panel_markdown(id),

@@ -178,6 +178,51 @@ defmodule Custode.Feed do
   @spec said([map()]) :: [map()]
   def said(feed) when is_list(feed), do: Enum.filter(feed, &(&1["event"] in @agent_events))
 
+  # Events that arrive on a timer and usually say what the last one said. A
+  # run of them is one fact ("still nothing new", "still failing"), not many.
+  @repeating_events ~w(sensor sensor_failed)
+
+  @doc """
+  Collapse each run of ADJACENT entries from the same sensor with the same
+  event into the first of the run, which then carries `"repeats"` (how many
+  entries the run had) and `"repeats_since"` (the `at` of the last one). Pure,
+  and order-preserving: given a newest-first feed, the line kept is the newest
+  and `repeats_since` is when the run began.
+
+  On the live fleet (2026-09-20) 19 of `mcp-proxy`'s last 30 entries were
+  "nothing new" sensor pings, and one failing sensor wrote 55 `sensor_failed`
+  entries in a day. Nothing else collapses: two turns are two things that
+  happened, however alike their summaries.
+
+      iex> ping = fn at -> %{"event" => "sensor", "sensor_id" => "ci", "at" => at} end
+      iex> turn = %{"event" => "turn", "at" => "t2"}
+      iex> Custode.Feed.collapse_repeats([ping.("t5"), ping.("t4"), ping.("t3"), turn, ping.("t1")])
+      [
+        %{"event" => "sensor", "sensor_id" => "ci", "at" => "t5", "repeats" => 3, "repeats_since" => "t3"},
+        %{"event" => "turn", "at" => "t2"},
+        %{"event" => "sensor", "sensor_id" => "ci", "at" => "t1"}
+      ]
+  """
+  @spec collapse_repeats([map()]) :: [map()]
+  def collapse_repeats(feed) when is_list(feed) do
+    feed
+    |> Enum.chunk_by(&repeat_key/1)
+    |> Enum.flat_map(fn
+      [%{"event" => event} = first, _second | _rest] = run when event in @repeating_events ->
+        [Map.merge(first, %{"repeats" => length(run), "repeats_since" => List.last(run)["at"]})]
+
+      run ->
+        run
+    end)
+  end
+
+  # Entries that do not repeat each get a key of their own, so `chunk_by/2`
+  # never joins two of them.
+  defp repeat_key(%{"event" => event, "sensor_id" => sensor}) when event in @repeating_events,
+    do: {event, sensor}
+
+  defp repeat_key(entry), do: {:single, make_ref(), entry["at"]}
+
   @doc "The timestamp of an agent's most recent feed entry (nil if none)."
   def last_activity_at(agent_id) do
     Repo.one(from(f in Entry, where: f.agent == ^agent_id, select: max(f.at)))

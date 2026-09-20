@@ -245,12 +245,26 @@ defmodule CustodeWeb.Console.Subject do
 
   attr(:subject, :map, required: true)
 
+  # Newest first, with each run of identical sensor arrivals drawn once. The
+  # "older" button is only offered when the read came back full: a short read
+  # means the feed has nothing further back.
   defp activity_tab(assigns) do
     ~H"""
     <p :if={@subject.feed == []} class="text-sm text-base-content/50">no activity yet</p>
-    <div class="flex flex-col gap-2">
-      <.feed_entry :for={entry <- @subject.feed} entry={entry} show_agent={false} />
+    <div id="activity" class="flex flex-col gap-2">
+      <.feed_entry
+        :for={entry <- Custode.Feed.collapse_repeats(@subject.feed)}
+        entry={entry}
+        show_agent={false}
+      />
     </div>
+    <button
+      :if={length(@subject.feed) >= @subject.feed_limit}
+      class="btn btn-ghost btn-sm mt-3"
+      phx-click="feed_older"
+    >
+      show older
+    </button>
     """
   end
 
