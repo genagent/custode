@@ -3,6 +3,7 @@ defmodule Custode.Sensors.CiStatusTest do
 
   import Custode.TestHelpers
 
+  alias Custode.Sensor.Health
   alias Custode.Sensors.CiStatus
   alias Custode.Test.FakeGitHubFetcher
 
@@ -174,6 +175,75 @@ defmodule Custode.Sensors.CiStatusTest do
     fake_prs!(repo, [pr(3, "FAILURE")])
     :ok = perform!(args)
     assert [_note] = inbox_notes(workspace)
+  end
+
+  describe "a fetch that keeps failing (#444)" do
+    defp fail!(repo, reason) do
+      overviews = Application.get_env(:custode, :fake_repo_overviews, %{})
+      put_env!(:fake_repo_overviews, Map.put(overviews, repo, {:error, reason}))
+    end
+
+    defp feed_events(agent_id, event) do
+      agent_id |> Custode.Feed.for_agent(50) |> Enum.filter(&(&1["event"] == event))
+    end
+
+    test "each failed run is a sensor_failed entry carrying the count and the error",
+         %{routine: routine, repo: repo, sensor_id: sensor_id, args: args} do
+      fail!(repo, "Resource protected by organization SAML enforcement")
+
+      :ok = perform!(args)
+      :ok = perform!(args)
+
+      assert [first, second] = feed_events(routine.id, "sensor_failed")
+      assert first["sensor_id"] == sensor_id
+      assert first["failures"] == 1
+      assert second["failures"] == 2
+      assert second["error"] == "Resource protected by organization SAML enforcement"
+      assert second["summary"] =~ "2 runs in a row"
+      # nothing was fetched, so there is no grey "nothing new" line to hide behind
+      assert feed_events(routine.id, "sensor") == []
+    end
+
+    test "only the run that reaches the threshold is marked as crossing it",
+         %{routine: routine, repo: repo, args: args} do
+      fail!(repo, :rate_limited)
+      for _run <- 1..4, do: :ok = perform!(args)
+
+      assert [false, false, true, false] ==
+               routine.id |> feed_events("sensor_failed") |> Enum.map(& &1["crossed_threshold"])
+    end
+
+    test "one successful run resets the count",
+         %{routine: routine, repo: repo, sensor_id: sensor_id, args: args} do
+      fail!(repo, :rate_limited)
+      :ok = perform!(args)
+      :ok = perform!(args)
+      assert %{failures: 2} = Health.get(sensor_id)
+
+      fake_prs!(repo, [pr(1, "SUCCESS")])
+      :ok = perform!(args)
+      assert Health.get(sensor_id) == nil
+
+      fail!(repo, :rate_limited)
+      :ok = perform!(args)
+      assert %{failures: 1} = Health.get(sensor_id)
+      assert [_first, _second, third] = feed_events(routine.id, "sensor_failed")
+      assert third["failures"] == 1
+    end
+
+    test "a failed run leaves the seen-set alone, so recovery does not re-note old items",
+         %{workspace: workspace, repo: repo, args: args} do
+      fake_prs!(repo, [pr(3, "FAILURE")])
+      :ok = perform!(args)
+      assert [_note] = inbox_notes(workspace)
+
+      fail!(repo, :rate_limited)
+      :ok = perform!(args)
+
+      fake_prs!(repo, [pr(3, "FAILURE")])
+      :ok = perform!(args)
+      assert [_still_one] = inbox_notes(workspace)
+    end
   end
 
   test "all-green is a quiet feed entry, no note", %{workspace: workspace, repo: repo, args: args} do

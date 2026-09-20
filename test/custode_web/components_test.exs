@@ -28,6 +28,20 @@ defmodule CustodeWeb.ComponentsTest do
     end
   end
 
+  describe "a failed sensor run in the feed vocabulary (#444)" do
+    test "it is drawn as an error, not in the ambient grey of a quiet sensor line" do
+      assert feed_badge("sensor_failed") == "badge-error"
+      assert event_dot("sensor_failed") == "text-error"
+      assert feed_badge("sensor") == "badge-ghost"
+    end
+
+    test "it shows under both the attention lens and the sensors lens" do
+      assert feed_category_match?("sensor_failed", "attention")
+      assert feed_category_match?("sensor_failed", "sensors")
+      refute feed_category_match?("sensor", "attention")
+    end
+  end
+
   describe "ago_text/1" do
     test "buckets seconds/minutes/hours/days and tolerates junk" do
       now = DateTime.utc_now()

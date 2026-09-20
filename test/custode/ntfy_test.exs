@@ -44,6 +44,21 @@ defmodule Custode.NtfyTest do
     assert_receive {:ntfy, _alert}, 500
   end
 
+  test "a failing sensor rings once, on the run that crosses the threshold (#444)" do
+    put_env!(:ntfy, topic: "custode-test", publish: :attention)
+    entry = %{"event" => "sensor_failed", "agent" => "rt", "summary" => "ci-rt: fetch failed"}
+
+    # a blip before the threshold, and the same news again after it: both quiet
+    :ok = Custode.Ntfy.publish(Map.put(entry, "crossed_threshold", false))
+    refute_receive {:ntfy, _message}, 100
+
+    :ok = Custode.Ntfy.publish(Map.put(entry, "crossed_threshold", true))
+    assert_receive {:ntfy, ring}, 500
+    assert ring.priority == 4
+    assert ring.title == "rt sensor_failed"
+    assert ring.body == "ci-rt: fetch failed"
+  end
+
   test "feed writes flow through the publisher" do
     put_env!(:ntfy, topic: "custode-test", publish: :all)
     agent = uid("ntfy-feed")
