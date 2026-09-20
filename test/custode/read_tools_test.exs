@@ -17,9 +17,11 @@ defmodule Custode.MCP.ReadToolsTest do
     put_env!(:feed_path, path)
     on_exit(fn -> File.rm(path) end)
 
+    # these tests assert on the whole fleet's attention, so every source of a
+    # signal has to be this module's own (see clear_attention!/0)
     clean = fn ->
       Custode.Repo.query!("DELETE FROM feed_entries")
-      Custode.Repo.query!("DELETE FROM asks")
+      clear_attention!()
     end
 
     clean.()
