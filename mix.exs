@@ -56,7 +56,7 @@ defmodule Custode.MixProject do
       # data file; TOML because comments are load-bearing in this file.
       {:toml, "~> 0.7"},
       # Markdown rendering for agent output (journal tables and friends).
-      {:earmark, "~> 1.4"},
+      {:mdex, "~> 0.13"},
       {:bandit, "~> 1.5"},
       # The dashboard: LiveView over the facade + PubSub, daisyUI via CDN
       # (no node/asset pipeline; see CustodeWeb.Layouts).
