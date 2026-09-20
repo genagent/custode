@@ -69,6 +69,28 @@ defmodule Custode.Operator.ActionsTest do
     end
   end
 
+  describe "the caretaker" do
+    test "is the routine tagged :meta, and tell_custode reaches it" do
+      workspace = tmp_workspace!()
+
+      put_env!(:routines, [
+        %{id: "worker-a", cron: "@daily", workspace: workspace, prompt: "sweep"},
+        %{id: "custode", cron: "@daily", workspace: workspace, prompt: "sweep", tags: [:meta]}
+      ])
+
+      assert Actions.caretaker() == "custode"
+      assert {:ok, :started} = Actions.tell_custode("what needs me today?")
+      assert [tick] = ticks_for("custode")
+      assert tick.args["prompt"] == "what needs me today?"
+    end
+
+    test "a roster with no caretaker says so" do
+      put_env!(:routines, [])
+      assert Actions.caretaker() == nil
+      assert {:error, :no_caretaker} = Actions.tell_custode("hello")
+    end
+  end
+
   describe "run/4 carries out a signal's own op" do
     defp gated!(action) do
       id = start_stub_agent!()

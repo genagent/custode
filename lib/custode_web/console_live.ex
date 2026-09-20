@@ -30,7 +30,7 @@ defmodule CustodeWeb.ConsoleLive do
   alias Custode.Operator.Actions
   alias Custode.Signal
 
-  @tabs ~w(attention activity work notebook)
+  @tabs ~w(attention activity work notebook turns config)
   @opts [via: :liveview]
 
   @group_titles %{
@@ -51,7 +51,9 @@ defmodule CustodeWeb.ConsoleLive do
        tab: "attention",
        selected: nil,
        message_gen: 0,
-       notice: nil
+       tell_gen: 0,
+       notice: nil,
+       fleet_notice: nil
      )}
   end
 
@@ -79,6 +81,36 @@ defmodule CustodeWeb.ConsoleLive do
       {:ok, how} -> after_action(:ok, socket, sent_notice(how))
       {:error, reason} -> after_action({:error, reason}, socket, nil)
     end
+  end
+
+  # A sentence to the caretaker, from wherever the operator is (#451).
+  def handle_event("tell_custode", %{"text" => text}, socket) do
+    notice =
+      case Actions.tell_custode(text, @opts) do
+        {:ok, how} -> "custode: " <> sent_notice(how)
+        {:error, :empty} -> nil
+        {:error, :no_caretaker} -> "no caretaker: no routine is tagged :meta"
+        {:error, reason} -> "custode: failed (#{inspect(reason)})"
+      end
+
+    gen = if notice, do: socket.assigns.tell_gen + 1, else: socket.assigns.tell_gen
+    {:noreply, socket |> assign(fleet_notice: notice, tell_gen: gen) |> refresh()}
+  end
+
+  def handle_event("pause_all", _params, socket) do
+    {:ok, ids} = Actions.pause_all(@opts)
+    {:noreply, socket |> assign(fleet_notice: "paused #{length(ids)} agent(s)") |> refresh()}
+  end
+
+  def handle_event("resume_all", _params, socket) do
+    {:ok, ids} = Actions.resume_all(@opts)
+    {:noreply, socket |> assign(fleet_notice: "resumed #{length(ids)} agent(s)") |> refresh()}
+  end
+
+  def handle_event("toggle_presence", _params, socket) do
+    mode = if match?({:present, _at}, socket.assigns.presence), do: :away, else: :auto
+    :ok = Actions.set_presence(mode, @opts)
+    {:noreply, refresh(socket)}
   end
 
   def handle_event("beat", _params, socket),
@@ -139,13 +171,54 @@ defmodule CustodeWeb.ConsoleLive do
           <.link navigate="/workflows" class="hover:text-base-content">workflows</.link>
           <.link navigate="/metrics" class="hover:text-base-content">metrics</.link>
         </nav>
-        <span :if={@needs_you > 0} class="badge badge-warning ml-auto whitespace-nowrap">
+        <%!-- Most of what the operator wants is a sentence to the caretaker,
+              not a visit to one agent (#451). --%>
+        <form
+          :if={@caretaker}
+          id={"tell-#{@tell_gen}"}
+          phx-submit="tell_custode"
+          class="ml-auto flex min-w-0 flex-1 justify-end"
+        >
+          <input
+            type="text"
+            name="text"
+            autocomplete="off"
+            placeholder={"tell #{@caretaker}..."}
+            class="input input-bordered input-sm w-full max-w-md"
+          />
+        </form>
+        <span :if={@needs_you > 0} class={["badge badge-warning whitespace-nowrap", !@caretaker && "ml-auto"]}>
           {@needs_you} need you
         </span>
-        <span class={["font-mono text-sm text-base-content/60", @needs_you == 0 && "ml-auto"]}>
-          fleet today ${usd(@fleet_today)}
+        <button
+          class={[
+            "badge cursor-pointer whitespace-nowrap",
+            (match?({:away, _}, @presence) && "badge-neutral") || "badge-ghost",
+            !@caretaker && @needs_you == 0 && "ml-auto"
+          ]}
+          phx-click="toggle_presence"
+          title="present: gates ping you. away: pinned, the desktop stays quiet and the phone still rings"
+        >
+          {presence_word(@presence)}
+        </button>
+        <details class="dropdown dropdown-end">
+          <summary class="btn btn-ghost btn-xs">fleet</summary>
+          <ul class="menu dropdown-content z-10 mt-1 w-44 rounded-box bg-base-100 p-2 shadow-lg">
+            <li>
+              <button phx-click="pause_all" data-confirm="Pause every running agent?">
+                pause all
+              </button>
+            </li>
+            <li><button phx-click="resume_all">resume all</button></li>
+          </ul>
+        </details>
+        <span class="whitespace-nowrap font-mono text-sm text-base-content/60">
+          ${usd(@fleet_today)}
         </span>
       </header>
+      <p :if={@fleet_notice} class="bg-base-100 px-5 pb-2 text-right text-xs text-base-content/60">
+        {@fleet_notice}
+      </p>
 
       <div class="px-5 pt-4 empty:hidden"><.host_banner /></div>
 
@@ -287,6 +360,8 @@ defmodule CustodeWeb.ConsoleLive do
       <.activity_tab :if={@tab == "activity"} subject={@subject} />
       <.work_tab :if={@tab == "work"} subject={@subject} />
       <.notebook_tab :if={@tab == "notebook"} subject={@subject} />
+      <.turns_tab :if={@tab == "turns"} subject={@subject} />
+      <.config_tab :if={@tab == "config"} subject={@subject} />
     </div>
     """
   end
@@ -311,11 +386,29 @@ defmodule CustodeWeb.ConsoleLive do
     <h3 class="mb-2 mt-6 text-xs font-bold uppercase tracking-widest text-base-content/50 xl:mt-0">
       last said
     </h3>
-    <p :if={@subject.feed == []} class="text-sm text-base-content/50">nothing yet</p>
+    <p :if={said(@subject.feed) == []} class="text-sm text-base-content/50">
+      nothing yet{sensor_note(@subject.feed)}
+    </p>
     <div class="flex flex-col gap-2">
-      <.feed_entry :for={entry <- Enum.take(@subject.feed, 3)} entry={entry} show_agent={false} />
+      <.feed_entry :for={entry <- said(@subject.feed)} entry={entry} show_agent={false} />
     </div>
     """
+  end
+
+  # What the AGENT said, not what its sensors pinged. On the live fleet an
+  # offline agent's last three entries were three identical "nothing new"
+  # sensor lines, which is the opposite of a summary. The sensors are all on
+  # the activity tab.
+  defp said(feed), do: feed |> Enum.reject(&(&1["event"] == "sensor")) |> Enum.take(3)
+
+  defp sensor_note(feed) do
+    case Enum.find(feed, &(&1["event"] == "sensor")) do
+      %{"summary" => summary} when is_binary(summary) ->
+        " from the agent. Last sensor: " <> summary
+
+      _none ->
+        ""
+    end
   end
 
   attr(:subject, :map, required: true)
@@ -375,6 +468,100 @@ defmodule CustodeWeb.ConsoleLive do
       </summary>
       <div class="mt-2"><.markdown text={entry.body || ""} /></div>
     </details>
+    """
+  end
+
+  attr(:subject, :map, required: true)
+
+  # The engine's own record of what the agent process did, newest first. Raw
+  # on purpose: this is the tab for "what actually happened", and a prettier
+  # rendering would be a second opinion about it.
+  defp turns_tab(assigns) do
+    ~H"""
+    <p :if={@subject.history == []} class="text-sm text-base-content/50">
+      no machine log: the agent has not run since the node started
+    </p>
+    <div
+      :if={@subject.history != []}
+      class="max-h-[32rem] overflow-y-auto rounded-lg bg-base-100 p-3 font-mono text-xs shadow-sm"
+    >
+      <p :for={entry <- @subject.history} class="truncate py-0.5 text-base-content/70">
+        {inspect(entry, printable_limit: 200)}
+      </p>
+    </div>
+    """
+  end
+
+  attr(:subject, :map, required: true)
+
+  defp config_tab(assigns) do
+    ~H"""
+    <p :if={@subject.routine == nil} class="text-sm text-base-content/50">
+      no routine: a sub-agent or a one-shot has no standing configuration
+    </p>
+    <div :if={@subject.routine} class="space-y-4 text-sm">
+      <p class="italic text-base-content/60">{Custode.Roles.summary(@subject.routine.role)}</p>
+
+      <dl class="grid grid-cols-[8rem_1fr] gap-x-4 gap-y-1">
+        <dt class="text-base-content/50">role</dt>
+        <dd>
+          <b>{@subject.routine.role}</b>
+          <span class="text-base-content/40">
+            ({Custode.Roles.tier(@subject.routine.role)} tier)
+          </span>
+        </dd>
+        <dt class="text-base-content/50">sweeps on</dt>
+        <dd>
+          <b>{@subject.routine.model}</b><span :if={@subject.routine.effort}>
+            at {@subject.routine.effort} effort
+          </span>
+        </dd>
+        <dt :if={@subject.routine.approved_args["model"]} class="text-base-content/50">
+          approved work
+        </dt>
+        <dd :if={@subject.routine.approved_args["model"]}>
+          <b>{@subject.routine.approved_args["model"]}</b>
+        </dd>
+        <dt class="text-base-content/50">schedule</dt>
+        <dd class="font-mono">{@subject.routine.cron}</dd>
+        <dt class="text-base-content/50">rails</dt>
+        <dd>
+          ${usd(@subject.routine.max_budget_usd)} a turn<span :if={
+            @subject.routine.daily_budget_usd
+          }>, ${usd(@subject.routine.daily_budget_usd)} a day</span>
+        </dd>
+        <dt :if={@subject.routine.repo} class="text-base-content/50">repository</dt>
+        <dd :if={@subject.routine.repo} class="font-mono">{@subject.routine.repo}</dd>
+        <dt :if={@subject.routine.tags != []} class="text-base-content/50">tags</dt>
+        <dd :if={@subject.routine.tags != []}>
+          <span :for={tag <- @subject.routine.tags} class="badge badge-ghost badge-sm mr-1">
+            {tag}
+          </span>
+        </dd>
+        <dt :if={@subject.sensors != []} class="text-base-content/50">fed by</dt>
+        <dd :if={@subject.sensors != []}>
+          <span :for={sensor <- @subject.sensors} class="badge badge-outline badge-sm mr-1">
+            {sensor.id} ({sensor.cron})
+          </span>
+        </dd>
+        <dt :if={@subject.policies != []} class="text-base-content/50">bound by</dt>
+        <dd :if={@subject.policies != []} class="font-mono text-xs">
+          {Enum.join(@subject.policies, ", ")}
+        </dd>
+      </dl>
+
+      <details>
+        <summary class="cursor-pointer text-xs text-base-content/50">
+          standing orders (the composed system prompt)
+        </summary>
+        <pre class="mt-2 max-h-96 overflow-y-auto whitespace-pre-wrap rounded bg-base-100 p-3 text-xs">{@subject.routine.system_prompt}</pre>
+      </details>
+
+      <p class="text-xs text-base-content/50">
+        Editing still lives on
+        <.link navigate={"/agents/#{@subject.id}"} class="link">the agent page</.link>.
+      </p>
+    </div>
     """
   end
 
@@ -474,7 +661,9 @@ defmodule CustodeWeb.ConsoleLive do
       subject: signal && load_subject(selected),
       in_flight: Custode.RunClock.running(),
       needs_you: Enum.count(signals, &Signal.needs_you?/1),
-      fleet_today: Custode.SpendLedger.fleet_today()
+      fleet_today: Custode.SpendLedger.fleet_today(),
+      caretaker: Actions.caretaker(),
+      presence: Custode.Presence.status()
     )
   end
 
@@ -497,8 +686,18 @@ defmodule CustodeWeb.ConsoleLive do
       spend_today: Custode.SpendLedger.today(id),
       feed: Custode.Feed.for_agent(id, 30),
       todos: Custode.Notebook.todos(id),
-      journal: Custode.Notebook.journal(id, 10)
+      journal: Custode.Notebook.journal(id, 10),
+      history: history(id),
+      sensors: Enum.filter(Custode.Routine.sensors(), &(&1.notify == id)),
+      policies: (routine && Custode.Policy.ids_for(routine)) || []
     }
+  end
+
+  defp history(id) do
+    case ObanClaude.Agent.history(id) do
+      {:ok, history} -> history |> Enum.take(-40) |> Enum.reverse()
+      {:error, _reason} -> []
+    end
   end
 
   defp overview(repo) do
@@ -511,6 +710,9 @@ defmodule CustodeWeb.ConsoleLive do
   # -- words and tones ----------------------------------------------------------
 
   defp tabs, do: @tabs
+
+  defp presence_word({:present, _at}), do: "present"
+  defp presence_word({:away, _at}), do: "away"
 
   defp group_title(group), do: Map.fetch!(@group_titles, group)
 

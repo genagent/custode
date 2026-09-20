@@ -92,6 +92,90 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ "no agent can run: the boot doctor failed"
   end
 
+  describe "the header" do
+    # most of what the operator wants is a sentence to the caretaker (#451)
+    test "tells custode from wherever you are, and says what happened", %{conn: conn} do
+      workspace = tmp_workspace!()
+
+      put_env!(:routines, [
+        %{id: "custode", cron: "@daily", workspace: workspace, prompt: "sweep", tags: [:meta]},
+        %{id: uid("worker"), cron: "@daily", workspace: workspace, prompt: "sweep"}
+      ])
+
+      {:ok, view, html} = live(conn, "/console")
+      assert html =~ "tell custode..."
+
+      html =
+        view
+        |> form("form[phx-submit=tell_custode]", %{"text" => "pause everything but mdbook-lint"})
+        |> render_submit()
+
+      # the caretaker is offline in a test, so it is started with the sentence
+      assert html =~ "custode: started a turn with your message"
+    end
+
+    test "with no caretaker in the roster there is no box to type into", %{conn: conn} do
+      {:ok, _view, html} = live(conn, "/console")
+      refute html =~ "phx-submit=\"tell_custode\""
+    end
+
+    test "presence toggles between present and a pinned away", %{conn: conn} do
+      Custode.Presence.set(:present)
+      on_exit(fn -> Custode.Presence.set(:auto) end)
+
+      {:ok, view, html} = live(conn, "/console")
+      assert html =~ "present"
+
+      html = view |> element("button[phx-click=toggle_presence]") |> render_click()
+      assert html =~ "away"
+      assert {:away, _at, {:pinned, :away}} = Custode.Presence.explain()
+    end
+
+    test "the brake is in the fleet menu and reports what it did", %{conn: conn} do
+      id = start_stub_agent!()
+
+      {:ok, view, _html} = live(conn, "/console")
+      html = view |> element("button[phx-click=pause_all]") |> render_click()
+
+      assert html =~ ~r/paused \d+ agent/
+      assert {:ok, :paused} = ObanClaude.Agent.await(id, :paused, 1_000)
+
+      html = view |> element("button[phx-click=resume_all]") |> render_click()
+      assert html =~ ~r/resumed \d+ agent/
+    end
+  end
+
+  test "the config tab says who the agent is, and the turns tab is honest when empty",
+       %{conn: conn, sleeper: sleeper} do
+    {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+
+    html = view |> element("button[phx-value-tab=config]") |> render_click()
+    assert html =~ "sweeps on"
+    assert html =~ "@daily"
+    assert html =~ "standing orders"
+
+    html = view |> element("button[phx-value-tab=turns]") |> render_click()
+    assert html =~ "no machine log"
+  end
+
+  # seen on the live fleet: an offline agent's "last said" was three identical
+  # sensor pings
+  test "last said is what the agent said, and sensor pings are only a footnote",
+       %{conn: conn, sleeper: sleeper} do
+    for _n <- 1..3 do
+      Custode.Feed.record(%{event: "sensor", agent: sleeper.id, summary: "ci: nothing new"})
+    end
+
+    {:ok, _view, html} = live(conn, "/console/#{sleeper.id}")
+    assert html =~ "nothing yet from the agent. Last sensor: ci: nothing new"
+
+    Custode.Feed.record(%{event: "turn", agent: sleeper.id, summary: "3 todos queued"})
+
+    {:ok, _view, html} = live(conn, "/console/#{sleeper.id}")
+    assert html =~ "3 todos queued"
+    refute html =~ "nothing yet"
+  end
+
   test "the tabs switch the subject pane", %{conn: conn, sleeper: sleeper} do
     {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
 

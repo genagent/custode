@@ -164,6 +164,60 @@ defmodule Custode.Operator.Actions do
   end
 
   @doc """
+  The caretaker: the routine tagged `:meta` (design/000's custode, the
+  operator's right hand). `nil` when the roster has none.
+  """
+  @spec caretaker() :: String.t() | nil
+  def caretaker do
+    Enum.find_value(Custode.Routine.all(), fn routine ->
+      if :meta in routine.tags, do: routine.id
+    end)
+  end
+
+  @doc """
+  Say something to custode itself, from anywhere (#451's entry point: most of
+  what the operator wants is a sentence to the caretaker, not a visit to one
+  agent). It is `message/3` to the caretaker, so it reaches it in any state.
+  """
+  @spec tell_custode(String.t(), keyword()) ::
+          {:ok, :delivered | :resumed | :started} | {:error, term()}
+  def tell_custode(text, opts \\ []) do
+    case caretaker() do
+      nil -> {:error, :no_caretaker}
+      id -> message(id, text, opts)
+    end
+  end
+
+  @doc """
+  The emergency brake (#14): pause every agent that is not already paused or
+  offline. Each pause goes through the operation spine under one correlation
+  id, so the log shows one act and not seventeen.
+  """
+  @spec pause_all(keyword()) :: {:ok, [String.t()]}
+  def pause_all(opts \\ []) do
+    key = Keyword.get_lazy(opts, :idempotency_key, &Ecto.UUID.generate/0)
+
+    Custode.pause_all(fn agent_id ->
+      pause(agent_id, Keyword.put(opts, :idempotency_key, key))
+    end)
+  end
+
+  @doc "Release the brake: resume every paused agent."
+  @spec resume_all(keyword()) :: {:ok, [String.t()]}
+  def resume_all(_opts \\ []), do: Custode.resume_all()
+
+  @doc """
+  Pin presence away, or hand it back to inference. `:auto` and not `:present`
+  on the way back: the toggle itself counts as an operator action, so the
+  reading flips to present and then lapses with the window (#328).
+  """
+  @spec set_presence(:away | :auto, keyword()) :: :ok
+  def set_presence(mode, _opts \\ []) when mode in [:away, :auto] do
+    Custode.Presence.set(mode)
+    :ok
+  end
+
+  @doc """
   Run a signal's `resolving` op. `params` carries what the op needs beyond its
   own `args`: `"text"` for an answer, `"reason"` and `"one_off"` for a reject.
 
