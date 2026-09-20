@@ -105,6 +105,8 @@ defmodule CustodeWeb.ReposLive do
         case Custode.GitHub.overview(repo) do
           {:ok, overview} -> {repo, overview}
           :loading -> {repo, :loading}
+          # the tile's panel draws the reason where the overview would be (#485)
+          {:error, reason} -> {repo, {:error, reason}}
         end
       end)
 

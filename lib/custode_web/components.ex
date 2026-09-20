@@ -595,9 +595,25 @@ defmodule CustodeWeb.Components do
 
   @doc """
   The issues/PRs two-card panel for a repo overview -- shared by the agent
-  page and the repositories page (#193). Renders nothing until the overview
-  map arrives (`Custode.GitHub.overview/1` broadcasts when it does).
+  page, the repositories page (#193) and the console's work tab. Renders
+  nothing until the overview map arrives (`Custode.GitHub.overview/2`
+  broadcasts when it does).
+
+  `{:error, reason}` renders the reason in the panel's place (#485). A repo
+  GitHub refuses never gets an overview, and drawing nothing there read as a
+  loading state that never ended.
   """
+  def repo_overview_panel(%{overview: {:error, reason}} = assigns) do
+    assigns = assign(assigns, :reason, reason)
+
+    ~H"""
+    <p class="rounded-lg bg-base-100 p-3 text-sm shadow-sm">
+      <span class="text-warning">GitHub refused this repository: {@reason}</span>
+      <span class="ml-1 text-xs text-base-content/50">custode retries on a backoff</span>
+    </p>
+    """
+  end
+
   def repo_overview_panel(assigns) do
     ~H"""
     <div :if={is_map(@overview)} class="grid grid-cols-1 gap-4 xl:grid-cols-2">

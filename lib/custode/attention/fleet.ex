@@ -266,6 +266,11 @@ defmodule Custode.Attention.Fleet do
 
       :loading ->
         []
+
+      # A repo GitHub will not serve is a repo with no data (#485): no red
+      # check can be claimed from an overview nobody could read.
+      {:error, _reason} ->
+        []
     end
   end
 
@@ -296,6 +301,8 @@ defmodule Custode.Attention.Fleet do
     case Custode.GitHub.overview(repo) do
       {:ok, overview} -> Map.get(overview, :default_branch)
       :loading -> nil
+      # unreadable is not red (#485), the same as not fetched yet
+      {:error, _reason} -> nil
     end
   end
 

@@ -955,10 +955,13 @@ defmodule CustodeWeb.ConsoleLive do
   defp subject_kind(nil, state) when state in [:offline, :ended], do: :other
   defp subject_kind(nil, _state), do: :agent
 
+  # `{:error, reason}` passes through as it is (#485): the work tab's panel
+  # draws the reason where the overview would be.
   defp overview(repo) do
     case Custode.GitHub.overview(repo) do
       {:ok, overview} -> overview
       :loading -> :loading
+      {:error, reason} -> {:error, reason}
     end
   end
 
