@@ -72,15 +72,18 @@ defmodule Custode.Operator.ActionsTest do
   describe "the caretaker" do
     test "is the routine tagged :meta, and tell_custode reaches it" do
       workspace = tmp_workspace!()
+      # oban_jobs is shared across the suite: a fixed id collides with every
+      # other test that beats a caretaker
+      caretaker = uid("caretaker")
 
       put_env!(:routines, [
-        %{id: "worker-a", cron: "@daily", workspace: workspace, prompt: "sweep"},
-        %{id: "custode", cron: "@daily", workspace: workspace, prompt: "sweep", tags: [:meta]}
+        %{id: uid("worker"), cron: "@daily", workspace: workspace, prompt: "sweep"},
+        %{id: caretaker, cron: "@daily", workspace: workspace, prompt: "sweep", tags: [:meta]}
       ])
 
-      assert Actions.caretaker() == "custode"
+      assert Actions.caretaker() == caretaker
       assert {:ok, :started} = Actions.tell_custode("what needs me today?")
-      assert [tick] = ticks_for("custode")
+      assert [tick] = ticks_for(caretaker)
       assert tick.args["prompt"] == "what needs me today?"
     end
 

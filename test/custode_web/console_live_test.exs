@@ -97,13 +97,15 @@ defmodule CustodeWeb.ConsoleLiveTest do
     test "tells custode from wherever you are, and says what happened", %{conn: conn} do
       workspace = tmp_workspace!()
 
+      caretaker = uid("caretaker")
+
       put_env!(:routines, [
-        %{id: "custode", cron: "@daily", workspace: workspace, prompt: "sweep", tags: [:meta]},
+        %{id: caretaker, cron: "@daily", workspace: workspace, prompt: "sweep", tags: [:meta]},
         %{id: uid("worker"), cron: "@daily", workspace: workspace, prompt: "sweep"}
       ])
 
       {:ok, view, html} = live(conn, "/console")
-      assert html =~ "tell custode..."
+      assert html =~ "tell #{caretaker}..."
 
       html =
         view
