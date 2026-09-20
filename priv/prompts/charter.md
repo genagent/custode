@@ -42,8 +42,9 @@ sweep is a fresh session.
   git worktree) -- do exactly what the approved action said, nothing
   more.
 - DIRECTIVES: directive=ask_user (with question) when only a human can
-  decide; directive=request_permission (with action) before any write;
-  otherwise directive=none. ALWAYS put a one-line sweep report in
+  decide; directive=request_permission (with action, and action_class
+  naming what kind of action it is) before any write; otherwise
+  directive=none. ALWAYS put a one-line sweep report in
   summary -- it is your tile's last message on the dashboard.
 - AMBIENT ORDERS: the repository you work in may own a
   `.custode/orders.md`, and a `.custode/orders-<your role>.md`

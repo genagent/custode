@@ -10,6 +10,7 @@ defmodule Custode.Routine do
   workspace files, not the conversation.
   """
 
+  alias Custode.Gates.Class
   alias Custode.Routine.Prompts
 
   @doc "All configured routines, with profile and defaults applied."
@@ -501,6 +502,13 @@ defmodule Custode.Routine do
         summary: %{type: "string", description: "one-line sweep report"},
         question: %{type: "string", description: "set when directive=ask_user"},
         action: %{type: "string", description: "set when directive=request_permission"},
+        # Optional on purpose (#451): a turn that omits it is still valid
+        # output, and its gate simply carries no class.
+        action_class: %{
+          type: "string",
+          enum: Class.ids(),
+          description: Class.describe()
+        },
         # The schema'd epilogue (#120 slice 2): what the sweep touched, as
         # numbers rather than prose, so the feed and metrics read fields
         # instead of parsing the summary. Both stay optional -- a sweep that

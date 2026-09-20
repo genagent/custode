@@ -15,6 +15,7 @@ defmodule Custode.Gates do
 
   import Ecto.Query, only: [from: 2]
 
+  alias Custode.Gates.Class
   alias Custode.Repo
 
   defmodule Gate do
@@ -26,6 +27,8 @@ defmodule Custode.Gates do
       field(:kind, :string)
       field(:action_id, :string)
       field(:detail, :string)
+      # the class of action an approval asks for (#451); see Custode.Gates.Class
+      field(:class, :string)
       field(:status, :string, default: "open")
       # what was decided, by whom, from which surface, and why (#448). `status`
       # says the gate is over; these say how it ended.
@@ -165,6 +168,61 @@ defmodule Custode.Gates do
     |> Enum.sort_by(&{-(&1.approved + &1.rejected), &1.agent_id})
   end
 
+  @doc """
+  The approval rate per gate CLASS (#451), in `Custode.Gates.Class` order, with
+  the median minutes a gate of that class waited for its decision.
+
+  Only gates that declared a class are here: the rows from before the field,
+  and from agents that never say, are in `approval_rates/0` and nowhere else.
+  The wait is beside the rate on purpose. A class at 100% that also waits
+  hours is the one whose gate costs the most and decides the least.
+  """
+  @spec approval_rates_by_class() :: [
+          %{
+            class: String.t(),
+            approved: integer(),
+            rejected: integer(),
+            rate: float(),
+            median_wait_min: float()
+          }
+        ]
+  def approval_rates_by_class do
+    rows =
+      Repo.all(
+        from(g in Gate,
+          where:
+            g.kind == "approval" and g.outcome in ["approved", "rejected"] and
+              not is_nil(g.class),
+          select: {g.class, g.outcome, g.inserted_at, g.updated_at}
+        )
+      )
+
+    by_class = Enum.group_by(rows, &elem(&1, 0))
+
+    for class <- Class.ids(), decided = Map.get(by_class, class), decided != nil do
+      approved = Enum.count(decided, &(elem(&1, 1) == "approved"))
+      waits = Enum.map(decided, fn {_c, _o, opened, closed} -> DateTime.diff(closed, opened) end)
+
+      %{
+        class: class,
+        approved: approved,
+        rejected: length(decided) - approved,
+        rate: approved / length(decided),
+        median_wait_min: Float.round(median(waits) / 60, 1)
+      }
+    end
+  end
+
+  defp median(values) do
+    sorted = Enum.sort(values)
+    count = length(sorted)
+    middle = div(count, 2)
+
+    if rem(count, 2) == 1,
+      do: Enum.at(sorted, middle),
+      else: (Enum.at(sorted, middle - 1) + Enum.at(sorted, middle)) / 2
+  end
+
   @doc "Recent gates fleet-wide, newest first, optionally filtered by status."
   def recent(limit \\ 20, status \\ nil) do
     query = from(g in Gate, order_by: [desc: g.id], limit: ^limit)
@@ -210,8 +268,29 @@ defmodule Custode.Gates do
           {to_string(state), nil, nil}
       end
 
-    Repo.insert!(%Gate{agent_id: agent_id, kind: kind, action_id: action_id, detail: detail})
+    Repo.insert!(%Gate{
+      agent_id: agent_id,
+      kind: kind,
+      action_id: action_id,
+      detail: detail,
+      class: declared_class(agent_id, kind)
+    })
   end
+
+  # The engine carries only the action's description, so the class the agent
+  # declared is read from the turn that raised the gate. That turn's feed
+  # entry is written on `[:oban_claude, :run, :stop]`, which the worker emits
+  # BEFORE it casts `job_finished`, so it is there by the time the transition
+  # that brought us here fires. A turn that did not raise this gate (an older
+  # entry, a different directive) declares nothing.
+  defp declared_class(agent_id, "approval") do
+    case Custode.Feed.recent_by_event("turn", agent: agent_id, limit: 1) do
+      [%{"directive" => "request_permission", "action_class" => class}] -> Class.normalize(class)
+      _none -> nil
+    end
+  end
+
+  defp declared_class(_agent_id, _kind), do: nil
 
   # The outcome goes on the row as well as the feed card (#448): the card is
   # JSON inside a feed entry, which nothing can aggregate over.

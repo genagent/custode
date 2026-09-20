@@ -47,6 +47,7 @@ defmodule Custode.Feed.Ingest do
       tokens: usage && usage.total
     }
     |> put_touched(out)
+    |> put_action_class(out)
     |> Custode.Feed.record()
   end
 
@@ -96,6 +97,15 @@ defmodule Custode.Feed.Ingest do
     |> maybe_put(:prs, numbers(out["prs"]))
     |> maybe_put(:issues_touched, numbers(out["issues_touched"]))
   end
+
+  # The class of action a gate-raising turn declared (#451). It rides on the
+  # turn's own entry because this event is the only place custode sees the
+  # whole structured result; `Custode.Gates` reads it back when the gate opens.
+  defp put_action_class(entry, %{"directive" => "request_permission", "action_class" => class})
+       when is_binary(class),
+       do: Map.put(entry, :action_class, class)
+
+  defp put_action_class(entry, _out), do: entry
 
   defp maybe_put(entry, _key, []), do: entry
   defp maybe_put(entry, key, numbers), do: Map.put(entry, key, numbers)

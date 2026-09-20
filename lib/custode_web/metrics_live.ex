@@ -142,6 +142,41 @@ defmodule CustodeWeb.MetricsLive do
           </div>
         </section>
 
+        <%!-- The same question by CLASS of action (#451). Only gates raised
+              since agents began declaring a class are counted, so this table
+              starts empty and fills as the fleet works. --%>
+        <section class="rounded-lg bg-base-100 p-4 shadow-sm">
+          <h3 class="mb-3 font-semibold text-base-content/70">
+            approval rate by class
+            <span class="text-xs font-normal">(gates that declared one)</span>
+          </h3>
+          <p :if={@approval_rates_by_class == []} class="text-sm text-base-content/50">
+            no decided gate has declared a class yet
+          </p>
+          <div :if={@approval_rates_by_class != []} class="overflow-x-auto">
+            <table class="table table-xs">
+              <thead>
+                <tr>
+                  <th>class</th>
+                  <th class="text-right">approved</th>
+                  <th class="text-right">rejected</th>
+                  <th class="text-right">rate</th>
+                  <th class="text-right">median wait</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={row <- @approval_rates_by_class}>
+                  <td class="font-mono">{row.class}</td>
+                  <td class="text-right font-mono">{row.approved}</td>
+                  <td class="text-right font-mono">{row.rejected}</td>
+                  <td class="text-right font-mono">{round(row.rate * 100)}%</td>
+                  <td class="text-right font-mono">{row.median_wait_min}m</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <section class="rounded-lg bg-base-100 p-4 shadow-sm xl:col-span-2">
           <h3 class="mb-3 font-semibold text-base-content/70">
             by model
@@ -208,6 +243,7 @@ defmodule CustodeWeb.MetricsLive do
 
     assign(socket,
       approval_rates: Custode.Gates.approval_rates(),
+      approval_rates_by_class: Custode.Gates.approval_rates_by_class(),
       by_model: Custode.Metrics.by_model(@days),
       digest: Custode.Digest.build(7) |> Custode.Digest.to_markdown(),
       tokens_today: Custode.SpendLedger.fleet_today_tokens(),

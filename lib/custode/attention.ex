@@ -464,7 +464,7 @@ defmodule Custode.Attention do
       action_id = get_in(view, [:gate, :action_id])
 
       signal(view, :approval, :high,
-        headline: "wants your approval",
+        headline: approval_headline(get_in(view, [:gate, :class])),
         detail: detail(view),
         raised_at: gate_opened_at(view),
         item: action_id,
@@ -476,6 +476,11 @@ defmodule Custode.Attention do
       )
     end
   end
+
+  # The class the agent declared (#451), when it declared one: "ready_pr" and
+  # "merge" are different asks, and the rail has room to say which.
+  defp approval_headline(class) when is_binary(class), do: "wants your approval (#{class})"
+  defp approval_headline(_none), do: "wants your approval"
 
   # A red check on a PR the agent DISOWNED (#313). Nothing in the fleet will
   # touch it -- the agent looked, decided it was not its work, and recorded
