@@ -63,8 +63,12 @@ defmodule CustodeWeb.FleetLive do
     {:noreply, refresh(socket)}
   end
 
-  def handle_event("reject", %{"id" => id, "action" => action_id}, socket) do
-    Custode.reject_with_note(id, action_id, "rejected from dashboard", via: :liveview)
+  def handle_event("reject", %{"agent" => id, "action" => action_id} = params, socket) do
+    Custode.reject_with_note(id, action_id, params["reason"],
+      via: :liveview,
+      standing: params["one_off"] != "true"
+    )
+
     {:noreply, refresh(socket)}
   end
 
@@ -792,14 +796,7 @@ defmodule CustodeWeb.FleetLive do
           >
             approve
           </button>
-          <button
-            class="btn btn-ghost btn-xs"
-            phx-click="reject"
-            phx-value-id={@id}
-            phx-value-action={elem(@tile.status, 1).id}
-          >
-            reject
-          </button>
+          <.reject_form agent={@id} action={elem(@tile.status, 1).id} />
         </div>
 
         <div

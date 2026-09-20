@@ -96,9 +96,8 @@ defmodule CustodeWeb.Components do
   # you often want to hide. Everything not named here still shows under
   # "all".
   @feed_categories %{
-    "attention" =>
-      ~w(needs_approval needs_input asked paused budget_paused turn_failed doctor_failed
-         sensor_failed),
+    "attention" => ~w(needs_approval needs_input asked gate_aging ask_aging paused budget_paused
+         turn_failed doctor_failed sensor_failed),
     "turns" => ~w(turn prompted),
     # A failed run is under both lenses (#444): it is a sensor line, and it is
     # the one sensor line that is not noise.
@@ -143,6 +142,9 @@ defmodule CustodeWeb.Components do
   # An ask is a question like needs_input, so it shares the accent hue, but
   # outlined: it did not stop the agent and should not read as loudly (#445).
   def feed_badge("asked"), do: "badge-accent badge-outline"
+  # still waiting on the human, said again (#446)
+  def feed_badge("gate_aging"), do: "badge-warning"
+  def feed_badge("ask_aging"), do: "badge-warning badge-outline"
   def feed_badge("answered"), do: "badge-success badge-outline"
   def feed_badge("budget_paused"), do: "badge-error"
   def feed_badge("workflow_launch_proposed"), do: "badge-warning"
@@ -237,6 +239,47 @@ defmodule CustodeWeb.Components do
       <.host_banner />
       {render_slot(@inner_block)}
     </div>
+    """
+  end
+
+  attr(:agent, :string, required: true)
+  attr(:action, :string, required: true)
+  attr(:size, :string, default: "btn-xs")
+
+  @doc """
+  Reject, with a reason (#438). One disclosure shared by every surface that
+  can reject a gate, so none of them can send a placeholder again: the form
+  will not submit without text, and "one-off" tells the agent not to turn the
+  rejection into a standing rule.
+
+  `phx-update="ignore"` keeps a half-typed reason alive across the re-renders
+  a live page does every second. The id carries the action id, so a new gate
+  is a new element with its own hidden inputs.
+  """
+  def reject_form(assigns) do
+    ~H"""
+    <details id={"reject-#{@action}"} phx-update="ignore" class="dropdown dropdown-end">
+      <summary class={["btn btn-ghost", @size]}>reject</summary>
+      <form
+        phx-submit="reject"
+        class="dropdown-content z-10 mt-1 flex w-80 flex-col gap-2 rounded-box bg-base-100 p-3 text-left shadow-lg"
+      >
+        <input type="hidden" name="agent" value={@agent} />
+        <input type="hidden" name="action" value={@action} />
+        <textarea
+          name="reason"
+          rows="3"
+          required
+          class="textarea textarea-bordered w-full text-sm"
+          placeholder="why? the agent reads this, and may make it a rule"
+        ></textarea>
+        <label class="flex cursor-pointer items-center gap-2 text-xs text-base-content/70">
+          <input type="checkbox" name="one_off" value="true" class="checkbox checkbox-xs" />
+          one-off: this proposal only, not a standing rule
+        </label>
+        <button type="submit" class="btn btn-error btn-xs self-end">reject</button>
+      </form>
+    </details>
     """
   end
 
@@ -342,6 +385,8 @@ defmodule CustodeWeb.Components do
   def event_dot("needs_approval"), do: "text-warning"
   def event_dot("needs_input"), do: "text-accent"
   def event_dot("asked"), do: "text-accent"
+  def event_dot("gate_aging"), do: "text-warning"
+  def event_dot("ask_aging"), do: "text-warning"
   def event_dot("answered"), do: "text-success"
   def event_dot("budget_paused"), do: "text-error"
   def event_dot("doctor_failed"), do: "text-error"

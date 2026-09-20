@@ -87,11 +87,20 @@ defmodule Custode do
 
   The reason also lands on the gate row (#448), with `opts` as for
   `approve_action/3`, so it outlives the note file.
+
+  What the note teaches depends on what was actually said (#438). A blank
+  reason or a surface's old placeholder is NO reason: the note says so and
+  forbids a standing exception. `standing: false` marks a stated reason as a
+  one-off. Only a stated reason with `standing: true` (the default) keeps the
+  REMEMBER instruction.
   """
   def reject_with_note(agent_id, action_id, reason, opts \\ []) do
     detail = proposal_detail(agent_id, action_id)
-    Custode.Gates.record_decision(agent_id, action_id, Keyword.put(opts, :reason, reason))
-    result = Agent.reject_action(agent_id, action_id, reason)
+    stated = stated_reason(reason)
+    standing? = stated != nil and Keyword.get(opts, :standing, true)
+
+    Custode.Gates.record_decision(agent_id, action_id, Keyword.put(opts, :reason, stated))
+    result = Agent.reject_action(agent_id, action_id, stated || "no reason given")
 
     if result == :rejected and Custode.Routine.get(agent_id) do
       {:ok, _path} =
@@ -102,16 +111,61 @@ defmodule Custode do
           Your proposal was REJECTED by the operator.
 
           Proposal: #{detail || action_id}
-          Reason: #{reason}
+          Reason: #{stated || "(none given)"}
 
-          File this. If the rejection implies a standing exception (a
-          class of work not to propose again), REMEMBER it so future
-          sweeps do not re-propose variations of the same thing.
+          #{rejection_lesson(stated, standing?)}
           """
         )
     end
 
     result
+  end
+
+  # The strings surfaces used to send when the operator typed nothing. They
+  # are not reasons, and an agent told to generalize from one learns a rule
+  # nobody stated: `redisctl` permanently stopped readying a green PR on the
+  # strength of "rejected from dashboard" (#438).
+  @placeholder_reasons [
+    "",
+    "denied",
+    "rejected from dashboard",
+    "rejected from the inbox",
+    "rejected from CLI"
+  ]
+
+  defp stated_reason(reason) do
+    trimmed = reason |> to_string() |> String.trim()
+    if trimmed in @placeholder_reasons, do: nil, else: trimmed
+  end
+
+  # What the agent is told to DO with a rejection. Only a stated reason the
+  # operator did not mark one-off may become a standing exception.
+  defp rejection_lesson(nil, _standing?) do
+    """
+    No reason was given, so there is nothing to generalize from. File this
+    and move on. Do NOT record a standing exception, and do not stop
+    proposing this class of work: you may propose it again when it is
+    warranted.
+    """
+    |> String.trim_trailing()
+  end
+
+  defp rejection_lesson(_reason, false) do
+    """
+    File this. The operator marked it a ONE-OFF: it applies to this proposal
+    only. Do NOT record a standing exception; you may propose this class of
+    work again when it is warranted.
+    """
+    |> String.trim_trailing()
+  end
+
+  defp rejection_lesson(_reason, true) do
+    """
+    File this. If the rejection implies a standing exception (a
+    class of work not to propose again), REMEMBER it so future
+    sweeps do not re-propose variations of the same thing.
+    """
+    |> String.trim_trailing()
   end
 
   # What the agent actually proposed, for the rejection note (#436).

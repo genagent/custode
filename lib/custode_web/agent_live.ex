@@ -165,9 +165,10 @@ defmodule CustodeWeb.AgentLive do
     {:noreply, refresh(socket)}
   end
 
-  def handle_event("reject", %{"action" => action_id}, socket) do
-    Custode.reject_with_note(socket.assigns.id, action_id, "rejected from dashboard",
-      via: :liveview
+  def handle_event("reject", %{"action" => action_id} = params, socket) do
+    Custode.reject_with_note(socket.assigns.id, action_id, params["reason"],
+      via: :liveview,
+      standing: params["one_off"] != "true"
     )
 
     {:noreply, refresh(socket)}
@@ -365,9 +366,7 @@ defmodule CustodeWeb.AgentLive do
           <button class="btn btn-success btn-sm" phx-click="approve" phx-value-action={elem(@status, 1).id}>
             approve
           </button>
-          <button class="btn btn-ghost btn-sm" phx-click="reject" phx-value-action={elem(@status, 1).id}>
-            reject
-          </button>
+          <.reject_form agent={@id} action={elem(@status, 1).id} size="btn-sm" />
         </div>
       </div>
 

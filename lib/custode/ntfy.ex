@@ -34,7 +34,7 @@ defmodule Custode.Ntfy do
   """
 
   @attention ~w(needs_approval needs_input turn_failed budget_paused doctor_failed
-                workflow_launch_proposed workflow_budget_paused)
+                workflow_launch_proposed workflow_budget_paused gate_aging ask_aging)
 
   @doc "Publish one feed entry (string-keyed map) if ntfy is configured for it."
   def publish(entry) do

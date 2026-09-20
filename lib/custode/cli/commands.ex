@@ -26,6 +26,26 @@ defmodule Custode.CLI do
 
   def clock(iso) when is_binary(iso), do: String.slice(iso, 11, 8)
   def clock(_other), do: "--:--:--"
+
+  @doc """
+  How long ago an ISO8601 instant was, as the operator would say it: `12m`,
+  `3h`, `2d`. A queue of things owed to a human should say how long each has
+  been owed (#446).
+  """
+  def age(iso, now \\ DateTime.utc_now())
+
+  def age(iso, now) when is_binary(iso) do
+    case DateTime.from_iso8601(iso) do
+      {:ok, at, _offset} -> format_age(max(DateTime.diff(now, at, :second), 0))
+      _error -> "-"
+    end
+  end
+
+  def age(_other, _now), do: "-"
+
+  defp format_age(seconds) when seconds >= 86_400, do: "#{div(seconds, 86_400)}d"
+  defp format_age(seconds) when seconds >= 3_600, do: "#{div(seconds, 3_600)}h"
+  defp format_age(seconds), do: "#{div(seconds, 60)}m"
 end
 
 defmodule Custode.CLI.Status do
@@ -74,7 +94,9 @@ defmodule Custode.CLI.Gates do
 
   defp render(%{"gates" => gates}) do
     Enum.map_join(gates, "\n", fn gate ->
-      "#{String.pad_trailing(gate["status"], 9)} #{String.pad_trailing(gate["agent_id"], 14)} " <>
+      "#{String.pad_trailing(gate["status"], 9)} " <>
+        "#{String.pad_leading(Custode.CLI.age(gate["opened_at"]), 4)} " <>
+        "#{String.pad_trailing(gate["agent_id"], 14)} " <>
         "#{String.pad_trailing(gate["action_id"] || "-", 10)} #{String.slice(gate["detail"] || "", 0, 90)}"
     end)
   end
@@ -101,6 +123,7 @@ defmodule Custode.CLI.Asks do
   defp render(%{"asks" => asks}) do
     Enum.map_join(asks, "\n", fn ask ->
       "#{String.pad_leading(to_string(ask["id"]), 5)}  " <>
+        "#{String.pad_leading(Custode.CLI.age(ask["asked_at"]), 4)} " <>
         "#{String.pad_trailing(ask["agent_id"], 16)} #{String.slice(ask["question"], 0, 90)}"
     end)
   end
@@ -283,7 +306,15 @@ defmodule Custode.CLI.Reject do
     about("Reject an agent's pending action.")
     argument(:agent_id, required: true, help: "The gated agent.")
     argument(:action_id, required: true, help: "The action id (see: mix custode gates).")
-    argument(:reason, help: "Why (default: \"rejected from CLI\").")
+
+    argument(:reason,
+      help: "Why. The agent reads it and may make it a rule. Omitted = no reason, no rule."
+    )
+
+    option(:one_off,
+      type: :boolean,
+      help: "This proposal only: tell the agent not to make it a standing rule."
+    )
   end
 
   @impl Cheer.Command
@@ -291,7 +322,8 @@ defmodule Custode.CLI.Reject do
     arguments = %{
       agent_id: args[:agent_id],
       action_id: args[:action_id],
-      reason: args[:reason] || "rejected from CLI"
+      reason: args[:reason],
+      one_off: args[:one_off] == true
     }
 
     Custode.CLI.emit("reject_action", arguments, false, &inspect/1)

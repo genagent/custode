@@ -337,6 +337,11 @@ defmodule Custode.MCP.Tools.RejectAction do
     field(:agent_id, :string, required: true)
     field(:action_id, :string, required: true)
     field(:reason, :string)
+
+    field(:one_off, :boolean,
+      description:
+        "true = this rejection applies to this proposal only; the agent is told not to make it a standing rule"
+    )
   end
 
   @impl true
@@ -348,9 +353,10 @@ defmodule Custode.MCP.Tools.RejectAction do
   end
 
   defp do_reject(agent_id, action_id, params, frame) do
-    reason = Map.get(params, :reason, "denied")
+    reason = Map.get(params, :reason)
+    opts = Keyword.put(decided(frame), :standing, Map.get(params, :one_off) != true)
 
-    case Custode.reject_with_note(agent_id, action_id, reason, decided(frame)) do
+    case Custode.reject_with_note(agent_id, action_id, reason, opts) do
       :rejected -> reply(frame, %{agent_id: agent_id, rejected: action_id})
       other -> fail(frame, "reject failed: #{inspect(other)}")
     end
