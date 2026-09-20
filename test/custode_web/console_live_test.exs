@@ -427,6 +427,74 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert_receive {:drain_called, _opts}, 1_000
   end
 
+  describe "editing an agent from the config tab" do
+    setup do
+      roster = Path.join(System.tmp_dir!(), uid("console-roster") <> ".toml")
+      System.put_env("CUSTODE_CONFIG", roster)
+      previous = Application.get_env(:custode, :routines)
+
+      on_exit(fn ->
+        System.delete_env("CUSTODE_CONFIG")
+        File.rm(roster)
+        Application.put_env(:custode, :routines, previous)
+      end)
+
+      %{roster: roster}
+    end
+
+    defp open_edit(conn, id) do
+      {:ok, view, _html} = live(conn, "/console/#{id}")
+      view |> element("button[phx-value-tab=config]") |> render_click()
+      html = view |> element("button[phx-click=edit_open]") |> render_click()
+      {view, html}
+    end
+
+    test "opens on the raw entry, saves through the write-back, and is live without a restart",
+         %{conn: conn, sleeper: sleeper, roster: roster} do
+      {view, html} = open_edit(conn, sleeper.id)
+
+      assert html =~ ~s(value="@daily")
+      # no roster file yet: the form says a save moves the roster into one
+      assert html =~ "Saving migrates your roster"
+
+      html =
+        view
+        |> form("#edit-routine", %{
+          "routine" => %{"daily_budget_usd" => "75.5", "cron" => "@weekly"}
+        })
+        |> render_submit()
+
+      assert html =~ "saved: live at the next minute"
+      assert File.read!(roster) =~ "daily_budget_usd = 75.5"
+      assert %{daily_budget_usd: 75.5, cron: "@weekly"} = Custode.Routine.get(sleeper.id)
+    end
+
+    test "a value that does not parse refuses the save and keeps what was typed",
+         %{conn: conn, sleeper: sleeper} do
+      {view, _html} = open_edit(conn, sleeper.id)
+
+      html =
+        view
+        |> form("#edit-routine", %{"routine" => %{"max_turns" => "plenty"}})
+        |> render_submit()
+
+      assert html =~ "refused: max_turns must be an integer"
+      assert html =~ ~s(value="plenty")
+      assert Custode.Routine.get(sleeper.id).max_turns != "plenty"
+    end
+
+    test "remove takes the agent off the roster and returns to the console",
+         %{conn: conn, sleeper: sleeper} do
+      {view, _html} = open_edit(conn, sleeper.id)
+
+      view |> element("button[phx-click=edit_remove]") |> render_click()
+
+      assert_patch(view, "/console")
+      assert Custode.Routine.get(sleeper.id) == nil
+      assert render(view) =~ "its notebook and workspace are kept"
+    end
+  end
+
   test "the tabs switch the subject pane", %{conn: conn, sleeper: sleeper} do
     {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
 

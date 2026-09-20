@@ -9,9 +9,8 @@ defmodule CustodeWeb.AgentLive do
 
   import CustodeWeb.Components
 
-  alias Custode.Config.Loader
-  alias Custode.Config.WriteBack
   alias Custode.Operations.Fleet.PauseAgent
+  alias Custode.Operator.RoutineEdit
   alias CustodeWeb.WorkflowLaunch
   alias ObanClaude.Agent
 
@@ -72,9 +71,8 @@ defmodule CustodeWeb.AgentLive do
   # can never bake profile defaults into the file; params live in assigns
   # so a re-render never wipes typed fields (#176's lesson).
   def handle_event("edit_open", _params, socket) do
-    case WriteBack.raw_entry(socket.assigns.id) do
-      {:ok, raw} ->
-        strings = edit_strings(raw)
+    case RoutineEdit.load(socket.assigns.id) do
+      {:ok, strings} ->
         {:noreply, assign(socket, edit: %{open: true, params: strings, raw: strings, error: nil})}
 
       {:error, reason} ->
@@ -94,16 +92,16 @@ defmodule CustodeWeb.AgentLive do
   def handle_event("edit_save", %{"routine" => params}, socket) do
     edit = socket.assigns.edit
 
-    with {:ok, changes} <- edit_changes(edit.raw, params),
-         {:ok, _path} <- apply_edit(socket.assigns.id, changes) do
-      note = if changes == %{}, do: "no changes", else: "saved -- live at the next minute"
+    case RoutineEdit.save(socket.assigns.id, edit.raw, params) do
+      {:ok, result} ->
+        note = if result == :unchanged, do: "no changes", else: "saved -- live at the next minute"
 
-      {:noreply,
-       socket
-       |> assign(edit: %{open: false, params: %{}, raw: %{}, error: nil})
-       |> put_flash(:info, "#{socket.assigns.id}: #{note}")
-       |> refresh()}
-    else
+        {:noreply,
+         socket
+         |> assign(edit: %{open: false, params: %{}, raw: %{}, error: nil})
+         |> put_flash(:info, "#{socket.assigns.id}: #{note}")
+         |> refresh()}
+
       {:error, reason} ->
         {:noreply,
          update(socket, :edit, &%{&1 | params: params, error: "refused: #{inspect(reason)}"})}
@@ -111,15 +109,8 @@ defmodule CustodeWeb.AgentLive do
   end
 
   def handle_event("edit_remove", _params, socket) do
-    case WriteBack.remove_routine(socket.assigns.id) do
-      {:ok, _path} ->
-        Custode.Feed.record(%{
-          event: "repo_verb",
-          agent: socket.assigns.id,
-          summary:
-            "remove_routine #{socket.assigns.id}: removed from the dashboard, notebook kept"
-        })
-
+    case RoutineEdit.remove(socket.assigns.id) do
+      :ok ->
         {:noreply,
          socket
          |> put_flash(:info, "#{socket.assigns.id} removed -- notebook and workspace kept")
@@ -917,7 +908,7 @@ defmodule CustodeWeb.AgentLive do
     # target_path, not file_path: a set-but-absent CUSTODE_CONFIG raises in
     # file_path/0, but here it just means the first save creates the file
     assigns =
-      assign(assigns, :migrates, not File.exists?(Loader.target_path()))
+      assign(assigns, :migrates, RoutineEdit.migrates?())
 
     ~H"""
     <dialog :if={@edit.open} class="modal modal-open" id="edit-agent-modal">
@@ -965,76 +956,6 @@ defmodule CustodeWeb.AgentLive do
       </div>
     </dialog>
     """
-  end
-
-  @edit_fields ~w(agent cron model effort max_budget_usd daily_budget_usd timeout_ms max_turns prompt tags)
-
-  # the raw entry's editable fields as form strings ("" = no override)
-  defp edit_strings(raw) do
-    Map.new(@edit_fields, fn field ->
-      value =
-        case Map.get(raw, String.to_existing_atom(field)) do
-          nil -> ""
-          :manual -> "manual"
-          list when is_list(list) -> Enum.map_join(list, ", ", &to_string/1)
-          other -> to_string(other)
-        end
-
-      {field, value}
-    end)
-  end
-
-  # submitted vs raw: same -> untouched; emptied an override -> nil (drop);
-  # new non-empty value -> typed parse. The id never changes here.
-  defp edit_changes(raw, params) do
-    Enum.reduce_while(@edit_fields, {:ok, %{}}, fn field, {:ok, changes} ->
-      submitted = String.trim(params[field] || "")
-      original = String.trim(raw[field] || "")
-
-      case edit_change(field, submitted, original) do
-        :unchanged -> {:cont, {:ok, changes}}
-        {:ok, value} -> {:cont, {:ok, Map.put(changes, String.to_existing_atom(field), value)}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  defp edit_change(_field, same, same), do: :unchanged
-  defp edit_change(_field, "", _had_override), do: {:ok, nil}
-  defp edit_change(field, submitted, _original), do: parse_edit_value(field, submitted)
-
-  defp apply_edit(_id, changes) when changes == %{}, do: {:ok, :unchanged}
-  defp apply_edit(id, changes), do: WriteBack.update_routine(id, changes)
-
-  defp parse_edit_value(field, value) when field in ~w(agent cron model prompt), do: {:ok, value}
-
-  defp parse_edit_value("effort", value) do
-    {:ok, String.to_existing_atom(value)}
-  rescue
-    ArgumentError -> {:error, "unknown effort #{inspect(value)}"}
-  end
-
-  defp parse_edit_value(field, value) when field in ~w(max_budget_usd daily_budget_usd) do
-    case Float.parse(value) do
-      {usd, ""} -> {:ok, usd}
-      _other -> {:error, "#{field} must be a number, got #{inspect(value)}"}
-    end
-  end
-
-  defp parse_edit_value(field, value) when field in ~w(timeout_ms max_turns) do
-    case Integer.parse(value) do
-      {n, ""} -> {:ok, n}
-      _other -> {:error, "#{field} must be an integer, got #{inspect(value)}"}
-    end
-  end
-
-  defp parse_edit_value("tags", value) do
-    {:ok,
-     value
-     |> String.split(",")
-     |> Enum.map(&String.trim/1)
-     |> Enum.reject(&(&1 == ""))
-     |> Enum.map(&String.to_atom/1)}
   end
 
   # The agent panel (#100 slice 1): the agent curates markdown under its

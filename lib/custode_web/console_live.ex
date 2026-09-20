@@ -28,6 +28,7 @@ defmodule CustodeWeb.ConsoleLive do
 
   alias Custode.Attention
   alias Custode.Operator.Actions
+  alias Custode.Operator.RoutineEdit
   alias Custode.Signal
   alias CustodeWeb.WorkflowLaunch
 
@@ -54,13 +55,14 @@ defmodule CustodeWeb.ConsoleLive do
        message_gen: 0,
        tell_gen: 0,
        notice: nil,
-       fleet_notice: nil
+       fleet_notice: nil,
+       edit: nil
      )}
   end
 
   @impl Phoenix.LiveView
   def handle_params(params, _uri, socket) do
-    {:noreply, socket |> assign(selected: params["id"], notice: nil) |> refresh()}
+    {:noreply, socket |> assign(selected: params["id"], notice: nil, edit: nil) |> refresh()}
   end
 
   @impl Phoenix.LiveView
@@ -152,6 +154,53 @@ defmodule CustodeWeb.ConsoleLive do
 
   def handle_event("revert_panel", _params, socket),
     do: socket.assigns.selected |> Actions.revert_panel(@opts) |> after_action(socket, nil)
+
+  # Editing a routine (#450). The form's rules (blank clears an override, the
+  # first value that does not parse refuses the save) are RoutineEdit's.
+  def handle_event("edit_open", _params, socket) do
+    case RoutineEdit.load(socket.assigns.selected) do
+      {:ok, strings} ->
+        {:noreply, assign(socket, edit: %{original: strings, params: strings, error: nil})}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, notice: "cannot edit: #{inspect(reason)}")}
+    end
+  end
+
+  def handle_event("edit_close", _params, socket), do: {:noreply, assign(socket, edit: nil)}
+
+  def handle_event("edit_change", %{"routine" => params}, socket),
+    do: {:noreply, update(socket, :edit, &%{&1 | params: params})}
+
+  def handle_event("edit_save", %{"routine" => params}, socket) do
+    case RoutineEdit.save(socket.assigns.selected, socket.assigns.edit.original, params) do
+      {:ok, :unchanged} ->
+        {:noreply, socket |> assign(edit: nil, notice: "no changes") |> refresh()}
+
+      {:ok, :saved} ->
+        {:noreply,
+         socket |> assign(edit: nil, notice: "saved: live at the next minute") |> refresh()}
+
+      {:error, reason} ->
+        error = "refused: " <> if(is_binary(reason), do: reason, else: inspect(reason))
+        {:noreply, update(socket, :edit, &%{&1 | params: params, error: error})}
+    end
+  end
+
+  def handle_event("edit_remove", _params, socket) do
+    id = socket.assigns.selected
+
+    case RoutineEdit.remove(id, surface: "console") do
+      :ok ->
+        {:noreply,
+         socket
+         |> assign(edit: nil, fleet_notice: "#{id} removed: its notebook and workspace are kept")
+         |> push_patch(to: "/console")}
+
+      {:error, reason} ->
+        {:noreply, update(socket, :edit, &%{&1 | error: "remove refused: #{inspect(reason)}"})}
+    end
+  end
 
   def handle_event("drop_draft", %{"id" => id}, socket),
     do: id |> Actions.drop_draft(@opts) |> after_action(socket, nil)
@@ -299,6 +348,7 @@ defmodule CustodeWeb.ConsoleLive do
             tab={@tab}
             notice={@notice}
             message_gen={@message_gen}
+            edit={@edit}
           />
         </main>
 
@@ -381,6 +431,7 @@ defmodule CustodeWeb.ConsoleLive do
   attr(:tab, :string, required: true)
   attr(:notice, :string, default: nil)
   attr(:message_gen, :integer, required: true)
+  attr(:edit, :any, default: nil)
 
   defp subject(assigns) do
     ~H"""
@@ -445,7 +496,7 @@ defmodule CustodeWeb.ConsoleLive do
       <.notebook_tab :if={@tab == "notebook"} subject={@subject} />
       <.panel_tab :if={@tab == "panel"} subject={@subject} />
       <.turns_tab :if={@tab == "turns"} subject={@subject} />
-      <.config_tab :if={@tab == "config"} subject={@subject} />
+      <.config_tab :if={@tab == "config"} subject={@subject} edit={@edit} />
     </div>
     """
   end
@@ -707,6 +758,7 @@ defmodule CustodeWeb.ConsoleLive do
   end
 
   attr(:subject, :map, required: true)
+  attr(:edit, :any, default: nil)
 
   defp config_tab(assigns) do
     ~H"""
@@ -771,10 +823,61 @@ defmodule CustodeWeb.ConsoleLive do
         <pre class="mt-2 max-h-96 overflow-y-auto whitespace-pre-wrap rounded bg-base-100 p-3 text-xs">{@subject.routine.system_prompt}</pre>
       </details>
 
-      <p class="text-xs text-base-content/50">
-        Editing still lives on
-        <.link navigate={"/agents/#{@subject.id}"} class="link">the agent page</.link>.
-      </p>
+      <button :if={@edit == nil} class="btn btn-outline btn-sm" phx-click="edit_open">
+        edit
+      </button>
+
+      <form
+        :if={@edit}
+        id="edit-routine"
+        phx-change="edit_change"
+        phx-submit="edit_save"
+        class="rounded-xl border border-base-300 bg-base-100 p-4"
+      >
+        <p :if={RoutineEdit.migrates?()} class="mb-3 rounded bg-warning/20 p-2 text-xs">
+          Saving migrates your roster to <span class="font-mono">routines.toml</span>: from then
+          on the file is the roster, and the one in application config is ignored.
+        </p>
+        <p class="mb-3 text-xs text-base-content/60">
+          A blank field clears the override, so the routine inherits its profile or the default
+          again. Saved edits are live at the next minute, with no restart.
+        </p>
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <label
+            :for={field <- RoutineEdit.fields()}
+            class={["form-control", field == "prompt" && "md:col-span-2"]}
+          >
+            <span class="mb-1 font-mono text-xs text-base-content/60">{field}</span>
+            <textarea
+              :if={field == "prompt"}
+              name={"routine[#{field}]"}
+              rows="4"
+              class="textarea textarea-bordered w-full text-sm"
+            >{@edit.params[field]}</textarea>
+            <input
+              :if={field != "prompt"}
+              type="text"
+              name={"routine[#{field}]"}
+              value={@edit.params[field]}
+              autocomplete="off"
+              class="input input-bordered input-sm w-full font-mono"
+            />
+          </label>
+        </div>
+        <p :if={@edit.error} class="mt-3 text-xs text-error">{@edit.error}</p>
+        <div class="mt-4 flex items-center gap-2">
+          <button type="submit" class="btn btn-primary btn-sm">save</button>
+          <button type="button" class="btn btn-ghost btn-sm" phx-click="edit_close">cancel</button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm ml-auto text-error"
+            phx-click="edit_remove"
+            data-confirm={"Remove #{@subject.id} from the roster? Its notebook and workspace are kept."}
+          >
+            remove from the roster
+          </button>
+        </div>
+      </form>
     </div>
     """
   end
