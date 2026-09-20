@@ -226,6 +226,86 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert name == workflow.name
   end
 
+  describe "the item pane" do
+    # on the live fleet "main is red" arrived with nothing to click
+    test "a signal's evidence is a link when the subject has a repository" do
+      html =
+        render_component(&CustodeWeb.ConsoleLive.evidence_for_test/1,
+          item: {:branch, "main"},
+          repo: "joshrotenberg/tower-mcp"
+        )
+
+      assert html =~ "failing runs on main"
+
+      assert html =~
+               "https://github.com/joshrotenberg/tower-mcp/actions?query=branch%3Amain+is%3Afailure"
+
+      html =
+        render_component(&CustodeWeb.ConsoleLive.evidence_for_test/1,
+          item: {:prs, [400, 429]},
+          repo: "joshrotenberg/mdbook-lint"
+        )
+
+      assert html =~ "https://github.com/joshrotenberg/mdbook-lint/pull/400"
+      assert html =~ "#429"
+    end
+
+    test "evidence with no repository behind it draws nothing" do
+      assert render_component(&CustodeWeb.ConsoleLive.evidence_for_test/1,
+               item: {:branch, "main"},
+               repo: nil
+             ) == ""
+    end
+
+    # the part of #447 the inbox could not carry: prune a batch where you approve it
+    test "a drafted batch is pruned in place: drop, then keep", %{conn: conn, sleeper: sleeper} do
+      batch = uid("batch")
+
+      [first, _second] =
+        for title <- ["chore: bump deps", "fix: flaky pool test"] do
+          Custode.Repo.insert!(%Custode.Drafts.Draft{
+            batch_id: batch,
+            routine_id: sleeper.id,
+            repo: "acme/widgets",
+            title: title,
+            body: "evidence for " <> title
+          })
+        end
+
+      {:ok, view, html} = live(conn, "/console/#{sleeper.id}")
+      assert html =~ "drafted issues: 2 of 2 kept"
+      assert html =~ "fix: flaky pool test"
+
+      html =
+        view
+        |> element(~s(button[phx-click=drop_draft][phx-value-id="#{first.id}"]))
+        |> render_click()
+
+      assert html =~ "drafted issues: 1 of 2 kept"
+
+      html = view |> element("button[phx-click=keep_draft]") |> render_click()
+      assert html =~ "drafted issues: 2 of 2 kept"
+    end
+  end
+
+  test "the notebook tab is a working one: a todo can be done and a memory forgotten",
+       %{conn: conn, sleeper: sleeper} do
+    {:ok, _todo} = Custode.Notebook.todo_add(sleeper.id, "bench the pooled path")
+    Custode.Memory.remember(sleeper.id, "watch-item", "pool flakes on macOS CI")
+
+    {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+    html = view |> element("button[phx-value-tab=notebook]") |> render_click()
+
+    assert html =~ "bench the pooled path"
+    assert html =~ "pool flakes on macOS CI"
+
+    html = view |> element("button[phx-click=todo_done]") |> render_click()
+    refute html =~ "bench the pooled path"
+
+    html = view |> element("button[phx-click=forget_memory]") |> render_click()
+    refute html =~ "pool flakes on macOS CI"
+  end
+
   test "the tabs switch the subject pane", %{conn: conn, sleeper: sleeper} do
     {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
 
