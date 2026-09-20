@@ -68,7 +68,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ "this starts a turn with your message"
 
     html = view |> form("form[phx-submit=message]", %{"text" => "look at 42"}) |> render_submit()
-    assert html =~ "sent"
+    assert html =~ "started a turn with your message"
   end
 
   test "a question is answered in place, from the item pane",

@@ -78,6 +78,52 @@ defmodule Custode.MCPToolsTest do
       assert tool_error(reply) =~ "not an existing directory"
     end
 
+    # "delivered: true" used to be the reply for a prompt the engine had
+    # dropped (#472)
+    test "the operator's prompt reaches a PAUSED agent, and the reply says it was resumed" do
+      id = start_stub_agent!()
+      :ok = Agent.emergency_pause(id)
+      {:ok, :paused} = Agent.await(id, :paused, 1_000)
+
+      json = tool_json(Tools.PromptAgent.execute(%{agent_id: id, prompt: "carry on"}, @frame))
+
+      assert json["delivered"] == true
+      assert json["how"] == "resumed"
+      assert_receive {:enqueued, args, _meta}, 1_000
+      assert args["prompt"] =~ "carry on"
+    end
+
+    test "the operator's prompt starts an OFFLINE routine with the prompt as its turn" do
+      routine = routine_fixture!(tmp_workspace!())
+
+      json =
+        tool_json(
+          Tools.PromptAgent.execute(%{agent_id: routine.id, prompt: "look at 42"}, @frame)
+        )
+
+      assert json["how"] == "started"
+
+      assert [tick] =
+               jobs_for("ObanClaude.Agent.Tick")
+               |> Enum.filter(&(&1.args["agent_id"] == routine.id))
+
+      assert tick.args["prompt"] == "look at 42"
+    end
+
+    test "a routine prompting its sub-agent keeps the direct cast and never resumes it" do
+      id = start_stub_agent!()
+      :ok = Agent.emergency_pause(id)
+      {:ok, :paused} = Agent.await(id, :paused, 1_000)
+
+      parent = %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :routine, id: "boss"}}}
+      json = tool_json(Tools.PromptAgent.execute(%{agent_id: id, prompt: "go"}, parent))
+
+      assert json["how"] == "delivered"
+      # the operator's pause stands: a parent cannot lift it by prompting
+      assert {:ok, :paused} = Agent.status(id)
+      refute_receive {:enqueued, _args, _meta}, 200
+    end
+
     test "prompting a non-running agent is a tool error" do
       reply = Tools.PromptAgent.execute(%{agent_id: "ghost", prompt: "x"}, @frame)
       assert tool_error(reply) =~ "agent_not_running"
