@@ -11,14 +11,14 @@ jobs:
     env:
       MIX_ENV: test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # the app path-deps on the sibling executor checkouts
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: genagent/oban_claude
           path: .oban_claude
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: genagent/oban_codex
           path: .oban_codex
@@ -32,7 +32,7 @@ jobs:
           elixir-version: "1.20"
           otp-version: "29"
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             deps
@@ -54,13 +54,13 @@ jobs:
     env:
       MIX_ENV: dev
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: genagent/oban_claude
           path: .oban_claude
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: genagent/oban_codex
           path: .oban_codex
@@ -74,7 +74,7 @@ jobs:
           elixir-version: "1.20"
           otp-version: "29"
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             deps
@@ -84,7 +84,7 @@ jobs:
 
       # The PLT is expensive to build; cache it on the toolchain and the lock
       # so it only rebuilds when one of those moves.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: priv/plts
           key: plt-${{ runner.os }}-otp29-elixir1.20-${{ hashFiles('mix.lock') }}
@@ -102,7 +102,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Every commit first line is conventional
