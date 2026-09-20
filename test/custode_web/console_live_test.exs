@@ -11,6 +11,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
   alias Custode.Workflow
   alias Custode.Workflow.Launch
   alias Custode.Workflow.Run
+  alias CustodeWeb.Console.Item
 
   @endpoint CustodeWeb.Endpoint
 
@@ -232,7 +233,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
     # on the live fleet "main is red" arrived with nothing to click
     test "a signal's evidence is a link when the subject has a repository" do
       html =
-        render_component(&CustodeWeb.ConsoleLive.evidence_for_test/1,
+        render_component(&Item.evidence/1,
           item: {:branch, "main"},
           repo: "joshrotenberg/tower-mcp"
         )
@@ -243,7 +244,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
                "https://github.com/joshrotenberg/tower-mcp/actions?query=branch%3Amain+is%3Afailure"
 
       html =
-        render_component(&CustodeWeb.ConsoleLive.evidence_for_test/1,
+        render_component(&Item.evidence/1,
           item: {:prs, [400, 429]},
           repo: "joshrotenberg/mdbook-lint"
         )
@@ -253,7 +254,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
     end
 
     test "evidence with no repository behind it draws nothing" do
-      assert render_component(&CustodeWeb.ConsoleLive.evidence_for_test/1,
+      assert render_component(&Item.evidence/1,
                item: {:branch, "main"},
                repo: nil
              ) == ""
