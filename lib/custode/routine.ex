@@ -79,7 +79,19 @@ defmodule Custode.Routine do
     janitor_entries = [{"@daily", Custode.Janitor, args: %{}, queue: :sensors}]
 
     sensor_entries ++
-      janitor_entries ++ lease_reconcile_entries() ++ aging_entries() ++ advisor_entries()
+      janitor_entries ++
+      lease_reconcile_entries() ++ aging_entries() ++ usage_probe_entries() ++ advisor_entries()
+  end
+
+  # How much of the plan is used (#458). Every ten minutes keeps the snapshot
+  # inside `Custode.Availability`'s fifteen-minute freshness window; the probe
+  # skips itself when something else already refreshed it. `false` disables
+  # the line (advisor semantics).
+  defp usage_probe_entries do
+    case Application.get_env(:custode, :usage_probe_cron, "*/10 * * * *") do
+      false -> []
+      cron -> [{cron, Custode.Availability.Probe, args: %{}, queue: :sensors}]
+    end
   end
 
   # Re-notify a gate or ask that has been left open (#446). The cadence and

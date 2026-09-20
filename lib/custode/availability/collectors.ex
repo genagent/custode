@@ -91,7 +91,7 @@ defmodule Custode.Availability.Parse do
   @doc "The reset instant, from an absolute timestamp or a relative offset."
   @spec resets_at(map(), DateTime.t()) :: DateTime.t() | nil
   def resets_at(payload, now) do
-    case value(payload, ["resets_at", "reset_at", "resets_in_seconds"]) do
+    case value(payload, ["resets_at", "resetsAt", "reset_at", "resets_in_seconds"]) do
       value when is_binary(value) -> from_iso(value)
       value when is_integer(value) and value > 1_000_000_000 -> from_unix(value)
       value when is_number(value) -> DateTime.add(now, trunc(value), :second)
@@ -161,6 +161,10 @@ defmodule Custode.Availability.Collectors.Claude do
 
   def observe(event, options) when is_map(event) do
     now = Keyword.get(options, :now, DateTime.utc_now())
+    # The CLI wraps the payload: `{"type": "rate_limit_event",
+    # "rate_limit_info": {...}}` (captured from claude 2.1.273, #458). A bare
+    # payload, which is what this was first written against, still works.
+    event = Parse.value(event, ["rate_limit_info"]) || event
 
     snapshot = %Snapshot{
       provider: @provider,
@@ -178,16 +182,36 @@ defmodule Custode.Availability.Collectors.Claude do
   def observe(_event, _options), do: {:error, :invalid_rate_limit_event}
 
   # An event may carry named windows or describe a single unified limit.
+  # `unifiedWindows` is what a Max plan sends: one entry per window
+  # (`five_hour`, `seven_day`), each with a utilization and a reset, and ONE
+  # status for the whole event that belongs to the window named by
+  # `rateLimitType`.
   defp buckets(event, now) do
-    case Parse.value(event, ["rate_limits", "limits", "windows"]) do
+    case Parse.value(event, ["unifiedWindows", "rate_limits", "limits", "windows"]) do
       limits when is_map(limits) and map_size(limits) > 0 ->
-        for {id, payload} <- limits,
-            is_map(payload),
-            do: Parse.bucket(to_string(id), payload, now)
+        binding = to_string(Parse.value(event, ["rateLimitType", "limit_type"]) || "")
+        status = Parse.value(event, ["status", "unified_status"])
+
+        for {id, payload} <- limits, is_map(payload) do
+          payload = window_status(payload, to_string(id) == binding, status)
+          Parse.bucket(to_string(id), payload, now)
+        end
 
       _absent ->
         [Parse.bucket("unified", unified(event), now)]
     end
+  end
+
+  # A window with its own status keeps it. Otherwise the event's status is the
+  # binding window's, and any other window that reported a utilization is ok:
+  # it was measured and it is not the one the provider is complaining about.
+  defp window_status(%{"status" => _own} = payload, _binding?, _status), do: payload
+
+  defp window_status(payload, true, status) when is_binary(status),
+    do: Map.put(payload, "status", status)
+
+  defp window_status(payload, _binding?, _status) do
+    if is_number(Parse.utilization(payload)), do: Map.put(payload, "status", "ok"), else: payload
   end
 
   defp unified(event) do
