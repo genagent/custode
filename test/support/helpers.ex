@@ -66,6 +66,32 @@ defmodule Custode.TestHelpers do
   end
 
   @doc """
+  Clear every source of a needs-you signal that has NO agent behind it, plus
+  the per-agent ones that outlive their agent.
+
+  A test that asserts on the WHOLE fleet's attention ("exactly one thing needs
+  you") is at the mercy of every other module's leftovers, because the test
+  database persists and these live outside any one routine: an open ask
+  outlives its agent on purpose (#301), a workflow launch proposal and a run
+  parked on its rail are agentless (#447), and the host signal is a
+  `:persistent_term` (#443). Each of those arrived with a new leak, found the
+  same way: a whole-fleet test passing alone and failing under some seed.
+
+  One list here for the same reason as `truncate_work!/0`: several suites each
+  kept their own, no two agreed, and the list that was missing a line was the
+  one that failed.
+  """
+  def clear_attention! do
+    for table <- ~w(asks gates disowned_prs workflow_node_results workflow_runs) do
+      Custode.Repo.query!("DELETE FROM #{table}")
+    end
+
+    Custode.Repo.query!("DELETE FROM feed_entries WHERE event LIKE 'workflow_%'")
+    Custode.Host.reset()
+    :ok
+  end
+
+  @doc """
   Start an agent whose enqueues land in the calling test's mailbox as
   `{:enqueued, args, meta}`. Stopped on test exit.
   """
