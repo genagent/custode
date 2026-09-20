@@ -141,6 +141,23 @@ defmodule Custode.Application do
     Supervisor.start_link(children, strategy: :one_for_one, name: Custode.Supervisor)
   end
 
+  # The Cron plugin inserts a row for every crontab entry whose minute matches
+  # the wall clock, whether or not any queue executes. In the test env that
+  # put inserts at :00, :20, :30 and :40 of every hour into a database the
+  # tests share, and a test that counts `Oban.Job` rows around an action could
+  # see one land in between (#435). `config :custode, oban_cron: false` leaves
+  # the plugin out: nothing scheduled, nothing auto-started.
+  defp cron_plugin(crontab) do
+    if Application.get_env(:custode, :oban_cron, true) do
+      [
+        {Oban.Plugins.Cron,
+         crontab: crontab, timezone: Application.get_env(:custode, :timezone, "Etc/UTC")}
+      ]
+    else
+      []
+    end
+  end
+
   defp oban_config do
     crontab = Custode.Routine.crontab()
 
@@ -149,18 +166,18 @@ defmodule Custode.Application do
       engine: Oban.Engines.Lite,
       notifier: Oban.Notifiers.PG,
       peer: Oban.Peers.Isolated,
-      plugins: [
-        {Oban.Plugins.Cron,
-         crontab: crontab, timezone: Application.get_env(:custode, :timezone, "Etc/UTC")},
-        # a crash mid-turn leaves the job row stuck executing; Lifeline
-        # rescinds it so the durable-restart story holds for turns too.
-        # MUST exceed the longest legitimate turn (backlog workers run
-        # 900s + 60s watchdog): a shorter rescue_after re-runs a LIVE
-        # turn's job -- double claude, double spend (audit 2026-07-21).
-        {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(20)},
-        # the jobs table is the audit trail: keep a week, not forever
-        {Oban.Plugins.Pruner, max_age: 7 * 24 * 60 * 60}
-      ],
+      plugins:
+        cron_plugin(crontab) ++
+          [
+            # a crash mid-turn leaves the job row stuck executing; Lifeline
+            # rescinds it so the durable-restart story holds for turns too.
+            # MUST exceed the longest legitimate turn (backlog workers run
+            # 900s + 60s watchdog): a shorter rescue_after re-runs a LIVE
+            # turn's job -- double claude, double spend (audit 2026-07-21).
+            {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(20)},
+            # the jobs table is the audit trail: keep a week, not forever
+            {Oban.Plugins.Pruner, max_age: 7 * 24 * 60 * 60}
+          ],
       # ticks on their own queue so a beat observes the agent's state, not a
       # queue slot behind the agent's own turn job. Overridable so the test
       # env can run with no executing queues at all (no paid calls, ever).
