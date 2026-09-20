@@ -256,6 +256,32 @@ defmodule Custode do
   @drain_queues [:ticks, :agents, :sensors]
 
   @doc """
+  Begin a graceful drain without blocking the caller, and say how many turns
+  it is waiting on.
+
+  The queues are paused HERE, synchronously, because closing the race is the
+  half that must not wait on a task being scheduled. The blocking wait and the
+  stop are handed to a task; `drain/1` re-pausing paused queues is a no-op.
+
+  One entry point for every surface that can drain (the MCP tool, the console)
+  so they cannot drift. `:drain_fun` is the seam tests use: a real
+  `System.stop/0` would take down the test VM.
+  """
+  @spec start_drain(non_neg_integer() | nil) :: non_neg_integer()
+  def start_drain(timeout_ms \\ nil) do
+    for queue <- [:ticks, :agents, :sensors], do: Oban.pause_queue(queue: queue)
+
+    executing = length(executing_turns())
+    opts = if timeout_ms, do: [timeout: timeout_ms], else: []
+    drain_fun = Application.get_env(:custode, :drain_fun, &drain/1)
+
+    {:ok, _pid} =
+      Task.Supervisor.start_child(Custode.TaskSupervisor, fn -> drain_fun.(opts) end)
+
+    executing
+  end
+
+  @doc """
   Graceful drain for a restart (#132): pause every executing queue, wait out
   the turns already running, then stop the VM.
 
