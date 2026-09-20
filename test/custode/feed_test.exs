@@ -399,4 +399,30 @@ defmodule Custode.FeedTest do
     # a second import refuses: the table is no longer empty
     assert_raise MatchError, fn -> Custode.Feed.import_jsonl!(legacy) end
   end
+
+  # `recent_by_event/2` resolves workflow proposals and parked runs for every
+  # attention read, and `for_agent/2` backs the console -- so both run on every
+  # page render and every PubSub refresh, against a table that grows by a few
+  # thousand rows a day from sensors alone (#480). A migration that drops
+  # either index turns those reads into full scans, which no behavioural test
+  # would notice; this one names the index the planner must pick.
+  for {read, where, index} <- [
+        {"recent_by_event/2", "WHERE event = 'turn'", "feed_entries_event_id_index"},
+        {"for_agent/2", "WHERE agent = 'a'", "feed_entries_agent_id_index"}
+      ] do
+    test "the hot feed read behind #{read} is index-backed, not a table scan" do
+      %{rows: rows} =
+        Custode.Repo.query!(
+          "EXPLAIN QUERY PLAN SELECT id, entry FROM feed_entries " <>
+            unquote(where) <> " ORDER BY id DESC LIMIT 10"
+        )
+
+      plan = Enum.map_join(rows, " ", &List.last/1)
+
+      assert plan =~ "SEARCH feed_entries USING",
+             "expected an indexed search, got: #{plan}"
+
+      assert plan =~ unquote(index), "expected #{unquote(index)}, got: #{plan}"
+    end
+  end
 end
