@@ -11,12 +11,12 @@ defmodule CustodeWeb.FleetLive do
 
   use Phoenix.LiveView
 
-  alias Custode.Config.WriteBack
   alias Custode.Operations.Fleet.PauseAgent
 
   import CustodeWeb.Components
 
   alias Custode.Attention
+  alias Custode.Operator.RoutineNew
   alias Custode.Routine
   alias Custode.Workflow.Launch
   alias ObanClaude.Agent
@@ -164,32 +164,23 @@ defmodule CustodeWeb.FleetLive do
 
   def handle_event("new_agent_change", %{"routine" => params}, socket) do
     new_agent =
-      case form_attrs(params) do
-        {:ok, attrs} ->
-          %{open: true, preview: WriteBack.render_routine(attrs), error: nil, params: params}
-
-        {:error, message} ->
-          %{open: true, preview: nil, error: message, params: params}
+      case RoutineNew.preview(params) do
+        {:ok, toml} -> %{open: true, preview: toml, error: nil, params: params}
+        {:error, message} -> %{open: true, preview: nil, error: message, params: params}
       end
 
     {:noreply, assign(socket, new_agent: new_agent)}
   end
 
   def handle_event("new_agent_create", %{"routine" => params}, socket) do
-    with {:ok, attrs} <- form_attrs(params),
-         {:ok, path} <- WriteBack.add_routine(attrs) do
-      Custode.Feed.record(%{
-        event: "repo_verb",
-        agent: attrs.id,
-        summary: "add_routine #{attrs.id}: created from the dashboard, appended to #{path}"
-      })
+    case RoutineNew.create(params) do
+      {:ok, id} ->
+        {:noreply,
+         socket
+         |> assign(new_agent: %{open: false, preview: nil, error: nil, params: %{}})
+         |> put_flash(:info, "#{id} added -- live now, scheduled at its next cron minute")
+         |> refresh()}
 
-      {:noreply,
-       socket
-       |> assign(new_agent: %{open: false, preview: nil, error: nil, params: %{}})
-       |> put_flash(:info, "#{attrs.id} added -- live now, scheduled at its next cron minute")
-       |> refresh()}
-    else
       {:error, reason} ->
         {:noreply, update(socket, :new_agent, &%{&1 | error: "refused: #{inspect(reason)}"})}
     end
@@ -199,54 +190,6 @@ defmodule CustodeWeb.FleetLive do
     # clicking the active tag clears the filter
     filter = if socket.assigns.tag_filter == tag, do: nil, else: tag
     {:noreply, socket |> assign(tag_filter: filter) |> refresh()}
-  end
-
-  # Form params (string-keyed, string-valued) into the WriteBack attrs
-  # vocabulary -- the same conversions the TOML loader applies. Unknown
-  # profiles come back as a message, not a crash.
-  defp form_attrs(params) do
-    id = String.trim(params["id"] || "")
-
-    if id == "" do
-      {:error, "id is required"}
-    else
-      attrs =
-        %{id: id}
-        |> form_put(params, "profile", &known_profile!/1)
-        |> form_put(params, "cron")
-        |> form_put(params, "repo")
-        |> form_put(params, "working_dir")
-        |> form_put(params, "workspace")
-        |> form_put(params, "prompt")
-        |> form_put(params, "tags", fn v ->
-          v
-          |> String.split(",")
-          |> Enum.map(&String.trim/1)
-          |> Enum.reject(&(&1 == ""))
-          |> Enum.map(&String.to_atom/1)
-        end)
-
-      {:ok, attrs}
-    end
-  rescue
-    ArgumentError -> {:error, "unknown profile #{inspect(params["profile"])}"}
-  end
-
-  # An unknown profile is one that is not a KEY in the profile map -- not
-  # merely a string that fails to be an existing atom. Checking membership
-  # (not just to_existing_atom raising) makes the guard robust to unrelated
-  # atoms that happen to share the name. Either way it raises ArgumentError,
-  # which the caller's rescue turns into the "unknown profile" message.
-  defp known_profile!(value) do
-    atom = String.to_existing_atom(value)
-    if Map.has_key?(Custode.Routine.profiles(), atom), do: atom, else: raise(ArgumentError)
-  end
-
-  defp form_put(attrs, params, key, convert \\ & &1) do
-    case String.trim(params[key] || "") do
-      "" -> attrs
-      value -> Map.put(attrs, String.to_existing_atom(key), convert.(value))
-    end
   end
 
   @impl Phoenix.LiveView
