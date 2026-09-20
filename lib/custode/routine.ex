@@ -78,7 +78,18 @@ defmodule Custode.Routine do
 
     janitor_entries = [{"@daily", Custode.Janitor, args: %{}, queue: :sensors}]
 
-    sensor_entries ++ janitor_entries ++ lease_reconcile_entries() ++ advisor_entries()
+    sensor_entries ++
+      janitor_entries ++ lease_reconcile_entries() ++ aging_entries() ++ advisor_entries()
+  end
+
+  # Re-notify a gate or ask that has been left open (#446). The cadence and
+  # `:aging_interval_seconds` must agree: the job reasons about the window
+  # since its previous run. `false` disables the line (advisor semantics).
+  defp aging_entries do
+    case Application.get_env(:custode, :aging_cron, "*/10 * * * *") do
+      false -> []
+      cron -> [{cron, Custode.Aging.Job, args: %{}, queue: :sensors}]
+    end
   end
 
   # Expired workspace leases must be reclaimed while the node is UP, not only
