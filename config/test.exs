@@ -6,6 +6,12 @@ config :custode,
   # No executing queues in tests: jobs insert but never run, so a test can
   # NEVER make a paid claude call by accident.
   oban_queues: [],
+  # And no Cron plugin (#435). It inserts a row at every matching minute even
+  # with no queue to run it, and the sensor lines in the base config put those
+  # inserts at :00, :20, :30 and :40 of every hour into the database the tests
+  # share. A test that counts Oban.Job rows around an action could see one land
+  # in between. Whatever a test wants scheduled, it inserts itself.
+  oban_cron: false,
   # The routine scheduler's timer stays disarmed in tests (like the empty
   # executing queues): a test that puts routines into env must not have the
   # app-level scheduler fire them on a wall-clock minute. Its own tests drive
