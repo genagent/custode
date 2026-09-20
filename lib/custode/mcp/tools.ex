@@ -60,18 +60,31 @@ defmodule Custode.MCP.Tools do
   end
 
   @doc """
-  Notebook/memory self-scope (#2): a routine writes only its OWN records.
-  Operators pass; reads are not scoped (transparency is a feature).
+  Notebook/memory self-scope (#2, #488): WRITES ARE SELF-ONLY, READS ARE OPEN.
+
+  A record (journal, todos, memories, panel, drafts) is written only by the
+  agent it belongs to, or by the operator. That holds for every kind of agent
+  caller: this used to refuse only a `:routine` naming another id, so a
+  sub-agent, the least trusted caller in the tree (design/000), could write
+  under its parent's id or a sibling routine's.
+
+  Reads (`todo_list`, `inbox_list`, `recall`) are deliberately NOT scoped: an
+  agent may read a sibling's todos, inbox and memories by id. Transparency is
+  a feature, and agents knowing about each other is what the mesh (#461)
+  builds on. To tell another agent something, drop a note in its inbox.
   """
   def check_self(frame, target_id) do
     case Custode.MCP.caller(frame) do
-      %{kind: :routine, id: caller_id} when caller_id != target_id ->
+      %{kind: :operator} ->
+        :ok
+
+      %{id: ^target_id} ->
+        :ok
+
+      %{id: caller_id} ->
         {:error,
          "identity: #{caller_id} may not write #{target_id}'s records; " <>
            "drop a note in its inbox instead"}
-
-      _self_or_operator ->
-        :ok
     end
   end
 
