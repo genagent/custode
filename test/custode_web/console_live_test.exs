@@ -364,6 +364,69 @@ defmodule CustodeWeb.ConsoleLiveTest do
     end
   end
 
+  describe "the work tab" do
+    setup %{conn: conn} do
+      workspace = tmp_workspace!()
+      repo = "acme/" <> uid("widgets")
+
+      put_env!(:routines, [
+        %{id: uid("keeper"), cron: "@daily", workspace: workspace, prompt: "sweep", repo: repo}
+      ])
+
+      [keeper] = Custode.Routine.all()
+      on_exit(fn -> Custode.Repo.query!("DELETE FROM disowned_prs") end)
+      %{conn: conn, keeper: keeper, repo: repo}
+    end
+
+    # CLI only until the console: `mix custode disown`
+    test "a pull request is disowned with a reason, listed, and reclaimed",
+         %{conn: conn, keeper: keeper, repo: repo} do
+      {:ok, view, _html} = live(conn, "/console/#{keeper.id}")
+      view |> element("button[phx-value-tab=work]") |> render_click()
+
+      html =
+        view
+        |> form("form[phx-submit=disown]", %{"number" => "#400", "reason" => "my LSP config fix"})
+        |> render_submit()
+
+      assert html =~ "disowned #400"
+      assert html =~ "my LSP config fix"
+      assert %{reason: "my LSP config fix", agent_id: agent} = Custode.Disowned.get(repo, 400)
+      assert agent == keeper.id
+
+      html = view |> element("button[phx-click=reclaim]") |> render_click()
+      assert html =~ "reclaimed #400"
+      assert Custode.Disowned.get(repo, 400) == nil
+    end
+
+    test "something that is not a PR number is refused, not stored",
+         %{conn: conn, keeper: keeper, repo: repo} do
+      {:ok, view, _html} = live(conn, "/console/#{keeper.id}")
+      view |> element("button[phx-value-tab=work]") |> render_click()
+
+      html =
+        view
+        |> form("form[phx-submit=disown]", %{"number" => "the red one", "reason" => ""})
+        |> render_submit()
+
+      assert html =~ "not_a_pr_number"
+      assert Custode.Disowned.numbers(repo) |> Enum.empty?()
+    end
+  end
+
+  # CLI only until the console: `mix custode drain`
+  test "drain is in the fleet menu, pauses the queues and hands the wait to a task",
+       %{conn: conn} do
+    test_pid = self()
+    put_env!(:drain_fun, fn opts -> send(test_pid, {:drain_called, opts}) end)
+
+    {:ok, view, _html} = live(conn, "/console")
+    html = view |> element("button[phx-click=drain]") |> render_click()
+
+    assert html =~ "draining: queues paused"
+    assert_receive {:drain_called, _opts}, 1_000
+  end
+
   test "the tabs switch the subject pane", %{conn: conn, sleeper: sleeper} do
     {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
 

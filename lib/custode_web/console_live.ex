@@ -29,6 +29,7 @@ defmodule CustodeWeb.ConsoleLive do
   alias Custode.Attention
   alias Custode.Operator.Actions
   alias Custode.Signal
+  alias CustodeWeb.WorkflowLaunch
 
   @tabs ~w(attention activity work notebook panel turns config)
   @opts [via: :liveview]
@@ -111,6 +112,36 @@ defmodule CustodeWeb.ConsoleLive do
     mode = if match?({:present, _at}, socket.assigns.presence), do: :away, else: :auto
     :ok = Actions.set_presence(mode, @opts)
     {:noreply, refresh(socket)}
+  end
+
+  # The shared handler, unchanged (design/005): a launch from here opens the
+  # same gate as one from /repos, and the gate says where the click came from.
+  def handle_event("propose_workflow", params, socket) do
+    why = "launched by hand from the console, on #{socket.assigns.selected}"
+    {:noreply, socket |> WorkflowLaunch.propose(params, why) |> refresh()}
+  end
+
+  def handle_event("disown", %{"number" => number} = params, socket) do
+    %{id: agent_id, repo: repo} = socket.assigns.subject
+
+    agent_id
+    |> Actions.disown(repo, number, params["reason"], @opts)
+    |> after_action(socket, "disowned ##{String.trim_leading(number, "#")}")
+  end
+
+  def handle_event("reclaim", %{"number" => number}, socket) do
+    socket.assigns.subject.repo
+    |> Actions.reclaim(number, @opts)
+    |> after_action(socket, "reclaimed ##{number}")
+  end
+
+  def handle_event("drain", _params, socket) do
+    {:ok, executing} = Actions.drain(@opts)
+
+    notice =
+      "draining: queues paused, #{executing} turn(s) executing. The node stops when they finish."
+
+    {:noreply, socket |> assign(fleet_notice: notice) |> refresh()}
   end
 
   def handle_event("approve_panel", _params, socket),
@@ -234,6 +265,14 @@ defmodule CustodeWeb.ConsoleLive do
               </button>
             </li>
             <li><button phx-click="resume_all">resume all</button></li>
+            <li>
+              <button
+                phx-click="drain"
+                data-confirm="Drain for a restart? Queues pause, executing turns finish, then the node STOPS and this page goes away."
+              >
+                drain for restart
+              </button>
+            </li>
           </ul>
         </details>
         <span class="whitespace-nowrap font-mono text-sm text-base-content/60">
@@ -402,7 +441,7 @@ defmodule CustodeWeb.ConsoleLive do
     <div class="mt-4">
       <.attention_tab :if={@tab == "attention"} subject={@subject} signal={@signal} />
       <.activity_tab :if={@tab == "activity"} subject={@subject} />
-      <.work_tab :if={@tab == "work"} subject={@subject} />
+      <.work_tab :if={@tab == "work"} subject={@subject} message_gen={@message_gen} />
       <.notebook_tab :if={@tab == "notebook"} subject={@subject} />
       <.panel_tab :if={@tab == "panel"} subject={@subject} />
       <.turns_tab :if={@tab == "turns"} subject={@subject} />
@@ -468,6 +507,7 @@ defmodule CustodeWeb.ConsoleLive do
   end
 
   attr(:subject, :map, required: true)
+  attr(:message_gen, :integer, required: true)
 
   defp work_tab(assigns) do
     ~H"""
@@ -483,7 +523,58 @@ defmodule CustodeWeb.ConsoleLive do
       >
         {@subject.repo}
       </a>
+      <WorkflowLaunch.launch_button
+        repo={@subject.repo}
+        standing={@subject.workflow_gates}
+        class="ml-2 inline-block"
+      />
       <div class="mt-3"><.repo_overview_panel overview={@subject.overview} /></div>
+
+      <%!-- Take a PR out of the fleet's hands, or give it back (#308). CLI
+            only until the console: `mix custode disown`. --%>
+      <h3 class="mb-2 mt-6 text-xs font-bold uppercase tracking-widest text-base-content/50">
+        not the fleet's work <span class="font-normal">{length(@subject.disowned)}</span>
+      </h3>
+      <ul class="mb-3 space-y-1 text-sm">
+        <li :for={row <- @subject.disowned} class="flex items-baseline gap-2">
+          <a
+            href={"https://github.com/#{@subject.repo}/pull/#{row.number}"}
+            target="_blank"
+            rel="noopener"
+            class="link font-mono"
+          >
+            #{row.number}
+          </a>
+          <span class="min-w-0 flex-1 text-base-content/70">
+            {row.reason || "no reason given"}
+            <span class="text-xs text-base-content/40">({row.agent_id})</span>
+          </span>
+          <button class="btn btn-ghost btn-xs" phx-click="reclaim" phx-value-number={row.number}>
+            reclaim
+          </button>
+        </li>
+      </ul>
+      <form
+        id={"disown-#{@message_gen}"}
+        phx-submit="disown"
+        class="flex flex-wrap items-center gap-2"
+      >
+        <input
+          type="text"
+          name="number"
+          required
+          inputmode="numeric"
+          placeholder="PR #"
+          class="input input-bordered input-sm w-24 font-mono"
+        />
+        <input
+          type="text"
+          name="reason"
+          placeholder="why it is yours (the agents read this)"
+          class="input input-bordered input-sm min-w-0 flex-1"
+        />
+        <button type="submit" class="btn btn-outline btn-sm">disown</button>
+      </form>
     </div>
     """
   end
@@ -918,6 +1009,8 @@ defmodule CustodeWeb.ConsoleLive do
       state: Custode.state_of(status),
       repo: repo,
       overview: repo && overview(repo),
+      workflow_gates: (repo && WorkflowLaunch.standing_for(repo)) || %{},
+      disowned: disowned(repo),
       spend_today: Custode.SpendLedger.today(id),
       feed: Custode.Feed.for_agent(id, 30),
       todos: Custode.Notebook.todos(id),
@@ -933,6 +1026,9 @@ defmodule CustodeWeb.ConsoleLive do
       policies: (routine && Custode.Policy.ids_for(routine)) || []
     }
   end
+
+  defp disowned(nil), do: []
+  defp disowned(repo), do: Enum.filter(Custode.Disowned.all(), &(&1.repo == repo))
 
   defp panel_markdown(id) do
     case Custode.Memory.recall(id, "panel") do
