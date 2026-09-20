@@ -20,6 +20,8 @@ config :custode,
   # Same reasoning for the aging re-notifier (#446).
   aging_cron: false,
   desktop_notifications: false,
+  # the suite spawns no claude; leave the test VM's environment alone
+  claude_env: %{},
   # No network in tests: repo overviews come from the fake fetcher.
   github_fetcher: Custode.Test.FakeGitHubFetcher,
   feed_path: "tmp/test/feed.jsonl",
