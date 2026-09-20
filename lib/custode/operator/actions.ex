@@ -135,8 +135,17 @@ defmodule Custode.Operator.Actions do
   @doc "Start a sweep now instead of at the next cron match."
   @spec beat(String.t(), keyword()) :: result()
   def beat(agent_id, _opts \\ []) do
-    {:ok, _job_id} = Custode.beat(agent_id)
-    :ok
+    # `Custode.beat/1` raises for an id with no routine. A subject is not
+    # always an agent (a workflow signal, a ghost), and a surface that offers
+    # the button anyway must get an error back and not a crash.
+    case Custode.Routine.get(agent_id) do
+      nil ->
+        {:error, :no_routine}
+
+      _routine ->
+        {:ok, _job_id} = Custode.beat(agent_id)
+        :ok
+    end
   end
 
   @doc "Pause one agent, through the operation spine so it is logged (#382)."
@@ -162,6 +171,60 @@ defmodule Custode.Operator.Actions do
       {:error, reason} -> {:error, reason}
       _resumed -> :ok
     end
+  end
+
+  @doc """
+  The caretaker: the routine tagged `:meta` (design/000's custode, the
+  operator's right hand). `nil` when the roster has none.
+  """
+  @spec caretaker() :: String.t() | nil
+  def caretaker do
+    Enum.find_value(Custode.Routine.all(), fn routine ->
+      if :meta in routine.tags, do: routine.id
+    end)
+  end
+
+  @doc """
+  Say something to custode itself, from anywhere (#451's entry point: most of
+  what the operator wants is a sentence to the caretaker, not a visit to one
+  agent). It is `message/3` to the caretaker, so it reaches it in any state.
+  """
+  @spec tell_custode(String.t(), keyword()) ::
+          {:ok, :delivered | :resumed | :started} | {:error, term()}
+  def tell_custode(text, opts \\ []) do
+    case caretaker() do
+      nil -> {:error, :no_caretaker}
+      id -> message(id, text, opts)
+    end
+  end
+
+  @doc """
+  The emergency brake (#14): pause every agent that is not already paused or
+  offline. Each pause goes through the operation spine under one correlation
+  id, so the log shows one act and not seventeen.
+  """
+  @spec pause_all(keyword()) :: {:ok, [String.t()]}
+  def pause_all(opts \\ []) do
+    key = Keyword.get_lazy(opts, :idempotency_key, &Ecto.UUID.generate/0)
+
+    Custode.pause_all(fn agent_id ->
+      pause(agent_id, Keyword.put(opts, :idempotency_key, key))
+    end)
+  end
+
+  @doc "Release the brake: resume every paused agent."
+  @spec resume_all(keyword()) :: {:ok, [String.t()]}
+  def resume_all(_opts \\ []), do: Custode.resume_all()
+
+  @doc """
+  Pin presence away, or hand it back to inference. `:auto` and not `:present`
+  on the way back: the toggle itself counts as an operator action, so the
+  reading flips to present and then lapses with the window (#328).
+  """
+  @spec set_presence(:away | :auto, keyword()) :: :ok
+  def set_presence(mode, _opts \\ []) when mode in [:away, :auto] do
+    Custode.Presence.set(mode)
+    :ok
   end
 
   @doc """
