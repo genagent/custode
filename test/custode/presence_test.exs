@@ -167,6 +167,8 @@ defmodule Custode.PresenceTest do
   end
 
   test "set/1: away pins, present pins, auto restores inference with a fresh action (#141)" do
+    started = DateTime.to_iso8601(DateTime.utc_now())
+
     assert {:away, _at} = Presence.set(:away)
     assert {:away, _at} = Presence.status()
 
@@ -179,9 +181,16 @@ defmodule Custode.PresenceTest do
     assert %DateTime{} = at
     assert Application.get_env(:custode, :presence_override) == nil
 
-    # each toggle went on the record
-    events = Custode.Feed.for_agent("operator") |> Enum.map(& &1["event"])
-    assert Enum.count(events, &(&1 == "presence")) == 3
+    # Each toggle went on the record. Counted from when this test began: the
+    # feed is shared, other modules toggle presence in their setup (the aging
+    # tests do it twice per test), and an unscoped count of the operator's
+    # last 30 entries read 30 whenever one of them happened to run first.
+    toggles =
+      "operator"
+      |> Custode.Feed.for_agent()
+      |> Enum.filter(&(&1["event"] == "presence" and &1["at"] >= started))
+
+    assert length(toggles) == 3
   end
 
   test "the tick-args system prompt carries the presence line at fire time" do
