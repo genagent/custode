@@ -52,6 +52,14 @@ defmodule Custode.LegacyRoleBindingProjection do
     end
   end
 
+  @doc """
+  The boot entry point (#476): project what can be, warn about what cannot,
+  never raise.
+  """
+  @spec project_at_boot() :: :ok
+  def project_at_boot,
+    do: Custode.BootProjection.run("legacy RoleBinding projection", fn -> project_all() end)
+
   @spec project_all!() :: :ok
   def project_all! do
     case project_all() do
