@@ -419,7 +419,9 @@ defmodule CustodeWeb.ConsoleLive do
       workflow_gates: (repo && WorkflowLaunch.standing_for(repo)) || %{},
       disowned: disowned(repo),
       spend_today: Custode.SpendLedger.today(id),
-      feed: Custode.Feed.for_agent(id, 30),
+      # newest first: the store reads oldest first, and both tabs that draw it
+      # lead with what just happened
+      feed: id |> Custode.Feed.for_agent(30) |> Enum.reverse(),
       todos: Custode.Notebook.todos(id),
       journal: Custode.Notebook.journal(id, 10),
       panel: panel_markdown(id),

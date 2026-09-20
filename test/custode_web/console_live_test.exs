@@ -187,6 +187,44 @@ defmodule CustodeWeb.ConsoleLiveTest do
     refute html =~ "nothing yet"
   end
 
+  # seen on the live fleet 2026-09-20: mcp-proxy's "last said" led with an
+  # 8-hour-old gate_aging notice and an inbox drop, and its newest turn was not
+  # on the page at all
+  test "last said is the agent's newest words, not custode's notices about it",
+       %{conn: conn, sleeper: sleeper} do
+    for n <- 1..4 do
+      Custode.Feed.record(%{event: "turn", agent: sleeper.id, summary: "sweep number #{n}"})
+    end
+
+    Custode.Feed.record(%{event: "gate_aging", agent: sleeper.id, summary: "a gate has waited"})
+    Custode.Feed.record(%{event: "inbox_note", agent: sleeper.id, summary: "note dropped"})
+
+    {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+    said = view |> element("#last-said") |> render()
+
+    # the newest three, newest first
+    assert said =~ ~r/sweep number 4.*sweep number 3.*sweep number 2/s
+    refute said =~ "sweep number 1"
+    refute said =~ "a gate has waited"
+    refute said =~ "note dropped"
+
+    # nothing is lost: the notices are on the activity tab, newest first
+    html = view |> element("button[phx-value-tab=activity]") |> render_click()
+    assert html =~ ~r/note dropped.*a gate has waited.*sweep number 4/s
+  end
+
+  test "a scheduled agent says when it next runs, in the rail and in the item pane",
+       %{conn: conn, sleeper: sleeper} do
+    {:ok, view, html} = live(conn, "/console/#{sleeper.id}")
+
+    # @daily is at most a day away, so the wait is always hours, minutes or
+    # seconds, never a bare cron string
+    assert view |> element(~s(a[href="/console/#{sleeper.id}"])) |> render() =~
+             ~r/>\s*\d+[hms]\s*</
+
+    assert html =~ ~r/runs in <span class="font-mono">\d+[hms]<\/span>/
+  end
+
   test "a workflow launch is a subject in the rail, and is decided from the item pane (#447)",
        %{conn: conn, sleeper: sleeper} do
     workflow =

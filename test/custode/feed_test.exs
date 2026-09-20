@@ -8,6 +8,8 @@ defmodule Custode.FeedTest do
 
   alias ObanClaude.Agent
 
+  doctest Custode.Feed
+
   setup do
     path = Path.join(System.tmp_dir!(), uid("feed") <> ".jsonl")
     put_env!(:feed_path, path)

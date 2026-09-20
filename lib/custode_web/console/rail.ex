@@ -11,6 +11,7 @@ defmodule CustodeWeb.Console.Rail do
   use Phoenix.Component
 
   alias Custode.Signal
+  alias CustodeWeb.Components
 
   @group_titles %{
     needs_you: "needs you",
@@ -111,6 +112,9 @@ defmodule CustodeWeb.Console.Rail do
       _none -> ""
     end
   end
+
+  defp rail_note(%Signal{kind: :scheduled, item: {:next_beat, at}}, _in_flight),
+    do: Components.until_text(at)
 
   defp rail_note(%Signal{kind: :approval}, _in_flight), do: "gate"
   defp rail_note(%Signal{kind: :needs_answer}, _in_flight), do: "asked"

@@ -200,7 +200,8 @@ defmodule Custode.Attention.Fleet do
       spend_today: Map.get(sources.spend, id, 0.0),
       budget: routine && routine.daily_budget_usd,
       running_since: Map.get(sources.in_flight, id),
-      cron: routine && routine.cron
+      cron: routine && routine.cron,
+      next_beat_at: routine && Custode.Scheduler.next_beat_at(routine.cron)
     }
   end
 

@@ -97,6 +97,28 @@ defmodule Custode.Scheduler do
     {Enum.reverse(fired), last_fired}
   end
 
+  @doc """
+  When `cron` next fires after `now`, in UTC, or `nil` when that cannot be
+  known: `@reboot`, `"manual"`, no cron at all, an expression that does not
+  parse.
+
+  Evaluated in the configured timezone, the same as `due/3`, so `@daily` is
+  the operator's midnight and not UTC's.
+  """
+  @spec next_beat_at(String.t() | nil, DateTime.t()) :: DateTime.t() | nil
+  def next_beat_at(cron, now \\ DateTime.utc_now())
+
+  def next_beat_at(cron, %DateTime{} = now) when is_binary(cron) do
+    with {:ok, expr} <- Expression.parse(cron),
+         %DateTime{} = at <- Expression.next_at(expr, DateTime.shift_zone!(now, timezone())) do
+      DateTime.shift_zone!(at, "Etc/UTC")
+    else
+      _unknown -> nil
+    end
+  end
+
+  def next_beat_at(_cron, _now), do: nil
+
   # ---- GenServer ----
 
   @impl GenServer
@@ -149,9 +171,9 @@ defmodule Custode.Scheduler do
   # Read the timezone per call so a live edit (design 001 put_env) takes effect
   # at the next tick, and so routines evaluate in the same zone as the sensors
   # (still on Oban Cron, which uses this same configured timezone -- #17).
-  defp now_in_configured_tz do
-    DateTime.now!(Application.get_env(:custode, :timezone, "Etc/UTC"))
-  end
+  defp now_in_configured_tz, do: DateTime.now!(timezone())
+
+  defp timezone, do: Application.get_env(:custode, :timezone, "Etc/UTC")
 
   defp insert_tick(routine_id) do
     {:ok, _job} = Oban.insert(RoutineTick.new(%{"routine_id" => routine_id}, queue: :ticks))

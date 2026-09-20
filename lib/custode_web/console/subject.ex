@@ -147,17 +147,16 @@ defmodule CustodeWeb.Console.Subject do
     <p :if={said(@subject.feed) == []} class="text-sm text-base-content/50">
       nothing yet{sensor_note(@subject.feed)}
     </p>
-    <div class="flex flex-col gap-2">
+    <div id="last-said" class="flex flex-col gap-2">
       <.feed_entry :for={entry <- said(@subject.feed)} entry={entry} show_agent={false} />
     </div>
     """
   end
 
-  # What the AGENT said, not what its sensors pinged. On the live fleet an
-  # offline agent's last three entries were three identical "nothing new"
-  # sensor lines, which is the opposite of a summary. The sensors are all on
-  # the activity tab.
-  defp said(feed), do: feed |> Enum.reject(&(&1["event"] == "sensor")) |> Enum.take(3)
+  # What the AGENT said, not what was said about it: sensor pings, aging
+  # notices and inbox drops are all on the activity tab. The feed arrives
+  # newest first, so these are its three latest.
+  defp said(feed), do: feed |> Custode.Feed.said() |> Enum.take(3)
 
   defp sensor_note(feed) do
     case Enum.find(feed, &(&1["event"] == "sensor")) do

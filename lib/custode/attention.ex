@@ -615,6 +615,7 @@ defmodule Custode.Attention do
     if scheduled?(view) do
       signal(view, :scheduled, :low,
         headline: "next beat #{Map.get(view, :cron)}",
+        item: next_beat(view),
         resolving: [op("Beat now", :beat, %{agent: view.id})]
       )
     end
@@ -625,6 +626,15 @@ defmodule Custode.Attention do
       headline: "nothing found in window",
       resolving: [op("Beat now", :beat, %{agent: view.id})]
     )
+  end
+
+  # The time is carried, never worded here: "in 12m" is stale a minute later,
+  # so a surface words it against its own clock at render.
+  defp next_beat(view) do
+    case Map.get(view, :next_beat_at) do
+      %DateTime{} = at -> {:next_beat, at}
+      _unknown -> nil
+    end
   end
 
   # A cron of nil or "manual" is an agent that only runs when told to. It is
