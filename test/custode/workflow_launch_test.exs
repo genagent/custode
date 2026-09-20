@@ -21,7 +21,17 @@ defmodule Custode.WorkflowLaunchTest do
     Repo.delete_all(Feed.Entry)
     Repo.delete_all(SpendLedger.Entry)
     Repo.delete_all(from(j in Oban.Job, where: j.worker == "Custode.Workflow.NodeJob"))
-    on_exit(fn -> Application.delete_env(:custode, :extra_workflows) end)
+
+    on_exit(fn ->
+      Application.delete_env(:custode, :extra_workflows)
+      # A standing proposal and a parked run are needs-you signals now (#447),
+      # so one left behind shows up in every later test that reads the inbox,
+      # the chip or the console.
+      Repo.query!("DELETE FROM feed_entries WHERE event LIKE 'workflow_%'")
+      Repo.delete_all(Results.Result)
+      Repo.delete_all(Run.Row)
+    end)
+
     :ok
   end
 
@@ -293,6 +303,170 @@ defmodule Custode.WorkflowLaunchTest do
 
       assert Run.get(run.run_id).status == "failed"
       assert "workflow_failed" in events()
+    end
+  end
+
+  describe "attention (#447)" do
+    alias Custode.Attention.Fleet
+
+    defp workflow_signals do
+      Enum.filter(Fleet.signals(), &(&1.kind in [:workflow_launch, :workflow_rail]))
+    end
+
+    defp park!(run) do
+      finish(run.run_id, "spec")
+      SpendLedger.record(Run.spend_agent_id(run.run_id), 1.20)
+      finish(run.run_id, "code")
+      assert Run.get(run.run_id).status == "budget_paused"
+    end
+
+    test "a standing proposal is a needs-you signal until it is decided" do
+      workflow = register(fixed_workflow(uid("fixed")))
+      {:ok, proposal} = Launch.propose(workflow.name, "owner/repo", why: "the board is dry")
+
+      assert [signal] = workflow_signals()
+      assert signal.kind == :workflow_launch
+      assert signal.group == :needs_you
+      assert signal.subject == "#{workflow.name} on owner/repo"
+      assert signal.item == {:proposal, proposal.id}
+      assert signal.detail =~ "the board is dry"
+      assert %DateTime{} = signal.raised_at
+
+      assert :ok = Launch.reject(proposal.id, "not now")
+      assert workflow_signals() == []
+    end
+
+    test "approving clears the proposal's signal and raises none for the healthy run" do
+      workflow = register(fixed_workflow(uid("fixed")))
+      {:ok, proposal} = Launch.propose(workflow.name, "owner/repo")
+      {:ok, _run} = Launch.approve(proposal.id)
+
+      assert workflow_signals() == []
+    end
+
+    test "a run parked on its rail is a needs-you signal, dated from the pause" do
+      workflow = register(fanning_workflow(uid("railed")))
+      {:ok, proposal} = Launch.propose(workflow.name, "owner/repo", budget_usd: 1.0)
+      {:ok, run} = Launch.approve(proposal.id)
+      park!(run)
+
+      assert [signal] = workflow_signals()
+      assert signal.kind == :workflow_rail
+      assert signal.group == :needs_you
+      assert signal.item == {:run, run.run_id}
+      assert signal.detail =~ "run budget rail hit"
+      assert signal.detail =~ "merge"
+      assert %DateTime{} = signal.raised_at
+    end
+
+    test "raise_and_resume/1 doubles the rail, lets the run go on and clears the signal" do
+      workflow = register(fanning_workflow(uid("railed")))
+      {:ok, proposal} = Launch.propose(workflow.name, "owner/repo", budget_usd: 1.0)
+      {:ok, run} = Launch.approve(proposal.id)
+      park!(run)
+
+      assert {:ok, resumed} = Launch.raise_and_resume(run.run_id)
+      assert resumed.status == "running"
+      assert resumed.budget_usd == 2.0
+      assert Enum.any?(jobs(run.run_id), &(&1.meta["node_name"] == "merge"))
+      assert workflow_signals() == []
+    end
+
+    test "raise_and_resume/1 refuses a run that is not parked, and one that does not exist" do
+      workflow = register(fixed_workflow(uid("fixed")))
+      {:ok, run} = Runner.launch(workflow.name, "owner/repo", run_id: uid("live"))
+
+      assert {:error, :not_paused} = Launch.raise_and_resume(run.run_id)
+      assert {:error, :no_such_run} = Launch.raise_and_resume(uid("ghost"))
+    end
+  end
+
+  describe "the operator's ops (#447)" do
+    alias Custode.Operator.Actions
+
+    test "run/4 approves a launch from the signal's own args" do
+      workflow = register(fixed_workflow(uid("fixed")))
+      {:ok, proposal} = Launch.propose(workflow.name, "owner/repo", budget_usd: 3.5)
+
+      assert Actions.handles?(:approve_launch)
+      assert :ok = Actions.run(:approve_launch, %{proposal: proposal.id}, %{}, via: :liveview)
+      assert [%{status: "running", budget_usd: 3.5}] = Run.list()
+      assert Launch.pending() == []
+
+      # answered once: the same click again is an error, not a second run
+      assert {:error, :no_such_proposal} =
+               Actions.run(:approve_launch, %{proposal: proposal.id}, %{}, via: :liveview)
+    end
+
+    test "run/4 rejects a launch, with the reason given or the surface it came from" do
+      workflow = register(fixed_workflow(uid("fixed")))
+      {:ok, first} = Launch.propose(workflow.name, "owner/one")
+      {:ok, second} = Launch.propose(workflow.name, "owner/two")
+
+      assert Actions.handles?(:reject_launch)
+
+      assert :ok =
+               Actions.run(:reject_launch, %{proposal: first.id}, %{"reason" => "not this week"})
+
+      assert :ok = Actions.run(:reject_launch, %{proposal: second.id}, %{}, via: :cli)
+
+      summaries =
+        "workflow_launch_rejected" |> Feed.recent_by_event() |> Enum.map(& &1["summary"])
+
+      assert Enum.any?(summaries, &(&1 =~ "owner/one: not this week"))
+      assert Enum.any?(summaries, &(&1 =~ "owner/two: rejected via cli"))
+      assert Run.list() == []
+    end
+
+    test "run/4 raises the rail of a parked run and lets it go on" do
+      workflow = register(fanning_workflow(uid("railed")))
+      {:ok, proposal} = Launch.propose(workflow.name, "owner/repo", budget_usd: 1.0)
+      {:ok, run} = Launch.approve(proposal.id)
+      park!(run)
+
+      assert Actions.handles?(:resume_run)
+      assert :ok = Actions.run(:resume_run, %{run: run.run_id}, %{}, via: :liveview)
+      assert %{status: "running", budget_usd: 2.0} = Run.get(run.run_id)
+      assert {:error, :not_paused} = Actions.run(:resume_run, %{run: run.run_id})
+    end
+  end
+
+  describe "the desktop notification (#447)" do
+    setup do
+      test_pid = self()
+      Application.put_env(:custode, :desktop_notifications, true)
+      Application.put_env(:custode, :desktop_sink, &send(test_pid, {:desktop, &1}))
+
+      on_exit(fn ->
+        Application.put_env(:custode, :desktop_notifications, false)
+        Application.delete_env(:custode, :desktop_sink)
+      end)
+    end
+
+    test "a launch proposal raises one, with the estimate as its body" do
+      workflow = register(fixed_workflow(uid("fixed")))
+      {:ok, _proposal} = Launch.propose(workflow.name, "owner/repo")
+
+      assert_receive {:desktop, message}, 500
+      assert message.title == "custode: workflow_launch_proposed"
+      assert message.body =~ "run #{workflow.name} on owner/repo"
+    end
+
+    test "a run parking on its rail raises one; approving and rejecting do not" do
+      workflow = register(fanning_workflow(uid("railed")))
+      {:ok, proposal} = Launch.propose(workflow.name, "owner/repo", budget_usd: 1.0)
+      assert_receive {:desktop, %{title: "custode: workflow_launch_proposed"}}, 500
+
+      {:ok, run} = Launch.approve(proposal.id)
+      finish(run.run_id, "spec")
+      refute_receive {:desktop, _message}, 100
+
+      SpendLedger.record(Run.spend_agent_id(run.run_id), 1.20)
+      finish(run.run_id, "code")
+
+      assert_receive {:desktop, message}, 500
+      assert message.title == "custode: workflow_budget_paused"
+      assert message.body =~ "run budget rail hit"
     end
   end
 

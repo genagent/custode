@@ -175,6 +175,111 @@ defmodule Custode.AttentionTest do
     end
   end
 
+  describe "workflows/1 (#447)" do
+    defp launch(id, fields \\ []) do
+      Enum.into(fields, %{
+        id: id,
+        workflow: "backlog-mine",
+        repo: "acme/widgets",
+        summary: "run backlog-mine on acme/widgets: 3 nodes, ~$0.90, rail $5.00",
+        why: "the board is dry",
+        proposed_at: ~U[2026-07-26 01:00:00Z]
+      })
+    end
+
+    defp paused(run_id, fields \\ []) do
+      Enum.into(fields, %{
+        run_id: run_id,
+        workflow: "backlog-mine",
+        repo: "acme/widgets",
+        reason: "run budget rail hit: $1.20 of $1.00; paused before merge",
+        paused_at: ~U[2026-07-26 01:30:00Z]
+      })
+    end
+
+    test "a launch proposal is owed to the operator, with approve and reject to clear it" do
+      assert [signal] = Attention.workflows(%{launches: [launch("wfl-1")], paused_runs: []})
+
+      assert signal.kind == :workflow_launch
+      assert signal.group == :needs_you
+      assert Signal.needs_you?(signal)
+      assert signal.subject == "backlog-mine on acme/widgets"
+      assert signal.headline == "wants your approval to launch"
+      assert signal.detail =~ "the board is dry"
+      assert signal.detail =~ "rail $5.00"
+      assert signal.item == {:proposal, "wfl-1"}
+      assert signal.raised_at == ~U[2026-07-26 01:00:00Z]
+
+      assert [
+               %{label: "Approve", op: :approve_launch, args: %{proposal: "wfl-1"}},
+               %{label: "Reject", op: :reject_launch, args: %{proposal: "wfl-1"}},
+               %{op: :open_workflows}
+             ] = signal.resolving
+    end
+
+    test "a proposal nobody explained still reads as a sentence" do
+      assert [signal] =
+               Attention.workflows(%{launches: [launch("wfl-1", why: nil)], paused_runs: []})
+
+      assert signal.detail == "run backlog-mine on acme/widgets: 3 nodes, ~$0.90, rail $5.00"
+    end
+
+    test "a run parked on its rail offers the raise, and says what it did not run" do
+      assert [signal] = Attention.workflows(%{launches: [], paused_runs: [paused("run-9")]})
+
+      assert signal.kind == :workflow_rail
+      assert signal.group == :needs_you
+      assert signal.headline == "run run-9 is parked on its budget rail"
+      assert signal.detail =~ "paused before merge"
+      assert signal.item == {:run, "run-9"}
+      assert signal.raised_at == ~U[2026-07-26 01:30:00Z]
+
+      assert [
+               %{label: "Raise the rail and resume", op: :resume_run, args: %{run: "run-9"}},
+               %{op: :open_workflows}
+             ] = signal.resolving
+    end
+
+    test "every proposal and every parked run is its own signal" do
+      facts = %{
+        launches: [launch("wfl-1"), launch("wfl-2", repo: "acme/gears")],
+        paused_runs: [paused("run-9")]
+      }
+
+      assert facts |> Attention.workflows() |> Enum.map(& &1.item) == [
+               {:proposal, "wfl-1"},
+               {:proposal, "wfl-2"},
+               {:run, "run-9"}
+             ]
+    end
+
+    test "a launch ranks with the approvals and a parked run with the rails, oldest first" do
+      [new_launch, old_launch] =
+        Attention.workflows(%{
+          launches: [
+            launch("wfl-new", repo: "acme/new", proposed_at: ~U[2026-07-26 01:50:00Z]),
+            launch("wfl-old", repo: "acme/old", proposed_at: ~U[2026-07-24 09:00:00Z])
+          ],
+          paused_runs: []
+        })
+
+      [rail] = Attention.workflows(%{launches: [], paused_runs: [paused("run-9")]})
+      gated = resolve(view("gated", state: :awaiting_permission, gate: gate("approval", @now)))
+      spent = resolve(view("spent", spend_today: 450.0, budget: 450.0))
+      red = resolve(view("red", failing_prs: [pr(1)]))
+
+      assert Attention.rank([red, rail, spent, new_launch, gated, old_launch])
+             |> Enum.map(& &1.subject) == [
+               "gated",
+               "backlog-mine on acme/old",
+               "backlog-mine on acme/new",
+               "spent",
+               "backlog-mine on acme/widgets",
+               "red"
+             ]
+    end
+  end
+
   describe "red_main (#310)" do
     defp branch(state), do: %{name: "main", state: state, headline: "the merge that broke it"}
 

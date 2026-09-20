@@ -69,6 +69,10 @@ defmodule Custode.Operator.ActionsTest do
     end
   end
 
+  test "beat on an id with no routine is an error, not a crash" do
+    assert {:error, :no_routine} = Actions.beat(uid("no-such-routine"))
+  end
+
   describe "the caretaker" do
     test "is the routine tagged :meta, and tell_custode reaches it" do
       workspace = tmp_workspace!()

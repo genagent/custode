@@ -6,6 +6,9 @@ defmodule CustodeWeb.ConsoleLiveTest do
   import Phoenix.LiveViewTest
 
   alias Custode.Asks
+  alias Custode.Workflow
+  alias Custode.Workflow.Launch
+  alias Custode.Workflow.Run
 
   @endpoint CustodeWeb.Endpoint
 
@@ -18,6 +21,9 @@ defmodule CustodeWeb.ConsoleLiveTest do
     Custode.Repo.query!("DELETE FROM asks")
     Custode.Repo.query!("DELETE FROM gates")
     Custode.Repo.query!("DELETE FROM disowned_prs")
+    # workflow launches and parked runs are subjects in the rail too (#447)
+    Custode.Repo.query!("DELETE FROM feed_entries WHERE event LIKE 'workflow_%'")
+    Custode.Repo.query!("DELETE FROM workflow_runs")
     Custode.Host.reset()
     on_exit(fn -> Custode.Repo.query!("DELETE FROM asks") end)
 
@@ -176,6 +182,48 @@ defmodule CustodeWeb.ConsoleLiveTest do
     {:ok, _view, html} = live(conn, "/console/#{sleeper.id}")
     assert html =~ "3 todos queued"
     refute html =~ "nothing yet"
+  end
+
+  test "a workflow launch is a subject in the rail, and is decided from the item pane (#447)",
+       %{conn: conn, sleeper: sleeper} do
+    workflow =
+      Workflow.new!(uid("console-wf"), [
+        %Workflow.Stage{
+          name: :mine,
+          nodes: [%Workflow.Node{name: :spec, prompt: "do it", schema: %{}}]
+        }
+      ])
+
+    Application.put_env(:custode, :extra_workflows, %{workflow.name => workflow})
+
+    on_exit(fn ->
+      Application.delete_env(:custode, :extra_workflows)
+      Custode.Repo.query!("DELETE FROM feed_entries WHERE event LIKE 'workflow_%'")
+      Custode.Repo.query!("DELETE FROM workflow_runs")
+      Custode.Repo.query!("DELETE FROM oban_jobs WHERE worker = 'Custode.Workflow.NodeJob'")
+    end)
+
+    {:ok, _proposal} = Launch.propose(workflow.name, "owner/repo")
+
+    {:ok, view, html} = live(conn, "/console/#{sleeper.id}")
+    assert html =~ "1 need you"
+
+    # the subject holds a slash, so the rail link has to encode it to stay one
+    # path segment
+    html = view |> element("nav[aria-label=subjects] a", workflow.name) |> render_click()
+    assert html =~ "wants your approval to launch"
+
+    # a workflow signal is not an agent: nothing to beat, pause or talk to
+    assert html =~ "not an agent"
+    refute html =~ "beat now"
+    refute html =~ ~s(phx-click="pause")
+    refute html =~ ~s(phx-submit="message")
+
+    view |> element("button[phx-value-op=approve_launch]") |> render_click()
+
+    assert Launch.pending() == []
+    assert [%{workflow: name, status: "running"}] = Run.list()
+    assert name == workflow.name
   end
 
   test "the tabs switch the subject pane", %{conn: conn, sleeper: sleeper} do

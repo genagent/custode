@@ -8,13 +8,16 @@ defmodule CustodeWeb.InboxLive do
   counts as needing a human; both live in the resolver, which is the point.
 
   Rows render their buttons from each item's `actions`, so a new signal kind
-  shows up here working, with no change to this file.
+  shows up here working, with no change to this file. A new OP is the
+  exception: one the inbox can perform needs a renderer and a handler here,
+  which is what the workflow ops got in #447.
   """
 
   use Phoenix.LiveView
 
   import CustodeWeb.Components
 
+  alias Custode.Operator.Actions
   alias Custode.Operator.Inbox
 
   @impl Phoenix.LiveView
@@ -48,6 +51,37 @@ defmodule CustodeWeb.InboxLive do
     )
 
     {:noreply, refresh(socket)}
+  end
+
+  # The workflow decisions (#447), through `Custode.Operator.Actions` like
+  # every handler should be (design/010 decision 4): the workflows page makes
+  # the same three calls, so the two pages cannot come to differ.
+  def handle_event("approve_launch", %{"id" => id}, socket) do
+    case Actions.approve_launch(id, via: :liveview) do
+      {:ok, run} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "launched #{run.workflow} -- run #{run.run_id}")
+         |> refresh()}
+
+      {:error, reason} ->
+        {:noreply, socket |> put_flash(:error, "launch refused: #{inspect(reason)}") |> refresh()}
+    end
+  end
+
+  def handle_event("reject_launch", %{"id" => id}, socket) do
+    Actions.reject_launch(id, "rejected from the inbox", via: :liveview)
+    {:noreply, socket |> put_flash(:info, "launch rejected") |> refresh()}
+  end
+
+  def handle_event("resume_run", %{"id" => id}, socket) do
+    case Actions.resume_run(id, via: :liveview) do
+      {:ok, _run} ->
+        {:noreply, socket |> put_flash(:info, "run #{id} resumed on a raised rail") |> refresh()}
+
+      {:error, reason} ->
+        {:noreply, socket |> put_flash(:error, "resume refused: #{inspect(reason)}") |> refresh()}
+    end
   end
 
   # A question is a conversation, so the affordance is a reply box rather than
@@ -125,13 +159,13 @@ defmodule CustodeWeb.InboxLive do
         <li :for={item <- @items} class={["py-4", unread_tone(item, @since)]}>
           <div class="flex flex-wrap items-baseline gap-2">
             <.link
-              :if={item.kind != :suggestion}
-              navigate={"/agents/#{item.subject}"}
+              :if={subject_path(item)}
+              navigate={subject_path(item)}
               class="font-mono font-bold hover:underline"
             >
               {item.subject}
             </.link>
-            <span :if={item.kind == :suggestion} class="font-mono font-bold">{item.subject}</span>
+            <span :if={!subject_path(item)} class="font-mono font-bold">{item.subject}</span>
             <span class={["badge badge-sm", kind_class(item.kind)]}>{kind_label(item.kind)}</span>
             <span class="ml-auto font-mono text-xs text-base-content/40">
               <.ago :if={item.at} at={item.at} />
@@ -237,6 +271,51 @@ defmodule CustodeWeb.InboxLive do
     """
   end
 
+  defp action(%{action: %{op: :approve_launch}} = assigns) do
+    ~H"""
+    <button
+      class="btn btn-success btn-xs"
+      phx-click="approve_launch"
+      phx-value-id={@action.args[:proposal]}
+      data-confirm={"Launch #{@subject}?"}
+    >
+      {@action.label}
+    </button>
+    """
+  end
+
+  defp action(%{action: %{op: :reject_launch}} = assigns) do
+    ~H"""
+    <button
+      class="btn btn-ghost btn-xs"
+      phx-click="reject_launch"
+      phx-value-id={@action.args[:proposal]}
+    >
+      {@action.label}
+    </button>
+    """
+  end
+
+  defp action(%{action: %{op: :resume_run}} = assigns) do
+    ~H"""
+    <button
+      class="btn btn-warning btn-xs"
+      phx-click="resume_run"
+      phx-value-id={@action.args[:run]}
+      data-confirm="Double this run's rail and let it go on?"
+    >
+      {@action.label}
+    </button>
+    """
+  end
+
+  # A workflow signal has no agent page to fall through to (#447).
+  defp action(%{action: %{op: :open_workflows}} = assigns) do
+    ~H"""
+    <.link navigate="/workflows" class="btn btn-outline btn-xs">{@action.label}</.link>
+    """
+  end
+
   # Anything else is navigation: the op has no inbox handler, so send the
   # operator where it can be dealt with rather than pretending to act.
   defp action(assigns) do
@@ -246,6 +325,16 @@ defmodule CustodeWeb.InboxLive do
     </.link>
     """
   end
+
+  # Where a row's subject leads. An agent's signal leads to the agent; a
+  # workflow's leads to the workflows page, since its subject names a run and
+  # not an agent (#447); a suggestion has no page of its own.
+  defp subject_path(%{kind: :suggestion}), do: nil
+
+  defp subject_path(%{kind: kind}) when kind in [:workflow_launch, :workflow_rail],
+    do: "/workflows"
+
+  defp subject_path(%{subject: subject}), do: "/agents/#{subject}"
 
   defp replying?(replying_to, item), do: replying_to != nil and replying_to == ask_id(item)
 
@@ -277,6 +366,8 @@ defmodule CustodeWeb.InboxLive do
   defp kind_label(:disowned_check), do: "not its work"
   defp kind_label(:needs_answer), do: "question"
   defp kind_label(:approval), do: "approval"
+  defp kind_label(:workflow_launch), do: "launch gate"
+  defp kind_label(:workflow_rail), do: "run rail"
   defp kind_label(:rail_hit), do: "rail"
   defp kind_label(:suggestion), do: "suggestion"
   defp kind_label(kind), do: to_string(kind)
@@ -286,6 +377,8 @@ defmodule CustodeWeb.InboxLive do
   defp kind_class(:disowned_check), do: "badge-warning"
   defp kind_class(:needs_answer), do: "badge-accent"
   defp kind_class(:approval), do: "badge-warning"
+  defp kind_class(:workflow_launch), do: "badge-warning"
+  defp kind_class(:workflow_rail), do: "badge-warning"
   defp kind_class(:rail_hit), do: "badge-error"
   defp kind_class(_kind), do: "badge-ghost"
 end

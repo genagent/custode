@@ -280,7 +280,7 @@ defmodule CustodeWeb.ConsoleLive do
         <ul>
           <li :for={signal <- signals}>
             <.link
-              patch={"/console/#{signal.subject}"}
+              patch={subject_path(signal.subject)}
               class={[
                 "flex items-center gap-2 rounded px-2 py-1.5 font-mono text-sm hover:bg-base-200",
                 signal.subject == @selected && "bg-base-200 font-bold",
@@ -313,8 +313,12 @@ defmodule CustodeWeb.ConsoleLive do
     <div class="flex flex-wrap items-center gap-3">
       <h1 class="font-mono text-2xl font-bold">{@subject.id}</h1>
       <.status_badge status={@subject.status} />
-      <div class="ml-auto flex gap-2">
-        <button class="btn btn-outline btn-sm" phx-click="beat">beat now</button>
+      <%!-- A subject is not always an agent: a workflow signal has nothing to
+            beat, pause or talk to. Only a routine has a beat. --%>
+      <div :if={@subject.kind != :other} class="ml-auto flex gap-2">
+        <button :if={@subject.kind == :routine} class="btn btn-outline btn-sm" phx-click="beat">
+          beat now
+        </button>
         <button :if={@subject.state != :paused} class="btn btn-outline btn-sm" phx-click="pause">
           pause
         </button>
@@ -328,7 +332,12 @@ defmodule CustodeWeb.ConsoleLive do
 
     <%!-- Always here, whatever the agent's state (#450). The button says
           what sending will do: queue, answer, resume first, or start a turn. --%>
-    <form id={"message-#{@message_gen}"} phx-submit="message" class="mt-4 flex gap-2">
+    <form
+      :if={@subject.kind != :other}
+      id={"message-#{@message_gen}"}
+      phx-submit="message"
+      class="mt-4 flex gap-2"
+    >
       <textarea
         name="text"
         rows="2"
@@ -679,6 +688,7 @@ defmodule CustodeWeb.ConsoleLive do
     %{
       id: id,
       routine: routine,
+      kind: subject_kind(routine, Custode.state_of(status)),
       status: status,
       state: Custode.state_of(status),
       repo: repo,
@@ -700,12 +710,24 @@ defmodule CustodeWeb.ConsoleLive do
     end
   end
 
+  # A routine has a beat. A live process with no routine (a sub-agent, a
+  # one-shot) can be paused and spoken to. Anything else is a signal with no
+  # agent behind it, such as a workflow launch (#447), and gets no controls.
+  defp subject_kind(%{} = _routine, _state), do: :routine
+  defp subject_kind(nil, state) when state in [:offline, :ended], do: :other
+  defp subject_kind(nil, _state), do: :agent
+
   defp overview(repo) do
     case Custode.GitHub.overview(repo) do
       {:ok, overview} -> overview
       :loading -> :loading
     end
   end
+
+  # An agent id is a slug and passes through unchanged. A workflow signal's
+  # subject is "<workflow> on <owner>/<repo>" (#447), and an unencoded slash
+  # there would be a second path segment and no route.
+  defp subject_path(subject), do: "/console/" <> URI.encode(subject, &URI.char_unreserved?/1)
 
   # -- words and tones ----------------------------------------------------------
 
@@ -748,6 +770,7 @@ defmodule CustodeWeb.ConsoleLive do
   defp elapsed(seconds) when seconds >= 60, do: "#{div(seconds, 60)}m"
   defp elapsed(seconds), do: "#{max(seconds, 0)}s"
 
+  defp facts(%{kind: :other}), do: "not an agent: a signal with no process behind it"
   defp facts(%{routine: nil}), do: "no routine: a sub-agent or a one-shot"
 
   defp facts(%{routine: routine, spend_today: spend}) do
