@@ -30,7 +30,7 @@ defmodule CustodeWeb.ConsoleLive do
   alias Custode.Operator.Actions
   alias Custode.Signal
 
-  @tabs ~w(attention activity work notebook turns config)
+  @tabs ~w(attention activity work notebook panel turns config)
   @opts [via: :liveview]
 
   @group_titles %{
@@ -112,6 +112,15 @@ defmodule CustodeWeb.ConsoleLive do
     :ok = Actions.set_presence(mode, @opts)
     {:noreply, refresh(socket)}
   end
+
+  def handle_event("approve_panel", _params, socket),
+    do: socket.assigns.selected |> Actions.approve_panel(@opts) |> after_action(socket, nil)
+
+  def handle_event("reject_panel", _params, socket),
+    do: socket.assigns.selected |> Actions.reject_panel(@opts) |> after_action(socket, nil)
+
+  def handle_event("revert_panel", _params, socket),
+    do: socket.assigns.selected |> Actions.revert_panel(@opts) |> after_action(socket, nil)
 
   def handle_event("drop_draft", %{"id" => id}, socket),
     do: id |> Actions.drop_draft(@opts) |> after_action(socket, nil)
@@ -303,8 +312,19 @@ defmodule CustodeWeb.ConsoleLive do
               ]}
             >
               <span class={["inline-block size-2 shrink-0 rounded-full", dot(signal)]}></span>
-              <span class="truncate">{signal.subject}</span>
-              <span class="ml-auto shrink-0 text-xs font-normal text-base-content/50">
+              <span class="min-w-0 flex-1">
+                <span class="block truncate">{signal.subject}</span>
+                <%!-- Seeing many things at once is the point: a rail of bare
+                      names made every one of them a click. Only the groups
+                      that mean something is wrong pay the second line. --%>
+                <span
+                  :if={group in [:needs_you, :watching]}
+                  class="block truncate font-sans text-xs font-normal text-base-content/60"
+                >
+                  {signal.headline}
+                </span>
+              </span>
+              <span class="ml-auto shrink-0 self-start text-xs font-normal text-base-content/50">
                 {rail_note(signal, @in_flight)}
               </span>
             </.link>
@@ -384,6 +404,7 @@ defmodule CustodeWeb.ConsoleLive do
       <.activity_tab :if={@tab == "activity"} subject={@subject} />
       <.work_tab :if={@tab == "work"} subject={@subject} />
       <.notebook_tab :if={@tab == "notebook"} subject={@subject} />
+      <.panel_tab :if={@tab == "panel"} subject={@subject} />
       <.turns_tab :if={@tab == "turns"} subject={@subject} />
       <.config_tab :if={@tab == "config"} subject={@subject} />
     </div>
@@ -520,6 +541,56 @@ defmodule CustodeWeb.ConsoleLive do
       </summary>
       <div class="mt-2"><.markdown text={entry.body || ""} /></div>
     </details>
+    """
+  end
+
+  attr(:subject, :map, required: true)
+
+  # What the agent chose to show about itself (#100): markdown it curates
+  # under its own memory key, and HTML it proposed and the operator approved.
+  # Agent HTML renders ONLY through `sandboxed_panel/1`.
+  defp panel_tab(assigns) do
+    ~H"""
+    <p
+      :if={@subject.panel == nil and @subject.panel_html == nil and @subject.panel_pending == nil}
+      class="text-sm text-base-content/50"
+    >
+      this agent keeps no panel
+    </p>
+
+    <section :if={@subject.panel_pending} class="mb-6">
+      <div class="mb-2 flex items-center gap-2">
+        <h3 class="text-xs font-bold uppercase tracking-widest text-warning">
+          proposed panel
+        </h3>
+        <span class="text-xs text-base-content/50">preview, then decide</span>
+        <button class="btn btn-success btn-xs ml-auto" phx-click="approve_panel">approve</button>
+        <button class="btn btn-ghost btn-xs" phx-click="reject_panel">reject</button>
+      </div>
+      <.sandboxed_panel html={@subject.panel_pending} />
+    </section>
+
+    <section :if={@subject.panel_html} class="mb-6">
+      <div class="mb-2 flex items-center gap-2">
+        <h3 class="text-xs font-bold uppercase tracking-widest text-base-content/50">panel</h3>
+        <button
+          :if={@subject.panel_revertable}
+          class="btn btn-ghost btn-xs ml-auto"
+          phx-click="revert_panel"
+          data-confirm="Restore the previous approved panel?"
+        >
+          revert
+        </button>
+      </div>
+      <.sandboxed_panel html={@subject.panel_html} />
+    </section>
+
+    <section :if={@subject.panel}>
+      <h3 class="mb-2 text-xs font-bold uppercase tracking-widest text-base-content/50">
+        notes to you <span class="font-normal normal-case">(memory key "panel")</span>
+      </h3>
+      <.markdown text={@subject.panel} />
+    </section>
     """
   end
 
@@ -851,12 +922,23 @@ defmodule CustodeWeb.ConsoleLive do
       feed: Custode.Feed.for_agent(id, 30),
       todos: Custode.Notebook.todos(id),
       journal: Custode.Notebook.journal(id, 10),
+      panel: panel_markdown(id),
+      panel_html: Custode.Panels.current(id),
+      panel_pending: Custode.Panels.pending(id),
+      panel_revertable: Custode.Panels.revertable?(id),
       draft_batch: Custode.Drafts.pending_batch(id),
       memories: Custode.Memory.recall(id),
       history: history(id),
       sensors: Enum.filter(Custode.Routine.sensors(), &(&1.notify == id)),
       policies: (routine && Custode.Policy.ids_for(routine)) || []
     }
+  end
+
+  defp panel_markdown(id) do
+    case Custode.Memory.recall(id, "panel") do
+      {:ok, markdown} -> markdown
+      :error -> nil
+    end
   end
 
   defp history(id) do
@@ -962,6 +1044,7 @@ defmodule CustodeWeb.ConsoleLive do
     do: if(Signal.needs_you?(signal), do: 1)
 
   defp tab_count("notebook", %{todos: [_one | _rest] = todos}, _signal), do: length(todos)
+  defp tab_count("panel", %{panel_pending: pending}, _signal) when is_binary(pending), do: 1
   defp tab_count(_tab, _subject, _signal), do: nil
 
   defp signal_frame(%Signal{kind: kind}) when kind in [:red_main, :rail_hit, :disowned_check],

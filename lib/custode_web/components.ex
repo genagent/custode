@@ -243,6 +243,31 @@ defmodule CustodeWeb.Components do
     """
   end
 
+  attr(:html, :string, required: true)
+
+  # THE security boundary for agent-authored panels (#100). It lives in the
+  # shared components so the agent page and the console (#450) draw the SAME
+  # one: a second copy is a second boundary to keep correct. The untrusted
+  # HTML is rendered ONLY here, inside an iframe with an EMPTY sandbox
+  # attribute: no scripts run (no allow-scripts), no same-origin, no forms,
+  # no navigation, no popups. Inline SVG and CSS render fully, which covers
+  # maps/charts/diagrams. HEEx attribute-escapes srcdoc, and the BEAM never
+  # executes the content. This component is the ONLY place agent HTML may
+  # appear -- never interpolate it into the page anywhere else, including
+  # previews (the pending preview reuses THIS component for exactly that
+  # reason).
+  def sandboxed_panel(assigns) do
+    ~H"""
+    <iframe
+      sandbox=""
+      srcdoc={@html}
+      class="h-64 w-full rounded-lg border border-base-300 bg-base-100"
+      title="agent panel (sandboxed)"
+    >
+    </iframe>
+    """
+  end
+
   attr(:agent, :string, required: true)
   attr(:action, :string, required: true)
   attr(:size, :string, default: "btn-xs")

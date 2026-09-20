@@ -174,6 +174,21 @@ defmodule Custode.Operator.Actions do
   end
 
   @doc """
+  Approve the HTML panel an agent proposed for its own page (#100). The
+  operator is the authority: nothing an agent authored renders until this.
+  """
+  @spec approve_panel(String.t(), keyword()) :: result()
+  def approve_panel(agent_id, _opts \\ []), do: Custode.Panels.approve(agent_id)
+
+  @doc "Refuse a proposed panel. The approved one, if any, stays."
+  @spec reject_panel(String.t(), keyword()) :: result()
+  def reject_panel(agent_id, _opts \\ []), do: Custode.Panels.reject(agent_id)
+
+  @doc "Restore the previously approved panel."
+  @spec revert_panel(String.t(), keyword()) :: result()
+  def revert_panel(agent_id, _opts \\ []), do: Custode.Panels.revert(agent_id)
+
+  @doc """
   Drop one drafted issue from a pending batch (#215). Available while the
   batch is unfiled: a drop is a judgment until the approved continuation runs.
   """
