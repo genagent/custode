@@ -12,6 +12,7 @@ defmodule Custode do
       iex> Custode.pause(); Custode.resume()
   """
 
+  alias Custode.Gates.Grant
   alias Custode.Routine
   alias ObanClaude.Agent
   alias ObanClaude.Agent.Tick
@@ -74,8 +75,18 @@ defmodule Custode do
   """
   @spec approve_action(String.t(), String.t(), keyword()) :: term()
   def approve_action(agent_id, action_id, opts \\ []) do
+    # The elevation is sized to what was approved (#451): read the class
+    # before the decision is recorded, while the gate is still open.
+    args = agent_id |> Custode.Gates.open_class(action_id) |> Grant.approval_args()
+
     Custode.Gates.record_decision(agent_id, action_id, opts)
-    Agent.approve_action(agent_id, action_id)
+
+    # With no override this is the call every engine has. Only an actual
+    # override needs approve_action/3 (oban_claude >= 0.5), so a checkout whose
+    # engine is behind still approves gates in the default :observe mode.
+    if args == %{},
+      do: Agent.approve_action(agent_id, action_id),
+      else: Agent.approve_action(agent_id, action_id, args: args)
   end
 
   @doc """

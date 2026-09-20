@@ -62,6 +62,25 @@ defmodule Custode.Gates.Grant do
   end
 
   @doc """
+  The claude args to approve a gate of `class` with, over the routine's
+  standing `approved_args` (`ObanClaude.Agent.approve_action/3`).
+
+  An approved continuation runs elevated, `bypass_permissions` by default, so
+  a turn approved to mark a pull request ready has a shell and can run `gh`
+  for anything; no MCP check sees that. When grants are enforced, a class
+  that needs no shell continues in claude's default mode, where its MCP verbs
+  still work and nothing else write-shaped does. Observing changes nothing:
+  shell use cannot be observed from here, and changing the elevation is not
+  an observation.
+  """
+  @spec approval_args(String.t() | nil) :: %{optional(String.t()) => String.t()}
+  def approval_args(class) do
+    if mode() == :enforce and not Class.shell?(class),
+      do: %{"permission_mode" => "default"},
+      else: %{}
+  end
+
+  @doc """
   What has been observed outside a grant, most frequent first: one row per
   agent, verb and verdict, from the most recent 500 `grant_outside` entries.
   This is the evidence the class-to-verb table is corrected against before
