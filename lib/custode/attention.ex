@@ -69,6 +69,15 @@ defmodule Custode.Attention do
   outright, so it invalidates the operator's own next action and is owed to
   them whether or not an agent is also on it (#310).
 
+  ### Kinds with no agent
+
+  `:host_down`, `:workflow_launch` and `:workflow_rail` are absent from the
+  table because no agent's view resolves to them. A failed boot doctor belongs
+  to the host, and a workflow launch or a parked run belongs to a run that has
+  no gen_statem behind it. `host/1` and `workflows/1` build them from their
+  own facts; they share `@precedence` and `@groups` with everything else, so
+  ranking and grouping stay in this one module.
+
   ### Two deliberate departures from the design note
 
   `:paused` is checked BEFORE `:scheduled`, not last. A paused routine still
@@ -103,10 +112,12 @@ defmodule Custode.Attention do
     :red_main,
     :needs_answer,
     :approval,
+    :workflow_launch,
     :disowned_check,
     :red_check,
     :sensor_failing,
     :rail_hit,
+    :workflow_rail,
     :stalled,
     :working,
     :paused,
@@ -119,10 +130,12 @@ defmodule Custode.Attention do
     red_main: :needs_you,
     needs_answer: :needs_you,
     approval: :needs_you,
+    workflow_launch: :needs_you,
     disowned_check: :needs_you,
     red_check: :watching,
     sensor_failing: :watching,
     rail_hit: :needs_you,
+    workflow_rail: :needs_you,
     stalled: :needs_you,
     working: :working,
     scheduled: :scheduled,
@@ -196,6 +209,79 @@ defmodule Custode.Attention do
   end
 
   def host(_facts), do: nil
+
+  @doc """
+  The workflow signals: every launch proposal waiting on a decision and every
+  run parked on its budget rail (#447).
+
+  Both are owed to the operator and to nobody else. design/005 makes the
+  launch gate the only path to a run, and a parked run stays parked until a
+  human raises the rail or lets it go. Until #447 neither entered this module,
+  so the inbox said "That's everything." and the chip stayed empty while they
+  waited on `/workflows`, a page with no reason to be open.
+
+  Like `host/1` there is no agent view to resolve these from, so they are
+  built from their own facts, gathered by `Custode.Attention.Fleet`:
+
+    * `:launches` -- each as `%{id:, workflow:, repo:, summary:, why:,
+      proposed_at:}`.
+    * `:paused_runs` -- each as `%{run_id:, workflow:, repo:, reason:,
+      paused_at:}`, the reason being the run's own note of what it spent and
+      which nodes it did not run.
+
+  The subject is the workflow and the repository, which is how the operator
+  tells two of them apart; the ops carry the proposal or run id.
+
+      iex> Custode.Attention.workflows(%{launches: [], paused_runs: []})
+      []
+  """
+  @spec workflows(%{launches: [map()], paused_runs: [map()]}) :: [Signal.t()]
+  def workflows(facts) do
+    Enum.map(Map.get(facts, :launches, []), &workflow_launch/1) ++
+      Enum.map(Map.get(facts, :paused_runs, []), &workflow_rail/1)
+  end
+
+  defp workflow_launch(launch) do
+    %Signal{
+      subject: workflow_subject(launch),
+      kind: :workflow_launch,
+      group: group_of(:workflow_launch),
+      urgency: :high,
+      headline: "wants your approval to launch",
+      detail: [launch[:why], launch[:summary]] |> Enum.reject(&blank?/1) |> Enum.join("\n"),
+      item: {:proposal, launch.id},
+      raised_at: launch[:proposed_at],
+      resolving: [
+        op("Approve", :approve_launch, %{proposal: launch.id}),
+        op("Reject", :reject_launch, %{proposal: launch.id}),
+        op("Open workflows", :open_workflows, %{})
+      ]
+    }
+  end
+
+  # "Raise the rail and resume" rather than "Resume": resuming onto the same
+  # ceiling parks the run again on its next advance, so the one useful act is
+  # the raise. `Custode.Workflow.Launch.raise_and_resume/1` owns by how much.
+  defp workflow_rail(run) do
+    %Signal{
+      subject: workflow_subject(run),
+      kind: :workflow_rail,
+      group: group_of(:workflow_rail),
+      urgency: :high,
+      headline: "run #{run.run_id} is parked on its budget rail",
+      detail: run[:reason],
+      item: {:run, run.run_id},
+      raised_at: run[:paused_at],
+      resolving: [
+        op("Raise the rail and resume", :resume_run, %{run: run.run_id}),
+        op("Open workflows", :open_workflows, %{})
+      ]
+    }
+  end
+
+  defp workflow_subject(%{workflow: workflow, repo: repo}), do: "#{workflow} on #{repo}"
+
+  defp blank?(value), do: value in [nil, ""]
 
   @doc """
   Resolve one agent's view to its single signal.

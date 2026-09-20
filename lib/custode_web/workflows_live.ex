@@ -23,6 +23,7 @@ defmodule CustodeWeb.WorkflowsLive do
 
   import CustodeWeb.Components
 
+  alias Custode.Operator.Actions
   alias Custode.Workflow.Catalog
   alias Custode.Workflow.Launch
   alias Custode.Workflow.Results
@@ -39,7 +40,7 @@ defmodule CustodeWeb.WorkflowsLive do
 
   @impl Phoenix.LiveView
   def handle_event("approve_launch", %{"id" => id}, socket) do
-    case Launch.approve(id) do
+    case Actions.approve_launch(id, via: :liveview) do
       {:ok, run} ->
         {:noreply,
          socket
@@ -52,18 +53,15 @@ defmodule CustodeWeb.WorkflowsLive do
   end
 
   def handle_event("reject_launch", %{"id" => id}, socket) do
-    Launch.reject(id)
+    Actions.reject_launch(id, "rejected from the dashboard", via: :liveview)
     {:noreply, socket |> put_flash(:info, "launch rejected") |> refresh()}
   end
 
-  # Letting a parked run go on is a rail RAISE, not a rail removal: resuming
-  # onto the same ceiling would park it again on the next advance, so the
-  # button doubles what it approved rather than pretending the limit is gone.
+  # Letting a parked run go on is a rail RAISE, not a rail removal. By how
+  # much is `Launch.raise_and_resume/1`'s to say, since the inbox offers the
+  # same button (#447).
   def handle_event("resume_run", %{"id" => id}, socket) do
-    run = Enum.find(socket.assigns.runs, &(&1.run.run_id == id))
-    raised = run && run.run.budget_usd && run.run.budget_usd * 2
-
-    case Launch.unpause(id, budget_usd: raised || :keep) do
+    case Actions.resume_run(id, via: :liveview) do
       {:ok, _run} ->
         {:noreply, socket |> put_flash(:info, "run #{id} resumed") |> refresh()}
 

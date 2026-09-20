@@ -22,6 +22,7 @@ defmodule Custode.Operator.Actions do
   """
 
   alias Custode.Operations.Fleet.PauseAgent
+  alias Custode.Workflow.Launch
   alias ObanClaude.Agent
 
   @type result :: :ok | {:error, term()}
@@ -164,6 +165,36 @@ defmodule Custode.Operator.Actions do
   end
 
   @doc """
+  Approve a standing workflow launch (#447). Starts the run on the rail the
+  proposal quoted and returns it, so a surface can name the run it started.
+  """
+  @spec approve_launch(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def approve_launch(proposal_id, _opts \\ []), do: Launch.approve(proposal_id)
+
+  @doc """
+  Reject a standing workflow launch (#447). The reason rides the feed entry,
+  which is also the cooldown an agent-raised proposal is checked against. A
+  surface with no reason to give says where the click came from.
+  """
+  @spec reject_launch(String.t(), String.t() | nil, keyword()) :: result()
+  def reject_launch(proposal_id, reason, opts \\ []) do
+    reason =
+      case String.trim(to_string(reason)) do
+        "" -> "rejected via #{Keyword.get(opts, :via, :liveview)}"
+        given -> given
+      end
+
+    Launch.reject(proposal_id, reason)
+  end
+
+  @doc """
+  Let a run parked on its budget rail go on, with the rail raised (#447). By
+  how much is `Custode.Workflow.Launch.raise_and_resume/1`'s to say.
+  """
+  @spec resume_run(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def resume_run(run_id, _opts \\ []), do: Launch.raise_and_resume(run_id)
+
+  @doc """
   Run a signal's `resolving` op. `params` carries what the op needs beyond its
   own `args`: `"text"` for an answer, `"reason"` and `"one_off"` for a reject.
 
@@ -186,9 +217,34 @@ defmodule Custode.Operator.Actions do
   def run(:answer, %{agent: agent}, params, opts), do: answer(agent, params["text"], opts)
   def run(:beat, %{agent: agent}, _params, opts), do: beat(agent, opts)
   def run(:resume, %{agent: agent}, _params, opts), do: resume(agent, opts)
+
+  def run(:approve_launch, %{proposal: id}, _params, opts),
+    do: id |> approve_launch(opts) |> outcome()
+
+  def run(:reject_launch, %{proposal: id}, params, opts),
+    do: reject_launch(id, params["reason"], opts)
+
+  def run(:resume_run, %{run: id}, _params, opts), do: id |> resume_run(opts) |> outcome()
   def run(op, _args, _params, _opts), do: {:error, {:unhandled_op, op}}
+
+  # `run/4` answers `:ok` or an error; the run a workflow op returns is for a
+  # caller of the named function, which can say which run it started.
+  defp outcome({:ok, _run}), do: :ok
+  defp outcome({:error, reason}), do: {:error, reason}
 
   @doc "Whether `run/4` can carry out `op`, for a surface deciding button or link."
   @spec handles?(atom()) :: boolean()
-  def handles?(op), do: op in [:approve, :reject, :answer_ask, :answer, :beat, :resume]
+  def handles?(op) do
+    op in [
+      :approve,
+      :reject,
+      :answer_ask,
+      :answer,
+      :beat,
+      :resume,
+      :approve_launch,
+      :reject_launch,
+      :resume_run
+    ]
+  end
 end

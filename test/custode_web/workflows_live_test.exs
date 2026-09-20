@@ -32,6 +32,11 @@ defmodule CustodeWeb.WorkflowsLiveTest do
     on_exit(fn ->
       File.rm(feed)
       Application.delete_env(:custode, :extra_workflows)
+      # a standing proposal or a parked run is a needs-you signal now (#447),
+      # so leaving one behind changes what every later attention read sees
+      Repo.query!("DELETE FROM feed_entries WHERE event LIKE 'workflow_%'")
+      Repo.delete_all(Results.Result)
+      Repo.delete_all(Run.Row)
     end)
 
     %{conn: build_conn()}

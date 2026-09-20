@@ -28,6 +28,8 @@ defmodule Custode.Attention.Fleet do
   alias Custode.Sensor.Health
   alias Custode.Signal
   alias Custode.SpendLedger
+  alias Custode.Workflow.Launch
+  alias Custode.Workflow.Run
   alias ObanClaude.Agent
 
   @doc """
@@ -81,10 +83,79 @@ defmodule Custode.Attention.Fleet do
 
     # The host signal has no view to come from, so it joins here and every
     # reader of this list (chip, inbox, CLI, MCP) gets it unchanged (#443).
-    [Attention.host(Custode.Host.facts()) | per_agent]
+    #
+    # The workflow signals join the same way (#447): a launch proposal and a
+    # parked run have no agent behind them either.
+    [Attention.host(Custode.Host.facts()) | Attention.workflows(workflow_facts()) ++ per_agent]
     |> Enum.reject(&is_nil/1)
     |> Attention.rank()
   end
+
+  @doc """
+  The facts `Custode.Attention.workflows/1` resolves (#447): the launch
+  proposals still standing and the runs parked on their rail.
+
+  Both stores already exist and both already answer "what is waiting"; this
+  only reshapes them. Public so a test can assert on the gathering without
+  going through the ranked list.
+  """
+  @spec workflow_facts() :: %{launches: [map()], paused_runs: [map()]}
+  def workflow_facts do
+    %{
+      launches: Enum.map(Launch.pending(), &launch_fact/1),
+      paused_runs: paused_runs()
+    }
+  end
+
+  defp launch_fact(entry) do
+    %{
+      id: entry["proposal"],
+      workflow: entry["workflow"],
+      repo: entry["repo"],
+      summary: entry["summary"],
+      why: entry["why"],
+      proposed_at: parse_at(entry["at"])
+    }
+  end
+
+  # The run row records that it is parked and why, not when: the pause is a
+  # status change on a row with no timestamp for it. The `workflow_budget_paused`
+  # feed entry is the record of when, and it is only read when a run is
+  # actually parked, which is rare.
+  defp paused_runs do
+    case Run.list(status: "budget_paused") do
+      [] ->
+        []
+
+      runs ->
+        paused_at =
+          "workflow_budget_paused"
+          |> Custode.Feed.recent_by_event(limit: 50)
+          |> Enum.reverse()
+          |> Map.new(&{&1["run"], parse_at(&1["at"])})
+
+        for run <- runs do
+          %{
+            run_id: run.run_id,
+            workflow: run.workflow,
+            repo: run.repo,
+            # the pause note says what was spent AND which nodes did not run;
+            # `error` is the same sentence without the second half
+            reason: List.last(run.notes) || run.error,
+            paused_at: Map.get(paused_at, run.run_id)
+          }
+        end
+    end
+  end
+
+  defp parse_at(iso) when is_binary(iso) do
+    case DateTime.from_iso8601(iso) do
+      {:ok, at, _offset} -> at
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp parse_at(_absent), do: nil
 
   @doc """
   Ranked signals bucketed by group, in page order and without empty groups.

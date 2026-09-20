@@ -207,7 +207,7 @@ defmodule CustodeWeb.ConsoleLive do
         <ul>
           <li :for={signal <- signals}>
             <.link
-              patch={"/console/#{signal.subject}"}
+              patch={subject_path(signal.subject)}
               class={[
                 "flex items-center gap-2 rounded px-2 py-1.5 font-mono text-sm hover:bg-base-200",
                 signal.subject == @selected && "bg-base-200 font-bold",
@@ -507,6 +507,11 @@ defmodule CustodeWeb.ConsoleLive do
       :loading -> :loading
     end
   end
+
+  # An agent id is a slug and passes through unchanged. A workflow signal's
+  # subject is "<workflow> on <owner>/<repo>" (#447), and an unencoded slash
+  # there would be a second path segment and no route.
+  defp subject_path(subject), do: "/console/" <> URI.encode(subject, &URI.char_unreserved?/1)
 
   # -- words and tones ----------------------------------------------------------
 
