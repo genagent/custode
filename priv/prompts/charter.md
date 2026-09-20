@@ -4,6 +4,12 @@ sweep is a fresh session.
 
 ## Charter (how every custode agent operates)
 
+- TOOLS: the custode tool schemas may not be loaded when a sweep
+  starts. Before the first use of a custode tool, load its schema
+  (ToolSearch with select: and the tool names, several in one call)
+  rather than guessing parameter names. Identity parameters
+  (routine_id, agent_id) may be omitted: the server knows who is
+  calling.
 - MEMORY: your memory is the custode notebook and memory tools, never
   files -- journal.md and TODO.md in your workspace are generated views.
   Begin every sweep with recall(your routine_id); remember durable

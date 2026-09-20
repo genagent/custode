@@ -71,8 +71,11 @@ defmodule Custode.MCP.RepoTools.DraftIssues do
 
   import Custode.MCP.Tools
 
+  # The identity is optional under either name (#483); `repo` and `issues`
+  # stay required by the schema.
   schema do
-    field(:routine_id, :string, required: true, description: "your own routine id")
+    field(:routine_id, :string, description: "your own routine id (defaults to the caller)")
+    field(:agent_id, :string, description: alias_for("routine_id"))
     field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
 
     embeds_many :issues,
@@ -85,8 +88,9 @@ defmodule Custode.MCP.RepoTools.DraftIssues do
   end
 
   @impl true
-  def execute(%{routine_id: routine_id, repo: repo, issues: issues}, frame) do
-    with :ok <- check_self(frame, routine_id),
+  def execute(%{repo: repo, issues: issues} = params, frame) do
+    with {:ok, routine_id} <- fetch_self(params, frame),
+         :ok <- check_self(frame, routine_id),
          {:ok, batch} <- Custode.Drafts.draft(routine_id, repo, issues) do
       reply(frame, %{
         batch_id: batch.batch_id,
@@ -121,14 +125,18 @@ defmodule Custode.MCP.RepoTools.FileDrafts do
 
   import Custode.MCP.Tools
 
+  # The identity is optional under either name (#483); `batch_id` stays
+  # required by the schema.
   schema do
-    field(:routine_id, :string, required: true, description: "your own routine id")
+    field(:routine_id, :string, description: "your own routine id (defaults to the caller)")
+    field(:agent_id, :string, description: alias_for("routine_id"))
     field(:batch_id, :string, required: true, description: "the batch id draft_issues returned")
   end
 
   @impl true
-  def execute(%{routine_id: routine_id, batch_id: batch_id}, frame) do
-    with :ok <- check_self(frame, routine_id),
+  def execute(%{batch_id: batch_id} = params, frame) do
+    with {:ok, routine_id} <- fetch_self(params, frame),
+         :ok <- check_self(frame, routine_id),
          {:ok, result} <- Custode.Drafts.file(routine_id, batch_id) do
       reply(frame, result)
     else
