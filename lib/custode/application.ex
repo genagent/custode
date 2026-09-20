@@ -14,8 +14,6 @@ defmodule Custode.Application do
   alias Custode.Feed
   alias Custode.Workflow
 
-  require Logger
-
   @impl Application
   def start(_type, _args) do
     # before anything can spawn a turn: agents inherit this environment (#483)
