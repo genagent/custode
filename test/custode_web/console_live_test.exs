@@ -577,6 +577,74 @@ defmodule CustodeWeb.ConsoleLiveTest do
     end
   end
 
+  describe "the item pane's checks (#450)" do
+    defmodule ChecksOps do
+      @moduledoc false
+      def pr_checks(_owner, _repo, 637) do
+        {:ok,
+         %{
+           sha: "abc",
+           checks: [
+             %{name: "fmt", status: "completed", conclusion: "success", url: "https://x/fmt"},
+             %{
+               name: "test (ubuntu)",
+               status: "completed",
+               conclusion: "failure",
+               url: "https://x/t"
+             },
+             %{name: "docs", status: "in_progress", conclusion: nil, url: nil}
+           ]
+         }}
+      end
+
+      def pr_checks(_owner, _repo, _number), do: {:error, "github: 502"}
+    end
+
+    setup %{conn: conn} do
+      repo = "acme/" <> uid("red")
+      on_exit(fn -> Cache.forget(repo) end)
+
+      red = fn number ->
+        %{number: number, title: "pr #{number}", url: "https://x", at: nil, checks: "FAILURE"}
+      end
+
+      overview = %{
+        open_issues: %{total: 0, items: []},
+        closed_issues: %{total: 0, items: []},
+        merged_prs: %{total: 0, items: []},
+        open_prs: %{total: 2, items: [red.(637), red.(640)]}
+      }
+
+      overviews = Application.get_env(:custode, :fake_repo_overviews, %{})
+      put_env!(:fake_repo_overviews, Map.put(overviews, repo, {:ok, overview}))
+      put_env!(:repo_ops, ChecksOps)
+
+      routine = routine_fixture!(tmp_workspace!(), %{repo: repo})
+      :ok = Custode.Repository.ensure_served(repo, routine.id)
+      # the signal is resolved from the cached overview, so it has to be there
+      eventually(fn -> assert {:ok, _overview} = Custode.GitHub.overview(repo) end)
+
+      %{conn: conn, routine: routine}
+    end
+
+    test "each pull request the signal points at lists its checks, failed first",
+         %{conn: conn, routine: routine} do
+      {:ok, view, _html} = live(conn, "/console/#{routine.id}")
+
+      html =
+        eventually(fn ->
+          html = render(view)
+          refute html =~ "reading checks..."
+          html
+        end)
+
+      assert html =~ ~r/test \(ubuntu\).*failure.*docs.*in_progress.*fmt.*success/s
+      assert html =~ ~s(href="https://x/t")
+      # one PR's read failing does not take the other's rows with it
+      assert html =~ ~r/checks unavailable: [^<]*502/
+    end
+  end
+
   describe "the work tab" do
     setup %{conn: conn} do
       workspace = tmp_workspace!()

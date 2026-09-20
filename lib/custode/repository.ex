@@ -686,6 +686,7 @@ defmodule Custode.Repository.Ops do
       name: run["name"],
       status: run["status"],
       conclusion: run["conclusion"],
+      url: run["html_url"],
       started_at: run["started_at"],
       completed_at: run["completed_at"]
     }
