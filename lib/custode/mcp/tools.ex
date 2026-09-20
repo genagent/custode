@@ -15,6 +15,7 @@ defmodule Custode.MCP.Tools do
   """
 
   alias Anubis.Server.Response
+  alias Custode.Gates.Grant
 
   @doc false
   def reply(frame, data), do: {:reply, Response.json(Response.tool(), data), frame}
@@ -153,6 +154,20 @@ defmodule Custode.MCP.Tools do
     do: if(String.trim(value) == "", do: nil, else: value)
 
   defp present(value), do: value
+
+  @doc """
+  Whether the caller's write `verb` is inside its approved action (#451):
+  `:ok`, or `{:error, message}` when `Custode.Gates.Grant` is enforcing. The
+  check is on the CALLER, which only this layer knows: the repository process
+  knows the repo's owning routine, and a reviewer writes to repos it does not
+  own.
+  """
+  def check_grant(frame, verb), do: Grant.check(caller_agent_id(frame), verb)
+
+  @doc "Run `write` if `check_grant/2` allows `verb`; its refusal is returned in `write`'s error shape."
+  def granted(frame, verb, write) when is_function(write, 0) do
+    with :ok <- check_grant(frame, verb), do: write.()
+  end
 
   defp caller_agent_id(frame) do
     case Custode.MCP.caller(frame) do

@@ -56,6 +56,33 @@ defmodule Custode.Gates.Class do
   def normalize(""), do: nil
   def normalize(_unknown), do: "other"
 
+  # The write verbs inside each class (#451). `other` and an undeclared class
+  # are unbounded, which is exactly what they say about themselves.
+  @verbs %{
+    "comment" => [:comment],
+    "file_issue" => [:open_issue, :file_drafts],
+    "implement" => [:open_pr, :comment],
+    "pr_maintain" => [:comment],
+    "review" => [:review_pr, :comment],
+    "ready_pr" => [:ready_pr],
+    "merge" => [:merge_pr],
+    "roster" => []
+  }
+
+  @doc """
+  The write verbs an approval of `class` covers, or `:any` when the class
+  does not bound them.
+
+      iex> Custode.Gates.Class.verbs("ready_pr")
+      [:ready_pr]
+      iex> Custode.Gates.Class.verbs("other")
+      :any
+      iex> Custode.Gates.Class.verbs(nil)
+      :any
+  """
+  @spec verbs(String.t() | nil) :: [atom()] | :any
+  def verbs(class), do: Map.get(@verbs, class, :any)
+
   @doc "The enum's description for the directive schema: every class and its meaning."
   @spec describe() :: String.t()
   def describe do
