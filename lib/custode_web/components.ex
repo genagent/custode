@@ -435,10 +435,12 @@ defmodule CustodeWeb.Components do
   attr(:text, :string, required: true)
 
   @doc """
-  Markdown for agent output (journal tables and friends). The input is
-  HTML-escaped BEFORE Earmark, so any raw HTML an agent (or an injected
-  note) emits is inert by construction -- only Earmark-generated markup
-  renders. Falls back to pre-wrapped text if parsing fails.
+  Markdown for agent output (journal tables and friends), rendered by MDEx
+  (#460). Three layers keep agent text inert: raw HTML is escaped rather
+  than rendered, the rendered markup passes through the sanitizer (which
+  drops event-handler attributes and empties `javascript:`, `data:` and
+  other unsafe URL schemes), and no attribute syntax is enabled. Falls back
+  to plain text if rendering fails.
   """
   def markdown(assigns) do
     ~H"""
@@ -446,12 +448,17 @@ defmodule CustodeWeb.Components do
     """
   end
 
-  defp render_markdown(text) do
-    escaped = text |> Plug.HTML.html_escape()
+  @markdown_options [
+    extension: [table: true, strikethrough: true, autolink: true, tasklist: true],
+    render: [hardbreaks: true, unsafe: false, escape: true]
+  ]
 
-    case Earmark.as_html(escaped, breaks: true) do
-      {:ok, html, _messages} -> Phoenix.HTML.raw(html)
-      {:error, _html, _messages} -> text
+  defp render_markdown(text) do
+    options = [{:sanitize, MDEx.Document.default_sanitize_options()} | @markdown_options]
+
+    case MDEx.to_html(text, options) do
+      {:ok, html} -> Phoenix.HTML.raw(html)
+      {:error, _reason} -> text
     end
   end
 

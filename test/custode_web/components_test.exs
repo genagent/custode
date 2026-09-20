@@ -84,6 +84,96 @@ defmodule CustodeWeb.ComponentsTest do
     end
   end
 
+  describe "markdown rendering is inert against hostile agent text (#460)" do
+    import Phoenix.LiveViewTest, only: [render_component: 2]
+
+    defp md(text), do: render_component(&CustodeWeb.Components.markdown/1, text: text)
+
+    # Quoted attribute values are blanked first: a payload held inside a value
+    # by an escaped quote (`&quot;`) is inert, and what is left of the tag
+    # shows any attribute that really was injected.
+    defp refute_handler_attribute(html) do
+      tags_only = String.replace(html, ~r/"[^"]*"/, ~s(""))
+      refute tags_only =~ ~r/<[^>]*\son\w+\s*=/i
+    end
+
+    test "unsafe link schemes do not reach an href" do
+      for target <- [
+            "javascript:alert(1)",
+            "JaVaScRiPt:alert(1)",
+            "vbscript:msgbox(1)",
+            "data:text/html,<script>alert(1)</script>"
+          ] do
+        html = md("[click](#{target})")
+        refute html =~ ~r/href="\s*(javascript|vbscript|data):/i
+        refute html =~ "<script>"
+      end
+    end
+
+    test "safe link schemes still render as links" do
+      html = md("[pr](https://github.com/genagent/custode/pull/1)")
+      assert html =~ ~s(href="https://github.com/genagent/custode/pull/1")
+    end
+
+    test "a link title cannot break out of its attribute" do
+      for text <- [
+            ~s|[x](http://a.b 't" onmouseover="alert(1)')|,
+            ~s|[x](http://a.b "t\\" onmouseover=\\"alert(1)")|
+          ] do
+        html = md(text)
+        refute_handler_attribute(html)
+      end
+    end
+
+    test "image alt, title and src cannot carry a payload" do
+      for text <- [
+            ~s|![a" onerror="alert(1)](http://a.b/i.png)|,
+            ~s|![a](http://a.b/i.png 't" onerror="alert(1)')|
+          ] do
+        refute_handler_attribute(md(text))
+      end
+
+      refute md("![a](javascript:alert(1))") =~ ~r/src="\s*javascript:/i
+    end
+
+    test "autolinks and reference-style links get the same scheme check" do
+      refute md("<javascript:alert(1)>") =~ ~r/href="\s*javascript:/i
+
+      html = md("[x][r]\n\n[r]: javascript:alert(1) 't\" onmouseover=\"alert(1)'")
+      refute html =~ ~r/href="\s*javascript:/i
+      refute_handler_attribute(html)
+    end
+
+    test "attribute-list syntax does not add attributes" do
+      for text <- [
+            ~s|[x](http://a.b){: onmouseover="alert(1)"}|,
+            ~s|[x](http://a.b){: onmouseover=alert(1)}|,
+            ~s|para\n{: onclick="alert(1)"}|
+          ] do
+        refute_handler_attribute(md(text))
+      end
+    end
+
+    test "raw HTML is escaped, not rendered" do
+      html =
+        md("<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n\nhi <b onclick=x>b</b>")
+
+      refute html =~ "<script"
+      refute html =~ "<img"
+      refute html =~ "<b "
+      assert html =~ "&lt;script&gt;"
+    end
+
+    test "single newlines break, fenced code and strong render" do
+      assert md("a\nb") =~ ~r/a<br\s*\/?>\s*b/
+
+      html = md("**bold**\n\n```elixir\nIO.puts(\"<hi>\")\n```")
+      assert html =~ "<strong>bold</strong>"
+      assert html =~ "<pre"
+      assert html =~ "&lt;hi&gt;"
+    end
+  end
+
   describe "feed_text/1" do
     test "failure events carry a what-happens-next hint" do
       assert feed_text(%{"event" => "turn_failed", "kind" => "max_turns_exceeded"}) =~
