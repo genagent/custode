@@ -190,6 +190,21 @@ defmodule Custode.Gates do
   @typedoc "An approved gate whose continuation is still running."
   @type grant :: %{gate_id: integer(), class: String.t() | nil, detail: String.t() | nil}
 
+  @doc "The class of the agent's open approval gate for `action_id`, or `nil`."
+  @spec open_class(String.t(), String.t() | nil) :: String.t() | nil
+  def open_class(agent_id, action_id) do
+    Repo.one(
+      from(g in Gate,
+        where:
+          g.agent_id == ^agent_id and g.status == "open" and g.kind == "approval" and
+            g.action_id == ^action_id,
+        order_by: [desc: g.id],
+        limit: 1,
+        select: g.class
+      )
+    )
+  end
+
   @doc """
   The agent's live grant (#451): its approved gate whose continuation has not
   ended, or `nil`. `Custode.Gates.Grant` judges a write verb against it.

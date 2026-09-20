@@ -19,8 +19,8 @@ defmodule Custode.Gates.GrantTest do
 
   # drives a stub agent to an open approval gate the way the engine does:
   # run:stop first, then job_finished
-  defp gated_agent!(fields) do
-    id = start_stub_agent!()
+  defp gated_agent!(fields, agent_opts \\ []) do
+    id = start_stub_agent!(agent_opts)
     :processing = Agent.submit_prompt(id, "x")
 
     result =
@@ -136,6 +136,50 @@ defmodule Custode.Gates.GrantTest do
     test "the operator is never checked" do
       put_env!(:gate_grant_mode, :enforce)
       assert Grant.check(nil, :merge_pr) == :ok
+    end
+  end
+
+  describe "an approval's elevation is sized to its class" do
+    @elevated [approved_args: %{"permission_mode" => "bypass_permissions"}]
+
+    # the args the approved continuation was enqueued with
+    defp approve!(fields) do
+      {id, action_id} = gated_agent!(fields, @elevated)
+      # drain the first turn's enqueue
+      assert_receive {:enqueued, %{"prompt" => "x"}, _meta}
+      :processing = Custode.approve_action(id, action_id, via: :cli)
+      assert_receive {:enqueued, %{"prompt" => "Approved:" <> _rest} = args, _meta}
+      args
+    end
+
+    test "observing, every approval keeps the routine's approved_args" do
+      assert Grant.approval_args("ready_pr") == %{}
+
+      assert %{"permission_mode" => "bypass_permissions"} =
+               approve!(%{"action_class" => "ready_pr"})
+    end
+
+    test "enforcing, a class that needs no shell continues in the default mode" do
+      put_env!(:gate_grant_mode, :enforce)
+
+      for class <- ~w(comment file_issue review ready_pr merge roster) do
+        assert Grant.approval_args(class) == %{"permission_mode" => "default"}
+      end
+
+      assert %{"permission_mode" => "default"} = approve!(%{"action_class" => "ready_pr"})
+    end
+
+    test "enforcing, work that needs a shell, and work that claims no bound, stay elevated" do
+      put_env!(:gate_grant_mode, :enforce)
+
+      for class <- ["implement", "pr_maintain", "other", nil] do
+        assert Grant.approval_args(class) == %{}
+      end
+
+      assert %{"permission_mode" => "bypass_permissions"} =
+               approve!(%{"action_class" => "implement"})
+
+      assert %{"permission_mode" => "bypass_permissions"} = approve!(%{})
     end
   end
 

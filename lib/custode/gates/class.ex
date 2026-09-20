@@ -83,6 +83,24 @@ defmodule Custode.Gates.Class do
   @spec verbs(String.t() | nil) :: [atom()] | :any
   def verbs(class), do: Map.get(@verbs, class, :any)
 
+  # Classes whose work is git, a build, a test run: things only a shell does.
+  # Every other class is done entirely through custode's MCP write verbs.
+  @shell ~w(implement pr_maintain)
+
+  @doc """
+  Whether an approval of `class` needs the elevated continuation. `other` and
+  an undeclared class do: they claim no bound, so they keep what they had.
+
+      iex> Custode.Gates.Class.shell?("implement")
+      true
+      iex> Custode.Gates.Class.shell?("ready_pr")
+      false
+      iex> Custode.Gates.Class.shell?(nil)
+      true
+  """
+  @spec shell?(String.t() | nil) :: boolean()
+  def shell?(class), do: class in @shell or verbs(class) == :any
+
   @doc "The enum's description for the directive schema: every class and its meaning."
   @spec describe() :: String.t()
   def describe do
