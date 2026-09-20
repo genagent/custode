@@ -566,6 +566,12 @@ defmodule CustodeWeb.FleetMetaRailTest do
     path = Path.join(System.tmp_dir!(), uid("lv-rail") <> ".jsonl")
     put_env!(:feed_path, path)
     on_exit(fn -> File.rm(path) end)
+
+    # The chip names its subjects only while two or fewer need attention and
+    # says "N need attention" past that, so these tests are about the WHOLE
+    # fleet: an ask or a parked workflow run left by another module changes the
+    # words on the page. Passed alone, failed under some seeds.
+    clear_attention!()
     :ok
   end
 
