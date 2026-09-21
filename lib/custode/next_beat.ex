@@ -80,6 +80,14 @@ defmodule Custode.NextBeat do
   @spec pending() :: %{String.t() => DateTime.t()}
   def pending, do: Repo.all(from(n in __MODULE__, select: {n.routine_id, n.at})) |> Map.new()
 
+  @doc "Every pending request keyed by routine id, including its durable identity."
+  @spec pending_requests() :: %{String.t() => %__MODULE__{}}
+  def pending_requests do
+    __MODULE__
+    |> Repo.all()
+    |> Map.new(&{&1.routine_id, &1})
+  end
+
   @doc "One routine's pending request, or `nil`."
   @spec get(String.t()) :: %__MODULE__{} | nil
   def get(routine_id), do: Repo.get(__MODULE__, routine_id)
@@ -89,6 +97,21 @@ defmodule Custode.NextBeat do
   def clear(routine_id) do
     Repo.delete_all(from(n in __MODULE__, where: n.routine_id == ^routine_id))
     :ok
+  end
+
+  @doc "Delete only the exact request observed by the scheduler."
+  @spec clear_observed(%__MODULE__{}) :: non_neg_integer()
+  def clear_observed(%__MODULE__{} = request) do
+    {count, _rows} =
+      Repo.delete_all(
+        from(n in __MODULE__,
+          where:
+            n.routine_id == ^request.routine_id and n.at == ^request.at and
+              n.inserted_at == ^request.inserted_at
+        )
+      )
+
+    count
   end
 
   @doc "Clear a request the moment its agent starts a turn, whoever started it."
