@@ -234,10 +234,7 @@ defmodule Custode.Attention.Fleet do
   # (#527), keyed by agent. One read of the recent failures finds the
   # candidates, and only a candidate's own feed is read for the streak, so a
   # healthy fleet pays one query.
-  #
-  # Only entries carrying a `category` count as outcomes. `turn_failed` is
-  # also recorded for things that are not turns (a drain timeout, an
-  # undeliverable orphan notice), and those neither start nor break a streak.
+  # `TurnFailure.streak/1` owns which entries count as turn outcomes.
   defp turn_failures do
     "turn_failed"
     |> Custode.Feed.recent_by_event(limit: 100)
@@ -257,6 +254,8 @@ defmodule Custode.Attention.Fleet do
   # A success since the failure leaves nothing to take, so nothing is owed.
   defp turn_failure_fact([], _agent_id), do: []
 
+  # Attention names one remedy, so only the latest category's run counts
+  # here. Beat backoff instead counts the full run across categories (#560).
   defp turn_failure_fact([latest | _older] = failed, agent_id) do
     category = TurnFailure.from_entry(latest)
     streak = Enum.take_while(failed, &(TurnFailure.from_entry(&1) == category))

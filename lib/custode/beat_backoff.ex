@@ -8,6 +8,13 @@ defmodule Custode.BeatBackoff do
   the routine's own cron interval, doubled per consecutive failure, capped at
   the `:next_beat_bounds` maximum.
 
+  Count consecutive classified failures across categories (#560): a timeout
+  followed by a rate limit is two failed turns, so a `*/15` routine waits
+  15 minutes, then 30. A different cause is not evidence of recovery. Earlier
+  non-retryable failures count too; the LATEST category decides whether to
+  back off, and only a successful turn ends the count. Attention separately
+  counts the latest category's run because its headline names one remedy.
+
   There is no second mechanism. The wait is a `Custode.NextBeat` request, so
   it is one-shot and anything that starts a turn (an operator message, a
   sensor wake, `beat now`) clears it. There is no reset code either: the
