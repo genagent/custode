@@ -151,7 +151,7 @@ defmodule CustodeWeb.InboxLive do
         <p class="font-medium">Nothing needs you.</p>
         <p class="mt-1 text-sm text-base-content/50">
           The fleet is working or resting. Its state is on the
-          <.link navigate="/" class="link">fleet page</.link>.
+          <.link navigate="/fleet" class="link">fleet page</.link>.
         </p>
       </div>
 

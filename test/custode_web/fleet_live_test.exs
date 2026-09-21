@@ -35,7 +35,7 @@ defmodule CustodeWeb.FleetLiveTest do
 
   test "renders one tile per routine with a detail link, offline until its first beat",
        %{conn: conn, routine: routine} do
-    {:ok, _view, html} = live(conn, "/")
+    {:ok, _view, html} = live(conn, "/fleet")
 
     assert html =~ "tile-#{routine.id}"
     assert html =~ ~s(href="/agents/#{routine.id}")
@@ -51,7 +51,7 @@ defmodule CustodeWeb.FleetLiveTest do
     {:ok, _ask} = Custode.Asks.ask(asker, "is the diff yours?")
     on_exit(fn -> Custode.Repo.query!("DELETE FROM asks") end)
 
-    {:ok, view, _html} = live(conn, "/")
+    {:ok, view, _html} = live(conn, "/fleet")
 
     assert has_element?(view, "#meta-rail a[href='/console']", "#{asker} asked")
   end
@@ -72,7 +72,7 @@ defmodule CustodeWeb.FleetLiveTest do
       })
     end
 
-    {:ok, view, html} = live(conn, "/")
+    {:ok, view, html} = live(conn, "/fleet")
     assert html =~ "while you were away"
 
     view |> element("#away-digest button", "dismiss") |> render_click()
@@ -99,7 +99,7 @@ defmodule CustodeWeb.FleetLiveTest do
 
     test "a repo's worker+steward pair renders grouped under a repo header",
          %{conn: conn, repo: repo} do
-      {:ok, _view, html} = live(conn, "/")
+      {:ok, _view, html} = live(conn, "/fleet")
 
       # the repo header names the repo and both agents are present
       assert html =~ repo
@@ -114,7 +114,7 @@ defmodule CustodeWeb.FleetLiveTest do
 
     test "a non-repo routine stays a solo tile (no group header)",
          %{conn: conn, solo: solo} do
-      {:ok, _view, html} = live(conn, "/")
+      {:ok, _view, html} = live(conn, "/fleet")
       assert html =~ "tile-#{solo}"
       # the solo's role chip is the assistant default it normalizes to
       assert html =~ "assistant"
@@ -136,7 +136,7 @@ defmodule CustodeWeb.FleetLiveTest do
           )
       )
 
-    {:ok, view, html} = live(conn, "/")
+    {:ok, view, html} = live(conn, "/fleet")
     assert html =~ "swept the yard"
     assert html =~ "idle"
 
@@ -160,7 +160,7 @@ defmodule CustodeWeb.FleetLiveTest do
 
     {:ok, {:awaiting_permission, _action}} = Agent.await(routine.id, :awaiting_permission, 1_000)
 
-    {:ok, view, html} = live(conn, "/")
+    {:ok, view, html} = live(conn, "/fleet")
     assert html =~ "prune notes"
 
     view |> element("#tile-#{routine.id} button", "approve") |> render_click()
@@ -184,7 +184,7 @@ defmodule CustodeWeb.FleetLiveTest do
 
     {:ok, {:awaiting_permission, _action}} = Agent.await(routine.id, :awaiting_permission, 1_000)
 
-    {:ok, _view, html} = live(conn, "/")
+    {:ok, _view, html} = live(conn, "/fleet")
 
     assert html =~ "needs you"
     # the status badge says WHAT state it is in; the headline says why that
@@ -230,7 +230,7 @@ defmodule CustodeWeb.FleetLiveTest do
 
     {:ok, {:awaiting_permission, _action}} = Agent.await(second.id, :awaiting_permission, 1_000)
 
-    {:ok, _view, html} = live(conn, "/")
+    {:ok, _view, html} = live(conn, "/fleet")
 
     # the gated second routine sorts before the offline first routine
     {gated_at, _} = :binary.match(html, "tile-#{second.id}")
@@ -256,7 +256,7 @@ defmodule CustodeWeb.FleetLiveTest do
 
     {:ok, {:waiting_for_user, _q}} = Agent.await(routine.id, :waiting_for_user, 1_000)
 
-    {:ok, _view, html} = live(conn, "/")
+    {:ok, _view, html} = live(conn, "/fleet")
     assert html =~ "which env?"
     assert html =~ "answer"
   end
@@ -282,7 +282,7 @@ defmodule CustodeWeb.FleetLiveTagsTest do
       %{id: plain, cron: "@daily", workspace: workspace, prompt: "sweep"}
     ])
 
-    {:ok, view, html} = live(conn, "/")
+    {:ok, view, html} = live(conn, "/fleet")
 
     # chips from the union of tags; both tiles visible unfiltered
     assert has_element?(view, "button[phx-value-tag=rust]")
@@ -330,7 +330,7 @@ defmodule CustodeWeb.FleetLiveActivitySortTest do
       %{id: second, cron: "@daily", workspace: workspace, prompt: "sweep"}
     ])
 
-    {:ok, _view, html} = live(build_conn(), "/")
+    {:ok, _view, html} = live(build_conn(), "/fleet")
 
     assert html =~ "grouped by attention"
     refute html =~ "sorted by recent activity"
@@ -371,7 +371,7 @@ defmodule CustodeWeb.FleetLiveBrakeTest do
     second = start_stub_agent!()
     conn = build_conn()
 
-    {:ok, view, _html} = live(conn, "/")
+    {:ok, view, _html} = live(conn, "/fleet")
     view |> element("button", "pause all") |> render_click()
 
     {:ok, :paused} = Agent.await(first, :paused, 1_000)
@@ -411,7 +411,7 @@ defmodule CustodeWeb.FleetLiveBrakeTest do
       not Enum.any?(ObanClaude.Agent.list(), fn {agent_id, _s} -> agent_id == id end)
     end) || flunk("agent never left the registry")
 
-    {:ok, view, html} = live(build_conn(), "/")
+    {:ok, view, html} = live(build_conn(), "/fleet")
 
     # An agent that has ENDED wants nothing from the operator, so it collapses
     # into the quiet line as a name rather than spending a card on itself
@@ -467,7 +467,7 @@ defmodule CustodeWeb.HierarchyPassTest do
     {:ok, _pid} = Agent.start_agent(id, enqueue_fun: fn _a, _m -> {:ok, :q} end)
     on_exit(fn -> Agent.stop_agent(id) end)
 
-    {:ok, view, _html} = live(build_conn(), "/")
+    {:ok, view, _html} = live(build_conn(), "/fleet")
     tile = element(view, "#tile-#{id}") |> render()
     assert tile =~ "idle"
     # the word is there; the badge box is not (rank-4 never shouts)
@@ -488,7 +488,7 @@ defmodule CustodeWeb.HierarchyPassTest do
     :ok = Agent.emergency_pause(id)
     {:ok, :paused} = Agent.await(id, :paused, 1_000)
 
-    {:ok, view, _html} = live(build_conn(), "/")
+    {:ok, view, _html} = live(build_conn(), "/fleet")
     tile = element(view, "#tile-#{id}") |> render()
     assert tile =~ "paused"
     assert tile =~ "daily rail"
@@ -543,7 +543,7 @@ defmodule CustodeWeb.HierarchyPassTest do
     # warm the cache so the tile's read is a hit (the page itself reads
     # cache-only and fills in on the broadcast)
     Custode.PubSubBridge.subscribe()
-    {:ok, view, _html} = live(build_conn(), "/")
+    {:ok, view, _html} = live(build_conn(), "/fleet")
 
     first = render(view)
 
@@ -602,7 +602,7 @@ defmodule CustodeWeb.FleetMetaRailTest do
     # sort would have buried the quiet caretaker at the bottom of the grid
     Custode.Feed.record(%{event: "turn", agent: worker, summary: "fresh news"})
 
-    {:ok, view, html} = live(build_conn(), "/")
+    {:ok, view, html} = live(build_conn(), "/fleet")
 
     assert has_element?(view, "#meta-rail #tile-#{caretaker}")
     refute has_element?(view, ".grid #tile-#{caretaker}")
@@ -622,7 +622,7 @@ defmodule CustodeWeb.FleetMetaRailTest do
     workspace = tmp_workspace!()
     put_env!(:routines, [%{id: uid("worker"), cron: "@daily", workspace: workspace, prompt: "s"}])
 
-    {:ok, view, _html} = live(build_conn(), "/")
+    {:ok, view, _html} = live(build_conn(), "/fleet")
 
     assert has_element?(view, "#meta-rail", "fleet today")
     refute has_element?(view, "header", "fleet today")
@@ -667,7 +667,7 @@ defmodule CustodeWeb.FleetMetaRailTest do
 
     {:ok, {:awaiting_permission, _action}} = Agent.await(gated, :awaiting_permission, 1_000)
 
-    {:ok, view, _html} = live(build_conn(), "/")
+    {:ok, view, _html} = live(build_conn(), "/fleet")
 
     assert has_element?(view, "#meta-rail a[href='/console']", "#{gated} needs approval")
     refute has_element?(view, "header .badge-warning")
@@ -688,7 +688,7 @@ defmodule CustodeWeb.FleetMetaRailTest do
       :ets.delete(:custode_run_clock, fast)
     end)
 
-    {:ok, _view, html} = live(build_conn(), "/")
+    {:ok, _view, html} = live(build_conn(), "/fleet")
 
     assert html =~ "in flight (2)"
     # both listed; the long-running one carries a warning tone (>= 5m)
@@ -701,7 +701,7 @@ defmodule CustodeWeb.FleetMetaRailTest do
     # a calm fleet shows no in-flight section
     :ets.delete(:custode_run_clock, slow)
     :ets.delete(:custode_run_clock, fast)
-    {:ok, _view2, html2} = live(build_conn(), "/")
+    {:ok, _view2, html2} = live(build_conn(), "/fleet")
     refute html2 =~ "in flight ("
   end
 
@@ -719,7 +719,7 @@ defmodule CustodeWeb.FleetMetaRailTest do
     :ok = Custode.SpendLedger.record(hot, 8.5)
     :ok = Custode.SpendLedger.record(calm, 1.0)
 
-    {:ok, _view, html} = live(build_conn(), "/")
+    {:ok, _view, html} = live(build_conn(), "/fleet")
 
     assert html =~ "85%"
     assert html =~ "of its daily rail"
@@ -749,7 +749,7 @@ defmodule CustodeWeb.FleetMetaRailTest do
 
     on_exit(fn -> ObanClaude.Agent.stop_agent(keeper) end)
 
-    {:ok, view, html} = live(build_conn(), "/")
+    {:ok, view, html} = live(build_conn(), "/fleet")
 
     # the rail holds a prompt form for the caretaker, not a bare tile
     assert has_element?(view, "#meta-rail form[phx-submit=rail_prompt]")
@@ -797,7 +797,7 @@ defmodule CustodeWeb.FleetMetaRailTest do
 
       suggest!(worker, "cron", evidence: "swept 12 times, changed nothing 11 of them")
 
-      {:ok, view, _html} = live(build_conn(), "/")
+      {:ok, view, _html} = live(build_conn(), "/fleet")
 
       card = "#meta-rail #advisor-suggestions"
       assert has_element?(view, card, "cron")
@@ -822,7 +822,7 @@ defmodule CustodeWeb.FleetMetaRailTest do
       suggest!(worker, "daily_budget_usd", proposed: "9.99", evidence: "long forgotten")
       backdate_last!(30)
 
-      {:ok, view, _html} = live(build_conn(), "/")
+      {:ok, view, _html} = live(build_conn(), "/fleet")
 
       card = "#meta-rail #advisor-suggestions"
       # one card per (advisor, agent, field), carrying the freshest read
@@ -851,7 +851,7 @@ defmodule CustodeWeb.FleetMetaRailTest do
       Custode.Repo.query!("DELETE FROM feed_entries WHERE event = 'advisor_suggestion'")
       suggest!(worker, "model", advisor: "advisor-model", current: "opus", proposed: "sonnet")
 
-      {:ok, view, _html} = live(build_conn(), "/")
+      {:ok, view, _html} = live(build_conn(), "/fleet")
       assert has_element?(view, "#advisor-suggestions button", "apply")
 
       view
@@ -883,7 +883,7 @@ defmodule CustodeWeb.FleetMetaRailTest do
       # asked for explicitly rather than assumed
       Custode.Repo.query!("DELETE FROM feed_entries WHERE event = 'advisor_suggestion'")
 
-      {:ok, view, _html} = live(build_conn(), "/")
+      {:ok, view, _html} = live(build_conn(), "/fleet")
 
       assert has_element?(view, "#meta-rail")
       refute has_element?(view, "#advisor-suggestions")
@@ -926,7 +926,7 @@ defmodule CustodeWeb.FleetLiveNewAgentTest do
   end
 
   test "the form previews the literal TOML and the submit lands it live", %{roster: roster} do
-    {:ok, view, _html} = live(build_conn(), "/")
+    {:ok, view, _html} = live(build_conn(), "/fleet")
 
     render_click(view, "new_agent_open")
 
@@ -959,7 +959,7 @@ defmodule CustodeWeb.FleetLiveNewAgentTest do
   end
 
   test "a bad profile disables the submit with a message, not a crash" do
-    {:ok, view, _html} = live(build_conn(), "/")
+    {:ok, view, _html} = live(build_conn(), "/fleet")
 
     render_click(view, "new_agent_open")
 
@@ -1001,7 +1001,7 @@ defmodule CustodeWeb.FleetLiveFormStateTest do
   end
 
   test "typed values survive a change that touches a different field" do
-    {:ok, view, _html} = live(build_conn(), "/")
+    {:ok, view, _html} = live(build_conn(), "/fleet")
     render_click(view, "new_agent_open")
 
     # type an id first (the browser sends every field on each change; the id

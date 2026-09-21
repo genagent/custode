@@ -106,13 +106,13 @@ defmodule CustodeWeb.RootLive do
     ~H"""
     <div id="custode-root" class="mx-auto flex min-h-screen max-w-4xl flex-col px-6 py-5">
       <header class="flex items-baseline gap-4 border-b border-base-300 pb-4">
-        <.link navigate="/console" class="text-xl font-bold hover:opacity-70">custode</.link>
+        <.link navigate="/" class="text-xl font-bold hover:opacity-70">custode</.link>
         <span class="font-mono text-sm text-base-content/50">
           root &middot; sees every agent &middot; speaks for you
         </span>
         <span class="ml-auto"></span>
         <.theme_toggle />
-        <.link navigate="/console" class="font-mono text-xs text-base-content/40 hover:text-base-content">
+        <.link navigate="/" class="font-mono text-xs text-base-content/40 hover:text-base-content">
           esc to close
         </.link>
       </header>
