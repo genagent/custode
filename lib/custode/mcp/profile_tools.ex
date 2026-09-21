@@ -106,6 +106,7 @@ defmodule Custode.MCP.ProfileTools.PreviewProfile do
   action so the human approves the literal grants (#236).
   """
   use Anubis.Server.Component, type: :tool
+  use Custode.MCP.NumericSchema
 
   import Custode.MCP.Tools
 
@@ -124,8 +125,8 @@ defmodule Custode.MCP.ProfileTools.PreviewProfile do
     field(:working_dir, :string, description: "checkout path template")
     field(:mcp, :boolean, description: "grant the custode MCP tools")
     field(:hermetic, :boolean, description: "seal out the repo's ambient CLAUDE.md/persona")
-    field(:max_budget_usd, :number, description: "per-turn budget rail")
-    field(:daily_budget_usd, :number, description: "daily budget rail")
+    field(:max_budget_usd, {:either, {:integer, :float}}, description: "per-turn budget rail")
+    field(:daily_budget_usd, {:either, {:integer, :float}}, description: "daily budget rail")
     field(:daily_budget_tokens, :integer, description: "daily token rail")
     field(:timeout_ms, :integer, description: "per-turn subprocess timeout")
     field(:max_turns, :integer, description: "agentic turns per run")
@@ -170,6 +171,7 @@ defmodule Custode.MCP.ProfileTools.PreviewProfileEdit do
   surface it moves (#236). `drop` removes an envelope key.
   """
   use Anubis.Server.Component, type: :tool
+  use Custode.MCP.NumericSchema
 
   import Custode.MCP.Tools
 
@@ -188,8 +190,8 @@ defmodule Custode.MCP.ProfileTools.PreviewProfileEdit do
     field(:working_dir, :string, description: "new checkout path template")
     field(:mcp, :boolean, description: "grant the custode MCP tools")
     field(:hermetic, :boolean, description: "seal out ambient persona")
-    field(:max_budget_usd, :number, description: "new per-turn budget rail")
-    field(:daily_budget_usd, :number, description: "new daily budget rail")
+    field(:max_budget_usd, {:either, {:integer, :float}}, description: "new per-turn budget rail")
+    field(:daily_budget_usd, {:either, {:integer, :float}}, description: "new daily budget rail")
     field(:daily_budget_tokens, :integer, description: "new daily token rail")
     field(:timeout_ms, :integer, description: "new per-turn timeout")
     field(:max_turns, :integer, description: "new max turns")
@@ -233,6 +235,7 @@ defmodule Custode.MCP.ProfileTools.DefineProfile do
   the exact grants. Never auto: a profile is a privilege-escalation surface.
   """
   use Anubis.Server.Component, type: :tool
+  use Custode.MCP.NumericSchema
 
   import Custode.MCP.Tools
 
@@ -251,8 +254,8 @@ defmodule Custode.MCP.ProfileTools.DefineProfile do
     field(:working_dir, :string, description: "checkout path template")
     field(:mcp, :boolean, description: "grant the custode MCP tools")
     field(:hermetic, :boolean, description: "seal out ambient persona")
-    field(:max_budget_usd, :number, description: "per-turn budget rail")
-    field(:daily_budget_usd, :number, description: "daily budget rail")
+    field(:max_budget_usd, {:either, {:integer, :float}}, description: "per-turn budget rail")
+    field(:daily_budget_usd, {:either, {:integer, :float}}, description: "daily budget rail")
     field(:daily_budget_tokens, :integer, description: "daily token rail")
     field(:timeout_ms, :integer, description: "per-turn timeout")
     field(:max_turns, :integer, description: "agentic turns per run")
@@ -302,6 +305,7 @@ defmodule Custode.MCP.ProfileTools.UpdateProfile do
   envelope key. Never auto.
   """
   use Anubis.Server.Component, type: :tool
+  use Custode.MCP.NumericSchema
 
   import Custode.MCP.Tools
 
@@ -320,8 +324,8 @@ defmodule Custode.MCP.ProfileTools.UpdateProfile do
     field(:working_dir, :string, description: "new checkout path template")
     field(:mcp, :boolean, description: "grant the custode MCP tools")
     field(:hermetic, :boolean, description: "seal out ambient persona")
-    field(:max_budget_usd, :number, description: "new per-turn budget rail")
-    field(:daily_budget_usd, :number, description: "new daily budget rail")
+    field(:max_budget_usd, {:either, {:integer, :float}}, description: "new per-turn budget rail")
+    field(:daily_budget_usd, {:either, {:integer, :float}}, description: "new daily budget rail")
     field(:daily_budget_tokens, :integer, description: "new daily token rail")
     field(:timeout_ms, :integer, description: "new per-turn timeout")
     field(:max_turns, :integer, description: "new max turns")

@@ -500,6 +500,7 @@ defmodule Custode.MCP.Tools.RunJob do
   up. Prefer this over start_agent for bounded single tasks.
   """
   use Anubis.Server.Component, type: :tool
+  use Custode.MCP.NumericSchema
 
   import Custode.MCP.Tools
 
@@ -524,7 +525,7 @@ defmodule Custode.MCP.Tools.RunJob do
           "already approved via a request_permission gate; default is edit-only"
     )
 
-    field(:max_budget_usd, :number,
+    field(:max_budget_usd, {:either, {:integer, :float}},
       description:
         "per-run spend cap. Defaults to the shared config default, which is " <>
           "sized for small tasks -- pass your own routine's cap when " <>
