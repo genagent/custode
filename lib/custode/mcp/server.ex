@@ -116,6 +116,7 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.OperatorTools.SpendToday, name: "spend_today")
 
   component(Custode.MCP.NotebookTools.JournalAppend, name: "journal_append")
+  component(Custode.MCP.NotebookTools.JournalRead, name: "journal_read")
   component(Custode.MCP.NotebookTools.CompactJournal, name: "compact_journal")
   component(Custode.MCP.NotebookTools.SetPanel, name: "set_panel")
   component(Custode.MCP.NotebookTools.TodoAdd, name: "todo_add")
@@ -132,10 +133,10 @@ end
 
 defmodule Custode.MCP.MemoryServer do
   @moduledoc """
-  The capability-scoped MCP server for sub-agents: ONLY the persistent memory
-  tools. Sub-agents get this endpoint (never the full one), so they can carry
-  facts across their own sessions without gaining delegation, notebook, or
-  lifecycle powers.
+  The capability-scoped MCP server for sub-agents: persistent memory tools
+  and self-scoped journal reads. Sub-agents get this endpoint (never the full
+  one), so they can carry facts across their own sessions and read their own
+  journal without gaining delegation, notebook writes, or lifecycle powers.
   """
 
   use Anubis.Server,
@@ -143,6 +144,7 @@ defmodule Custode.MCP.MemoryServer do
     version: "0.1.0",
     capabilities: [:tools]
 
+  component(Custode.MCP.NotebookTools.JournalRead, name: "journal_read")
   component(Custode.MCP.MemoryTools.Remember, name: "remember")
   component(Custode.MCP.MemoryTools.Recall, name: "recall")
   component(Custode.MCP.MemoryTools.Forget, name: "forget")
