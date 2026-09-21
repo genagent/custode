@@ -259,11 +259,18 @@ defmodule Custode.MCP.NotebookTools.TodoComplete do
     field(:todo_id, :integer, required: true)
   end
 
+  # A todo is addressed by a bare id, so the owner has to be looked up before
+  # the write: this tool took no routine id and never called check_self/2, and
+  # any agent could complete any agent's todo by counting (#528 found it).
   @impl true
   def execute(%{todo_id: todo_id}, frame) do
-    case Custode.Notebook.todo_complete(todo_id) do
-      {:ok, todo} -> reply(frame, %{todo_id: todo.id, status: todo.status})
-      {:error, :not_found} -> fail(frame, "no todo ##{todo_id}")
+    with owner when is_binary(owner) <- Custode.Notebook.todo_owner(todo_id),
+         :ok <- check_self(frame, owner),
+         {:ok, todo} <- Custode.Notebook.todo_complete(todo_id) do
+      reply(frame, %{todo_id: todo.id, status: todo.status})
+    else
+      {:error, message} when is_binary(message) -> fail(frame, message)
+      _not_found -> fail(frame, "no todo ##{todo_id}")
     end
   end
 end
