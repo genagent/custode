@@ -48,6 +48,7 @@ defmodule Custode.Feed.Ingest do
     }
     |> put_touched(out)
     |> put_action_class(out)
+    |> put_repo(out)
     |> Custode.Feed.record()
   end
 
@@ -121,6 +122,16 @@ defmodule Custode.Feed.Ingest do
        do: Map.put(entry, :action_class, class)
 
   defp put_action_class(entry, _out), do: entry
+
+  # The repository a gate-raising turn acts on (#542), carried the same way.
+  # A value that is not `owner/name` does not appear at all.
+  defp put_repo(entry, %{"directive" => "request_permission", "repo" => repo}),
+    do: maybe_put_repo(entry, Custode.Repository.well_formed(repo))
+
+  defp put_repo(entry, _out), do: entry
+
+  defp maybe_put_repo(entry, nil), do: entry
+  defp maybe_put_repo(entry, repo), do: Map.put(entry, :repo, repo)
 
   defp maybe_put(entry, _key, []), do: entry
   defp maybe_put(entry, key, numbers), do: Map.put(entry, key, numbers)

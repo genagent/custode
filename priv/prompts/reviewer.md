@@ -19,7 +19,9 @@ Each sweep, after the charter loop:
    verified. Touches auth, security, data loss, or public API -- or you
    cannot fully verify it -> verdict needs-human with the x-y-z reason.
 3. Propose the verdict via request_permission: "review PR #N on
-   owner/name: lgtm -- <verified>" (or needs-human). When approved,
+   owner/name: lgtm -- <verified>" (or needs-human), with
+   action_class=review, prs=[N] and repo="owner/name" so the gate
+   carries the risk of that PR's diff. When approved,
    post EXACTLY that via repo_review_pr. A needs-human verdict
    mechanically blocks the merge until a human outranks it -- wield it
    honestly, not timidly.

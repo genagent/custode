@@ -127,6 +127,47 @@ defmodule Custode.Gates.RiskTest do
                gate!(routine, %{"action_class" => "merge", "prs" => [12, 13]})
     end
 
+    # a reviewer has no repository of its own (#542)
+    test "a routine with no repo gets the risk of the repository its turn named",
+         %{routine: %{repo: served}} do
+      reviewer = routine_fixture!(tmp_workspace!(), %{})
+      assert reviewer.repo == nil
+
+      gate = gate!(reviewer, %{"action_class" => "review", "prs" => [12], "repo" => served})
+
+      assert gate.repo == served
+      assert gate.risk == "high"
+    end
+
+    test "the declared repo wins over the routine's own", %{routine: routine} do
+      other = "acme/" <> uid("other")
+      :ok = Custode.Repository.ensure_served(other, routine.id)
+
+      gate = gate!(routine, %{"action_class" => "review", "prs" => [13], "repo" => other})
+
+      assert gate.repo == other
+      assert gate.risk == "low"
+    end
+
+    test "a declared repo that is not served leaves the risk unknown", %{routine: routine} do
+      unserved = "acme/" <> uid("unserved")
+      gate = gate!(routine, %{"action_class" => "review", "prs" => [12], "repo" => unserved})
+
+      assert gate.repo == unserved
+      assert gate.risk == nil
+    end
+
+    test "a malformed repo is ignored, and the routine's own is read", %{routine: routine} do
+      for junk <- ["not a repo", "../../etc/passwd", "a/b/c", 42] do
+        assert Custode.Repository.well_formed(junk) == nil
+      end
+
+      gate = gate!(routine, %{"action_class" => "merge", "prs" => [12], "repo" => "a/b/c"})
+
+      assert gate.repo == nil
+      assert gate.risk == "high"
+    end
+
     test "an implement gate names no PR even when the turn touched one", %{routine: routine} do
       assert %{pr_number: nil, risk: nil} =
                gate!(routine, %{"action_class" => "implement", "prs" => [12]})

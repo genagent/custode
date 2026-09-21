@@ -60,6 +60,17 @@ defmodule Custode.Repository do
 
   defp via(name), do: {:via, Registry, {@registry, name}}
 
+  @doc """
+  `owner/name` as an agent declared it (#542), or nil when it is not that
+  shape. A model can send anything past a schema, and the value ends up in a
+  GitHub path, so junk is dropped rather than repaired.
+  """
+  def well_formed(name) when is_binary(name) do
+    if Regex.match?(~r{\A[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+\z}, name), do: name
+  end
+
+  def well_formed(_other), do: nil
+
   @doc "Is this repo served? (Only served repos can be written to at all.)"
   def served?(name), do: match?([{_pid, _value}], Registry.lookup(@registry, name))
 
