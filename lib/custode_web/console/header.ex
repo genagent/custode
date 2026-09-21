@@ -7,7 +7,7 @@ defmodule CustodeWeb.Console.Header do
 
   use Phoenix.Component
 
-  import CustodeWeb.Components, only: [usd: 1]
+  import CustodeWeb.Components, only: [theme_toggle: 1, usd: 1]
 
   attr(:caretaker, :any, required: true)
   attr(:tell_gen, :integer, required: true)
@@ -59,6 +59,7 @@ defmodule CustodeWeb.Console.Header do
       >
         {presence_word(@presence)}
       </button>
+      <.theme_toggle />
       <details class="dropdown dropdown-end">
         <summary class="btn btn-ghost btn-xs">fleet</summary>
         <ul class="menu dropdown-content z-10 mt-1 w-44 rounded-box bg-base-100 p-2 shadow-lg">
