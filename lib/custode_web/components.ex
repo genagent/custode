@@ -221,6 +221,7 @@ defmodule CustodeWeb.Components do
         <nav class="flex gap-3 text-sm">
           <.link navigate="/" class={nav_class(@active == :fleet)}>fleet</.link>
           <.link navigate="/console" class={nav_class(false)}>console</.link>
+          <.link navigate="/custode" class={nav_class(false)} title="Cmd/Ctrl+K">custode</.link>
           <.link navigate="/inbox" class={nav_class(@active == :inbox)}>
             inbox<span :if={@unread > 0} class="ml-1 font-mono text-warning">{@unread}</span>
           </.link>
@@ -277,6 +278,8 @@ defmodule CustodeWeb.Components do
   attr(:agent, :string, required: true)
   attr(:action, :string, required: true)
   attr(:size, :string, default: "btn-xs")
+  # what the button says: "cancel" reads better beside a plan's "do it"
+  attr(:label, :string, default: "reject")
 
   @doc """
   Reject, with a reason (#438). One disclosure shared by every surface that
@@ -291,7 +294,7 @@ defmodule CustodeWeb.Components do
   def reject_form(assigns) do
     ~H"""
     <details id={"reject-#{@action}"} phx-update="ignore" class="dropdown dropdown-end">
-      <summary class={["btn btn-ghost", @size]}>reject</summary>
+      <summary class={["btn btn-ghost", @size]}>{@label}</summary>
       <form
         id={"reject-form-#{@action}"}
         phx-submit="reject"
