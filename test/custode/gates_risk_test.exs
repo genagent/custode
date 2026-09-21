@@ -68,7 +68,16 @@ defmodule Custode.Gates.RiskTest do
 
     # run:stop first, then job_finished, the order the engine's worker uses
     defp gate!(routine, fields) do
-      {:ok, _pid} = Agent.start_agent(routine.id, enqueue_fun: fn _a, _m -> {:ok, :queued} end)
+      test_pid = self()
+
+      {:ok, _pid} =
+        Agent.start_agent(routine.id,
+          enqueue_fun: fn args, meta ->
+            send(test_pid, {:enqueued, args, meta})
+            {:ok, :queued}
+          end
+        )
+
       on_exit(fn -> Agent.stop_agent(routine.id) end)
       :processing = Agent.submit_prompt(routine.id, "x")
 
@@ -77,15 +86,18 @@ defmodule Custode.Gates.RiskTest do
           Map.merge(%{"directive" => "request_permission", "action" => "do it"}, fields)
         )
 
+      assert_receive {:enqueued, _args, %{"agent_id" => enqueued_id} = turn_meta}
+                     when enqueued_id == routine.id
+
       :ok =
         Ingest.handle_event(
           [:oban_claude, :run, :stop],
           %{cost_usd: 0.0},
-          %{result: result, job: %{meta: %{"agent_id" => routine.id}}},
+          %{result: result, job: %{meta: turn_meta}},
           nil
         )
 
-      :ok = Agent.job_finished(routine.id, {:ok, result})
+      :ok = finish_agent_turn(turn_meta, result)
       {:ok, _status} = Agent.await(routine.id, :awaiting_permission, 1_000)
 
       eventually(fn ->

@@ -31,21 +31,33 @@ defmodule CustodeWeb.RootLiveTest do
   # the caretaker proposing a change: run:stop first, then job_finished, the
   # order the engine's worker uses
   defp propose!(caretaker, action) do
-    {:ok, _pid} = Agent.start_agent(caretaker.id, enqueue_fun: fn _a, _m -> {:ok, :queued} end)
+    test_pid = self()
+
+    {:ok, _pid} =
+      Agent.start_agent(caretaker.id,
+        enqueue_fun: fn args, meta ->
+          send(test_pid, {:enqueued, args, meta})
+          {:ok, :queued}
+        end
+      )
+
     on_exit(fn -> Agent.stop_agent(caretaker.id) end)
     :processing = Agent.submit_prompt(caretaker.id, "x")
 
     result = structured_result(%{"directive" => "request_permission", "action" => action})
 
+    assert_receive {:enqueued, _args, %{"agent_id" => enqueued_id} = turn_meta}
+                   when enqueued_id == caretaker.id
+
     :ok =
       Ingest.handle_event(
         [:oban_claude, :run, :stop],
         %{cost_usd: 0.0},
-        %{result: result, job: %{meta: %{"agent_id" => caretaker.id}}},
+        %{result: result, job: %{meta: turn_meta}},
         nil
       )
 
-    :ok = Agent.job_finished(caretaker.id, {:ok, result})
+    :ok = finish_agent_turn(turn_meta, result)
     {:ok, _status} = Agent.await(caretaker.id, :awaiting_permission, 1_000)
     eventually(fn -> assert [_gate] = Gates.open_gates(caretaker.id) end)
   end

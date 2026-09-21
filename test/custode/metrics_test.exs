@@ -45,10 +45,12 @@ defmodule Custode.MetricsTest do
 
     :processing = Agent.submit_prompt(id, "go")
 
+    assert_receive {:enqueued, _args, %{"agent_id" => ^id} = turn_meta}
+
     :ok =
-      Agent.job_finished(
-        id,
-        {:ok, structured_result(%{"directive" => "request_permission", "action" => "act now"})}
+      finish_agent_turn(
+        turn_meta,
+        structured_result(%{"directive" => "request_permission", "action" => "act now"})
       )
 
     {:ok, {:awaiting_permission, action}} = Agent.await(id, :awaiting_permission, 1_000)

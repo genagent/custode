@@ -54,7 +54,11 @@ defmodule CustodeWeb.AgentLiveTest do
     :ok = Custode.Memory.remember(routine.id, "pref", "be brief")
 
     :processing = Agent.submit_prompt(routine.id, "turn one")
-    :ok = Agent.job_finished(routine.id, {:ok, result("did the thing")})
+
+    assert_receive {:enqueued, _args, %{"agent_id" => enqueued_id} = turn_meta}
+                   when enqueued_id == routine.id
+
+    :ok = finish_agent_turn(turn_meta, result("did the thing"))
     {:ok, :idle} = Agent.await(routine.id, :idle, 1_000)
 
     {:ok, _view, html} = live(conn, "/agents/#{routine.id}")
@@ -74,7 +78,11 @@ defmodule CustodeWeb.AgentLiveTest do
     {:ok, view, _html} = live(conn, "/agents/#{routine.id}")
 
     view |> form("form[phx-submit=prompt]", %{"text" => "from detail"}) |> render_submit()
-    assert_receive {:enqueued, %{"prompt" => "from detail"}, _meta}
+
+    assert_receive {:enqueued, %{"prompt" => "from detail"},
+                    %{"agent_id" => enqueued_id} = turn_meta}
+                   when enqueued_id == routine.id
+
     html = render(view)
     assert html =~ "running"
     assert html =~ "sent -- turn starting"
@@ -84,10 +92,13 @@ defmodule CustodeWeb.AgentLiveTest do
     assert render(view) =~ "queued -- delivers when the current turn ends"
 
     # the queued prompt fires as its own turn once the first completes
-    :ok = Agent.job_finished(routine.id, {:ok, result("first done")})
-    assert_receive {:enqueued, %{"prompt" => "one more thing"}, _meta}
+    :ok = finish_agent_turn(turn_meta, result("first done"))
 
-    :ok = Agent.job_finished(routine.id, {:ok, result("ok")})
+    assert_receive {:enqueued, %{"prompt" => "one more thing"},
+                    %{"agent_id" => enqueued_id} = turn_meta}
+                   when enqueued_id == routine.id
+
+    :ok = finish_agent_turn(turn_meta, result("ok"))
     {:ok, :idle} = Agent.await(routine.id, :idle, 1_000)
 
     view |> element("button[phx-value-todo='#{todo.id}']") |> render_click()
@@ -112,12 +123,14 @@ defmodule CustodeWeb.AgentLiveTest do
   test "the answer form resolves a pending question", %{conn: conn, routine: routine} do
     stub_routine_agent!(routine)
     :processing = Agent.submit_prompt(routine.id, "curious")
-    assert_receive {:enqueued, _args, _meta}
+
+    assert_receive {:enqueued, _args, %{"agent_id" => enqueued_id} = turn_meta}
+                   when enqueued_id == routine.id
 
     :ok =
-      Agent.job_finished(
-        routine.id,
-        {:ok, structured_result(%{"directive" => "ask_user", "question" => "which env?"})}
+      finish_agent_turn(
+        turn_meta,
+        structured_result(%{"directive" => "ask_user", "question" => "which env?"})
       )
 
     {:ok, {:waiting_for_user, _q}} = Agent.await(routine.id, :waiting_for_user, 1_000)
@@ -762,12 +775,15 @@ defmodule CustodeWeb.AgentLiveTest do
       # a question is open, so this send is an ANSWER -- and the image rides it
       view |> form("form[phx-submit=prompt]", %{"text" => "staging"}) |> render_submit()
 
-      assert_receive {:enqueued, %{"prompt" => answered}, _meta}
+      assert_receive {:enqueued, %{"prompt" => answered},
+                      %{"agent_id" => enqueued_id} = turn_meta}
+                     when enqueued_id == routine.id
+
       assert answered =~ "staging"
       assert answered =~ "attached image: "
 
       # consumed: the next send carries text only
-      :ok = Agent.job_finished(routine.id, {:ok, result("answered")})
+      :ok = finish_agent_turn(turn_meta, result("answered"))
       view |> form("form[phx-submit=prompt]", %{"text" => "and this"}) |> render_submit()
 
       assert_receive {:enqueued, %{"prompt" => prompted}, _meta}
@@ -799,12 +815,14 @@ defmodule CustodeWeb.AgentLiveTest do
   # park an agent on a question, which is what puts the answer box on screen
   defp ask!(routine) do
     :processing = Agent.submit_prompt(routine.id, "curious")
-    assert_receive {:enqueued, _args, _meta}
+
+    assert_receive {:enqueued, _args, %{"agent_id" => enqueued_id} = turn_meta}
+                   when enqueued_id == routine.id
 
     :ok =
-      Agent.job_finished(
-        routine.id,
-        {:ok, structured_result(%{"directive" => "ask_user", "question" => "which env?"})}
+      finish_agent_turn(
+        turn_meta,
+        structured_result(%{"directive" => "ask_user", "question" => "which env?"})
       )
 
     {:ok, {:waiting_for_user, _q}} = Agent.await(routine.id, :waiting_for_user, 1_000)

@@ -47,8 +47,12 @@ defmodule Custode.ConsoleTest do
     stub_routine_agent!(routine)
 
     assert :ok = Custode.poke("do a thing")
-    assert_receive {:enqueued, %{"prompt" => "do a thing"}, _meta}
-    :ok = Agent.job_finished(routine.id, {:ok, result("done")})
+
+    assert_receive {:enqueued, %{"prompt" => "do a thing"},
+                    %{"agent_id" => enqueued_id} = turn_meta}
+                   when enqueued_id == routine.id
+
+    :ok = finish_agent_turn(turn_meta, result("done"))
     {:ok, :idle} = Agent.await(routine.id, :idle, 1_000)
 
     assert :processing = Custode.ask("another thing")
@@ -61,12 +65,14 @@ defmodule Custode.ConsoleTest do
 
     gate = fn ->
       :processing = Custode.ask("gated work")
-      assert_receive {:enqueued, _args, _meta}
+
+      assert_receive {:enqueued, _args, %{"agent_id" => enqueued_id} = turn_meta}
+                     when enqueued_id == routine.id
 
       :ok =
-        Agent.job_finished(
-          routine.id,
-          {:ok, structured_result(%{"directive" => "request_permission", "action" => "do it"})}
+        finish_agent_turn(
+          turn_meta,
+          structured_result(%{"directive" => "request_permission", "action" => "do it"})
         )
 
       {:ok, {:awaiting_permission, _action}} =
@@ -75,9 +81,12 @@ defmodule Custode.ConsoleTest do
 
     gate.()
     assert :processing = Custode.approve()
-    assert_receive {:enqueued, %{"prompt" => prompt}, _meta}
+
+    assert_receive {:enqueued, %{"prompt" => prompt}, %{"agent_id" => enqueued_id} = turn_meta}
+                   when enqueued_id == routine.id
+
     assert prompt =~ "do it"
-    :ok = Agent.job_finished(routine.id, {:ok, result("did it")})
+    :ok = finish_agent_turn(turn_meta, result("did it"))
     {:ok, :idle} = Agent.await(routine.id, :idle, 1_000)
 
     gate.()
@@ -108,7 +117,11 @@ defmodule Custode.ConsoleTest do
 
     stub_routine_agent!(routine)
     :processing = Custode.ask("turn")
-    :ok = Agent.job_finished(routine.id, {:ok, result(result: "done", cost_usd: 0.5)})
+
+    assert_receive {:enqueued, _args, %{"agent_id" => enqueued_id} = turn_meta}
+                   when enqueued_id == routine.id
+
+    :ok = finish_agent_turn(turn_meta, result(result: "done", cost_usd: 0.5))
     {:ok, :idle} = Agent.await(routine.id, :idle, 1_000)
 
     output = capture_io(fn -> Custode.peek() end)

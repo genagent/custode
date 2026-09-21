@@ -90,8 +90,8 @@ defmodule Custode.IdentityTest do
 
     {:ok, _pid} =
       Agent.start_agent(sibling.id,
-        enqueue_fun: fn _a, _m ->
-          send(test_pid, :enqueued)
+        enqueue_fun: fn args, meta ->
+          send(test_pid, {:enqueued, args, meta})
           {:ok, :queued}
         end
       )
@@ -100,10 +100,13 @@ defmodule Custode.IdentityTest do
 
     :processing = Agent.submit_prompt(sibling.id, "go")
 
+    assert_receive {:enqueued, _args, %{"agent_id" => enqueued_id} = turn_meta}
+                   when enqueued_id == sibling.id
+
     :ok =
-      Agent.job_finished(
-        sibling.id,
-        {:ok, structured_result(%{"directive" => "request_permission", "action" => "act"})}
+      finish_agent_turn(
+        turn_meta,
+        structured_result(%{"directive" => "request_permission", "action" => "act"})
       )
 
     {:ok, {:awaiting_permission, action}} = Agent.await(sibling.id, :awaiting_permission, 1_000)
@@ -132,10 +135,12 @@ defmodule Custode.IdentityTest do
     sub = start_stub_agent!()
     :processing = Agent.submit_prompt(sub, "go")
 
+    assert_receive {:enqueued, _args, %{"agent_id" => ^sub} = turn_meta}
+
     :ok =
-      Agent.job_finished(
-        sub,
-        {:ok, structured_result(%{"directive" => "request_permission", "action" => "sub act"})}
+      finish_agent_turn(
+        turn_meta,
+        structured_result(%{"directive" => "request_permission", "action" => "sub act"})
       )
 
     {:ok, {:awaiting_permission, sub_action}} = Agent.await(sub, :awaiting_permission, 1_000)

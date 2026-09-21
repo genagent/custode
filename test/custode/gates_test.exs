@@ -14,10 +14,12 @@ defmodule Custode.GatesTest do
     id = start_stub_agent!()
     :processing = Agent.submit_prompt(id, "x")
 
+    assert_receive {:enqueued, _args, %{"agent_id" => ^id} = turn_meta}
+
     :ok =
-      Agent.job_finished(
-        id,
-        {:ok, structured_result(%{"directive" => "request_permission", "action" => "prune"})}
+      finish_agent_turn(
+        turn_meta,
+        structured_result(%{"directive" => "request_permission", "action" => "prune"})
       )
 
     {:ok, {:awaiting_permission, %{id: action_id}}} = Agent.await(id, :awaiting_permission, 1_000)
@@ -45,10 +47,12 @@ defmodule Custode.GatesTest do
     id = start_stub_agent!()
     :processing = Agent.submit_prompt(id, "x")
 
+    assert_receive {:enqueued, _args, %{"agent_id" => ^id} = turn_meta}
+
     :ok =
-      Agent.job_finished(
-        id,
-        {:ok, structured_result(%{"directive" => "request_permission", "action" => action})}
+      finish_agent_turn(
+        turn_meta,
+        structured_result(%{"directive" => "request_permission", "action" => action})
       )
 
     {:ok, {:awaiting_permission, %{id: action_id}}} = Agent.await(id, :awaiting_permission, 1_000)
@@ -142,15 +146,17 @@ defmodule Custode.GatesTest do
           Map.merge(%{"directive" => "request_permission", "action" => action}, fields)
         )
 
+      assert_receive {:enqueued, _args, %{"agent_id" => ^id} = turn_meta}
+
       :ok =
         Ingest.handle_event(
           [:oban_claude, :run, :stop],
           %{cost_usd: 0.0},
-          %{result: result, job: %{meta: %{"agent_id" => id}}},
+          %{result: result, job: %{meta: turn_meta}},
           nil
         )
 
-      :ok = Agent.job_finished(id, {:ok, result})
+      :ok = finish_agent_turn(turn_meta, result)
 
       {:ok, {:awaiting_permission, %{id: action_id}}} =
         Agent.await(id, :awaiting_permission, 1_000)
@@ -180,15 +186,17 @@ defmodule Custode.GatesTest do
       :processing = Agent.submit_prompt(id, "y")
       silent = structured_result(%{"directive" => "request_permission", "action" => "prune"})
 
+      assert_receive {:enqueued, _args, %{"agent_id" => ^id} = turn_meta}
+
       :ok =
         Ingest.handle_event(
           [:oban_claude, :run, :stop],
           %{cost_usd: 0.0},
-          %{result: silent, job: %{meta: %{"agent_id" => id}}},
+          %{result: silent, job: %{meta: turn_meta}},
           nil
         )
 
-      :ok = Agent.job_finished(id, {:ok, silent})
+      :ok = finish_agent_turn(turn_meta, silent)
       {:ok, _status} = Agent.await(id, :awaiting_permission, 1_000)
 
       assert [%{class: nil, detail: "prune"}] =
@@ -227,10 +235,12 @@ defmodule Custode.GatesTest do
     id = start_stub_agent!()
     :processing = Agent.submit_prompt(id, "x")
 
+    assert_receive {:enqueued, _args, %{"agent_id" => ^id} = turn_meta}
+
     :ok =
-      Agent.job_finished(
-        id,
-        {:ok, structured_result(%{"directive" => "ask_user", "question" => "which env?"})}
+      finish_agent_turn(
+        turn_meta,
+        structured_result(%{"directive" => "ask_user", "question" => "which env?"})
       )
 
     {:ok, {:waiting_for_user, _q}} = Agent.await(id, :waiting_for_user, 1_000)
@@ -275,10 +285,12 @@ defmodule Custode.GatesTest do
     id = start_stub_agent!()
     :processing = Agent.submit_prompt(id, "x")
 
+    assert_receive {:enqueued, _args, %{"agent_id" => ^id} = turn_meta}
+
     :ok =
-      Agent.job_finished(
-        id,
-        {:ok, structured_result(%{"directive" => "request_permission", "action" => "prune"})}
+      finish_agent_turn(
+        turn_meta,
+        structured_result(%{"directive" => "request_permission", "action" => "prune"})
       )
 
     {:ok, {:awaiting_permission, _action}} = Agent.await(id, :awaiting_permission, 1_000)

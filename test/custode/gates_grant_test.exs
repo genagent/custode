@@ -28,15 +28,17 @@ defmodule Custode.Gates.GrantTest do
         Map.merge(%{"directive" => "request_permission", "action" => "do it"}, fields)
       )
 
+    assert_receive {:enqueued, %{"prompt" => "x"}, %{"agent_id" => ^id} = turn_meta}
+
     :ok =
       Ingest.handle_event(
         [:oban_claude, :run, :stop],
         %{cost_usd: 0.0},
-        %{result: result, job: %{meta: %{"agent_id" => id}}},
+        %{result: result, job: %{meta: turn_meta}},
         nil
       )
 
-    :ok = Agent.job_finished(id, {:ok, result})
+    :ok = finish_agent_turn(turn_meta, result)
     {:ok, {:awaiting_permission, %{id: action_id}}} = Agent.await(id, :awaiting_permission, 1_000)
     eventually(fn -> assert [_gate] = Gates.open_gates(id) end)
     {id, action_id}
@@ -62,7 +64,9 @@ defmodule Custode.Gates.GrantTest do
       :processing = Custode.approve_action(id, action_id, via: :cli)
       assert %{class: "ready_pr", detail: "do it"} = eventually(fn -> grant!(id) end)
 
-      :ok = Agent.job_finished(id, {:ok, structured_result(%{"directive" => "none"})})
+      assert_receive {:enqueued, _args, %{"agent_id" => ^id} = turn_meta}
+
+      :ok = finish_agent_turn(turn_meta, structured_result(%{"directive" => "none"}))
       {:ok, _status} = Agent.await(id, :idle, 1_000)
       eventually(fn -> assert Gates.active_grant(id) == nil end)
     end
@@ -145,8 +149,6 @@ defmodule Custode.Gates.GrantTest do
     # the args the approved continuation was enqueued with
     defp approve!(fields) do
       {id, action_id} = gated_agent!(fields, @elevated)
-      # drain the first turn's enqueue
-      assert_receive {:enqueued, %{"prompt" => "x"}, _meta}
       :processing = Custode.approve_action(id, action_id, via: :cli)
       assert_receive {:enqueued, %{"prompt" => "Approved:" <> _rest} = args, _meta}
       args

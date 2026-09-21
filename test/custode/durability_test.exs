@@ -69,8 +69,8 @@ defmodule Custode.DurabilityTest do
 
       {:ok, _pid} =
         Agent.start_agent(routine.id,
-          enqueue_fun: fn _a, _m ->
-            send(test_pid, :enqueued)
+          enqueue_fun: fn args, meta ->
+            send(test_pid, {:enqueued, args, meta})
             {:ok, :queued}
           end
         )
@@ -79,11 +79,13 @@ defmodule Custode.DurabilityTest do
 
       :processing = Agent.submit_prompt(routine.id, "go")
 
+      assert_receive {:enqueued, _args, %{"agent_id" => enqueued_id} = turn_meta}
+                     when enqueued_id == routine.id
+
       :ok =
-        Agent.job_finished(
-          routine.id,
-          {:ok,
-           structured_result(%{"directive" => "request_permission", "action" => "delete it all"})}
+        finish_agent_turn(
+          turn_meta,
+          structured_result(%{"directive" => "request_permission", "action" => "delete it all"})
         )
 
       {:ok, {:awaiting_permission, action}} = Agent.await(routine.id, :awaiting_permission, 1_000)
@@ -105,15 +107,27 @@ defmodule Custode.DurabilityTest do
       workspace = tmp_workspace!()
       routine = routine_fixture!(workspace)
 
-      {:ok, _pid} = Agent.start_agent(routine.id, enqueue_fun: fn _a, _m -> {:ok, :queued} end)
+      test_pid = self()
+
+      {:ok, _pid} =
+        Agent.start_agent(routine.id,
+          enqueue_fun: fn args, meta ->
+            send(test_pid, {:enqueued, args, meta})
+            {:ok, :queued}
+          end
+        )
+
       on_exit(fn -> Agent.stop_agent(routine.id) end)
 
       :processing = Agent.submit_prompt(routine.id, "go")
 
+      assert_receive {:enqueued, _args, %{"agent_id" => enqueued_id} = turn_meta}
+                     when enqueued_id == routine.id
+
       :ok =
-        Agent.job_finished(
-          routine.id,
-          {:ok, structured_result(%{"directive" => "request_permission", "action" => proposal})}
+        finish_agent_turn(
+          turn_meta,
+          structured_result(%{"directive" => "request_permission", "action" => proposal})
         )
 
       {:ok, {:awaiting_permission, action}} = Agent.await(routine.id, :awaiting_permission, 1_000)
@@ -191,8 +205,8 @@ defmodule Custode.DurabilityTest do
 
       {:ok, _pid} =
         Agent.start_agent(routine.id,
-          enqueue_fun: fn _a, _m ->
-            send(test_pid, :enqueued)
+          enqueue_fun: fn args, meta ->
+            send(test_pid, {:enqueued, args, meta})
             {:ok, :queued}
           end
         )
@@ -201,14 +215,16 @@ defmodule Custode.DurabilityTest do
 
       :processing = Agent.submit_prompt(routine.id, "go")
 
+      assert_receive {:enqueued, _args, %{"agent_id" => enqueued_id} = turn_meta}
+                     when enqueued_id == routine.id
+
       :ok =
-        Agent.job_finished(
-          routine.id,
-          {:ok,
-           structured_result(%{
-             "directive" => "request_permission",
-             "action" => "drop the production table"
-           })}
+        finish_agent_turn(
+          turn_meta,
+          structured_result(%{
+            "directive" => "request_permission",
+            "action" => "drop the production table"
+          })
         )
 
       {:ok, {:awaiting_permission, action}} = Agent.await(routine.id, :awaiting_permission, 1_000)
