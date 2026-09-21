@@ -118,7 +118,8 @@ defmodule Custode.TurnFailure do
 
   @doc """
   The trailing run of failed turns in `agent_id`'s feed, newest first: every
-  `turn_failed` since the last `turn`. Empty once a turn has succeeded.
+  classified `turn_failed` since the last `turn`, regardless of category or
+  retryability. A change of cause does not end the run; a successful turn does.
 
   Only entries carrying a `category` count as outcomes. `turn_failed` is also
   recorded for things that are not turns (a drain timeout, an undeliverable
