@@ -48,6 +48,9 @@ defmodule CustodeWeb.ConsoleLive do
   # adds. Sensor pings collapse on the page, so 150 entries is days, not hours.
   @feed_page 150
 
+  # the notebook tab's journal, read this many at a time
+  @journal_page 10
+
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
     if connected?(socket), do: Custode.PubSubBridge.subscribe()
@@ -70,6 +73,7 @@ defmodule CustodeWeb.ConsoleLive do
        edit: nil,
        new_agent: nil,
        feed_limit: @feed_page,
+       journal_limit: @journal_page,
        checks: %{}
      )}
   end
@@ -83,6 +87,7 @@ defmodule CustodeWeb.ConsoleLive do
        notice: nil,
        edit: nil,
        feed_limit: @feed_page,
+       journal_limit: @journal_page,
        checks: %{}
      )
      |> refresh()
@@ -148,6 +153,9 @@ defmodule CustodeWeb.ConsoleLive do
   # a long read of one agent is not carried to the next.
   def handle_event("feed_older", _params, socket),
     do: {:noreply, socket |> update(:feed_limit, &(&1 + @feed_page)) |> refresh()}
+
+  def handle_event("journal_older", _params, socket),
+    do: {:noreply, socket |> update(:journal_limit, &(&1 + @journal_page)) |> refresh()}
 
   # phx-change on the message form: uploads are validated as they are chosen
   def handle_event("validate_message", _params, socket), do: {:noreply, socket}
@@ -478,7 +486,8 @@ defmodule CustodeWeb.ConsoleLive do
       groups: groups,
       selected: selected,
       signal: signal,
-      subject: signal && load_subject(selected, socket.assigns.feed_limit),
+      subject:
+        signal && load_subject(selected, socket.assigns.feed_limit, socket.assigns.journal_limit),
       in_flight: Custode.RunClock.running(),
       needs_you: Enum.count(signals, &Signal.needs_you?/1),
       roster_empty: Custode.Routine.all() == [],
@@ -496,7 +505,7 @@ defmodule CustodeWeb.ConsoleLive do
   defp default_selection([first | _rest]), do: first.subject
   defp default_selection([]), do: nil
 
-  defp load_subject(id, feed_limit) do
+  defp load_subject(id, feed_limit, journal_limit) do
     routine = Custode.Routine.get(id)
     {:ok, status} = ObanClaude.Agent.status(id)
     repo = routine && routine.repo
@@ -517,7 +526,10 @@ defmodule CustodeWeb.ConsoleLive do
       feed: id |> Custode.Feed.for_agent(feed_limit) |> Enum.reverse(),
       feed_limit: feed_limit,
       todos: Custode.Notebook.todos(id),
-      journal: Custode.Notebook.journal(id, 10),
+      journal: Custode.Notebook.journal(id, journal_limit),
+      journal_limit: journal_limit,
+      # newest first, and bounded: a long-lived agent has hundreds
+      done_todos: id |> Custode.Notebook.todos("done") |> Enum.take(-20) |> Enum.reverse(),
       panel: panel_markdown(id),
       panel_html: Custode.Panels.current(id),
       panel_pending: Custode.Panels.pending(id),
