@@ -60,6 +60,9 @@ custode itself. The README explains what custode is; this is how to change it.
   `CUSTODE_TEST_MCP_PORT`.
 - Migrations come from `mix ecto.gen.migration`, never hand-numbered.
 - Every MCP tool needs an entry in `Custode.MCP.ToolPolicy`.
+- Any MCP surface change updates `docs/mcp/behavior.json` and regenerates the
+  client reference with `mix custode.mcp.docs`. Review behavior notes even when
+  the schema is unchanged; `docs/mcp/README.md` describes the maintenance path.
 - Operator verbs and form rules live in `lib/custode/operator/`, one copy
   each. Do not re-implement one in a LiveView. Never call
   `ObanClaude.Agent.cast_prompt` from a new surface: use

@@ -1,0 +1,3861 @@
+{
+  "endpoints": [
+    {
+      "capabilities": {
+        "resources": {},
+        "tools": {}
+      },
+      "path": "/mcp",
+      "prompts": [],
+      "protocolVersions": [
+        "2025-11-25",
+        "2025-06-18",
+        "2025-03-26"
+      ],
+      "resourceTemplates": [
+        "mission_work_items",
+        "mission_work_items_page",
+        "work_attention_page",
+        "work_events_page",
+        "work_item_artifacts",
+        "work_item_artifacts_page",
+        "work_item_attempt",
+        "work_item_detail",
+        "work_item_events",
+        "work_item_events_page",
+        "work_items_page",
+        "work_mission_detail",
+        "work_missions_page"
+      ],
+      "resources": [
+        "work_attention",
+        "work_events",
+        "work_items",
+        "work_missions"
+      ],
+      "serverInfo": {
+        "name": "custode",
+        "version": "0.1.0"
+      },
+      "tools": [
+        "add_routine",
+        "agent_history",
+        "agent_status",
+        "answer_ask",
+        "approve_action",
+        "ask_operator",
+        "await_agent",
+        "beat",
+        "compact_journal",
+        "define_profile",
+        "digest",
+        "dismiss_ask",
+        "drain",
+        "drop_note",
+        "executing_turns",
+        "feed_tail",
+        "forget",
+        "inbox_list",
+        "inbox_mark_filed",
+        "journal_append",
+        "journal_read",
+        "list_advisors",
+        "list_asks",
+        "list_attention",
+        "list_disowned",
+        "list_gates",
+        "list_inbox",
+        "list_policies",
+        "list_roles",
+        "list_routines",
+        "list_suggestion_outcomes",
+        "list_suggestions",
+        "list_workflows",
+        "metrics",
+        "pause_agent",
+        "preview_profile",
+        "preview_profile_edit",
+        "preview_routine",
+        "preview_routine_edit",
+        "prompt_agent",
+        "recall",
+        "reject_action",
+        "remember",
+        "remove_profile",
+        "remove_routine",
+        "repo_comment",
+        "repo_disown_pr",
+        "repo_draft_issues",
+        "repo_file_drafts",
+        "repo_list_issues",
+        "repo_list_prs",
+        "repo_mark_issue_blocked",
+        "repo_mark_issue_ready",
+        "repo_merge_pr",
+        "repo_open_issue",
+        "repo_open_pr",
+        "repo_pr_checks",
+        "repo_pr_diff",
+        "repo_ready_pr",
+        "repo_reclaim_pr",
+        "repo_review_pr",
+        "repo_view_issue",
+        "repo_view_pr",
+        "resume_agent",
+        "run_job",
+        "set_next_beat",
+        "set_panel",
+        "set_presence",
+        "spend_today",
+        "start_agent",
+        "todo_add",
+        "todo_complete",
+        "todo_list",
+        "update_profile",
+        "update_routine"
+      ]
+    },
+    {
+      "capabilities": {
+        "tools": {}
+      },
+      "path": "/mcp/memory",
+      "prompts": [],
+      "protocolVersions": [
+        "2025-11-25",
+        "2025-06-18",
+        "2025-03-26"
+      ],
+      "resourceTemplates": [],
+      "resources": [],
+      "serverInfo": {
+        "name": "memory",
+        "version": "0.1.0"
+      },
+      "tools": [
+        "forget",
+        "journal_read",
+        "recall",
+        "remember"
+      ]
+    }
+  ],
+  "formatVersion": 1,
+  "prompts": [],
+  "resourceTemplates": [
+    {
+      "behavior": {
+        "access": "Main endpoint only. Authenticated operator; other identities receive resource-not-found.",
+        "effects": "Read only. Does not create or schedule WorkItems.",
+        "notes": "mission_id is the required opaque public Mission identifier. The Mission must exist; unknown IDs return resource-not-found. At most 25 items, ordered by insertion time and WorkItem ID ascending. Follow page.next_uri.",
+        "result": "The first custode.work_item.list.v1 page restricted to one Mission; items use the same summary contract as work_items."
+      },
+      "definition": {
+        "description": "List WorkItems belonging to one Mission.",
+        "mimeType": "application/json",
+        "name": "mission_work_items",
+        "title": "Mission WorkItems",
+        "uriTemplate": "custode://missions/{mission_id}/work-items"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "mission_work_items"
+    },
+    {
+      "behavior": {
+        "access": "Main endpoint only. Authenticated operator; other identities receive resource-not-found.",
+        "effects": "Read only. Does not change authoritative application state.",
+        "notes": "mission_id is the required opaque public Mission identifier; cursor is a required token from that Mission's preceding WorkItem page. Percent-encode each segment or follow page.next_uri. Unknown Mission returns resource-not-found. A cursor from another Mission or global WorkItem list returns invalid-params. At most 25 items.",
+        "result": "A continuation custode.work_item.list.v1 page restricted to the named Mission."
+      },
+      "definition": {
+        "description": "Continue one Mission's WorkItem list using its opaque cursor.",
+        "mimeType": "application/json",
+        "name": "mission_work_items_page",
+        "title": "Mission WorkItem page",
+        "uriTemplate": "custode://missions/{mission_id}/work-items/pages/{cursor}"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "mission_work_items_page"
+    },
+    {
+      "behavior": {
+        "access": "Main endpoint only. Authenticated operator; other identities receive resource-not-found.",
+        "effects": "Read only. Does not acknowledge or resolve obligations.",
+        "notes": "cursor is the required opaque token from a preceding Attention page. Invalid cursors return invalid-params. At most 25 items. Attention is recomputed on each read, so continuation is not a frozen snapshot of obligations. Legacy asks and gates are included.",
+        "result": "A continuation custode.attention.list.v1 page of derived operator obligations, with the same item and projection fields as work_attention."
+      },
+      "definition": {
+        "description": "Continue the derived Attention projection using its opaque cursor.",
+        "mimeType": "application/json",
+        "name": "work_attention_page",
+        "title": "Attention page",
+        "uriTemplate": "custode://attention/pages/{cursor}"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "work_attention_page"
+    },
+    {
+      "behavior": {
+        "access": "Main endpoint only. Authenticated operator; other identities receive resource-not-found.",
+        "effects": "Read only. Does not append or replay events.",
+        "notes": "cursor is the required opaque token from a preceding global WorkEvent page. WorkItem-scoped event cursors cannot be reused here. Invalid or cross-scope cursors return invalid-params. At most 25 events.",
+        "result": "A continuation custode.work_event.list.v1 page across all WorkItems."
+      },
+      "definition": {
+        "description": "Continue global append-only WorkEvent history using its opaque cursor.",
+        "mimeType": "application/json",
+        "name": "work_events_page",
+        "title": "WorkEvent page",
+        "uriTemplate": "custode://work-events/pages/{cursor}"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "work_events_page"
+    },
+    {
+      "behavior": {
+        "access": "Main endpoint only. Authenticated operator; other identities receive resource-not-found.",
+        "effects": "Read only. Reads artifact metadata; does not open, download, validate, or mutate the artifact bytes at the location.",
+        "notes": "work_item_id is the required opaque public WorkItem identifier. Unknown WorkItem returns resource-not-found. Includes all stored artifacts, including expired records, unlike relevant_artifacts in WorkItem summaries. At most 25 items ordered by insertion time and artifact ID ascending. Follow page.next_uri.",
+        "result": "A custode.artifact.list.v1 page of custode.artifact.v1 metadata, including ID/kind/producer, external identity, digest/media type, location/size, retention/expiry/provenance, parent IDs, and timestamps."
+      },
+      "definition": {
+        "description": "List all Artifacts belonging to a WorkItem.",
+        "mimeType": "application/json",
+        "name": "work_item_artifacts",
+        "title": "WorkItem Artifacts",
+        "uriTemplate": "custode://work-items/{work_item_id}/artifacts"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "work_item_artifacts"
+    },
+    {
+      "behavior": {
+        "access": "Main endpoint only. Authenticated operator; other identities receive resource-not-found.",
+        "effects": "Read only. Does not read or modify artifact bytes or authoritative state.",
+        "notes": "work_item_id is the required opaque public WorkItem identifier; cursor is a required continuation token from that same WorkItem's artifact collection. Unknown WorkItem returns resource-not-found. Invalid or cross-scope cursor returns invalid-params. At most 25 metadata records.",
+        "result": "A continuation custode.artifact.list.v1 metadata page for the WorkItem."
+      },
+      "definition": {
+        "description": "Continue one WorkItem's Artifact list using its opaque cursor.",
+        "mimeType": "application/json",
+        "name": "work_item_artifacts_page",
+        "title": "WorkItem Artifact page",
+        "uriTemplate": "custode://work-items/{work_item_id}/artifacts/pages/{cursor}"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "work_item_artifacts_page"
+    },
+    {
+      "behavior": {
+        "access": "Main endpoint only. Authenticated operator; other identities receive resource-not-found.",
+        "effects": "Read only. Does not create, resume, or run an Attempt.",
+        "notes": "work_item_id is the required opaque public WorkItem identifier. Unknown WorkItem returns resource-not-found; an existing WorkItem without an Attempt returns attempt=null. Selects the explicitly active Attempt if set, otherwise the newest logical Attempt. Check attempt.active before treating it as live execution.",
+        "result": "A custode.work_item.current_attempt.v1 object containing mission_id, work_item_id, a nullable detailed attempt, and links. Attempt details include provider/profile, state/timing, context IDs/digest, provenance/usage/continuation, job/workflow identifiers, outcome and errors."
+      },
+      "definition": {
+        "description": "Read the explicit active or newest logical Attempt for a WorkItem.",
+        "mimeType": "application/json",
+        "name": "work_item_attempt",
+        "title": "Current Attempt",
+        "uriTemplate": "custode://work-items/{work_item_id}/attempt"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "work_item_attempt"
+    },
+    {
+      "behavior": {
+        "access": "Main endpoint only. Authenticated operator; other identities receive resource-not-found.",
+        "effects": "Read only. Does not advance work, start an Attempt, or resolve a gate.",
+        "notes": "work_item_id is the required opaque public WorkItem identifier. Unknown IDs return resource-not-found. State and workflow phase have different meanings and remain separate. relevant_artifacts excludes expired records; the dedicated artifact collection includes them.",
+        "result": "A custode.work_item.detail.v1 object. Adds objective/acceptance criteria, source/external key/policy, active Attempt/call IDs, waiting/blocked conditions, outcome and terminal timestamps, full nested current Attempt/open gates/relevant artifacts, relationship IDs, and navigation links to the summary fields."
+      },
+      "definition": {
+        "description": "Read one WorkItem by its stable opaque identifier.",
+        "mimeType": "application/json",
+        "name": "work_item_detail",
+        "title": "WorkItem detail",
+        "uriTemplate": "custode://work-items/{work_item_id}"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "work_item_detail"
+    },
+    {
+      "behavior": {
+        "access": "Main endpoint only. Authenticated operator; other identities receive resource-not-found.",
+        "effects": "Read only. Does not append, replay, or modify events.",
+        "notes": "work_item_id is the required opaque public WorkItem identifier. Unknown WorkItem returns resource-not-found. At most 25 events ordered by insertion time and event ID ascending. Follow page.next_uri. This is kernel event history, not provider conversation history.",
+        "result": "The first custode.work_event.list.v1 page restricted to the WorkItem's transition and process history."
+      },
+      "definition": {
+        "description": "Read one WorkItem's append-only transition and process history.",
+        "mimeType": "application/json",
+        "name": "work_item_events",
+        "title": "WorkItem events",
+        "uriTemplate": "custode://work-items/{work_item_id}/events"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "work_item_events"
+    },
+    {
+      "behavior": {
+        "access": "Main endpoint only. Authenticated operator; other identities receive resource-not-found.",
+        "effects": "Read only. Does not append, replay, or modify events.",
+        "notes": "work_item_id is the required opaque public WorkItem identifier; cursor is a required token from that WorkItem's preceding event page. Unknown WorkItem returns resource-not-found. Invalid or wrong-scope cursor returns invalid-params. At most 25 events.",
+        "result": "A continuation custode.work_event.list.v1 page restricted to the WorkItem."
+      },
+      "definition": {
+        "description": "Continue one WorkItem's WorkEvent history using its opaque cursor.",
+        "mimeType": "application/json",
+        "name": "work_item_events_page",
+        "title": "WorkItem event page",
+        "uriTemplate": "custode://work-items/{work_item_id}/events/pages/{cursor}"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "work_item_events_page"
+    },
+    {
+      "behavior": {
+        "access": "Main endpoint only. Authenticated operator; other identities receive resource-not-found.",
+        "effects": "Read only. Does not change authoritative application state.",
+        "notes": "cursor is a required opaque token from a preceding global WorkItem page. It cannot be reused from a Mission-scoped list. Percent-encode it or follow page.next_uri. Invalid cursors return invalid-params. At most 25 items.",
+        "result": "A continuation custode.work_item.list.v1 page across all Missions."
+      },
+      "definition": {
+        "description": "Continue a WorkItem list using its opaque cursor.",
+        "mimeType": "application/json",
+        "name": "work_items_page",
+        "title": "WorkItem page",
+        "uriTemplate": "custode://work-items/pages/{cursor}"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "work_items_page"
+    },
+    {
+      "behavior": {
+        "access": "Main endpoint only. Authenticated operator; other identities receive resource-not-found.",
+        "effects": "Read only. Does not create or modify the Mission or its related records.",
+        "notes": "mission_id is the required opaque public Mission identifier, not a database row number. Percent-encode it as one path segment. Unknown IDs return resource-not-found. Mission records can be compatibility projections for active routines while work-kernel intake is frozen.",
+        "result": "A custode.mission.detail.v1 object: summary fields plus retention, metadata, relationship IDs for WorkItems/Attempts/calls/gates/artifacts/events, and self/work_items links."
+      },
+      "definition": {
+        "description": "Read one Mission by its stable opaque identifier.",
+        "mimeType": "application/json",
+        "name": "work_mission_detail",
+        "title": "Mission detail",
+        "uriTemplate": "custode://missions/{mission_id}"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "work_mission_detail"
+    },
+    {
+      "behavior": {
+        "access": "Main endpoint only. Authenticated operator; other identities receive resource-not-found.",
+        "effects": "Read only. Does not change authoritative application state.",
+        "notes": "cursor is the required opaque continuation token from the preceding Mission page. Percent-encode the segment or use page.next_uri directly. At most 25 items. Invalid or wrong-collection cursors return invalid-params.",
+        "result": "The next custode.mission.list.v1 page with the same item and navigation shape as work_missions."
+      },
+      "definition": {
+        "description": "Continue a Mission list using its opaque cursor.",
+        "mimeType": "application/json",
+        "name": "work_missions_page",
+        "title": "Mission page",
+        "uriTemplate": "custode://missions/pages/{cursor}"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "work_missions_page"
+    }
+  ],
+  "resources": [
+    {
+      "behavior": {
+        "access": "Main endpoint only. Authenticated operator. Other identities do not discover the resource and reads return resource-not-found.",
+        "effects": "Read only. Derives obligations afresh; does not acknowledge, resolve, or otherwise mutate them.",
+        "notes": "No arguments. At most 25 items; severity descending, raised time ascending, then attention key ascending. Includes open work gates, blocked WorkItems, latest failed/stale operation calls, and open legacy asks/gates. This is not the list_attention fleet projection. Legacy-agent items can have null resource links. Resolve the source state to remove an obligation.",
+        "result": "A custode.attention.list.v1 page of custode.attention.item.v1 obligations. Items contain subject, reason/evidence, severity/age, owner, authoritative source, and links. The page declares projection.derived=true and projection.independently_mutable=false."
+      },
+      "definition": {
+        "description": "Derived operator obligations linked to authoritative work state.",
+        "mimeType": "application/json",
+        "name": "work_attention",
+        "title": "Attention",
+        "uri": "custode://attention"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "work_attention"
+    },
+    {
+      "behavior": {
+        "access": "Main endpoint only. Authenticated operator. Other identities do not discover the resource and reads return resource-not-found.",
+        "effects": "Read only. Does not append events, replay work, or change authoritative application state.",
+        "notes": "No arguments. First global page of append-only work-kernel history, at most 25 items; insertion time and event ID ascending. Follow page.next_uri. This is not the routine activity feed.",
+        "result": "A custode.work_event.list.v1 page of custode.work_event.v1 events. Events include actor/operation, before and after state/phase/version, evidence, call/gate and correlation/causation IDs, parent IDs, and timestamp."
+      },
+      "definition": {
+        "description": "Deterministically paginated append-only WorkEvent history.",
+        "mimeType": "application/json",
+        "name": "work_events",
+        "title": "WorkEvents",
+        "uri": "custode://work-events"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "work_events"
+    },
+    {
+      "behavior": {
+        "access": "Main endpoint only. Authenticated operator. Other identities do not discover the resource and reads return resource-not-found.",
+        "effects": "Read only. Does not advance WorkItems, run Attempts, or change authoritative application state.",
+        "notes": "No arguments. First global page, at most 25 items, ordered by insertion time then WorkItem ID ascending. Follow page.next_uri. This is the frozen work-kernel model, not the routine roster or current agent execution list.",
+        "result": "A custode.work_item.list.v1 page of custode.work_item.summary.v1 items across Missions. Includes state and workflow phase separately, priority/version, current Attempt, open gates, unexpired relevant artifacts, last transition, compatibility metadata, and timestamps."
+      },
+      "definition": {
+        "description": "Deterministically paginated WorkItem summaries.",
+        "mimeType": "application/json",
+        "name": "work_items",
+        "title": "WorkItems",
+        "uri": "custode://work-items"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "work_items"
+    },
+    {
+      "behavior": {
+        "access": "Main endpoint only. Listed and readable for an authenticated operator; routine and sub-agent identities see no resource and reads return resource-not-found.",
+        "effects": "Read only. Computes a projection from stored records; does not create Missions, schedule work, or change authoritative application state.",
+        "notes": "No arguments. First page, at most 25 items. Ordered by insertion time and Mission ID ascending. Follow page.next_uri. The work-kernel intake is frozen, but compatibility Mission records for active routines can still exist.",
+        "result": "A custode.mission.list.v1 page of custode.mission.summary.v1 items. Summaries include identity, purpose, lifecycle/status, targets, policy/budget/context references, work counts by state, last transition, compatibility metadata, and timestamps."
+      },
+      "definition": {
+        "description": "Deterministically paginated Mission summaries.",
+        "mimeType": "application/json",
+        "name": "work_missions",
+        "title": "Missions",
+        "uri": "custode://missions"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "work_missions"
+    }
+  ],
+  "tools": [
+    {
+      "behavior": {
+        "access": "Authenticated operator or a configured routine whose role is caretaker. Other routines and sub-agents are refused. The tool does not independently verify an approval grant.",
+        "effects": "Appends configuration, reloads the live roster and records a feed entry. The routine becomes beatable immediately and eligible for scheduling. Also mints credentials, writes the routine MCP config, initializes its workspace and starts repository service when configured.",
+        "notes": "id is required. Intended flow is preview, human approval, then add. The tool's current external-tag policy check allows the write; it does not impose a separate human-only restriction. No idempotency key; duplicate IDs are validated by the configuration writer.",
+        "result": "id, path of configuration file, live=true.",
+        "summary": "Add a routine to the configuration and live roster."
+      },
+      "category": "roster_write",
+      "definition": {
+        "description": "Append a routine to the roster file and reload the running roster: the new\nroutine is beatable immediately and scheduled at the next matching minute.\nOnly the operator and the caretaker's approved continuations may call\nthis; propose it via request_permission with the preview_routine render.\n",
+        "inputSchema": {
+          "properties": {
+            "agent": {
+              "description": "persona from the repo's .claude/agents/ (#19)",
+              "type": "string"
+            },
+            "cron": {
+              "description": "cron override (the profile usually supplies it)",
+              "type": "string"
+            },
+            "daily_budget_tokens": {
+              "description": "daily token rail",
+              "type": "integer"
+            },
+            "daily_budget_usd": {
+              "description": "daily budget rail",
+              "type": "number"
+            },
+            "effort": {
+              "description": "sweep effort override, e.g. \"low\"",
+              "type": "string"
+            },
+            "extra_allowed_tools": {
+              "description": "extra tool grants, e.g. [\"Bash(git log:*)\"]",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "hermetic": {
+              "description": "seal out the repo's ambient CLAUDE.md/persona",
+              "type": "boolean"
+            },
+            "id": {
+              "description": "unique routine id",
+              "type": "string"
+            },
+            "max_budget_usd": {
+              "description": "per-turn budget rail",
+              "type": "number"
+            },
+            "max_turns": {
+              "description": "agentic turns per run",
+              "type": "integer"
+            },
+            "mcp": {
+              "description": "grant the custode MCP tools",
+              "type": "boolean"
+            },
+            "model": {
+              "description": "sweep model override, e.g. \"sonnet\"",
+              "type": "string"
+            },
+            "profile": {
+              "description": "profile name, e.g. \"backlog_worker\"",
+              "type": "string"
+            },
+            "prompt": {
+              "description": "sweep prompt (the profile usually supplies it)",
+              "type": "string"
+            },
+            "repo": {
+              "description": "owner/name the routine serves",
+              "type": "string"
+            },
+            "role": {
+              "description": "role override, e.g. \"backlog_worker\"",
+              "type": "string"
+            },
+            "system_prompt_file": {
+              "description": "path to a standing-orders file",
+              "type": "string"
+            },
+            "tags": {
+              "description": "tags, e.g. [\"rust\", \"external\"]",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "timeout_ms": {
+              "description": "per-turn subprocess timeout",
+              "type": "integer"
+            },
+            "working_dir": {
+              "description": "absolute path of the checkout",
+              "type": "string"
+            },
+            "workspace": {
+              "description": "notebook home (defaults to workspaces/<id>)",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
+        "name": "add_routine",
+        "title": "add_routine"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "add_routine"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None.",
+        "notes": "last defaults to 20. The tool takes the final N history entries and renders each as printable diagnostic text with a 200-character printable-value limit. Entries are not a stable typed event protocol; no positive bound on last is declared here.",
+        "result": "agent_id and entries array of diagnostic strings, oldest first within the selected tail.",
+        "summary": "Read the recent tail of an agent event history."
+      },
+      "category": "read",
+      "definition": {
+        "description": "The agent's event log, oldest first, as printable strings.",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "type": "string"
+            },
+            "last": {
+              "description": "only the last N entries (default 20)",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "agent_id"
+          ],
+          "type": "object"
+        },
+        "name": "agent_history",
+        "title": "agent_history"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "agent_history"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None; reads agent lifecycle and session information.",
+        "notes": "agent_id is required. detail is diagnostic text and can carry pending gate information; no structured action object is guaranteed.",
+        "result": "Offline: agent_id and state='offline'. Otherwise: agent_id, state, detail, turns, cost_usd, session_id.",
+        "summary": "Inspect one agent and its current session."
+      },
+      "category": "read",
+      "definition": {
+        "description": "An agent's lifecycle status, plus turn count / spend / session when running.",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "the agent to inspect",
+              "type": "string"
+            }
+          },
+          "required": [
+            "agent_id"
+          ],
+          "type": "object"
+        },
+        "name": "agent_status",
+        "title": "agent_status"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "agent_status"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated operator only; agent callers are refused at the tool.",
+        "effects": "Closes an open ask, records the answer and feed event, and attempts best-effort delivery as a routine inbox note.",
+        "notes": "ask_id and a nonblank answer are required. Missing or already-resolved asks produce a tool error. An identity without a configured routine still has its ask closed even though no inbox delivery is possible; success is not a recipient-processing receipt.",
+        "result": "ask_id, agent_id and resulting status.",
+        "summary": "Answer a non-blocking question and notify its agent."
+      },
+      "category": "operator",
+      "definition": {
+        "description": "Answer an open question. Closes the ask and delivers the answer to the\nagent as an inbox note, which its next sweep reads.\n\nOperator-only, and for the same reason approvals are: agents operate the\nmachine, humans judge the work. An agent answering another agent's question\nto the operator would be answering on the operator's behalf.\n",
+        "inputSchema": {
+          "properties": {
+            "answer": {
+              "description": "the answer, in the operator's words",
+              "type": "string"
+            },
+            "ask_id": {
+              "description": "the ask (see: list_asks)",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "answer",
+            "ask_id"
+          ],
+          "type": "object"
+        },
+        "name": "answer_ask",
+        "title": "answer_ask"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "answer_ask"
+    },
+    {
+      "behavior": {
+        "access": "A routine caller is refused when the target is another configured routine, including itself. Operators pass. The guard does not verify parent ownership for non-routine targets.",
+        "effects": "Resolves an approval gate and starts its approved continuation; records decision actor and transport.",
+        "notes": "agent_id and action_id are required. Obtain the current action ID from status/await/gates. Success means the continuation is processing, not that work completed. Failed/stale decisions return 'approve failed'. Retrying must account for changed gate state.",
+        "result": "agent_id and approved action_id.",
+        "summary": "Approve an agent action awaiting a decision."
+      },
+      "category": "delegate",
+      "definition": {
+        "description": "Approve the action a sub-agent is blocked on (get the action id from await_agent/agent_status).",
+        "inputSchema": {
+          "properties": {
+            "action_id": {
+              "type": "string"
+            },
+            "agent_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "action_id",
+            "agent_id"
+          ],
+          "type": "object"
+        },
+        "name": "approve_action",
+        "title": "approve_action"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "approve_action"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated agents may write only their own records; the operator may name any identity.",
+        "effects": "Stores an open question for the operator without pausing the current turn. A future answer arrives as an inbox note.",
+        "notes": "routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. question is runtime-required despite not being schema-required. detail is optional. Suggested replies are trimmed, deduplicated, limited to 3, and blank or over-120-character replies are discarded. The configured open-ask cap defaults to 2 per identity. This is not permission approval. Retrying can create another ask until the cap is reached.",
+        "result": "ask_id, status and note confirming non-blocking filing.",
+        "summary": "Ask a non-blocking question whose answer will arrive later."
+      },
+      "category": "self_write",
+      "definition": {
+        "description": "Ask the operator a question WITHOUT stopping work.\n\nUse this when a human opinion would help but nothing is blocked: an\nambiguity worth flagging, a judgment call you made and want checked, a\nthreshold that may be miscalibrated. The turn finishes, the next beat runs\nnormally, and the answer arrives later as a note in your inbox.\n\nThis is NOT the tool for permission. If nothing should proceed until a human\ndecides, raise a gate (structured-output directive `request_permission`)\ninstead: that is what blocking is for.\n",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "whose question (defaults to the caller; a routine may only file its own)",
+              "type": "string"
+            },
+            "detail": {
+              "description": "what you were doing when it came up, for the operator's context",
+              "type": "string"
+            },
+            "question": {
+              "description": "the question, in one or two sentences the operator can answer without context",
+              "type": "string"
+            },
+            "replies": {
+              "description": "optional: up to 3 short answers you would accept, each a complete reply the operator can send with one click (e.g. \"Yes, take it over\", \"No, leave it to me\"). Max 120 characters each. Offer them when the likely answers are predictable.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "routine_id": {
+              "description": "alias for agent_id; either works, and both may be omitted: the server knows who is calling",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "name": "ask_operator",
+        "title": "ask_operator"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "ask_operator"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None; blocks the request while waiting.",
+        "notes": "timeout_ms defaults to 60000 and is capped at 180000; no lower bound is enforced here. Settled states include idle, awaiting_permission, waiting_for_user, paused and offline. A timeout returns current state with timed_out=true rather than a tool error. last_result can belong to an earlier turn; neither settled state nor this result is a per-request completion guarantee.",
+        "result": "agent_id, state, detail, timed_out boolean, last_result (object, up to 400 characters of result text, or null).",
+        "summary": "Wait for an agent to become idle, blocked, paused or offline."
+      },
+      "category": "read",
+      "definition": {
+        "description": "Block until the agent settles (idle, or blocked on a question/approval),\nthen return where it landed plus its latest result. On timeout, returns the\ncurrent state instead of failing.\n",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "type": "string"
+            },
+            "timeout_ms": {
+              "description": "max wait, default 60000, capped at 180000",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "agent_id"
+          ],
+          "type": "object"
+        },
+        "name": "await_agent",
+        "title": "await_agent"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "await_agent"
+    },
+    {
+      "behavior": {
+        "access": "Intended operator tool; routine exposure is restricted, but this tool does not itself enforce operator identity.",
+        "effects": "Queues an out-of-schedule routine sweep through the usual lifecycle policy, potentially starting an offline agent.",
+        "notes": "agent_id is required and must be a known routine. Success reports scheduling, not run admission or completion. Busy/paused/lifecycle policy can still affect execution. No idempotency key is exposed.",
+        "result": "agent_id, job_id and state='beat scheduled'.",
+        "summary": "Schedule an immediate sweep of a configured routine."
+      },
+      "category": "operator",
+      "definition": {
+        "description": "Fire one sweep of a routine right now: an out-of-schedule tick through the\nsame lifecycle policy as the cron entry, so it boots the agent if offline.\nThe operator's \"wake up and look\" verb.\n",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "the routine to beat",
+              "type": "string"
+            }
+          },
+          "required": [
+            "agent_id"
+          ],
+          "type": "object"
+        },
+        "name": "beat",
+        "title": "beat"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "beat"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated agents may write only their own records; the operator may name any identity.",
+        "effects": "Marks all currently live entries compacted and inserts a new summary in one transaction; regenerates views and notifies. Originals remain temporarily readable until retirement.",
+        "notes": "routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. summary is runtime-required despite optional discovery schema. This is an authored distillation, not automatic summarization. Repeating it creates another summary and compacts the previous summary too.",
+        "result": "summarized count of previously live entries.",
+        "summary": "Replace the live journal view with an authored summary."
+      },
+      "category": "self_write",
+      "definition": {
+        "description": "Distill your OWN journal (#214): pass a summary that captures what your\ncurrent journal entries still say, and every live entry is folded into it\n-- your journal.md shrinks to the summary plus what happens next, and the\noriginals age out of the database. Use this when your journal has grown\nlarge; it is your memory hygiene, not deletion. Self-scoped.\n",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "alias for routine_id; either works, and both may be omitted: the server knows who is calling",
+              "type": "string"
+            },
+            "routine_id": {
+              "description": "whose journal (defaults to the caller)",
+              "type": "string"
+            },
+            "summary": {
+              "description": "the distillation: what your journal so far still means, in a few lines",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "name": "compact_journal",
+        "title": "compact_journal"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "compact_journal"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated operator or a configured routine whose role is caretaker. Other routines and sub-agents are refused. The tool does not independently verify an approval grant.",
+        "effects": "Writes a profile, reloads the roster and records a feed entry. Routines can inherit it immediately.",
+        "notes": "name is required. Intended flow requires preview and human approval of dangerous grants. approve_bypass_permissions=false is omitted. No restart is required for configuration reload; this is not a runtime permission revocation protocol for an in-flight turn.",
+        "result": "name, configuration path, grants and live=true.",
+        "summary": "Create a reusable routine profile."
+      },
+      "category": "roster_write",
+      "definition": {
+        "description": "Define a new profile in the roster file and reload, so routines can inherit\nit immediately -- no config.exs edit, no restart (#236). Only the operator\nand the caretaker's approved continuations may call this; propose it via\nrequest_permission with the preview_profile render so the human approves\nthe exact grants. Never auto: a profile is a privilege-escalation surface.\n",
+        "inputSchema": {
+          "properties": {
+            "agent": {
+              "description": "persona from .claude/agents/",
+              "type": "string"
+            },
+            "approve_bypass_permissions": {
+              "description": "GRANT: bypass_permissions on approval",
+              "type": "boolean"
+            },
+            "approve_effort": {
+              "description": "approved-arg effort",
+              "type": "string"
+            },
+            "approve_model": {
+              "description": "approved-arg model",
+              "type": "string"
+            },
+            "approve_worktree": {
+              "description": "approved-arg worktree template",
+              "type": "string"
+            },
+            "cron": {
+              "description": "default cron for wearers",
+              "type": "string"
+            },
+            "daily_budget_tokens": {
+              "description": "daily token rail",
+              "type": "integer"
+            },
+            "daily_budget_usd": {
+              "description": "daily budget rail",
+              "type": "number"
+            },
+            "effort": {
+              "description": "sweep effort",
+              "type": "string"
+            },
+            "extra_allowed_tools": {
+              "description": "GRANT: extra tools",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "hermetic": {
+              "description": "seal out ambient persona",
+              "type": "boolean"
+            },
+            "max_budget_usd": {
+              "description": "per-turn budget rail",
+              "type": "number"
+            },
+            "max_turns": {
+              "description": "agentic turns per run",
+              "type": "integer"
+            },
+            "mcp": {
+              "description": "grant the custode MCP tools",
+              "type": "boolean"
+            },
+            "model": {
+              "description": "sweep model",
+              "type": "string"
+            },
+            "name": {
+              "description": "new profile name",
+              "type": "string"
+            },
+            "prompt": {
+              "description": "default sweep prompt",
+              "type": "string"
+            },
+            "role": {
+              "description": "role (which prompt/toolset)",
+              "type": "string"
+            },
+            "sensors": {
+              "description": "sensors derived per wearer",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "system_prompt_file": {
+              "description": "standing-orders file path",
+              "type": "string"
+            },
+            "tags": {
+              "description": "tags every wearer inherits",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "timeout_ms": {
+              "description": "per-turn timeout",
+              "type": "integer"
+            },
+            "working_dir": {
+              "description": "checkout path template",
+              "type": "string"
+            },
+            "workspace": {
+              "description": "notebook home template",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "name": "define_profile",
+        "title": "define_profile"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "define_profile"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None.",
+        "notes": "days defaults to 1 at the MCP boundary and must be a positive integer for the underlying builder, despite no schema range. The window is based on UTC days. markdown defaults false. Summary includes observed records, not a guarantee of exhaustive external activity.",
+        "result": "Default: since, window_days, spend, sweeps, gates, failures, suggestions and anomalies. With markdown=true: an object containing markdown text.",
+        "summary": "Summarize fleet activity over a recent window."
+      },
+      "category": "read",
+      "definition": {
+        "description": "The \"while you were away\" summary: what the fleet did over a window, as the\ndashboard renders it on the operator's return (#263).\n",
+        "inputSchema": {
+          "properties": {
+            "days": {
+              "description": "window in days (default 1)",
+              "type": "integer"
+            },
+            "markdown": {
+              "description": "render as markdown instead of the typed map",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "name": "digest",
+        "title": "digest"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "digest"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated operator only; agent callers are refused at the tool.",
+        "effects": "Closes an open ask and records an optional reason without answering it or sending an inbox note.",
+        "notes": "ask_id is required. reason is optional. Missing or already-resolved asks produce a tool error. This is not the rejection of an approval gate.",
+        "result": "ask_id, agent_id and resulting status.",
+        "summary": "Close a non-blocking question without sending an answer."
+      },
+      "category": "operator",
+      "definition": {
+        "description": "Dismiss an open question without sending the agent an answer or an inbox\nnote. An optional reason records why the question no longer needs a reply.\n\nOperator-only: an agent may not close a question owed to the operator.\n",
+        "inputSchema": {
+          "properties": {
+            "ask_id": {
+              "description": "the ask (see: list_asks)",
+              "type": "integer"
+            },
+            "reason": {
+              "description": "optional reason the question no longer needs a reply",
+              "type": "string"
+            }
+          },
+          "required": [
+            "ask_id"
+          ],
+          "type": "object"
+        },
+        "name": "dismiss_ask",
+        "title": "dismiss_ask"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "dismiss_ask"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated operator only; routine and sub-agent callers are refused at the tool.",
+        "effects": "Closes work admission, pauses execution queues and begins a background wait. Stops the server after executing jobs finish; a timeout leaves queues paused and emits a feed event.",
+        "notes": "timeout_ms is optional; omission means unbounded waiting. The response confirms drain admission, not server shutdown. Existing executing jobs may continue. Observe feed/executing_turns for progress. On timeout, queue resumption is a separate recovery action, not automatic.",
+        "result": "draining=true, executing count and explanatory note.",
+        "summary": "Stop admitting work and shut down after executing jobs finish."
+      },
+      "category": "operator",
+      "definition": {
+        "description": "Graceful drain (#132), the async shape the PR #145 review settled: pause\nthe executing queues NOW, reply NOW, and let the wait-then-stop run in the\nbackground. A synchronous drain would lie at every real use -- the CLI's\n30-second receive window cannot hold a multi-minute turn, and `System.stop`\ndrops the connection mid-reply anyway.\n\nThe reply reports what was paused and how many turns are still executing;\nfrom there the FEED carries the story (the `paused` entry from\n`Custode.drain/1`, then either the VM stopping or a `drain_timeout`\nentry naming the stuck jobs). On timeout the queues STAY paused --\ndeliberately, since resuming would reopen the very race the drain exists\nto close; `Oban.resume_queue/1` per queue is the abort path.\n\nOperator-only for now: the caretaker's restart orders get this tool as a\nseparate, deliberate grant later. A routine or sub-agent calling drain is\nrefused at the verb.\n",
+        "inputSchema": {
+          "properties": {
+            "timeout_ms": {
+              "description": "give up (leaving queues paused) after this many ms; default unbounded",
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "name": "drain",
+        "title": "drain"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "drain"
+    },
+    {
+      "behavior": {
+        "access": "Intended operator tool; routine exposure is restricted, but this tool does not itself enforce operator identity.",
+        "effects": "Writes a routine inbox note and triggers its debounced on_note event policy, which can cause a sweep. Records an inbox feed event.",
+        "notes": "agent_id and content are required. name defaults to note-<UTC timestamp to seconds>.md. File writing and kickoff are part of this operation; a raw file write is not equivalent. Reusing a name can overwrite the same path; there is no dedicated idempotency key. The current name input is joined to the inbox path without a basename check; callers should pass a simple filename. Kickoff failure is logged and does not turn a successful file write into a tool error.",
+        "result": "agent_id and written path.",
+        "summary": "Write a routine inbox note and trigger its note-arrival policy."
+      },
+      "category": "operator",
+      "definition": {
+        "description": "Drop a note into a routine's inbox THROUGH the funnel: the note is written\nand the routine's event kickoff fires (a debounced beat, honoring its\non_note policy). A bare file write wakes nobody; this does. The manual\nequivalent of a sensor detection.\n",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "the routine whose inbox gets the note",
+              "type": "string"
+            },
+            "content": {
+              "description": "markdown body of the note",
+              "type": "string"
+            },
+            "name": {
+              "description": "note filename (a timestamped default applies)",
+              "type": "string"
+            }
+          },
+          "required": [
+            "agent_id",
+            "content"
+          ],
+          "type": "object"
+        },
+        "name": "drop_note",
+        "title": "drop_note"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "drop_note"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None.",
+        "notes": "No arguments. The current query returns all jobs whose state is executing, not only jobs positively identified as agent turns. It is the drain's current job inventory, not an agent-to-turn correlation API.",
+        "result": "executing array of id, queue and worker.",
+        "summary": "Read the currently executing job inventory used by drain."
+      },
+      "category": "read",
+      "definition": {
+        "description": "What is running right now: the turns Oban has claimed and not yet finished.\n\nThe read behind `drain`'s decision to wait, and the honest answer to \"is\nthe fleet busy\" -- which a status listing cannot give, because an agent\nreads `:running` for the whole turn whether it started a second ago or is\nwedged.\n",
+        "inputSchema": {
+          "properties": {},
+          "type": "object"
+        },
+        "name": "executing_turns",
+        "title": "executing_turns"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "executing_turns"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None.",
+        "notes": "agent_id optionally filters; n defaults to 20 with no declared positive range. Feed records are event-specific and can carry different fields.",
+        "result": "entries array of feed records.",
+        "summary": "Read recent fleet activity feed entries."
+      },
+      "category": "read",
+      "definition": {
+        "description": "The last N feed entries (optionally one agent's): operator situational awareness.",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "restrict to one agent",
+              "type": "string"
+            },
+            "n": {
+              "description": "how many entries (default 20)",
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "name": "feed_tail",
+        "title": "feed_tail"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "feed_tail"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated agents may write only their own records; the operator may name any identity. Also on the memory endpoint.",
+        "effects": "Deletes persistent memory for the identity/key.",
+        "notes": "routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. key is runtime-required despite optional discovery schema. Deleting an absent key is successful. There is no undo or returned previous value.",
+        "result": "forgot key.",
+        "summary": "Delete a persistent fact by key."
+      },
+      "category": "self_write",
+      "definition": {
+        "description": "Delete one of your memories by key.",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "your own agent/routine id (defaults to the caller)",
+              "type": "string"
+            },
+            "key": {
+              "description": "the key of the memory to delete (see: recall)",
+              "type": "string"
+            },
+            "routine_id": {
+              "description": "alias for agent_id; either works, and both may be omitted: the server knows who is calling",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "name": "forget",
+        "title": "forget"
+      },
+      "endpoints": [
+        "/mcp",
+        "/mcp/memory"
+      ],
+      "name": "forget"
+    },
+    {
+      "behavior": {
+        "access": "Any authenticated caller reaching this tool may read another configured routine's notes by ID; no self-only read guard.",
+        "effects": "None; reads file-based inbox notes.",
+        "notes": "routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. Target must be a configured routine. Only inbox/*.md notes whose content does not begin FILED are returned. Distinct from list_inbox, which is the operator attention inbox.",
+        "result": "notes array of name and content.",
+        "summary": "Read unfiled notes in a configured routine inbox."
+      },
+      "category": "read",
+      "definition": {
+        "description": "The routine's unfiled inbox notes, names and contents in one call.",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "alias for routine_id; either works, and both may be omitted: the server knows who is calling",
+              "type": "string"
+            },
+            "routine_id": {
+              "description": "whose inbox (defaults to the caller)",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "name": "inbox_list",
+        "title": "inbox_list"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "inbox_list"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated agents may write only their own records; the operator may name any identity.",
+        "effects": "Prepends a FILED date marker to an existing inbox note. Does not append journal content automatically.",
+        "notes": "routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. name is runtime-required, must be a filename rather than a path, and must exist in the routine inbox. Caller is expected to journal relevant content first. An existing FILED prefix makes retry a no-op. Unknown routine, invalid name and file errors become tool errors.",
+        "result": "filed filename.",
+        "summary": "Mark an inbox note as already incorporated."
+      },
+      "category": "self_write",
+      "definition": {
+        "description": "Mark an inbox note as FILED after journaling it (idempotent).",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "alias for routine_id; either works, and both may be omitted: the server knows who is calling",
+              "type": "string"
+            },
+            "name": {
+              "description": "the note's file name (not a path)",
+              "type": "string"
+            },
+            "routine_id": {
+              "description": "whose inbox (defaults to the caller)",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "name": "inbox_mark_filed",
+        "title": "inbox_mark_filed"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "inbox_mark_filed"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated agents may write only their own records; the operator may name any identity.",
+        "effects": "Inserts a journal entry, regenerates journal.md/TODO.md views for a configured routine and notifies the dashboard. Database is the source of truth.",
+        "notes": "routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. body is runtime-required despite optional discovery schema; title is optional. Entries use source='sweep'. Retrying appends another entry, so this is not idempotent.",
+        "result": "entry_id.",
+        "summary": "Append a persistent journal entry."
+      },
+      "category": "self_write",
+      "definition": {
+        "description": "Append an entry to a routine's journal (the database is the source of truth; journal.md re-renders).",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "alias for routine_id; either works, and both may be omitted: the server knows who is calling",
+              "type": "string"
+            },
+            "body": {
+              "description": "the entry text (markdown ok)",
+              "type": "string"
+            },
+            "routine_id": {
+              "description": "whose journal (defaults to the caller)",
+              "type": "string"
+            },
+            "title": {
+              "description": "optional short title",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "name": "journal_append",
+        "title": "journal_append"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "journal_append"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated agents may read only their own journal; the operator may name another identity. Also on the memory endpoint.",
+        "effects": "None.",
+        "notes": "routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. limit defaults to 20 and must be an integer from 1 through 100. search is case-insensitive in title/body. live_only defaults true; false includes compacted entries until retired. Newest first, tie-broken by ID. Empty results are successful.",
+        "result": "entries array: id, title, body, inserted_at and compacted_at.",
+        "summary": "Read recent entries from the caller journal."
+      },
+      "category": "read",
+      "definition": {
+        "description": "Read your own journal from the database, newest entries first. Defaults to\nthe latest 20 live entries, matching journal.md's compaction semantics.\nSet live_only to false to include compacted entries until the janitor\nretires them. Only the authenticated operator may read another identity.\n",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "alias for routine_id; either works, and both may be omitted: the server knows who is calling",
+              "type": "string"
+            },
+            "limit": {
+              "description": "max entries (default 20, range 1..100)",
+              "type": "integer"
+            },
+            "live_only": {
+              "description": "exclude compacted entries (default true)",
+              "type": "boolean"
+            },
+            "routine_id": {
+              "description": "whose journal (defaults to the caller)",
+              "type": "string"
+            },
+            "search": {
+              "description": "case-insensitive search in entry title or body",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "name": "journal_read",
+        "title": "journal_read"
+      },
+      "endpoints": [
+        "/mcp",
+        "/mcp/memory"
+      ],
+      "name": "journal_read"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None.",
+        "notes": "days defaults to 30 through the advisor reader. No positive range is declared. grade distinguishes deterministic, judgment and unknown; records summarize proposal outcomes and cost.",
+        "result": "advisors array: advisor, grade, standing, applied, settled, observing, reverted, superseded, dismissed, dismissed_by_reason, cost_usd and summary.",
+        "summary": "Compare advisor activity, recorded outcomes and cost."
+      },
+      "category": "read",
+      "definition": {
+        "description": "Each advisor's record: what it proposed, what became of it, what it cost\n(#332).\n\nRead comparatively. A fleet-wide rejection rate near zero can mean the\nproposals are excellent or that the approvals are reflexive; one advisor\nrejected far more than its siblings is the signal that survives either\nreading.\n",
+        "inputSchema": {
+          "properties": {
+            "days": {
+              "description": "window in days (default 30)",
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "name": "list_advisors",
+        "title": "list_advisors"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "list_advisors"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None.",
+        "notes": "agent_id optionally filters. Only open questions, oldest first. The response currently omits suggested replies even though ask_operator accepts them. Distinct from blocking approval/question gates.",
+        "result": "asks array: id, agent_id, question, detail and asked_at.",
+        "summary": "List open non-blocking questions for the operator."
+      },
+      "category": "read",
+      "definition": {
+        "description": "Open questions agents have raised, oldest first: the durable answer to\n\"what am I being asked?\" without reading the database.\n\nDistinct from `list_gates`, which answers \"what is BLOCKED on me?\". An\nunanswered ask costs nobody anything except the answer.\n",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "restrict to one agent",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "name": "list_asks",
+        "title": "list_asks"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "list_asks"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None.",
+        "notes": "group optionally filters needs_you, watching, working, scheduled or quiet. Unknown group values return no matching groups rather than a validation error. Signal order is the fleet's current attention ranking.",
+        "result": "groups array, each with group and signals. Signals contain subject, kind, group, urgency, headline, detail, raised_at and resolving actions (label, op, args).",
+        "summary": "Read the fleet attention ranking grouped by need."
+      },
+      "category": "read",
+      "definition": {
+        "description": "The fleet's ranked attention: one signal per agent, ordered so the thing\nmost owed a human is first.\n\nThe single most valuable read custode has, and the one an external client\nmost obviously lacked. `list_routines` answers \"what exists\" and returns raw\nlifecycle states; this answers \"what needs me\", which is the question the\nwhole resolver was built for (#296).\n\nGrouped by default, because the groups carry the meaning: `needs_you` is\nnothing-progresses-without-you, `watching` is the fleet noticed and is not\nblocked, and the rest are healthy.\n",
+        "inputSchema": {
+          "properties": {
+            "group": {
+              "description": "only this group: needs_you | watching | working | scheduled | quiet",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "name": "list_attention",
+        "title": "list_attention"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "list_attention"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None.",
+        "notes": "repo optionally filters records. Newest first. No limit or pagination input.",
+        "result": "disowned array: repo, number, disowned_by, reason and at.",
+        "summary": "List pull requests the fleet has disowned."
+      },
+      "category": "read",
+      "definition": {
+        "description": "Pull requests the fleet has declared are not its work, newest first.\n\nThe durable answer to \"what is red that nobody is going to fix?\", which is\na different question from `list_gates` (\"what is blocked on me?\") and from\n`list_asks` (\"what am I being asked?\").\n",
+        "inputSchema": {
+          "properties": {
+            "repo": {
+              "description": "restrict to one repo",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "name": "list_disowned",
+        "title": "list_disowned"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "list_disowned"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None.",
+        "notes": "status optionally filters open, resolved, requeued or orphaned; omission includes recent gates generally. limit defaults to 20 without a schema bound. Newest first. Use action_id, not the database row ID, for approve_action/reject_action.",
+        "result": "gates array: agent_id, kind, action_id, detail, status and opened_at.",
+        "summary": "Read recent blocking questions and approval gates."
+      },
+      "category": "read",
+      "definition": {
+        "description": "Recent gates fleet-wide, newest first: open ones carry the action_id an\napprove_action / reject_action call needs. The durable answer to \"what is\nwaiting on a human?\" without reading the database.\n",
+        "inputSchema": {
+          "properties": {
+            "limit": {
+              "description": "max rows (default 20)",
+              "type": "integer"
+            },
+            "status": {
+              "description": "filter: open | resolved | requeued | orphaned",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "name": "list_gates",
+        "title": "list_gates"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "list_gates"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None; this read does not advance the operator's last-read timestamp.",
+        "notes": "unread_only defaults false. This is the operator attention inbox, distinct from inbox_list, which reads a routine's file-based notes. Action descriptors are not a promise that each action already has a same-named MCP tool.",
+        "result": "items array and last_read_at. Items contain kind, subject, headline, detail, at and actions (label, op, args).",
+        "summary": "Read what the fleet has raised to the operator."
+      },
+      "category": "read",
+      "definition": {
+        "description": "What the fleet has raised to the operator: questions, approvals, reached\nrails, and standing advisor suggestions.\n\nDistinct from `inbox_list`, which is an AGENT's own note inbox. This is the\nhuman's side (#301), and the two are different things that unfortunately\nshare a word.\n",
+        "inputSchema": {
+          "properties": {
+            "unread_only": {
+              "description": "only what arrived since the operator last looked",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "name": "list_inbox",
+        "title": "list_inbox"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "list_inbox"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None.",
+        "notes": "agent_id optionally selects policies binding a known routine. A missing or unknown ID currently returns all policies rather than an unknown-routine error.",
+        "result": "policies array; each policy's applies field is 'all' or an array of selector/value objects.",
+        "summary": "Read declared policies for the fleet or a routine."
+      },
+      "category": "read",
+      "definition": {
+        "description": "The fleet's declared policies, and which bind a given routine (#50).\n\nWhat an approver is meant to review against. Without this a client can see\na gate and not the rule it should be judged by.\n",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "only the policies binding this routine",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "name": "list_policies",
+        "title": "list_policies"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "list_policies"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None.",
+        "notes": "No arguments. The role registry describes purpose, hierarchy, watch/write scope and default tool bundle. Tool exposure is separate from tool-specific runtime authorization.",
+        "result": "roles array with role metadata and grants, plus tiers.",
+        "summary": "Read role definitions, hierarchy and default grants."
+      },
+      "category": "read",
+      "definition": {
+        "description": "The role registry: what each role is for, where it sits in the tree, what\nit watches and writes, and which tool bundle its tier grants.\n\nThe single source of truth for the fleet's permission model\n(`Custode.Roles`), and it was readable only from inside.\n",
+        "inputSchema": {
+          "properties": {},
+          "type": "object"
+        },
+        "name": "list_roles",
+        "title": "list_roles"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "list_roles"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None; reads configured routines and live lifecycle status.",
+        "notes": "No arguments. Paths are expanded absolute paths. status is diagnostic text, not a portable structured lifecycle enum.",
+        "result": "Object with routines array: id, cron, repo, tags, workspace, working_dir, status.",
+        "summary": "List configured routines and their current status."
+      },
+      "category": "read",
+      "definition": {
+        "description": "List the configured routines and each one's live agent status.",
+        "inputSchema": {
+          "properties": {},
+          "type": "object"
+        },
+        "name": "list_routines",
+        "title": "list_routines"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "list_routines"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None.",
+        "notes": "days defaults to 30 through the outcome reader. It is a trailing seconds-based window when supplied. No positive range is declared. Status describes recorded outcomes rather than proving that a proposal improved results.",
+        "result": "decisions array: agent, advisor, field, proposed, decision, status, reason, at, observed and summary.",
+        "summary": "Read what became of decisions about advisor proposals."
+      },
+      "category": "read",
+      "definition": {
+        "description": "What became of the operator's decisions: applied and still in force,\nreverted, superseded, or dismissed and why (#329).\n\nDeliberately reports facts rather than a verdict. Whether a change did what\nit promised depends on what it promised, which is per-advisor.\n",
+        "inputSchema": {
+          "properties": {
+            "days": {
+              "description": "window in days (default 30)",
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "name": "list_suggestion_outcomes",
+        "title": "list_suggestion_outcomes"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "list_suggestion_outcomes"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None.",
+        "notes": "No arguments. Reports unresolved proposals, not an apply/dismiss API. Proposal records can include advisor-specific fields.",
+        "result": "suggestions array of standing advisor proposal records.",
+        "summary": "Read standing proposals from fleet advisors."
+      },
+      "category": "read",
+      "definition": {
+        "description": "Standing advisor suggestions: what the fleet proposes changing about itself.\n\nReading them over MCP was impossible, which meant an external client could\nnot even SEE the advisors' proposals, let alone act on them. Acting is\ntier 2 (#347).\n",
+        "inputSchema": {
+          "properties": {},
+          "type": "object"
+        },
+        "name": "list_suggestions",
+        "title": "list_suggestions"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "list_suggestions"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None; reads the catalog only.",
+        "notes": "No arguments. Does not launch workflows. Catalog availability must not be interpreted as an exposed MCP launch operation or as reactivating the frozen work kernel.",
+        "result": "workflows array containing name and, when the catalog entry resolves, stages count.",
+        "summary": "Read the workflow catalog without launching work."
+      },
+      "category": "read",
+      "definition": {
+        "description": "The workflow catalog: the deep digs that exist to be launched (#271).\n\nReading the catalog is free and safe. LAUNCHING one is tier 2 (#347) and\nwaits on the launch gate (#272), because #307 kept launching to iex on\npurpose until there is a gate and a budget rail.\n",
+        "inputSchema": {
+          "properties": {},
+          "type": "object"
+        },
+        "name": "list_workflows",
+        "title": "list_workflows"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "list_workflows"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None.",
+        "notes": "kind is required and runtime-validated against spend, turns, gate_latency, by_model, gate_outcomes and prs_opened. days defaults to 7. gate_latency ignores days and currently passes a non-JSON-native pair of recent gates and median minutes to the response encoder; treat that kind as a known serialization limitation, not a stable JSON shape. Positive day bounds are not declared.",
+        "result": "kind, days and data. spend: date-to-agent maps of usd/tokens. turns: date maps of ok/failed. by_model: model maps of usd/tokens/turns/failed. gate_outcomes: agent maps of outcome counts. prs_opened: agent arrays of repo/number.",
+        "summary": "Read one category of fleet measurements."
+      },
+      "category": "read",
+      "definition": {
+        "description": "The fleet's numbers, one tool over the several `Custode.Metrics` answers.\n\nOne tool with a `kind` rather than six tools, because they share a window\nargument and differ only in what they count -- six names would spend six\nslots in every allowlist and tool listing to say the same thing.\n",
+        "inputSchema": {
+          "properties": {
+            "days": {
+              "description": "window in days (default 7)",
+              "type": "integer"
+            },
+            "kind": {
+              "description": "one of: spend, turns, gate_latency, by_model, gate_outcomes, prs_opened",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        "name": "metrics",
+        "title": "metrics"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "metrics"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated operator only, enforced by the shared operation authorization.",
+        "effects": "Requests an emergency pause, records the operation and its audit event. Resume is a separate operation.",
+        "notes": "agent_id is required. idempotency_key is optional at the MCP boundary; omission generates a new key. Reuse one key when retrying the same logical pause. Do not assume the response reverses already completed file or remote effects.",
+        "result": "agent_id and state='paused'.",
+        "summary": "Emergency-pause an agent until it is resumed."
+      },
+      "category": "operator",
+      "definition": {
+        "description": "Emergency-pause an agent: it finishes nothing further until resumed.",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "the agent to pause",
+              "type": "string"
+            },
+            "idempotency_key": {
+              "description": "stable key for retrying one logical pause",
+              "type": "string"
+            }
+          },
+          "required": [
+            "agent_id"
+          ],
+          "type": "object"
+        },
+        "name": "pause_agent",
+        "title": "pause_agent"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "pause_agent"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None; validates and renders a profile preview.",
+        "notes": "name is required. The four approve_* inputs are a deliberately narrow permission/model/worktree override surface. approve_bypass_permissions=false is omitted, not an explicit removal operation.",
+        "result": "toml plus grants describing dangerous permissions carried by the proposed profile.",
+        "summary": "Preview a reusable routine profile and its permissions."
+      },
+      "category": "read",
+      "definition": {
+        "description": "Render the exact `[[profiles]]` TOML defining this profile would write,\nplus the dangerous grants it carries -- put this in your request_permission\naction so the human approves the literal grants (#236).\n",
+        "inputSchema": {
+          "properties": {
+            "agent": {
+              "description": "persona from the repo's .claude/agents/",
+              "type": "string"
+            },
+            "approve_bypass_permissions": {
+              "description": "GRANT: approved continuations run with bypass_permissions",
+              "type": "boolean"
+            },
+            "approve_effort": {
+              "description": "approved-arg effort, e.g. \"high\"",
+              "type": "string"
+            },
+            "approve_model": {
+              "description": "approved-arg model, e.g. \"opus\"",
+              "type": "string"
+            },
+            "approve_worktree": {
+              "description": "approved-arg worktree template, e.g. \"custode-{id}\"",
+              "type": "string"
+            },
+            "cron": {
+              "description": "default cron for wearers, e.g. \"@daily\"",
+              "type": "string"
+            },
+            "daily_budget_tokens": {
+              "description": "daily token rail",
+              "type": "integer"
+            },
+            "daily_budget_usd": {
+              "description": "daily budget rail",
+              "type": "number"
+            },
+            "effort": {
+              "description": "sweep effort, e.g. \"low\"",
+              "type": "string"
+            },
+            "extra_allowed_tools": {
+              "description": "GRANT: extra tools, e.g. [\"Bash(git log:*)\"] (a privilege surface)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "hermetic": {
+              "description": "seal out the repo's ambient CLAUDE.md/persona",
+              "type": "boolean"
+            },
+            "max_budget_usd": {
+              "description": "per-turn budget rail",
+              "type": "number"
+            },
+            "max_turns": {
+              "description": "agentic turns per run",
+              "type": "integer"
+            },
+            "mcp": {
+              "description": "grant the custode MCP tools",
+              "type": "boolean"
+            },
+            "model": {
+              "description": "sweep model, e.g. \"sonnet\"",
+              "type": "string"
+            },
+            "name": {
+              "description": "new profile name, e.g. \"reviewer\"",
+              "type": "string"
+            },
+            "prompt": {
+              "description": "default sweep prompt",
+              "type": "string"
+            },
+            "role": {
+              "description": "role, e.g. \"backlog_worker\" (which prompt/toolset)",
+              "type": "string"
+            },
+            "sensors": {
+              "description": "sensors derived per wearer, e.g. [\"ci\"]",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "system_prompt_file": {
+              "description": "path to a standing-orders file",
+              "type": "string"
+            },
+            "tags": {
+              "description": "tags every wearer inherits",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "timeout_ms": {
+              "description": "per-turn subprocess timeout",
+              "type": "integer"
+            },
+            "working_dir": {
+              "description": "checkout path template",
+              "type": "string"
+            },
+            "workspace": {
+              "description": "notebook home template",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "name": "preview_profile",
+        "title": "preview_profile"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "preview_profile"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None; validates and previews the existing profile change.",
+        "notes": "name is required. Omitted envelope fields remain unchanged; lists replace; drop removes named envelope keys and wins over supplied values. approve_* inputs build the approved_args envelope; false bypass does not remove an existing grant. Inspect the preview when altering these grants. Supplying any approve_* values replaces the approved_args envelope rather than merging individual nested keys.",
+        "result": "before, after and grants for the resulting profile.",
+        "summary": "Preview edits to a reusable routine profile."
+      },
+      "category": "read",
+      "definition": {
+        "description": "Render the before/after `[[profiles]]` TOML an edit would produce, plus the\ndangerous grants the result carries -- put BOTH in your request_permission\naction so the human approves the literal change and sees the privilege\nsurface it moves (#236). `drop` removes an envelope key.\n",
+        "inputSchema": {
+          "properties": {
+            "agent": {
+              "description": "new persona",
+              "type": "string"
+            },
+            "approve_bypass_permissions": {
+              "description": "GRANT: bypass_permissions on approval",
+              "type": "boolean"
+            },
+            "approve_effort": {
+              "description": "approved-arg effort",
+              "type": "string"
+            },
+            "approve_model": {
+              "description": "approved-arg model",
+              "type": "string"
+            },
+            "approve_worktree": {
+              "description": "approved-arg worktree template",
+              "type": "string"
+            },
+            "cron": {
+              "description": "new default cron",
+              "type": "string"
+            },
+            "daily_budget_tokens": {
+              "description": "new daily token rail",
+              "type": "integer"
+            },
+            "daily_budget_usd": {
+              "description": "new daily budget rail",
+              "type": "number"
+            },
+            "drop": {
+              "description": "envelope keys to REMOVE",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "effort": {
+              "description": "new effort",
+              "type": "string"
+            },
+            "extra_allowed_tools": {
+              "description": "GRANT: replacement tool list",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "hermetic": {
+              "description": "seal out ambient persona",
+              "type": "boolean"
+            },
+            "max_budget_usd": {
+              "description": "new per-turn budget rail",
+              "type": "number"
+            },
+            "max_turns": {
+              "description": "new max turns",
+              "type": "integer"
+            },
+            "mcp": {
+              "description": "grant the custode MCP tools",
+              "type": "boolean"
+            },
+            "model": {
+              "description": "new model",
+              "type": "string"
+            },
+            "name": {
+              "description": "profile name to edit",
+              "type": "string"
+            },
+            "prompt": {
+              "description": "new default sweep prompt",
+              "type": "string"
+            },
+            "role": {
+              "description": "new role",
+              "type": "string"
+            },
+            "sensors": {
+              "description": "replacement sensor list",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "system_prompt_file": {
+              "description": "path to a standing-orders file",
+              "type": "string"
+            },
+            "tags": {
+              "description": "replacement tag list",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "timeout_ms": {
+              "description": "new per-turn timeout",
+              "type": "integer"
+            },
+            "working_dir": {
+              "description": "new checkout path template",
+              "type": "string"
+            },
+            "workspace": {
+              "description": "new notebook home template",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "name": "preview_profile_edit",
+        "title": "preview_profile_edit"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "preview_profile_edit"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None; renders a preview without creating or scheduling a routine.",
+        "notes": "id is required. This creation preview checks effort but is not the complete write-time validation. Unknown profile/role values can be reported as 'unknown profile'. The workspace default is workspaces/<id>; profile and fleet defaults supply omitted settings.",
+        "result": "toml containing the proposed routine configuration section.",
+        "summary": "Preview the configuration for a new routine."
+      },
+      "category": "read",
+      "definition": {
+        "description": "Render the exact TOML section adding this routine would append -- put this\nin your request_permission action so the human approves the literal diff.\n",
+        "inputSchema": {
+          "properties": {
+            "agent": {
+              "description": "persona from the repo's .claude/agents/ (#19)",
+              "type": "string"
+            },
+            "cron": {
+              "description": "cron override (the profile usually supplies it)",
+              "type": "string"
+            },
+            "daily_budget_tokens": {
+              "description": "daily token rail",
+              "type": "integer"
+            },
+            "daily_budget_usd": {
+              "description": "daily budget rail",
+              "type": "number"
+            },
+            "effort": {
+              "description": "sweep effort override, e.g. \"low\"",
+              "type": "string"
+            },
+            "extra_allowed_tools": {
+              "description": "extra tool grants, e.g. [\"Bash(git log:*)\"]",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "hermetic": {
+              "description": "seal out the repo's ambient CLAUDE.md/persona",
+              "type": "boolean"
+            },
+            "id": {
+              "description": "unique routine id",
+              "type": "string"
+            },
+            "max_budget_usd": {
+              "description": "per-turn budget rail",
+              "type": "number"
+            },
+            "max_turns": {
+              "description": "agentic turns per run",
+              "type": "integer"
+            },
+            "mcp": {
+              "description": "grant the custode MCP tools",
+              "type": "boolean"
+            },
+            "model": {
+              "description": "sweep model override, e.g. \"sonnet\"",
+              "type": "string"
+            },
+            "profile": {
+              "description": "profile name, e.g. \"backlog_worker\"",
+              "type": "string"
+            },
+            "prompt": {
+              "description": "sweep prompt (the profile usually supplies it)",
+              "type": "string"
+            },
+            "repo": {
+              "description": "owner/name the routine serves",
+              "type": "string"
+            },
+            "role": {
+              "description": "role override, e.g. \"backlog_worker\"",
+              "type": "string"
+            },
+            "system_prompt_file": {
+              "description": "path to a standing-orders file",
+              "type": "string"
+            },
+            "tags": {
+              "description": "tags, e.g. [\"rust\", \"external\"]",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "timeout_ms": {
+              "description": "per-turn subprocess timeout",
+              "type": "integer"
+            },
+            "working_dir": {
+              "description": "absolute path of the checkout",
+              "type": "string"
+            },
+            "workspace": {
+              "description": "notebook home (defaults to workspaces/<id>)",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
+        "name": "preview_routine",
+        "title": "preview_routine"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "preview_routine"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None; validates and previews an existing routine edit.",
+        "notes": "id is required. Omitted fields are unchanged; drop removes named overrides so inherited values can apply. Lists replace existing lists. Conflicting drop and supplied values resolve to removal. The routine ID is immutable.",
+        "result": "before and after strings containing configuration sections.",
+        "summary": "Preview a change to an existing routine."
+      },
+      "category": "read",
+      "definition": {
+        "description": "Render the before/after TOML sections an edit would produce, without\nwriting -- put BOTH in your request_permission action so the human\napproves the literal change. `drop` removes an override so the profile's\nvalue serves again.\n",
+        "inputSchema": {
+          "properties": {
+            "agent": {
+              "description": "persona from the repo's .claude/agents/ (#19)",
+              "type": "string"
+            },
+            "cron": {
+              "description": "new cron override",
+              "type": "string"
+            },
+            "daily_budget_tokens": {
+              "description": "daily token rail",
+              "type": "integer"
+            },
+            "daily_budget_usd": {
+              "description": "new daily budget rail",
+              "type": "number"
+            },
+            "drop": {
+              "description": "override keys to REMOVE (profile serves again)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "effort": {
+              "description": "new effort override, e.g. \"low\"",
+              "type": "string"
+            },
+            "extra_allowed_tools": {
+              "description": "extra tool grants, e.g. [\"Bash(git log:*)\"]",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "hermetic": {
+              "description": "seal out the repo's ambient CLAUDE.md/persona",
+              "type": "boolean"
+            },
+            "id": {
+              "description": "routine id to edit",
+              "type": "string"
+            },
+            "max_budget_usd": {
+              "description": "new per-turn budget rail",
+              "type": "number"
+            },
+            "max_turns": {
+              "description": "new max turns",
+              "type": "integer"
+            },
+            "mcp": {
+              "description": "grant the custode MCP tools",
+              "type": "boolean"
+            },
+            "model": {
+              "description": "new model override, e.g. \"sonnet\"",
+              "type": "string"
+            },
+            "profile": {
+              "description": "new profile name",
+              "type": "string"
+            },
+            "prompt": {
+              "description": "new sweep prompt",
+              "type": "string"
+            },
+            "repo": {
+              "description": "new owner/name",
+              "type": "string"
+            },
+            "role": {
+              "description": "role override, e.g. \"backlog_worker\"",
+              "type": "string"
+            },
+            "system_prompt_file": {
+              "description": "path to a standing-orders file",
+              "type": "string"
+            },
+            "tags": {
+              "description": "replacement tag list",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "timeout_ms": {
+              "description": "new per-turn timeout",
+              "type": "integer"
+            },
+            "working_dir": {
+              "description": "new checkout path",
+              "type": "string"
+            },
+            "workspace": {
+              "description": "new notebook home",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
+        "name": "preview_routine_edit",
+        "title": "preview_routine_edit"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "preview_routine_edit"
+    },
+    {
+      "behavior": {
+        "access": "Operators use the shared operator-message action. Agent callers use direct delegation; this tool does not check parent ownership of the target.",
+        "effects": "Sends or queues work. For an operator, can resume a paused agent or start an offline configured routine and records activity.",
+        "notes": "agent_id and prompt are required. Waiting-for-user input answers the question; busy input queues. Operator how='started' means a startup tick was queued, not that execution began. The agent path reports how='delivered' after a cast is accepted; this is not a delivery receipt and paused delegation can be dropped. No idempotency key; retry can submit duplicate input.",
+        "result": "agent_id, delivered=true, how describing the accepted delivery path.",
+        "summary": "Send work or an answer to an agent."
+      },
+      "category": "delegate",
+      "definition": {
+        "description": "Send a prompt to an agent (fire-and-forget). If the agent is waiting_for_user,\nthis is the answer to its pending question; if it is busy, the prompt queues.\nFollow with await_agent to see the outcome.\n",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "type": "string"
+            },
+            "prompt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "agent_id",
+            "prompt"
+          ],
+          "type": "object"
+        },
+        "name": "prompt_agent",
+        "title": "prompt_agent"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "prompt_agent"
+    },
+    {
+      "behavior": {
+        "access": "Any authenticated caller reaching this tool may read another identity's memories by ID. Also on the memory endpoint; no self-only read guard.",
+        "effects": "None.",
+        "notes": "routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. key is optional; omission returns all memory. A missing requested key is a tool error ('nothing remembered under ...'), not a null result. The endpoint's small tool set does not imply memory reads are self-only. Full-memory results are sorted by key.",
+        "result": "Without key: memories array of key/value. With key: key and value.",
+        "summary": "Read one or all persistent facts for an identity."
+      },
+      "category": "read",
+      "definition": {
+        "description": "Recall your persistent memory: one key, or everything you know.",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "your own agent/routine id (defaults to the caller)",
+              "type": "string"
+            },
+            "key": {
+              "description": "omit to recall everything",
+              "type": "string"
+            },
+            "routine_id": {
+              "description": "alias for agent_id; either works, and both may be omitted: the server knows who is calling",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "name": "recall",
+        "title": "recall"
+      },
+      "endpoints": [
+        "/mcp",
+        "/mcp/memory"
+      ],
+      "name": "recall"
+    },
+    {
+      "behavior": {
+        "access": "Same target guard as approve_action: routine callers cannot decide configured-routine gates; non-routine target ownership is not checked here.",
+        "effects": "Rejects the pending action, returns the target to idle, and records rejection feedback; feedback is standing by default.",
+        "notes": "agent_id and action_id are required. reason is optional. one_off=true makes feedback proposal-specific; omission or false makes it standing. A stale or failed decision returns 'reject failed'.",
+        "result": "agent_id and rejected action_id.",
+        "summary": "Reject an agent action and optionally give feedback."
+      },
+      "category": "delegate",
+      "definition": {
+        "description": "Reject the action a sub-agent is blocked on; it returns to idle.",
+        "inputSchema": {
+          "properties": {
+            "action_id": {
+              "type": "string"
+            },
+            "agent_id": {
+              "type": "string"
+            },
+            "one_off": {
+              "description": "true = this rejection applies to this proposal only; the agent is told not to make it a standing rule",
+              "type": "boolean"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "action_id",
+            "agent_id"
+          ],
+          "type": "object"
+        },
+        "name": "reject_action",
+        "title": "reject_action"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "reject_action"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated agents may write only their own records; the operator may name any identity. Also on the memory endpoint.",
+        "effects": "Upserts persistent memory by identity plus key, replacing any old value.",
+        "notes": "routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. key and value are runtime-required despite optional discovery schema. Kebab-case is descriptive guidance, not a schema pattern. Repeating the same key/value is logically idempotent; another value replaces the previous fact.",
+        "result": "remembered key.",
+        "summary": "Save or replace a persistent fact by key."
+      },
+      "category": "self_write",
+      "definition": {
+        "description": "Persist a fact for yourself across sessions (upserts by key).",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "your own agent/routine id (defaults to the caller)",
+              "type": "string"
+            },
+            "key": {
+              "description": "short kebab-case slug",
+              "type": "string"
+            },
+            "routine_id": {
+              "description": "alias for agent_id; either works, and both may be omitted: the server knows who is calling",
+              "type": "string"
+            },
+            "value": {
+              "description": "the fact to keep, as text",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "name": "remember",
+        "title": "remember"
+      },
+      "endpoints": [
+        "/mcp",
+        "/mcp/memory"
+      ],
+      "name": "remember"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated operator or a configured routine whose role is caretaker. Other routines and sub-agents are refused. The tool does not independently verify an approval grant.",
+        "effects": "Removes a profile, reloads the roster and records a feed entry.",
+        "notes": "name is required. Refused while any configured routine still uses the profile; reassign those routines first. Does not remove routine notebooks or workspaces.",
+        "result": "name, configuration path and live=true.",
+        "summary": "Remove a profile that no routine currently uses."
+      },
+      "category": "roster_write",
+      "definition": {
+        "description": "Remove a profile from the roster and reload (#236). Refused while any\nroutine still wears it -- pulling the envelope out from under a live\nroutine would strip its grants mid-flight; reassign those routines first.\nCaretaker-only; propose via request_permission naming the profile and why.\n",
+        "inputSchema": {
+          "properties": {
+            "name": {
+              "description": "profile name to remove",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "name": "remove_profile",
+        "title": "remove_profile"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "remove_profile"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated operator or a configured routine whose role is caretaker. Other routines and sub-agents are refused. The tool does not independently verify an approval grant.",
+        "effects": "Removes the routine configuration, reloads the roster, stops its live agent and records a feed entry. Notebook and workspace records remain.",
+        "notes": "id is required. Removal also applies to external-tagged routines. It is not deletion of the routine's history or files; a later repeated removal may be refused as unknown. Sensors that target the removed ID remain configured for later cleanup.",
+        "result": "id, path of configuration file, live=true.",
+        "summary": "Remove a routine and stop its live agent."
+      },
+      "category": "roster_write",
+      "definition": {
+        "description": "Remove a routine from the roster and stop its live agent (#174 slice 3).\nThe notebook and workspace stay -- records outlive routines. Removal is\nde-escalation, so the caretaker's approved continuation may remove\n:external entries too. Propose via request_permission naming the id and\nwhy.\n",
+        "inputSchema": {
+          "properties": {
+            "id": {
+              "description": "routine id to remove",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
+        "name": "remove_routine",
+        "title": "remove_routine"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "remove_routine"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint, served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.",
+        "effects": "Posts a GitHub issue/PR comment and records repository-write activity.",
+        "notes": "repo, number and body are required. Each successful repeat can create another comment; there is no deduplication key.",
+        "result": "repo, number and url of created comment.",
+        "summary": "Post a comment on an issue or pull request."
+      },
+      "category": "repo_write:comment",
+      "definition": {
+        "description": "Comment on an issue or PR of a served repo.",
+        "inputSchema": {
+          "properties": {
+            "body": {
+              "description": "comment markdown",
+              "type": "string"
+            },
+            "number": {
+              "description": "issue or PR number",
+              "type": "integer"
+            },
+            "repo": {
+              "description": "owner/name of a SERVED repo",
+              "type": "string"
+            }
+          },
+          "required": [
+            "body",
+            "number",
+            "repo"
+          ],
+          "type": "object"
+        },
+        "name": "repo_comment",
+        "title": "repo_comment"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "repo_comment"
+    },
+    {
+      "behavior": {
+        "access": "Uses the authenticated caller ID as author. The tool does not verify that the caller owns or serves the repository.",
+        "effects": "Creates a local disownment record, changing how failing PR checks reach the operator. No GitHub write.",
+        "notes": "repo and number are required; reason is optional. Idempotent by repo+number: an existing record preserves its original author and reason. A repeated call cannot revise those fields.",
+        "result": "repo, number, disowned_by, reason and explanatory note.",
+        "summary": "Record that a pull request is outside the fleet work being handled."
+      },
+      "category": "self_write",
+      "definition": {
+        "description": "Declare that a pull request in your repository is not your work.\n\nUse this when you have looked at a PR, concluded it is somebody else's (the\noperator's own branch, a bot's release PR, a dependency update), and will\nnot be fixing it. Say WHY: the reason is the record of the judgment.\n\nThe consequence is not cosmetic. A red check on a PR you own is the fleet's\nproblem and stays out of the operator's way, because your next beat will\nlook at it. A red check on a PR you have disowned is nobody's problem until\nthe operator makes it theirs, so it is raised to them.\n\nDo not use this to avoid work you could do. Disowning your own failing PR\nhides it from you and hands it to a human.\n",
+        "inputSchema": {
+          "properties": {
+            "number": {
+              "description": "the pull request number",
+              "type": "integer"
+            },
+            "reason": {
+              "description": "why it is not yours, in one line -- kept as the record of the judgment",
+              "type": "string"
+            },
+            "repo": {
+              "description": "the repo, as \"owner/name\"",
+              "type": "string"
+            }
+          },
+          "required": [
+            "number",
+            "repo"
+          ],
+          "type": "object"
+        },
+        "name": "repo_disown_pr",
+        "title": "repo_disown_pr"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "repo_disown_pr"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated agents may write only their own records; the operator may name any identity.",
+        "effects": "Stores a local batch of proposed issues. Does not write GitHub and does not itself create an approval gate.",
+        "notes": "routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. repo and issues are schema-required. Batch size is 1 through 25; every title must be nonblank, and each body is at most 20000 bytes. A retry creates another batch. Raise one permission gate naming the returned batch before filing it.",
+        "result": "batch_id, repo, drafted array of id/title/labels, and next-step instruction.",
+        "summary": "Prepare a local batch of issues for operator review."
+      },
+      "category": "self_write",
+      "definition": {
+        "description": "Draft a batch of issues for ONE filing gate (#241). Nothing reaches GitHub\nhere: the drafts become rows, you then raise a single request_permission\nnaming the batch, and the operator drops any entry it does not want before\napproving. The approved continuation calls `repo_file_drafts`, which files\nexactly what survived. Self-scoped.\n",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "alias for routine_id; either works, and both may be omitted: the server knows who is calling",
+              "type": "string"
+            },
+            "issues": {
+              "description": "the drafted issues, in the order you want them filed",
+              "items": {
+                "properties": {
+                  "body": {
+                    "description": "issue body markdown -- the evidence inline",
+                    "type": "string"
+                  },
+                  "labels": {
+                    "description": "labels to apply",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "title": {
+                    "description": "conventional-commit style title",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "repo": {
+              "description": "owner/name of a SERVED repo",
+              "type": "string"
+            },
+            "routine_id": {
+              "description": "your own routine id (defaults to the caller)",
+              "type": "string"
+            }
+          },
+          "required": [
+            "issues",
+            "repo"
+          ],
+          "type": "object"
+        },
+        "name": "repo_draft_issues",
+        "title": "repo_draft_issues"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "repo_draft_issues"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated agents may write only their own records; the operator may name any identity. The file_drafts grant check also applies, and each remote issue creation uses served-repository policy.",
+        "effects": "Creates GitHub issues for still-drafted entries, updates each local entry status and records a feed summary. Individual failure does not stop the remainder.",
+        "notes": "routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. batch_id is required. Unknown or foreign batches fail. Already-filed and already-failed entries are skipped on subsequent calls; results describe newly filed/failed entries plus dropped entries, not the full batch history. This is retry-safe for recorded completion, not a guarantee against an uncertain remote write before local persistence.",
+        "result": "batch_id; filed array of title/url; dropped array of titles; failed array of title/error.",
+        "summary": "File the kept issues from a reviewed local batch."
+      },
+      "category": "repo_write:file_drafts",
+      "definition": {
+        "description": "File the kept entries of a drafted batch (#241) -- the approved\ncontinuation's verb. Files every entry the operator did not drop, through\nthe same policy checks as `repo_open_issue`; a refusal marks that one\nentry and the rest of the batch still files. Self-scoped, and idempotent:\nan already-filed entry is never filed twice.\n",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "alias for routine_id; either works, and both may be omitted: the server knows who is calling",
+              "type": "string"
+            },
+            "batch_id": {
+              "description": "the batch id draft_issues returned",
+              "type": "string"
+            },
+            "routine_id": {
+              "description": "your own routine id (defaults to the caller)",
+              "type": "string"
+            }
+          },
+          "required": [
+            "batch_id"
+          ],
+          "type": "object"
+        },
+        "name": "repo_file_drafts",
+        "title": "repo_file_drafts"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "repo_file_drafts"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; repository must be served by a configured routine. No caller ownership check or write-grant check. Reads do not emit repository-write feed entries.",
+        "effects": "None; fetches GitHub issue data.",
+        "notes": "repo is required. state defaults to open; documented values are open, closed and all but are not schema enums. Issues are oldest-created first; PRs and ignore-labeled issues are removed. Ignore label defaults to custode:ignore. No pagination controls are exposed, so do not infer exhaustive results beyond upstream page behavior.",
+        "result": "repo, issues array, ignored count and ignore_label.",
+        "summary": "List issues the fleet should consider in a served repository."
+      },
+      "category": "read",
+      "definition": {
+        "description": "List a served repo's issues (open by default). Scoped read verb (#129).\n\nIssues carrying the ignore label are withheld from the survey (#334). The\noperator marks an issue on GitHub, where they are already reading it, and\nthe fleet stops spending a sweep re-reading and re-judging it.\n\nWithheld, not hidden: the reply carries the count and the label, so an\nagent can tell \"there is nothing to do\" from \"there is nothing I am allowed\nto see\". A silently shorter list is how a survey starts lying.\n\n`view_issue` is deliberately unaffected. Ignoring shapes what the fleet\nVOLUNTEERS for, not what it may look at when asked.\n",
+        "inputSchema": {
+          "properties": {
+            "repo": {
+              "description": "owner/name of a SERVED repo",
+              "type": "string"
+            },
+            "state": {
+              "description": "open (default), closed, or all",
+              "type": "string"
+            }
+          },
+          "required": [
+            "repo"
+          ],
+          "type": "object"
+        },
+        "name": "repo_list_issues",
+        "title": "repo_list_issues"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "repo_list_issues"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; repository must be served by a configured routine. No caller ownership check or write-grant check. Reads do not emit repository-write feed entries.",
+        "effects": "None; fetches GitHub pull-request data.",
+        "notes": "repo is required. state defaults to open; documented values are open, closed and all without a schema enum. Oldest-created first. No pagination controls are exposed. GitHub mergeability fields may be null while computed.",
+        "result": "repo and prs array; each PR has number, title, state, draft, base/base_sha, head/head_sha, mergeable, mergeable_state, merged, merged_at, merge_commit_sha, updated_at and url.",
+        "summary": "List pull requests in a served repository."
+      },
+      "category": "read",
+      "definition": {
+        "description": "List a served repo's pull requests (open by default). Scoped read verb (#129).",
+        "inputSchema": {
+          "properties": {
+            "repo": {
+              "description": "owner/name of a SERVED repo",
+              "type": "string"
+            },
+            "state": {
+              "description": "open (default), closed, or all",
+              "type": "string"
+            }
+          },
+          "required": [
+            "repo"
+          ],
+          "type": "object"
+        },
+        "name": "repo_list_prs",
+        "title": "repo_list_prs"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "repo_list_prs"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint, served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.",
+        "effects": "Posts 'blocked: <reason>' to the GitHub issue and records repository-write activity. Does not set an issue label.",
+        "notes": "repo, number and reason are required. Uses mark_issue, outside every bounded approval class; enforce mode therefore requires an unbounded grant. Repeats create additional comments.",
+        "result": "repo, number and url of marker comment.",
+        "summary": "Post an issue blockage marker with its reason."
+      },
+      "category": "repo_write:mark_issue",
+      "definition": {
+        "description": "The issue's blocked transition (#86): posts a `blocked: <reason>` comment.",
+        "inputSchema": {
+          "properties": {
+            "number": {
+              "description": "the issue number",
+              "type": "integer"
+            },
+            "reason": {
+              "description": "why it is not workable (x y z)",
+              "type": "string"
+            },
+            "repo": {
+              "description": "owner/name of a SERVED repo",
+              "type": "string"
+            }
+          },
+          "required": [
+            "number",
+            "reason",
+            "repo"
+          ],
+          "type": "object"
+        },
+        "name": "repo_mark_issue_blocked",
+        "title": "repo_mark_issue_blocked"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "repo_mark_issue_blocked"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint, served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.",
+        "effects": "Posts 'ready: <plan>' to the GitHub issue and records repository-write activity. Does not set an issue label.",
+        "notes": "repo, number and plan are required. Uses the mark_issue grant verb, which belongs to no bounded approval class; enforce mode therefore requires an unbounded grant. Repeats create additional comments.",
+        "result": "repo, number and url of marker comment.",
+        "summary": "Post an issue readiness marker with its plan."
+      },
+      "category": "repo_write:mark_issue",
+      "definition": {
+        "description": "The issue's ready transition (#86): posts a `ready: <plan>` comment.",
+        "inputSchema": {
+          "properties": {
+            "number": {
+              "description": "the issue number",
+              "type": "integer"
+            },
+            "plan": {
+              "description": "the one-line plan",
+              "type": "string"
+            },
+            "repo": {
+              "description": "owner/name of a SERVED repo",
+              "type": "string"
+            }
+          },
+          "required": [
+            "number",
+            "plan",
+            "repo"
+          ],
+          "type": "object"
+        },
+        "name": "repo_mark_issue_ready",
+        "title": "repo_mark_issue_ready"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "repo_mark_issue_ready"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint, served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.",
+        "effects": "Requests a GitHub merge and records repository-write activity if repository policy and the review floor permit it.",
+        "notes": "repo and number are required. Shipped manual merge policy normally refuses this tool. Review evidence is also required, and a latest needs-human marker blocks it. This tool does not accept an expected head SHA or expose the separate head-checked merge-gate path.",
+        "result": "repo, number, state='merged' on accepted success.",
+        "summary": "Request a pull-request merge subject to repository policy."
+      },
+      "category": "repo_write:merge_pr",
+      "definition": {
+        "description": "Merge a PR on a served repo -- WHERE POLICY ALLOWS. Under the shipped\npolicy every repo is merge: :manual, so this refuses with the rule named;\nit exists so the refusal is mechanical rather than remembered.\n",
+        "inputSchema": {
+          "properties": {
+            "number": {
+              "description": "the PR number",
+              "type": "integer"
+            },
+            "repo": {
+              "description": "owner/name of a SERVED repo",
+              "type": "string"
+            }
+          },
+          "required": [
+            "number",
+            "repo"
+          ],
+          "type": "object"
+        },
+        "name": "repo_merge_pr",
+        "title": "repo_merge_pr"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "repo_merge_pr"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint, served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.",
+        "effects": "Creates a GitHub issue with optional labels and records repository-write activity.",
+        "notes": "repo and title are required. body defaults to empty; labels pass through. Conventional title policy is checked. No idempotency key; an uncertain response can require checking GitHub before retry.",
+        "result": "repo, number and url.",
+        "summary": "Create an issue in a served repository."
+      },
+      "category": "repo_write:open_issue",
+      "definition": {
+        "description": "Open an issue on a served repo (#235) -- the \"create a backlog\" verb, not\njust comment on an existing issue. Policy applies: the title must be\nconventional-commit style. Labels pass through. No shell or git elevation.\n",
+        "inputSchema": {
+          "properties": {
+            "body": {
+              "description": "issue body markdown",
+              "type": "string"
+            },
+            "labels": {
+              "description": "labels to apply",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "repo": {
+              "description": "owner/name of a SERVED repo",
+              "type": "string"
+            },
+            "title": {
+              "description": "conventional-commit style title",
+              "type": "string"
+            }
+          },
+          "required": [
+            "repo",
+            "title"
+          ],
+          "type": "object"
+        },
+        "name": "repo_open_issue",
+        "title": "repo_open_issue"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "repo_open_issue"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint, served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.",
+        "effects": "Creates a GitHub pull request, always as a draft, and records repository-write activity.",
+        "notes": "repo, title and head are required. base defaults to main; body defaults to empty. Conventional title policy is checked. Does not create or push the head branch. No idempotency key; do not blindly retry after an uncertain remote result.",
+        "result": "repo, number and url.",
+        "summary": "Create a draft pull request in a served repository."
+      },
+      "category": "repo_write:open_pr",
+      "definition": {
+        "description": "Open a PR on a served repo. Policy applies mechanically: the title must\nbe conventional-commit style, and the PR is ALWAYS created as a draft\n(draft_pr_first). No shell or git elevation is involved.\n",
+        "inputSchema": {
+          "properties": {
+            "base": {
+              "description": "target branch (default main)",
+              "type": "string"
+            },
+            "body": {
+              "description": "PR body markdown",
+              "type": "string"
+            },
+            "head": {
+              "description": "the branch to merge from",
+              "type": "string"
+            },
+            "repo": {
+              "description": "owner/name of a SERVED repo",
+              "type": "string"
+            },
+            "title": {
+              "description": "conventional-commit style title",
+              "type": "string"
+            }
+          },
+          "required": [
+            "head",
+            "repo",
+            "title"
+          ],
+          "type": "object"
+        },
+        "name": "repo_open_pr",
+        "title": "repo_open_pr"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "repo_open_pr"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; repository must be served by a configured routine. No caller ownership check or write-grant check. Reads do not emit repository-write feed entries.",
+        "effects": "None; fetches the current PR head and its GitHub check runs.",
+        "notes": "repo and number are required. sha identifies the head observed by this call. This is check-run data, not a promise to aggregate every GitHub status-context mechanism; pagination controls are not exposed.",
+        "result": "repo, sha and checks array: id, name, status, conclusion, url, started_at, completed_at.",
+        "summary": "Read check runs for the current pull-request head."
+      },
+      "category": "read",
+      "definition": {
+        "description": "The check runs on a PR's head commit. Scoped read verb (#129).",
+        "inputSchema": {
+          "properties": {
+            "number": {
+              "description": "the PR number",
+              "type": "integer"
+            },
+            "repo": {
+              "description": "owner/name of a SERVED repo",
+              "type": "string"
+            }
+          },
+          "required": [
+            "number",
+            "repo"
+          ],
+          "type": "object"
+        },
+        "name": "repo_pr_checks",
+        "title": "repo_pr_checks"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "repo_pr_checks"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; repository must be served by a configured routine. No caller ownership check or write-grant check. Reads do not emit repository-write feed entries.",
+        "effects": "None; fetches changed-file metadata and patches from GitHub.",
+        "notes": "repo and number are required. previous_filename and patch may be null or absent upstream, including binary/large changes. No pagination controls are exposed; it is not a guaranteed complete local diff.",
+        "result": "repo and files array: filename, previous_filename, status, additions, deletions and patch.",
+        "summary": "Read changed-file metadata and patches for a pull request."
+      },
+      "category": "read",
+      "definition": {
+        "description": "The changed files of a PR, each with its patch. Scoped read verb (#129).",
+        "inputSchema": {
+          "properties": {
+            "number": {
+              "description": "the PR number",
+              "type": "integer"
+            },
+            "repo": {
+              "description": "owner/name of a SERVED repo",
+              "type": "string"
+            }
+          },
+          "required": [
+            "number",
+            "repo"
+          ],
+          "type": "object"
+        },
+        "name": "repo_pr_diff",
+        "title": "repo_pr_diff"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "repo_pr_diff"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint, served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.",
+        "effects": "Changes a GitHub draft PR to ready for review and records repository-write activity.",
+        "notes": "repo and number are required. Uses GitHub's ready-for-review operation; this is not a merge or an approval review. Remote refusal is a tool error.",
+        "result": "repo, number, state='ready_for_review'.",
+        "summary": "Mark a draft pull request ready for review."
+      },
+      "category": "repo_write:ready_pr",
+      "definition": {
+        "description": "Mark a draft PR ready for review (do this only when the approved action said to).",
+        "inputSchema": {
+          "properties": {
+            "number": {
+              "description": "the PR number",
+              "type": "integer"
+            },
+            "repo": {
+              "description": "owner/name of a SERVED repo",
+              "type": "string"
+            }
+          },
+          "required": [
+            "number",
+            "repo"
+          ],
+          "type": "object"
+        },
+        "name": "repo_ready_pr",
+        "title": "repo_ready_pr"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "repo_ready_pr"
+    },
+    {
+      "behavior": {
+        "access": "No caller/owner check in the current tool: reclaim is keyed globally by repo+number, despite the self-write policy classification.",
+        "effects": "Deletes the local disownment record so future failing-check attention returns to normal fleet handling. No GitHub write.",
+        "notes": "repo and number are required. Missing disownment is an error ('was not disowned'), so a completed repeat is not a successful no-op.",
+        "result": "repo, number and disowned=false.",
+        "summary": "Remove a pull-request disownment."
+      },
+      "category": "self_write",
+      "definition": {
+        "description": "Take back a pull request you previously disowned: it is your work after all.\n\nA disownment is a judgment, and judgments are revisable. Reclaiming returns\na red check on that PR to the fleet, so it stops being raised to the\noperator and goes back to being something your next beat looks at.\n",
+        "inputSchema": {
+          "properties": {
+            "number": {
+              "description": "the pull request number",
+              "type": "integer"
+            },
+            "repo": {
+              "description": "the repo, as \"owner/name\"",
+              "type": "string"
+            }
+          },
+          "required": [
+            "number",
+            "repo"
+          ],
+          "type": "object"
+        },
+        "name": "repo_reclaim_pr",
+        "title": "repo_reclaim_pr"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "repo_reclaim_pr"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint, served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.",
+        "effects": "Posts a 'review: <verdict> -- <body>' GitHub comment used by Custode's merge review floor. Does not submit a formal GitHub review.",
+        "notes": "repo, number, verdict and body are required. Schema prose suggests lgtm or needs-human, but the implementation accepts other verdict strings. Exact needs-human blocks merging until superseded by later qualifying review evidence; other marker text counts as reviewed. Repeats create comments.",
+        "result": "repo, number, verdict and url of marker comment.",
+        "summary": "Record a review marker used by the merge policy."
+      },
+      "category": "repo_write:review_pr",
+      "definition": {
+        "description": "The review transition (#86): posts the `review:` marker the merge floor\nreads. verdict \"needs-human\" POSITIVELY blocks merging until a later\nhuman review; anything else (e.g. \"lgtm\") satisfies the review stage.\n",
+        "inputSchema": {
+          "properties": {
+            "body": {
+              "description": "findings / reasoning",
+              "type": "string"
+            },
+            "number": {
+              "description": "the PR number",
+              "type": "integer"
+            },
+            "repo": {
+              "description": "owner/name of a SERVED repo",
+              "type": "string"
+            },
+            "verdict": {
+              "description": "\"lgtm\" or \"needs-human\"",
+              "type": "string"
+            }
+          },
+          "required": [
+            "body",
+            "number",
+            "repo",
+            "verdict"
+          ],
+          "type": "object"
+        },
+        "name": "repo_review_pr",
+        "title": "repo_review_pr"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "repo_review_pr"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; repository must be served by a configured routine. No caller ownership check or write-grant check. Reads do not emit repository-write feed entries.",
+        "effects": "None; fetches GitHub issue and comments.",
+        "notes": "repo and number are required. Ignore-label filtering does not apply to an explicit issue read. Comment pagination is not exposed.",
+        "result": "repo plus issue number, title, state, labels, updated_at, url, body and comments. Each comment has id, author, body, created_at, updated_at.",
+        "summary": "Read one issue and its comments."
+      },
+      "category": "read",
+      "definition": {
+        "description": "View one issue on a served repo: fields, body, and comments. Scoped read verb (#129).",
+        "inputSchema": {
+          "properties": {
+            "number": {
+              "description": "the issue number",
+              "type": "integer"
+            },
+            "repo": {
+              "description": "owner/name of a SERVED repo",
+              "type": "string"
+            }
+          },
+          "required": [
+            "number",
+            "repo"
+          ],
+          "type": "object"
+        },
+        "name": "repo_view_issue",
+        "title": "repo_view_issue"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "repo_view_issue"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; repository must be served by a configured routine. No caller ownership check or write-grant check. Reads do not emit repository-write feed entries.",
+        "effects": "None; fetches a GitHub pull request.",
+        "notes": "repo and number are required. This result does not include reviews, comments or checks; obtain checks/diff separately. Mergeability fields may be null.",
+        "result": "repo plus the PR fields returned by repo_list_prs, and body.",
+        "summary": "Read one pull request and its current branch information."
+      },
+      "category": "read",
+      "definition": {
+        "description": "View one PR on a served repo: fields and body. Scoped read verb (#129).",
+        "inputSchema": {
+          "properties": {
+            "number": {
+              "description": "the PR number",
+              "type": "integer"
+            },
+            "repo": {
+              "description": "owner/name of a SERVED repo",
+              "type": "string"
+            }
+          },
+          "required": [
+            "number",
+            "repo"
+          ],
+          "type": "object"
+        },
+        "name": "repo_view_pr",
+        "title": "repo_view_pr"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "repo_view_pr"
+    },
+    {
+      "behavior": {
+        "access": "Intended operator tool; routine exposure is restricted, but this tool does not itself enforce operator identity.",
+        "effects": "Resumes a paused agent, including an operator override of a budget pause.",
+        "notes": "agent_id is required. Failed transitions return 'resume failed'. It does not increase budget settings or undo effects from before the pause.",
+        "result": "agent_id and state='resumed'.",
+        "summary": "Resume a paused agent."
+      },
+      "category": "operator",
+      "definition": {
+        "description": "Resume a paused agent (the human-override exit from any pause, including budget).",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "the agent to resume",
+              "type": "string"
+            }
+          },
+          "required": [
+            "agent_id"
+          ],
+          "type": "object"
+        },
+        "name": "resume_agent",
+        "title": "resume_agent"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "resume_agent"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no operator, ownership or approval-grant check inside this tool. elevated is documented for already approved work, but that precondition is not checked here.",
+        "effects": "Enqueues a one-shot Claude run that can edit files, spend model budget, and write a completion note. Elevated jobs have full shell/Git/GitHub permissions.",
+        "notes": "prompt and report_inbox are required; report_inbox and any workspace must already be directories. model and max_budget_usd default to configuration; tag defaults to 'job'. Runs have 15 agentic turns and a 200000 ms timeout, or 900000 ms when elevated. Acceptance is asynchronous and not idempotent. Final report requires status and summary, with optional artifacts array and cost_note.",
+        "result": "job_id and absolute reports_to directory.",
+        "summary": "Queue a bounded one-shot task with an inbox completion report."
+      },
+      "category": "delegate",
+      "definition": {
+        "description": "Fire-and-forget one-shot claude job. Returns immediately with the job id;\nwhen the job finishes, its result is written as a note into report_inbox\n(typically the caller's own inbox/ directory), where a later sweep picks it\nup. Prefer this over start_agent for bounded single tasks.\n",
+        "inputSchema": {
+          "properties": {
+            "elevated": {
+              "description": "run with full permissions (git, gh, shell). Use ONLY for work a human already approved via a request_permission gate; default is edit-only",
+              "type": "boolean"
+            },
+            "max_budget_usd": {
+              "description": "per-run spend cap. Defaults to the shared config default, which is sized for small tasks -- pass your own routine's cap when dispatching implementation work",
+              "type": "number"
+            },
+            "model": {
+              "description": "claude model (defaults to the configured default)",
+              "type": "string"
+            },
+            "prompt": {
+              "type": "string"
+            },
+            "report_inbox": {
+              "description": "absolute path of the directory the completion note is written to",
+              "type": "string"
+            },
+            "tag": {
+              "description": "short label for the completion note",
+              "type": "string"
+            },
+            "workspace": {
+              "description": "absolute path the job's claude runs in (must exist if given)",
+              "type": "string"
+            }
+          },
+          "required": [
+            "prompt",
+            "report_inbox"
+          ],
+          "type": "object"
+        },
+        "name": "run_job",
+        "title": "run_job"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "run_job"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated agents may write only their own records; the operator may name any identity.",
+        "effects": "Upserts a one-shot scheduling request and records a feed entry. Cron beats are skipped until the requested due time; a started turn clears it.",
+        "notes": "routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. minutes and reason are runtime-required. minutes must be an integer and is clamped to configured bounds, default 5 through 1440. The reply reports the granted time. Operator messages, sensors, inbox events, immediate beats or approvals can start work sooner and clear it. Scheduler availability and other lifecycle rules still apply; this is not an unconditional delivery guarantee. Retrying computes a new deadline relative to the retry time and replaces the previous request.",
+        "result": "next_beat_at timestamp, granted minutes and clamped boolean.",
+        "summary": "Request a bounded one-shot change to the next scheduled sweep."
+      },
+      "category": "self_write",
+      "definition": {
+        "description": "Ask for your next scheduled beat to be in N minutes instead of whenever your\ncron says (#526). Use it when you KNOW when there will be something to do:\nCI you started takes 40 minutes, a release you are waiting on lands\ntomorrow. One-shot: your cron beats are skipped until then, you run once at\nthat time, and the request is gone. Clamped to the operator's bounds; the\nreply says what you got. An operator message, a sensor wake or an inbox\nnote still reaches you at once, and clears the request.\n",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "alias for routine_id; either works, and both may be omitted: the server knows who is calling",
+              "type": "string"
+            },
+            "minutes": {
+              "description": "minutes from now until your next scheduled beat",
+              "type": "integer"
+            },
+            "reason": {
+              "description": "one line: what you are waiting for",
+              "type": "string"
+            },
+            "routine_id": {
+              "description": "your own routine id (defaults to the caller)",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "name": "set_next_beat",
+        "title": "set_next_beat"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "set_next_beat"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated agents may write only their own records; the operator may name any identity. Refused when panels are off.",
+        "effects": "Appends a panel version and records a feed event. Approved HTML renders in the dashboard's sandboxed frame.",
+        "notes": "routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. html is runtime-required. Maximum is 20000 bytes. Gated mode is the default; auto mode approves immediately, so approval is not unconditional. Inline SVG/CSS can render; scripts do not run in the frame. Retrying creates another version.",
+        "result": "status: pending in gated mode or approved in auto mode.",
+        "summary": "Propose a dashboard panel for a routine."
+      },
+      "category": "self_write",
+      "definition": {
+        "description": "Propose an HTML panel for your OWN dashboard page (#100). The operator\napproves it before it renders, and it renders only inside a locked-down\niframe (no scripts run). Inline SVG and CSS work, so this is for a real\nview -- a table of what you watch, a chart, a diagram -- that prose in the\njournal cannot give. Self-scoped; refused when panels are turned off.\n",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "alias for routine_id; either works, and both may be omitted: the server knows who is calling",
+              "type": "string"
+            },
+            "html": {
+              "description": "the panel markup -- inline SVG/CSS only, no scripts (they will not run)",
+              "type": "string"
+            },
+            "routine_id": {
+              "description": "whose page (defaults to the caller)",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "name": "set_panel",
+        "title": "set_panel"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "set_panel"
+    },
+    {
+      "behavior": {
+        "access": "Not on routine default allowlists; the tool itself does not enforce operator identity.",
+        "effects": "Pins operator presence to present/away, or restores automatic inference and records a fresh operator action.",
+        "notes": "mode is required and runtime-validated as present, away or auto. It influences instructions agents read; it does not itself pause the scheduler or approve work.",
+        "result": "mode and reading of effective presence state.",
+        "summary": "Set or release an operator-presence override."
+      },
+      "category": "operator",
+      "definition": {
+        "description": "Set operator presence (#141): \"away\" pins away, \"present\" pins present,\n\"auto\" restores inference and counts as a fresh operator action. Sweeps\nread the presence line and shape themselves to it -- away means agents\nqueue at most one well-chosen gate for morning instead of parking early.\n",
+        "inputSchema": {
+          "properties": {
+            "mode": {
+              "description": "one of \"present\", \"away\", \"auto\"",
+              "type": "string"
+            }
+          },
+          "required": [
+            "mode"
+          ],
+          "type": "object"
+        },
+        "name": "set_presence",
+        "title": "set_presence"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "set_presence"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.",
+        "effects": "None.",
+        "notes": "No arguments. Today starts at midnight in configured fleet timezone, not necessarily UTC. since identifies the counted boundary. Missing cost telemetry must not be inferred from a zero total alone.",
+        "result": "since, timezone, routines array of agent_id/today_usd/daily_budget_usd/today_tokens/daily_budget_tokens, fleet_today_usd and fleet_today_tokens.",
+        "summary": "Read fleet and per-routine spend for the current local day."
+      },
+      "category": "read",
+      "definition": {
+        "description": "Today's spend: per routine with its daily rail, plus the fleet total.\n\"Today\" starts at midnight in the fleet's configured timezone, NOT UTC; the\nreply's `since` and `timezone` say exactly which window was counted, so a\ntotal of zero just after local midnight reads as a new day and not as a\nbroken ledger.\n",
+        "inputSchema": {
+          "properties": {},
+          "type": "object"
+        },
+        "name": "spend_today",
+        "title": "spend_today"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "spend_today"
+    },
+    {
+      "behavior": {
+        "access": "Full endpoint; no target-ownership or operator check in the tool. Spawned agents are configured with the memory endpoint, not delegation tools.",
+        "effects": "Mints sub-agent credentials and writes its MCP config, starts a persistent agent process, and records parent/spawn metadata. Does not submit a prompt.",
+        "notes": "agent_id and workspace are required. workspace must exist and is expanded to an absolute path. model defaults to configuration. The child has a 240000 ms turn timeout and elevated approved continuations. Retry is not idempotent: credentials/config are written before the start result. Errors include a nonexistent workspace and 'start failed'.",
+        "result": "agent_id, state='idle', workspace on success.",
+        "summary": "Start a persistent helper agent in an existing directory."
+      },
+      "category": "delegate",
+      "definition": {
+        "description": "Start a sub-agent working in a workspace directory. The caller becomes its\noperator: prompt it with prompt_agent, wait with await_agent, and handle its\nask_user / request_permission gates. Sub-agents get no delegation tools.\n",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "unique id for the sub-agent",
+              "type": "string"
+            },
+            "model": {
+              "description": "claude model (defaults to the configured default)",
+              "type": "string"
+            },
+            "system_prompt": {
+              "description": "role instructions (a sensible default applies)",
+              "type": "string"
+            },
+            "workspace": {
+              "description": "absolute path of the directory the sub-agent works in (must exist)",
+              "type": "string"
+            }
+          },
+          "required": [
+            "agent_id",
+            "workspace"
+          ],
+          "type": "object"
+        },
+        "name": "start_agent",
+        "title": "start_agent"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "start_agent"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated agents may write only their own records; the operator may name any identity.",
+        "effects": "Inserts an open todo, regenerates notebook views and notifies the dashboard.",
+        "notes": "routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. text is runtime-required despite optional discovery schema. Retrying adds another todo.",
+        "result": "todo_id.",
+        "summary": "Add a persistent todo."
+      },
+      "category": "self_write",
+      "definition": {
+        "description": "Add an open todo to a routine's list.",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "alias for routine_id; either works, and both may be omitted: the server knows who is calling",
+              "type": "string"
+            },
+            "routine_id": {
+              "description": "whose list (defaults to the caller)",
+              "type": "string"
+            },
+            "text": {
+              "description": "the todo, one line",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "name": "todo_add",
+        "title": "todo_add"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "todo_add"
+    },
+    {
+      "behavior": {
+        "access": "Looks up the todo owner; agents may complete only their own, while the operator may complete any.",
+        "effects": "Marks an existing todo done, regenerates notebook views and notifies the dashboard.",
+        "notes": "todo_id is required. Unknown IDs fail with 'no todo #<id>'. Completing an already done todo keeps it done but still performs bookkeeping.",
+        "result": "todo_id and status='done'.",
+        "summary": "Mark an owned todo complete."
+      },
+      "category": "self_write",
+      "definition": {
+        "description": "Mark a todo done by its id (get ids from todo_list).",
+        "inputSchema": {
+          "properties": {
+            "todo_id": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "todo_id"
+          ],
+          "type": "object"
+        },
+        "name": "todo_complete",
+        "title": "todo_complete"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "todo_complete"
+    },
+    {
+      "behavior": {
+        "access": "Any authenticated caller reaching this tool may read another identity's todos by ID; no self-only read guard.",
+        "effects": "None.",
+        "notes": "routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. status defaults open and is runtime-validated as open, done or all. Oldest todo ID first. No limit input.",
+        "result": "todos array of id, text and status.",
+        "summary": "Read open, completed or all todos for an identity."
+      },
+      "category": "read",
+      "definition": {
+        "description": "A routine's todos: open (default), done, or all.",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "alias for routine_id; either works, and both may be omitted: the server knows who is calling",
+              "type": "string"
+            },
+            "routine_id": {
+              "description": "whose list (defaults to the caller)",
+              "type": "string"
+            },
+            "status": {
+              "description": "one of \"open\" (default), \"done\", \"all\"",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "name": "todo_list",
+        "title": "todo_list"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "todo_list"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated operator or a configured routine whose role is caretaker. Other routines and sub-agents are refused. The tool does not independently verify an approval grant.",
+        "effects": "Rewrites the profile, reloads the roster and records a feed entry. Routines inheriting it receive the change on their next run.",
+        "notes": "name is required. Omitted fields remain unchanged; drop removes envelope keys, lists replace, and false bypass does not explicitly revoke an existing grant. Preview the resulting approved_args before writing. Supplying any approve_* values replaces the approved_args envelope rather than merging nested keys. Rewriting removes comments inside the edited section.",
+        "result": "name, configuration path and live=true. Unlike define_profile, this result does not include grants.",
+        "summary": "Change a reusable routine profile."
+      },
+      "category": "roster_write",
+      "definition": {
+        "description": "Edit a profile on the roster file and reload (#236): every routine wearing\nit inherits the change at its next run. Only the operator and the\ncaretaker's approved continuations may call this; propose it via\nrequest_permission with the preview_profile_edit render. `drop` removes an\nenvelope key. Never auto.\n",
+        "inputSchema": {
+          "properties": {
+            "agent": {
+              "description": "new persona",
+              "type": "string"
+            },
+            "approve_bypass_permissions": {
+              "description": "GRANT: bypass_permissions on approval",
+              "type": "boolean"
+            },
+            "approve_effort": {
+              "description": "approved-arg effort",
+              "type": "string"
+            },
+            "approve_model": {
+              "description": "approved-arg model",
+              "type": "string"
+            },
+            "approve_worktree": {
+              "description": "approved-arg worktree template",
+              "type": "string"
+            },
+            "cron": {
+              "description": "new default cron",
+              "type": "string"
+            },
+            "daily_budget_tokens": {
+              "description": "new daily token rail",
+              "type": "integer"
+            },
+            "daily_budget_usd": {
+              "description": "new daily budget rail",
+              "type": "number"
+            },
+            "drop": {
+              "description": "envelope keys to REMOVE",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "effort": {
+              "description": "new effort",
+              "type": "string"
+            },
+            "extra_allowed_tools": {
+              "description": "GRANT: replacement tool list",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "hermetic": {
+              "description": "seal out ambient persona",
+              "type": "boolean"
+            },
+            "max_budget_usd": {
+              "description": "new per-turn budget rail",
+              "type": "number"
+            },
+            "max_turns": {
+              "description": "new max turns",
+              "type": "integer"
+            },
+            "mcp": {
+              "description": "grant the custode MCP tools",
+              "type": "boolean"
+            },
+            "model": {
+              "description": "new model",
+              "type": "string"
+            },
+            "name": {
+              "description": "profile name to edit",
+              "type": "string"
+            },
+            "prompt": {
+              "description": "new default sweep prompt",
+              "type": "string"
+            },
+            "role": {
+              "description": "new role",
+              "type": "string"
+            },
+            "sensors": {
+              "description": "replacement sensor list",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "system_prompt_file": {
+              "description": "standing-orders file path",
+              "type": "string"
+            },
+            "tags": {
+              "description": "replacement tag list",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "timeout_ms": {
+              "description": "new per-turn timeout",
+              "type": "integer"
+            },
+            "working_dir": {
+              "description": "new checkout path template",
+              "type": "string"
+            },
+            "workspace": {
+              "description": "new notebook home template",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "name": "update_profile",
+        "title": "update_profile"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "update_profile"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated operator or a configured routine whose role is caretaker. Other routines and sub-agents are refused. The tool does not independently verify an approval grant.",
+        "effects": "Rewrites configuration, reloads the live roster and records changed field names in the feed. Updated schedule is used by subsequent scheduler checks. A repository change starts service for the new repository and can retire the old service if no longer needed.",
+        "notes": "id is required and immutable. Omitted fields stay unchanged; lists replace; drop removes overrides and wins over a supplied value. Preview before applying. This response does not promise changes to an already executing turn. Rewriting removes comments inside the edited configuration section; comments in other sections are preserved.",
+        "result": "id, path of configuration file, live=true.",
+        "summary": "Update an existing routine configuration."
+      },
+      "category": "roster_write",
+      "definition": {
+        "description": "Edit an existing routine on the roster file and reload the running roster\n(#174 slice 3): the change is live at the scheduler's next minute. Only\nthe operator and the caretaker's approved continuations may call this;\npropose it via request_permission with the preview_routine_edit render.\nThe id is immutable -- remove + add is the rename path.\n",
+        "inputSchema": {
+          "properties": {
+            "agent": {
+              "description": "persona from the repo's .claude/agents/ (#19)",
+              "type": "string"
+            },
+            "cron": {
+              "description": "new cron override",
+              "type": "string"
+            },
+            "daily_budget_tokens": {
+              "description": "daily token rail",
+              "type": "integer"
+            },
+            "daily_budget_usd": {
+              "description": "new daily budget rail",
+              "type": "number"
+            },
+            "drop": {
+              "description": "override keys to REMOVE (profile serves again)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "effort": {
+              "description": "new effort override, e.g. \"low\"",
+              "type": "string"
+            },
+            "extra_allowed_tools": {
+              "description": "extra tool grants, e.g. [\"Bash(git log:*)\"]",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "hermetic": {
+              "description": "seal out the repo's ambient CLAUDE.md/persona",
+              "type": "boolean"
+            },
+            "id": {
+              "description": "routine id to edit",
+              "type": "string"
+            },
+            "max_budget_usd": {
+              "description": "new per-turn budget rail",
+              "type": "number"
+            },
+            "max_turns": {
+              "description": "new max turns",
+              "type": "integer"
+            },
+            "mcp": {
+              "description": "grant the custode MCP tools",
+              "type": "boolean"
+            },
+            "model": {
+              "description": "new model override, e.g. \"sonnet\"",
+              "type": "string"
+            },
+            "profile": {
+              "description": "new profile name",
+              "type": "string"
+            },
+            "prompt": {
+              "description": "new sweep prompt",
+              "type": "string"
+            },
+            "repo": {
+              "description": "new owner/name",
+              "type": "string"
+            },
+            "role": {
+              "description": "role override, e.g. \"backlog_worker\"",
+              "type": "string"
+            },
+            "system_prompt_file": {
+              "description": "path to a standing-orders file",
+              "type": "string"
+            },
+            "tags": {
+              "description": "replacement tag list",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "timeout_ms": {
+              "description": "new per-turn timeout",
+              "type": "integer"
+            },
+            "working_dir": {
+              "description": "new checkout path",
+              "type": "string"
+            },
+            "workspace": {
+              "description": "new notebook home",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
+        "name": "update_routine",
+        "title": "update_routine"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "update_routine"
+    }
+  ]
+}

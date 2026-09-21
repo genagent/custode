@@ -83,6 +83,10 @@ what it returns.
 `drain`, `doctor`. From a git worktree, pass the token:
 `CUSTODE_OPERATOR_TOKEN="$(cat <checkout>/tmp/operator.token)"`.
 
+The [MCP client reference](docs/mcp-reference.md) documents every tool, prompt,
+resource and resource template, including arguments, results, side effects and
+access checks. A [JSON catalog](docs/mcp-reference.json) is available for clients.
+
 ## How an agent works
 
 - **Routine.** Id, role profile, repository, working directory, cron. Each
