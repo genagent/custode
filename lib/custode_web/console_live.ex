@@ -538,7 +538,7 @@ defmodule CustodeWeb.ConsoleLive do
 
   defp load_subject(id, feed_limit, journal_limit) do
     routine = Custode.Routine.get(id)
-    {:ok, status} = ObanClaude.Agent.status(id)
+    {:ok, status} = Custode.Agents.status(id)
     repo = routine && routine.repo
 
     %{
@@ -584,7 +584,7 @@ defmodule CustodeWeb.ConsoleLive do
   end
 
   defp history(id) do
-    case ObanClaude.Agent.history(id) do
+    case Custode.Agents.history(id) do
       {:ok, history} -> history |> Enum.take(-40) |> Enum.reverse()
       {:error, _reason} -> []
     end

@@ -9,11 +9,11 @@ defmodule CustodeWeb.AgentLive do
 
   import CustodeWeb.Components
 
+  alias Custode.Agents
   alias Custode.Operations.Fleet.PauseAgent
   alias Custode.Operator.Attachments
   alias Custode.Operator.RoutineEdit
   alias CustodeWeb.WorkflowLaunch
-  alias ObanClaude.Agent
 
   @impl Phoenix.LiveView
   def mount(%{"id" => id}, _session, socket) do
@@ -181,7 +181,7 @@ defmodule CustodeWeb.AgentLive do
   end
 
   def handle_event("resume", _params, socket) do
-    Agent.resume_agent(socket.assigns.id)
+    Agents.resume_agent(socket.assigns.id)
     {:noreply, refresh(socket)}
   end
 
@@ -787,7 +787,7 @@ defmodule CustodeWeb.AgentLive do
       # capture the state BEFORE casting: it decides what actually happens
       ack = prompt_ack(socket.assigns.state)
       composed = compose_prompt(socket, text, upload)
-      Agent.cast_prompt(socket.assigns.id, composed)
+      Agents.cast_prompt(socket.assigns.id, composed)
       Custode.Feed.record_prompted(socket.assigns.id, composed)
 
       {:noreply,
@@ -938,7 +938,7 @@ defmodule CustodeWeb.AgentLive do
   end
 
   defp agent_history(id) do
-    case Agent.history(id) do
+    case Agents.history(id) do
       {:ok, history} -> history |> Enum.take(-20) |> Enum.reverse()
       {:error, _reason} -> []
     end
@@ -973,12 +973,12 @@ defmodule CustodeWeb.AgentLive do
     id = socket.assigns.id
     routine = Custode.Routine.get(id)
     repo = routine && routine.repo
-    {:ok, status} = Agent.status(id)
+    {:ok, status} = Agents.status(id)
     status = resolve_status(status, routine, id)
     sensors = Enum.filter(Custode.Routine.sensors(), &(&1.notify == id))
 
     info =
-      case Agent.info(id) do
+      case Agents.info(id) do
         {:ok, info} -> info
         {:error, _reason} -> nil
       end

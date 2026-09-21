@@ -12,9 +12,9 @@ defmodule Custode do
       iex> Custode.pause(); Custode.resume()
   """
 
+  alias Custode.Agents
   alias Custode.Gates.Grant
   alias Custode.Routine
-  alias ObanClaude.Agent
   alias ObanClaude.Agent.Tick
 
   @doc """
@@ -26,7 +26,7 @@ defmodule Custode do
   def state_of(state) when is_atom(state), do: state
 
   @doc "Lifecycle status, straight off the registry."
-  def status(id \\ nil), do: Agent.status(fetch!(id).id)
+  def status(id \\ nil), do: Agents.status(fetch!(id).id)
 
   @doc """
   Drop a note in the routine's inbox. The event kickoff (`on_note: :beat`)
@@ -48,19 +48,19 @@ defmodule Custode do
   end
 
   @doc "Fire-and-forget prompt to the agent (queued if it is mid-sweep)."
-  def poke(prompt, id \\ nil), do: Agent.cast_prompt(fetch!(id).id, prompt)
+  def poke(prompt, id \\ nil), do: Agents.cast_prompt(fetch!(id).id, prompt)
 
   @doc "Prompt and block until the turn is enqueued (the answer path for ask_user)."
-  def ask(prompt, id \\ nil), do: Agent.submit_prompt(fetch!(id).id, prompt)
+  def ask(prompt, id \\ nil), do: Agents.submit_prompt(fetch!(id).id, prompt)
 
   @doc "Approve whatever action the agent is blocked on."
   def approve(id \\ nil) do
     agent_id = fetch!(id).id
 
-    case Agent.status(agent_id) do
+    case Agents.status(agent_id) do
       {:ok, {:awaiting_permission, %{id: action_id, description: description}}} ->
         IO.puts("approving: #{description}")
-        Agent.approve_action(agent_id, action_id)
+        Agents.approve_action(agent_id, action_id)
 
       {:ok, other} ->
         {:error, {:nothing_pending, other}}
@@ -85,8 +85,8 @@ defmodule Custode do
     # override needs approve_action/3 (oban_claude >= 0.5), so a checkout whose
     # engine is behind still approves gates in the default :observe mode.
     if args == %{},
-      do: Agent.approve_action(agent_id, action_id),
-      else: Agent.approve_action(agent_id, action_id, args: args)
+      do: Agents.approve_action(agent_id, action_id),
+      else: Agents.approve_action(agent_id, action_id, args: args)
   end
 
   @doc """
@@ -111,7 +111,7 @@ defmodule Custode do
     standing? = stated != nil and Keyword.get(opts, :standing, true)
 
     Custode.Gates.record_decision(agent_id, action_id, Keyword.put(opts, :reason, stated))
-    result = Agent.reject_action(agent_id, action_id, stated || "no reason given")
+    result = Agents.reject_action(agent_id, action_id, stated || "no reason given")
 
     if result == :rejected and Custode.Routine.get(agent_id) do
       {:ok, _path} =
@@ -196,7 +196,7 @@ defmodule Custode do
   # unreachable on the success path and the note is complete whenever it is
   # written at all.
   defp proposal_detail(agent_id, action_id) do
-    case Agent.status(agent_id) do
+    case Agents.status(agent_id) do
       {:ok, {:awaiting_permission, %{id: ^action_id, description: description}}}
       when is_binary(description) ->
         description
@@ -210,9 +210,9 @@ defmodule Custode do
   def reject(reason \\ "denied", id \\ nil) do
     agent_id = fetch!(id).id
 
-    case Agent.status(agent_id) do
+    case Agents.status(agent_id) do
       {:ok, {:awaiting_permission, %{id: action_id}}} ->
-        Agent.reject_action(agent_id, action_id, reason)
+        Agents.reject_action(agent_id, action_id, reason)
 
       {:ok, other} ->
         {:error, {:nothing_pending, other}}
@@ -220,10 +220,10 @@ defmodule Custode do
   end
 
   @doc "Emergency lockdown: no sweeps, no prompts, until resume/1."
-  def pause(id \\ nil), do: Agent.emergency_pause(fetch!(id).id)
+  def pause(id \\ nil), do: Agents.emergency_pause(fetch!(id).id)
 
   @doc "Release a paused agent."
-  def resume(id \\ nil), do: Agent.resume_agent(fetch!(id).id)
+  def resume(id \\ nil), do: Agents.resume_agent(fetch!(id).id)
 
   @doc """
   The emergency brake (#14): pause every agent not already paused/offline.
@@ -231,9 +231,9 @@ defmodule Custode do
   Operation-routed clients may supply the pause function; the zero-argument
   facade retains its original direct behavior for compatibility.
   """
-  def pause_all(pause_fun \\ &Agent.emergency_pause/1) when is_function(pause_fun, 1) do
+  def pause_all(pause_fun \\ &Agents.emergency_pause/1) when is_function(pause_fun, 1) do
     ids =
-      for {id, status} <- Agent.list(), pausable?(status) do
+      for {id, status} <- Agents.list(), pausable?(status) do
         pause_fun.(id)
         id
       end
@@ -250,8 +250,8 @@ defmodule Custode do
   @doc "Release the brake: resume every paused agent."
   def resume_all do
     ids =
-      for {id, status} <- Agent.list(), paused?(status) do
-        Agent.resume_agent(id)
+      for {id, status} <- Agents.list(), paused?(status) do
+        Agents.resume_agent(id)
         id
       end
 
@@ -453,13 +453,13 @@ defmodule Custode do
   def peek(id \\ nil) do
     routine = fetch!(id)
 
-    case Agent.status(routine.id) do
+    case Agents.status(routine.id) do
       {:ok, :offline} ->
         IO.puts("#{routine.id}: offline (next cron beat will start it; or Custode.beat())")
 
       {:ok, status} ->
-        {:ok, info} = Agent.info(routine.id)
-        {:ok, history} = Agent.history(routine.id)
+        {:ok, info} = Agents.info(routine.id)
+        {:ok, history} = Agents.history(routine.id)
 
         IO.puts("""
         #{routine.id}: #{inspect(status)}

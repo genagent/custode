@@ -144,6 +144,6 @@ defmodule Custode.MCP do
        when is_binary(command),
        do: ClaudeWrapper.McpConfig.add_stdio(config, name, command, args)
 
-  @doc "The state atom out of a `ObanClaude.Agent.status/1` payload."
+  @doc "The state atom out of a `Custode.Agents.status/1` payload."
   defdelegate state_of(status), to: Custode
 end

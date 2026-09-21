@@ -11,6 +11,7 @@ defmodule CustodeWeb.FleetLive do
 
   use Phoenix.LiveView
 
+  alias Custode.Agents
   alias Custode.Operations.Fleet.PauseAgent
 
   import CustodeWeb.Components
@@ -19,7 +20,6 @@ defmodule CustodeWeb.FleetLive do
   alias Custode.Operator.RoutineNew
   alias Custode.Routine
   alias Custode.Workflow.Launch
-  alias ObanClaude.Agent
 
   # the rail shows the top few suggestions; the rest live on /suggestions (#284)
   @suggestion_limit 3
@@ -102,7 +102,7 @@ defmodule CustodeWeb.FleetLive do
     if String.trim(text) == "" do
       {:noreply, socket}
     else
-      Agent.cast_prompt(id, text)
+      Agents.cast_prompt(id, text)
       Custode.Feed.record_prompted(id, text)
       {:noreply, socket |> put_flash(:info, "sent to #{id}") |> refresh()}
     end
@@ -862,7 +862,7 @@ defmodule CustodeWeb.FleetLive do
   defp refresh(socket) do
     routines = Routine.all()
     routine_ids = Enum.map(routines, & &1.id)
-    running = Agent.list() |> Map.new()
+    running = Agents.list() |> Map.new()
     all_ids = Enum.uniq(routine_ids ++ Map.keys(running))
     routines_by_id = Map.new(routines, &{&1.id, &1})
 

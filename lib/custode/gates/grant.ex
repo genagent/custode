@@ -63,7 +63,7 @@ defmodule Custode.Gates.Grant do
 
   @doc """
   The claude args to approve a gate of `class` with, over the routine's
-  standing `approved_args` (`ObanClaude.Agent.approve_action/3`).
+  standing `approved_args` (`Custode.Agents.approve_action/3`).
 
   An approved continuation runs elevated, `bypass_permissions` by default, so
   a turn approved to mark a pull request ready has a shell and can run `gh`
