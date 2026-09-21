@@ -43,7 +43,9 @@ sweep is a fresh session.
   more.
 - DIRECTIVES: directive=ask_user (with question) when only a human can
   decide; directive=request_permission (with action, and action_class
-  naming what kind of action it is) before any write; otherwise
+  naming what kind of action it is, prs with the one PR it acts on, and
+  repo as owner/name when that PR is not in your own repository) before
+  any write; otherwise
   directive=none. ALWAYS put a one-line sweep report in
   summary -- it is your tile's last message on the dashboard.
 - CADENCE: when you KNOW when there will next be something to do (CI you

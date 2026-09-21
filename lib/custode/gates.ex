@@ -33,6 +33,9 @@ defmodule Custode.Gates do
       # the pull request the gate acts on and the risk of the paths it changes
       # (#451); see Custode.Gates.Risk. nil risk = nobody looked, not low.
       field(:pr_number, :integer)
+      # the repository that pull request is in, when the turn named one (#542);
+      # nil = the routine's own
+      field(:repo, :string)
       field(:risk, :string)
       field(:risk_paths, :string)
       field(:status, :string, default: "open")
@@ -346,7 +349,8 @@ defmodule Custode.Gates do
         action_id: action_id,
         detail: detail,
         class: class,
-        pr_number: acted_on_pr(class, turn)
+        pr_number: acted_on_pr(class, turn),
+        repo: turn && Custode.Repository.well_formed(turn["repo"])
       })
 
     assess_risk(gate)
@@ -393,8 +397,9 @@ defmodule Custode.Gates do
   end
 
   @doc false
-  def record_risk(%Gate{id: id, agent_id: agent_id, pr_number: number}) do
-    with %{repo: repo} when is_binary(repo) <- Custode.Routine.get(agent_id),
+  def record_risk(%Gate{id: id, agent_id: agent_id, pr_number: number} = gate) do
+    with repo when is_binary(repo) <- risk_repo(gate),
+         true <- Custode.Repository.served?(repo),
          {:ok, %{files: files}} <- Custode.Repository.pr_diff(repo, number) do
       %{level: level, matched: matched} = files |> Risk.paths() |> Risk.assess()
 
@@ -412,6 +417,18 @@ defmodule Custode.Gates do
       require Logger
       Logger.warning("gate #{id}: risk not assessed: " <> Exception.message(exception))
       :ok
+  end
+
+  # The repository the gate named wins over the routine's own (#542): a
+  # reviewer has none, and its gates are about somebody else's pull request.
+  # Only a served repository is read; any other leaves the risk nil.
+  defp risk_repo(%Gate{repo: repo}) when is_binary(repo), do: repo
+
+  defp risk_repo(%Gate{agent_id: agent_id}) do
+    case Custode.Routine.get(agent_id) do
+      %{repo: repo} -> repo
+      _none -> nil
+    end
   end
 
   # The outcome goes on the row as well as the feed card (#448): the card is
