@@ -121,6 +121,30 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert %{status: "answered", answer: "staging"} = Asks.get(ask.id)
   end
 
+  test "a failing turn's item pane says why: category, count, retryable, the last detail",
+       %{conn: conn, sleeper: sleeper} do
+    detail = Enum.map_join(1..9, "\n", &"exit 1: Invalid API key, line #{&1}")
+
+    for _n <- 1..2 do
+      Custode.Feed.record(%{
+        event: "turn_failed",
+        agent: sleeper.id,
+        summary: "turn failed",
+        category: "auth_failed",
+        detail: detail
+      })
+    end
+
+    {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+    pane = view |> element("#turn-failure") |> render()
+
+    assert pane =~ "auth_failed"
+    assert pane =~ "2 failed turns in a row"
+    assert pane =~ "not retryable"
+    assert pane =~ "Invalid API key, line 6"
+    refute pane =~ "Invalid API key, line 7"
+  end
+
   test "a failed doctor is on the console too", %{conn: conn} do
     Custode.Host.put_doctor({:failed, "claude auth: logged out"})
     on_exit(&Custode.Host.reset/0)
