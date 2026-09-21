@@ -111,6 +111,17 @@ defmodule Custode.TestHelpers do
     id
   end
 
+  @doc """
+  Complete the turn whose metadata was captured from its enqueue message.
+
+  Route through the real worker callback so this fixture preserves the
+  engine's correlation contract. Never reconstruct metadata from an agent's
+  current state: a queued prompt or replacement agent may already own it.
+  """
+  def finish_agent_turn(%{"agent_id" => _id} = meta, %ClaudeWrapper.Result{} = result) do
+    ObanClaude.Agent.Job.handle_result(result, %Oban.Job{meta: meta, attempt: 1, max_attempts: 1})
+  end
+
   @doc "A tmp workspace directory with an inbox/, removed on test exit."
   def tmp_workspace! do
     dir = Path.join(System.tmp_dir!(), uid("custode-ws"))
@@ -190,7 +201,7 @@ defmodule Custode.TestHelpers do
   `ObanClaude.Agent.await/3` polls that registry from the test process --
   so `await` returning proves the state changed, not that the gate row, the
   feed card or the metric a telemetry handler writes exists yet. Whenever
-  the transition came from a cast (`job_finished/2`, `emergency_pause/1`),
+  the transition came from a cast (`finish_agent_turn/2`, `emergency_pause/1`),
   poll for the row itself. Transitions driven by a call
   (`submit_prompt/3`, `approve_action/3`, `reject_action/3`) reply after
   `sync_transition`, so those reads need no retry.

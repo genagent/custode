@@ -21,7 +21,9 @@ defmodule Custode.PubSubBridgeTest do
 
     assert_receive {:status_changed, ^id}
 
-    :ok = Agent.job_finished(id, {:ok, result("done")})
+    assert_receive {:enqueued, _args, %{"agent_id" => ^id} = turn_meta}
+
+    :ok = finish_agent_turn(turn_meta, result("done"))
     assert_receive {:status_changed, ^id}
   end
 

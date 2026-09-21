@@ -128,12 +128,14 @@ defmodule CustodeWeb.AgentBodyTest do
     test "there is exactly one, and it means answer while a question is open",
          %{conn: conn, routine: routine} do
       :processing = Agent.submit_prompt(routine.id, "curious")
-      assert_receive {:enqueued, _args, _meta}
+
+      assert_receive {:enqueued, _args, %{"agent_id" => enqueued_id} = turn_meta}
+                     when enqueued_id == routine.id
 
       :ok =
-        Agent.job_finished(
-          routine.id,
-          {:ok, structured_result(%{"directive" => "ask_user", "question" => "which env?"})}
+        finish_agent_turn(
+          turn_meta,
+          structured_result(%{"directive" => "ask_user", "question" => "which env?"})
         )
 
       {:ok, {:waiting_for_user, _q}} = Agent.await(routine.id, :waiting_for_user, 1_000)
@@ -206,12 +208,14 @@ defmodule CustodeWeb.AgentBodyTest do
       on_exit(fn -> Agent.stop_agent(routine.id) end)
 
       :processing = Agent.submit_prompt(routine.id, "curious")
-      assert_receive {:enqueued, _args, _meta}
+
+      assert_receive {:enqueued, _args, %{"agent_id" => enqueued_id} = turn_meta}
+                     when enqueued_id == routine.id
 
       :ok =
-        Agent.job_finished(
-          routine.id,
-          {:ok, structured_result(%{"directive" => "ask_user", "question" => "which env?"})}
+        finish_agent_turn(
+          turn_meta,
+          structured_result(%{"directive" => "ask_user", "question" => "which env?"})
         )
 
       {:ok, {:waiting_for_user, _q}} = Agent.await(routine.id, :waiting_for_user, 1_000)

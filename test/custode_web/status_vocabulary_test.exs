@@ -83,12 +83,14 @@ defmodule CustodeWeb.StatusVocabularyTest do
          %{conn: conn, routine: routine} do
       stub_routine_agent!(routine)
       :processing = Agent.submit_prompt(routine.id, "gated")
-      assert_receive {:enqueued, _args, _meta}
+
+      assert_receive {:enqueued, _args, %{"agent_id" => enqueued_id} = turn_meta}
+                     when enqueued_id == routine.id
 
       :ok =
-        Agent.job_finished(
-          routine.id,
-          {:ok, structured_result(%{"directive" => "request_permission", "action" => "act"})}
+        finish_agent_turn(
+          turn_meta,
+          structured_result(%{"directive" => "request_permission", "action" => "act"})
         )
 
       {:ok, {:awaiting_permission, _action}} =
@@ -103,12 +105,14 @@ defmodule CustodeWeb.StatusVocabularyTest do
          %{conn: conn, routine: routine} do
       stub_routine_agent!(routine)
       :processing = Agent.submit_prompt(routine.id, "curious")
-      assert_receive {:enqueued, _args, _meta}
+
+      assert_receive {:enqueued, _args, %{"agent_id" => enqueued_id} = turn_meta}
+                     when enqueued_id == routine.id
 
       :ok =
-        Agent.job_finished(
-          routine.id,
-          {:ok, structured_result(%{"directive" => "ask_user", "question" => "which env?"})}
+        finish_agent_turn(
+          turn_meta,
+          structured_result(%{"directive" => "ask_user", "question" => "which env?"})
         )
 
       {:ok, {:waiting_for_user, _q}} = Agent.await(routine.id, :waiting_for_user, 1_000)

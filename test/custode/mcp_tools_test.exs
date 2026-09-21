@@ -134,7 +134,10 @@ defmodule Custode.MCPToolsTest do
     test "await returns the settled state with the latest result" do
       id = start_stub_agent!()
       :processing = Agent.submit_prompt(id, "x")
-      :ok = Agent.job_finished(id, {:ok, result("all wrapped up")})
+
+      assert_receive {:enqueued, _args, %{"agent_id" => ^id} = turn_meta}
+
+      :ok = finish_agent_turn(turn_meta, result("all wrapped up"))
 
       json = tool_json(Tools.AwaitAgent.execute(%{agent_id: id, timeout_ms: 2_000}, @frame))
       assert json["state"] == "idle"
@@ -146,10 +149,12 @@ defmodule Custode.MCPToolsTest do
       id = start_stub_agent!()
       :processing = Agent.submit_prompt(id, "x")
 
+      assert_receive {:enqueued, _args, %{"agent_id" => ^id} = turn_meta}
+
       :ok =
-        Agent.job_finished(
-          id,
-          {:ok, structured_result(%{"directive" => "request_permission", "action" => "deploy"})}
+        finish_agent_turn(
+          turn_meta,
+          structured_result(%{"directive" => "request_permission", "action" => "deploy"})
         )
 
       json = tool_json(Tools.AwaitAgent.execute(%{agent_id: id, timeout_ms: 2_000}, @frame))
@@ -169,7 +174,10 @@ defmodule Custode.MCPToolsTest do
     test "history returns printable entries, bounded by last" do
       id = start_stub_agent!()
       :processing = Agent.submit_prompt(id, "one")
-      :ok = Agent.job_finished(id, {:ok, result("done one")})
+
+      assert_receive {:enqueued, _args, %{"agent_id" => ^id} = turn_meta}
+
+      :ok = finish_agent_turn(turn_meta, result("done one"))
       {:ok, :idle} = Agent.await(id, :idle, 1_000)
 
       json = tool_json(Tools.AgentHistory.execute(%{agent_id: id, last: 1}, @frame))
@@ -183,10 +191,12 @@ defmodule Custode.MCPToolsTest do
       id = start_stub_agent!()
       :processing = Agent.submit_prompt(id, "x")
 
+      assert_receive {:enqueued, _args, %{"agent_id" => ^id} = turn_meta}
+
       :ok =
-        Agent.job_finished(
-          id,
-          {:ok, structured_result(%{"directive" => "request_permission", "action" => "risky"})}
+        finish_agent_turn(
+          turn_meta,
+          structured_result(%{"directive" => "request_permission", "action" => "risky"})
         )
 
       {:ok, {:awaiting_permission, %{id: action_id}}} =

@@ -149,13 +149,14 @@ defmodule CustodeWeb.FleetLiveTest do
        %{conn: conn, routine: routine} do
     stub_routine_agent!(routine)
     :processing = Agent.submit_prompt(routine.id, "gated work")
-    assert_receive {:enqueued, _args, _meta}
+
+    assert_receive {:enqueued, _args, %{"agent_id" => enqueued_id} = turn_meta}
+                   when enqueued_id == routine.id
 
     :ok =
-      Agent.job_finished(
-        routine.id,
-        {:ok,
-         structured_result(%{"directive" => "request_permission", "action" => "prune notes"})}
+      finish_agent_turn(
+        turn_meta,
+        structured_result(%{"directive" => "request_permission", "action" => "prune notes"})
       )
 
     {:ok, {:awaiting_permission, _action}} = Agent.await(routine.id, :awaiting_permission, 1_000)
@@ -173,13 +174,14 @@ defmodule CustodeWeb.FleetLiveTest do
        %{conn: conn, routine: routine} do
     stub_routine_agent!(routine)
     :processing = Agent.submit_prompt(routine.id, "gated work")
-    assert_receive {:enqueued, _args, _meta}
+
+    assert_receive {:enqueued, _args, %{"agent_id" => enqueued_id} = turn_meta}
+                   when enqueued_id == routine.id
 
     :ok =
-      Agent.job_finished(
-        routine.id,
-        {:ok,
-         structured_result(%{"directive" => "request_permission", "action" => "prune notes"})}
+      finish_agent_turn(
+        turn_meta,
+        structured_result(%{"directive" => "request_permission", "action" => "prune notes"})
       )
 
     {:ok, {:awaiting_permission, _action}} = Agent.await(routine.id, :awaiting_permission, 1_000)
@@ -220,12 +222,14 @@ defmodule CustodeWeb.FleetLiveTest do
     on_exit(fn -> Agent.stop_agent(second.id) end)
 
     :processing = Agent.submit_prompt(second.id, "gated")
-    assert_receive {:enqueued, _args, _meta}
+
+    assert_receive {:enqueued, _args, %{"agent_id" => enqueued_id} = turn_meta}
+                   when enqueued_id == second.id
 
     :ok =
-      Agent.job_finished(
-        second.id,
-        {:ok, structured_result(%{"directive" => "request_permission", "action" => "act"})}
+      finish_agent_turn(
+        turn_meta,
+        structured_result(%{"directive" => "request_permission", "action" => "act"})
       )
 
     {:ok, {:awaiting_permission, _action}} = Agent.await(second.id, :awaiting_permission, 1_000)
@@ -246,12 +250,14 @@ defmodule CustodeWeb.FleetLiveTest do
        %{conn: conn, routine: routine} do
     stub_routine_agent!(routine)
     :processing = Agent.submit_prompt(routine.id, "curious")
-    assert_receive {:enqueued, _args, _meta}
+
+    assert_receive {:enqueued, _args, %{"agent_id" => enqueued_id} = turn_meta}
+                   when enqueued_id == routine.id
 
     :ok =
-      Agent.job_finished(
-        routine.id,
-        {:ok, structured_result(%{"directive" => "ask_user", "question" => "which env?"})}
+      finish_agent_turn(
+        turn_meta,
+        structured_result(%{"directive" => "ask_user", "question" => "which env?"})
       )
 
     {:ok, {:waiting_for_user, _q}} = Agent.await(routine.id, :waiting_for_user, 1_000)
@@ -653,16 +659,16 @@ defmodule CustodeWeb.FleetMetaRailTest do
     on_exit(fn -> Agent.stop_agent(gated) end)
 
     :processing = Agent.submit_prompt(gated, "gated work")
-    assert_receive {:enqueued, _args, _meta}
+
+    assert_receive {:enqueued, _args, %{"agent_id" => ^gated} = turn_meta}
 
     :ok =
-      Agent.job_finished(
-        gated,
-        {:ok,
-         ObanClaude.Testing.structured_result(%{
-           "directive" => "request_permission",
-           "action" => "act"
-         })}
+      finish_agent_turn(
+        turn_meta,
+        ObanClaude.Testing.structured_result(%{
+          "directive" => "request_permission",
+          "action" => "act"
+        })
       )
 
     {:ok, {:awaiting_permission, _action}} = Agent.await(gated, :awaiting_permission, 1_000)

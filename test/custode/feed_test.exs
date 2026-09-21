@@ -264,11 +264,12 @@ defmodule Custode.FeedTest do
 
     :processing = Agent.submit_prompt(id, "gated")
 
+    assert_receive {:enqueued, _args, %{"agent_id" => ^id} = turn_meta}
+
     :ok =
-      Agent.job_finished(
-        id,
-        {:ok,
-         structured_result(%{"directive" => "request_permission", "action" => "prune old notes"})}
+      finish_agent_turn(
+        turn_meta,
+        structured_result(%{"directive" => "request_permission", "action" => "prune old notes"})
       )
 
     {:ok, {:awaiting_permission, %{id: action_id}}} =
@@ -278,10 +279,12 @@ defmodule Custode.FeedTest do
 
     :processing = Agent.submit_prompt(id, "curious")
 
+    assert_receive {:enqueued, _args, %{"agent_id" => ^id} = turn_meta}
+
     :ok =
-      Agent.job_finished(
-        id,
-        {:ok, structured_result(%{"directive" => "ask_user", "question" => "which one?"})}
+      finish_agent_turn(
+        turn_meta,
+        structured_result(%{"directive" => "ask_user", "question" => "which one?"})
       )
 
     {:ok, {:waiting_for_user, _q}} = Agent.await(id, :waiting_for_user, 1_000)
@@ -330,10 +333,12 @@ defmodule Custode.FeedTest do
 
     :processing = Agent.submit_prompt(id, "go")
 
+    assert_receive {:enqueued, _args, %{"agent_id" => ^id} = turn_meta}
+
     :ok =
-      Agent.job_finished(
-        id,
-        {:ok, structured_result(%{"directive" => "request_permission", "action" => "do it"})}
+      finish_agent_turn(
+        turn_meta,
+        structured_result(%{"directive" => "request_permission", "action" => "do it"})
       )
 
     {:ok, {:awaiting_permission, action}} = Agent.await(id, :awaiting_permission, 1_000)
@@ -348,10 +353,12 @@ defmodule Custode.FeedTest do
 
     # the continuation asks a question; answering marks THAT card, the
     # already-resolved one stays untouched
+    assert_receive {:enqueued, _args, %{"agent_id" => ^id} = turn_meta}
+
     :ok =
-      Agent.job_finished(
-        id,
-        {:ok, structured_result(%{"directive" => "ask_user", "question" => "which?"})}
+      finish_agent_turn(
+        turn_meta,
+        structured_result(%{"directive" => "ask_user", "question" => "which?"})
       )
 
     {:ok, {:waiting_for_user, _q}} = Agent.await(id, :waiting_for_user, 1_000)

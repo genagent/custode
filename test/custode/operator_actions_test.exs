@@ -125,10 +125,12 @@ defmodule Custode.Operator.ActionsTest do
       id = start_stub_agent!()
       :processing = Agent.submit_prompt(id, "x")
 
+      assert_receive {:enqueued, _args, %{"agent_id" => ^id} = turn_meta}
+
       :ok =
-        Agent.job_finished(
-          id,
-          {:ok, structured_result(%{"directive" => "request_permission", "action" => action})}
+        finish_agent_turn(
+          turn_meta,
+          structured_result(%{"directive" => "request_permission", "action" => action})
         )
 
       {:ok, {:awaiting_permission, %{id: action_id}}} =
@@ -184,14 +186,15 @@ defmodule Custode.Operator.ActionsTest do
       id = start_stub_agent!()
       :processing = Agent.submit_prompt(id, "x")
 
+      assert_receive {:enqueued, _args, %{"agent_id" => ^id} = turn_meta}
+
       :ok =
-        Agent.job_finished(
-          id,
-          {:ok, structured_result(%{"directive" => "ask_user", "question" => "staging or prod?"})}
+        finish_agent_turn(
+          turn_meta,
+          structured_result(%{"directive" => "ask_user", "question" => "staging or prod?"})
         )
 
       {:ok, {:waiting_for_user, _q}} = Agent.await(id, :waiting_for_user, 1_000)
-      assert_receive {:enqueued, _first, _meta}, 1_000
 
       assert :ok = Actions.run(:answer, %{agent: id}, %{"text" => "staging"}, via: :liveview)
       assert_receive {:enqueued, args, _meta}, 1_000
