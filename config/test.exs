@@ -12,6 +12,8 @@ config :custode,
   # share. A test that counts Oban.Job rows around an action could see one land
   # in between. Whatever a test wants scheduled, it inserts itself.
   oban_cron: false,
+  # a gate's risk is assessed inline in tests so a test can assert on the row
+  gate_risk_async: false,
   # The routine scheduler's timer stays disarmed in tests (like the empty
   # executing queues): a test that puts routines into env must not have the
   # app-level scheduler fire them on a wall-clock minute. Its own tests drive

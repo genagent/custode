@@ -464,8 +464,8 @@ defmodule Custode.Attention do
       action_id = get_in(view, [:gate, :action_id])
 
       signal(view, :approval, :high,
-        headline: approval_headline(get_in(view, [:gate, :class])),
-        detail: detail(view),
+        headline: approval_headline(get_in(view, [:gate, :class]), get_in(view, [:gate, :risk])),
+        detail: approval_detail(view),
         raised_at: gate_opened_at(view),
         item: action_id,
         resolving: [
@@ -479,8 +479,27 @@ defmodule Custode.Attention do
 
   # The class the agent declared (#451), when it declared one: "ready_pr" and
   # "merge" are different asks, and the rail has room to say which.
-  defp approval_headline(class) when is_binary(class), do: "wants your approval (#{class})"
-  defp approval_headline(_none), do: "wants your approval"
+  # Risk (#451) is only ever beside a class: it is read from a pull request,
+  # and only a classed gate names one.
+  defp approval_headline(class, risk) when is_binary(class) and is_binary(risk),
+    do: "wants your approval (#{class}, #{risk} risk)"
+
+  defp approval_headline(class, _risk) when is_binary(class), do: "wants your approval (#{class})"
+  defp approval_headline(_none, _risk), do: "wants your approval"
+
+  # What set the risk goes under what was asked, so "high" is never a bare
+  # adjective: it is these paths.
+  defp approval_detail(view) do
+    case get_in(view, [:gate, :risk_paths]) do
+      [_path | _rest] = paths ->
+        [detail(view), "risk: " <> Enum.join(paths, ", ")]
+        |> Enum.reject(&is_nil/1)
+        |> Enum.join("\n\n")
+
+      _none ->
+        detail(view)
+    end
+  end
 
   # A red check on a PR the agent DISOWNED (#313). Nothing in the fleet will
   # touch it -- the agent looked, decided it was not its work, and recorded

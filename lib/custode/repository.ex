@@ -695,6 +695,8 @@ defmodule Custode.Repository.Ops do
   defp file_row(file) do
     %{
       filename: file["filename"],
+      # set on a rename; a move out of a sensitive directory still touches it
+      previous_filename: file["previous_filename"],
       status: file["status"],
       additions: file["additions"],
       deletions: file["deletions"],

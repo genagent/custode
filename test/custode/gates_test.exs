@@ -215,8 +215,8 @@ defmodule Custode.GatesTest do
       :processing = Custode.approve_action(d, d1, via: :cli)
 
       assert [
-               %{class: "comment", approved: 1, rejected: 0, rate: 1.0},
-               %{class: "implement", approved: 1, rejected: 1, rate: 0.5}
+               %{class: "comment", risk: nil, approved: 1, rejected: 0, rate: 1.0},
+               %{class: "implement", risk: nil, approved: 1, rejected: 1, rate: 0.5}
              ] = Gates.approval_rates_by_class()
 
       assert Enum.all?(Gates.approval_rates_by_class(), &is_float(&1.median_wait_min))

@@ -160,6 +160,7 @@ defmodule CustodeWeb.MetricsLive do
               <thead>
                 <tr>
                   <th>class</th>
+                  <th>risk</th>
                   <th class="text-right">approved</th>
                   <th class="text-right">rejected</th>
                   <th class="text-right">rate</th>
@@ -169,6 +170,7 @@ defmodule CustodeWeb.MetricsLive do
               <tbody>
                 <tr :for={row <- @approval_rates_by_class}>
                   <td class="font-mono">{row.class}</td>
+                  <td class="font-mono text-base-content/60">{row.risk || "-"}</td>
                   <td class="text-right font-mono">{row.approved}</td>
                   <td class="text-right font-mono">{row.rejected}</td>
                   <td class="text-right font-mono">{round(row.rate * 100)}%</td>
