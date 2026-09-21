@@ -11,7 +11,7 @@ defmodule CustodeWeb.Layouts do
   def root(assigns) do
     ~H"""
     <!DOCTYPE html>
-    <html lang="en" data-theme="dim">
+    <html lang="en" data-theme="paper">
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -28,8 +28,18 @@ defmodule CustodeWeb.Layouts do
           rel="apple-touch-icon"
           href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%231f2937'/%3E%3Ccircle cx='16' cy='16' r='7' fill='none' stroke='%23fbbf24' stroke-width='3'/%3E%3C/svg%3E"
         />
+        <%!-- Before first paint, so the page never flashes the wrong theme:
+              the operator's remembered choice, else what the OS prefers. --%>
+        <script>
+          (() => {
+            const saved = localStorage.getItem("custode-theme");
+            const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+            document.documentElement.dataset.theme = saved || (dark ? "ink" : "paper");
+          })();
+        </script>
         <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
         <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+        <.theme_css />
         <script src="/vendor/phoenix/phoenix.min.js"></script>
         <script src="/vendor/phoenix_live_view/phoenix_live_view.min.js"></script>
         <script>
@@ -62,6 +72,99 @@ defmodule CustodeWeb.Layouts do
         {@inner_content}
       </body>
     </html>
+    """
+  end
+
+  @doc """
+  The design session's visual language (design/ui/2026-07-25-design-session)
+  as two daisyUI 5 themes: `paper`, the light mockups, and `ink`, the dark
+  `custode-root.png`. Tokens and nothing else, so every page that uses the
+  semantic classes (`bg-base-100`, `text-warning`, `btn-primary`) wears it
+  with no markup change. One meaning per colour (guides/ui-hierarchy.md):
+  error is blocked on you, warning wants you, info is working, neutral is the
+  near-black secondary button, primary is the one thing to press.
+
+  A component and not inline in `root/1` so the fixture preview, which has no
+  root layout, can wear the same tokens.
+  """
+  def theme_css(assigns) do
+    ~H"""
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fira+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style type="text/tailwindcss">
+      @theme {
+        --font-sans: "Fira Sans", ui-sans-serif, system-ui, sans-serif;
+        --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+      }
+    </style>
+    <style>
+      [data-theme="paper"] {
+        color-scheme: light;
+        --color-base-100: #ffffff;
+        --color-base-200: #fbf9f4;
+        --color-base-300: #e9e4d8;
+        --color-base-content: #1c1a17;
+        --color-primary: #4f46e5;
+        --color-primary-content: #ffffff;
+        --color-secondary: #6b6558;
+        --color-secondary-content: #ffffff;
+        --color-accent: #b8860b;
+        --color-accent-content: #ffffff;
+        --color-neutral: #1c1a17;
+        --color-neutral-content: #fbf9f4;
+        --color-info: #0f766e;
+        --color-info-content: #ffffff;
+        --color-success: #15803d;
+        --color-success-content: #ffffff;
+        --color-warning: #b8860b;
+        --color-warning-content: #ffffff;
+        --color-error: #dc2626;
+        --color-error-content: #ffffff;
+      }
+
+      [data-theme="ink"] {
+        color-scheme: dark;
+        --color-base-100: #201f1b;
+        --color-base-200: #161511;
+        --color-base-300: #34322b;
+        --color-base-content: #ece8dc;
+        --color-primary: #e8c55a;
+        --color-primary-content: #1c1a12;
+        --color-secondary: #a39d8c;
+        --color-secondary-content: #161511;
+        --color-accent: #e8c55a;
+        --color-accent-content: #1c1a12;
+        --color-neutral: #ece8dc;
+        --color-neutral-content: #161511;
+        --color-info: #5eead4;
+        --color-info-content: #10211f;
+        --color-success: #6ee7a0;
+        --color-success-content: #10211a;
+        --color-warning: #e8c55a;
+        --color-warning-content: #1c1a12;
+        --color-error: #f87171;
+        --color-error-content: #2a1010;
+      }
+
+      [data-theme="paper"], [data-theme="ink"] {
+        --radius-selector: 0.5rem;
+        --radius-field: 0.5rem;
+        --radius-box: 0.75rem;
+        --border: 1px;
+        --depth: 0;
+        --noise: 0;
+      }
+
+      /* the mockups draw hairlines, not shadows */
+      [data-theme="paper"] .shadow-sm, [data-theme="ink"] .shadow-sm {
+        box-shadow: none;
+        border: 1px solid var(--color-base-300);
+      }
+    </style>
     """
   end
 

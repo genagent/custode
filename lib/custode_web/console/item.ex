@@ -54,8 +54,8 @@ defmodule CustodeWeb.Console.Item do
         also needs you
       </span>
       <.link patch={Rail.subject_path(@next_up.subject)} class="mt-1 block hover:underline">
-        <span class="font-mono font-semibold">{@next_up.subject}</span>
-        <span class="text-base-content/60">{@next_up.headline} &rarr;</span>
+        <span class="block font-mono font-semibold">{@next_up.subject}</span>
+        <span class="block text-base-content/60">{@next_up.headline} &rarr;</span>
       </.link>
     </p>
     """
