@@ -38,6 +38,11 @@ defmodule Custode.Availability do
   allowed to make a choice SMALLER, so an absent snapshot can never justify
   more than the fleet would otherwise have done.
 
+  The one thing a stale snapshot still knows is a reset instant that has not
+  arrived (#525). "Rejected until 14:00" is absolute time, so it keeps
+  advising `:defer` until 14:00 however old the reading, and then goes back
+  to not knowing. Nothing else about a stale snapshot is believed.
+
   ## Rejection is a constraint; pressure is a posture
 
   A provider that is rejecting is a scheduling fact, so work defers until the
@@ -108,17 +113,25 @@ defmodule Custode.Availability do
   number that decides whether the fleet can keep working is how much of each
   window is used. `freshness` is `:unknown` when nothing has been observed,
   and a surface must show that as nothing: unknown is not 0%.
+
+  `held_until` is set only when the reading is STALE and a rejecting window's
+  reset is still ahead (#525): the limit is being held by its reset time, not
+  by a fresh reading, and a surface should say which. Those windows carry
+  `held: true`.
   """
   @spec usage(String.t(), keyword()) :: %{
           freshness: :fresh | :stale | :unknown,
           observed_at: DateTime.t() | nil,
+          age_seconds: non_neg_integer() | nil,
+          held_until: DateTime.t() | nil,
           windows: [
             %{
               id: String.t(),
               label: String.t(),
               utilization: float() | nil,
               resets_at: DateTime.t() | nil,
-              status: Custode.Availability.Bucket.status()
+              status: Custode.Availability.Bucket.status(),
+              held: boolean()
             }
           ]
         }
@@ -127,22 +140,27 @@ defmodule Custode.Availability do
 
     case current(provider) do
       nil ->
-        %{freshness: :unknown, observed_at: nil, windows: []}
+        %{freshness: :unknown, observed_at: nil, age_seconds: nil, held_until: nil, windows: []}
 
       snapshot ->
+        stale? = Snapshot.freshness(snapshot, posture(options).max_age_seconds, now) == :stale
+
         %{
-          freshness: Snapshot.freshness(snapshot, posture(options).max_age_seconds, now),
+          freshness: if(stale?, do: :stale, else: :fresh),
           observed_at: snapshot.observed_at,
+          age_seconds: Snapshot.age_seconds(snapshot, now),
+          held_until: if(stale?, do: Snapshot.held_until(snapshot, now)),
           windows:
             snapshot.buckets
-            |> Enum.map(&window/1)
+            |> Enum.map(&window(&1, stale? and Bucket.held?(&1, now)))
             |> Enum.sort_by(&window_order/1)
         }
     end
   end
 
-  defp window(bucket) do
+  defp window(bucket, held?) do
     %{
+      held: held?,
       id: bucket.id,
       label: window_label(bucket.id),
       utilization: bucket.utilization,
@@ -213,12 +231,22 @@ defmodule Custode.Availability do
   defp weigh(snapshot, posture, now) do
     case Snapshot.freshness(snapshot, posture.max_age_seconds, now) do
       :stale ->
-        Advice.stale(snapshot, posture.version, now)
+        stale(snapshot, posture, now)
 
       :fresh ->
         snapshot
         |> decision(posture)
         |> Advice.new(snapshot, posture.version, now)
+    end
+  end
+
+  # A stale snapshot describes nothing about now EXCEPT a reset instant still
+  # ahead of us, which is absolute time (#525). Once it passes, stale is back
+  # to "do not know" and advises proceeding.
+  defp stale(snapshot, posture, now) do
+    case Snapshot.held_until(snapshot, now) do
+      nil -> Advice.stale(snapshot, posture.version, now)
+      until -> Advice.held(snapshot, until, posture.version, now)
     end
   end
 

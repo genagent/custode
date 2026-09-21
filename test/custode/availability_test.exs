@@ -296,6 +296,75 @@ defmodule Custode.AvailabilityTest do
     assert %{decision: :reduce} = Availability.advise("codex", now: now)
   end
 
+  describe "a reset instant outlives its snapshot (#525)" do
+    test "stale and rejecting with the reset ahead still defers to it", %{now: now} do
+      reset = DateTime.add(now, 1200, :second)
+      put(now: DateTime.add(now, -2400, :second), status: "rejected", resets_at: reset)
+
+      advice = Availability.advise("codex", now: now)
+
+      assert advice.decision == :defer
+      assert advice.freshness == :stale
+      assert advice.defer_until == reset
+      assert advice.observation["age_seconds"] == 2400
+      refute Advice.launchable?(advice)
+    end
+
+    test "once the reset has passed, stale advises proceeding as before", %{now: now} do
+      reset = DateTime.add(now, -60, :second)
+      put(now: DateTime.add(now, -2400, :second), status: "rejected", resets_at: reset)
+
+      advice = Availability.advise("codex", now: now)
+
+      assert advice.decision == :proceed
+      assert advice.freshness == :stale
+      assert advice.defer_until == nil
+    end
+
+    test "a stale rejection with no reported reset holds nothing", %{now: now} do
+      put(now: DateTime.add(now, -2400, :second), status: "rejected")
+
+      assert %{decision: :proceed, freshness: :stale} = Availability.advise("codex", now: now)
+    end
+
+    test "a stale allowed or warning snapshot is unchanged by a future reset", %{now: now} do
+      reset = DateTime.add(now, 1200, :second)
+
+      for status <- ["allowed", "allowed_warning"] do
+        put(
+          now: DateTime.add(now, -2400, :second),
+          status: status,
+          utilization: 0.99,
+          resets_at: reset
+        )
+
+        assert %{decision: :proceed, freshness: :stale, defer_until: nil} =
+                 Availability.advise("codex", now: now)
+      end
+    end
+
+    test "usage marks the window held only while stale and the reset is ahead", %{now: now} do
+      reset = DateTime.add(now, 1200, :second)
+      put(now: DateTime.add(now, -2400, :second), status: "rejected", resets_at: reset)
+
+      usage = Availability.usage("codex", now: now)
+      assert usage.freshness == :stale
+      assert usage.age_seconds == 2400
+      assert usage.held_until == reset
+      assert [%{held: true, status: :rejected}] = usage.windows
+
+      # a fresh rejection is held by the reading itself, not by its reset
+      put(now: now, status: "rejected", resets_at: reset)
+      fresh = Availability.usage("codex", now: now)
+      assert fresh.held_until == nil
+      assert [%{held: false}] = fresh.windows
+
+      later = Availability.usage("codex", now: DateTime.add(reset, 3600, :second))
+      assert later.held_until == nil
+      assert [%{held: false}] = later.windows
+    end
+  end
+
   defp put(options) do
     now = Keyword.fetch!(options, :now)
 

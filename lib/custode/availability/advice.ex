@@ -65,6 +65,26 @@ defmodule Custode.Availability.Advice do
     }
   end
 
+  @doc """
+  A stale observation whose rejection has a reset still in the future (#525).
+
+  Everything else about the snapshot has aged out, so `freshness` stays
+  `:stale`; the reset instant is absolute time and still holds.
+  """
+  @spec held(Snapshot.t(), DateTime.t(), String.t(), DateTime.t()) :: t()
+  def held(%Snapshot{} = snapshot, %DateTime{} = until, policy_version, now) do
+    %__MODULE__{
+      decision: :defer,
+      freshness: :stale,
+      reason:
+        "#{snapshot.provider} was rejecting #{Snapshot.age_seconds(snapshot, now)}s ago " <>
+          "and its reported reset has not passed",
+      policy_version: policy_version,
+      defer_until: until,
+      observation: Snapshot.render(snapshot, now)
+    }
+  end
+
   @doc false
   @spec new({decision(), DateTime.t() | nil, String.t()}, Snapshot.t(), String.t(), DateTime.t()) ::
           t()

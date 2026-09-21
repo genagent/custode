@@ -91,6 +91,22 @@ defmodule Custode.Availability.Snapshot do
     |> Enum.min(DateTime, fn -> nil end)
   end
 
+  @doc """
+  The soonest reset still in the FUTURE among rejecting buckets, or nil (#525).
+
+  A reset instant is absolute time, so unlike every other field it does not
+  age with the snapshot: "rejected until 14:00" is as true from a reading 40
+  minutes old as from a fresh one. Once the instant has passed the bucket
+  says nothing about now.
+  """
+  @spec held_until(t(), DateTime.t()) :: DateTime.t() | nil
+  def held_until(%__MODULE__{buckets: buckets}, now) do
+    buckets
+    |> Enum.filter(&Bucket.held?(&1, now))
+    |> Enum.map(& &1.resets_at)
+    |> Enum.min(DateTime, fn -> nil end)
+  end
+
   @doc "The wire shape recorded on Attempt provenance."
   @spec render(t(), DateTime.t()) :: map()
   def render(%__MODULE__{} = snapshot, now) do
