@@ -24,6 +24,7 @@ defmodule Custode.Operator.RoutineEdit do
 
   alias Custode.Config.Loader
   alias Custode.Config.WriteBack
+  alias Custode.Routine.Effort
 
   @fields ~w(agent cron model effort max_budget_usd daily_budget_usd timeout_ms max_turns prompt tags)
 
@@ -126,11 +127,7 @@ defmodule Custode.Operator.RoutineEdit do
 
   defp parse(field, value) when field in ~w(agent cron model prompt), do: {:ok, value}
 
-  defp parse("effort", value) do
-    {:ok, String.to_existing_atom(value)}
-  rescue
-    ArgumentError -> {:error, "unknown effort #{inspect(value)}"}
-  end
+  defp parse("effort", value), do: Effort.normalize(value)
 
   defp parse(field, value) when field in ~w(max_budget_usd daily_budget_usd) do
     case Float.parse(value) do

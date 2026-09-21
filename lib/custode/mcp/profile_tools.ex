@@ -37,7 +37,7 @@ defmodule Custode.MCP.ProfileTools do
     |> put_if(params, :prompt)
     |> put_if(params, :role, &String.to_existing_atom/1)
     |> put_if(params, :model)
-    |> put_if(params, :effort, &String.to_existing_atom/1)
+    |> put_if(params, :effort)
     |> put_if(params, :agent)
     |> put_if(params, :workspace)
     |> put_if(params, :working_dir)
