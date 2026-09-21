@@ -79,6 +79,35 @@ defmodule Custode.MCP.ReadToolsTest do
   end
 
   describe "metrics" do
+    test "gate_latency returns a named JSON object and does not apply the days window" do
+      agent = uid("latency")
+      old = DateTime.add(DateTime.utc_now(), -10, :day)
+
+      gate =
+        Custode.Repo.insert!(%Custode.Gates.Gate{
+          agent_id: agent,
+          kind: "approval",
+          action_id: uid("action"),
+          detail: "ship the bounded change",
+          status: "resolved",
+          inserted_at: old,
+          updated_at: old
+        })
+
+      json = ReadTools.Metrics.execute(%{kind: "gate_latency", days: 1}, @frame) |> tool_json()
+
+      assert json["kind"] == "gate_latency"
+      assert json["days"] == 1
+      assert is_integer(json["data"]["median_minutes"])
+      assert item = Enum.find(json["data"]["gates"], &(&1["agent"] == agent))
+      assert item["detail"] == "ship the bounded change"
+
+      Custode.Repo.delete!(gate)
+
+      empty = ReadTools.Metrics.execute(%{kind: "gate_latency", days: 30}, @frame) |> tool_json()
+      assert empty["data"] == %{"gates" => [], "median_minutes" => 0}
+    end
+
     test "prs_opened flattens its tuples rather than failing at encode" do
       json = ReadTools.Metrics.execute(%{kind: "prs_opened", days: 7}, @frame) |> tool_json()
       assert is_map(json["data"])

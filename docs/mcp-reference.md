@@ -843,13 +843,13 @@ Read one category of fleet measurements.
 | days | integer | no | window in days (default 7) |  |
 | kind | string | yes | one of: spend, turns, gate_latency, by_model, gate_outcomes, prs_opened |  |
 
-**Result:** kind, days and data. spend: date-to-agent maps of usd/tokens. turns: date maps of ok/failed. by_model: model maps of usd/tokens/turns/failed. gate_outcomes: agent maps of outcome counts. prs_opened: agent arrays of repo/number.
+**Result:** kind, days and data. spend: date-to-agent maps of usd/tokens. turns: date maps of ok/failed. gate_latency: gates array plus integer median_minutes. by_model: model maps of usd/tokens/turns/failed. gate_outcomes: agent maps of outcome counts. prs_opened: agent arrays of repo/number.
 
 **Side effects:** None.
 
 **Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
 
-**Behavior, defaults and errors:** kind is required and runtime-validated against spend, turns, gate_latency, by_model, gate_outcomes and prs_opened. days defaults to 7. gate_latency ignores days and currently passes a non-JSON-native pair of recent gates and median minutes to the response encoder; treat that kind as a known serialization limitation, not a stable JSON shape. Positive day bounds are not declared.
+**Behavior, defaults and errors:** kind is required and runtime-validated against spend, turns, gate_latency, by_model, gate_outcomes and prs_opened. days defaults to 7. gate_latency always reads the 15 most recent non-open gates and does not apply days; its empty result is gates=[] and median_minutes=0. Positive day bounds are not declared.
 
 ### Tool: pause_agent
 
