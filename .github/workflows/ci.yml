@@ -44,6 +44,7 @@ jobs:
       - run: mix format --check-formatted
       - run: mix compile --warnings-as-errors
       - run: mix credo --strict
+      - run: mix custode.mcp.docs --check
       - run: mix test
 
   # Dialyzer is its own job: the PLT build is slow and its cache key differs
