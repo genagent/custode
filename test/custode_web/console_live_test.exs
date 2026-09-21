@@ -963,6 +963,32 @@ defmodule CustodeWeb.ConsoleLiveTest do
       # past the warn threshold reads as a warning
       assert html =~ ~r/text-warning[^>]*>\s*7d 87%/
     end
+
+    test "a stale rejection whose reset is ahead says what holds it (#525)", %{conn: conn} do
+      now = DateTime.utc_now()
+
+      Custode.Availability.put(%Custode.Availability.Snapshot{
+        provider: "claude",
+        source: "test",
+        observed_at: DateTime.add(now, -2400, :second),
+        buckets: [
+          %Custode.Availability.Bucket{
+            id: "five_hour",
+            status: :rejected,
+            utilization: 1.0,
+            resets_at: DateTime.add(now, 1200, :second)
+          }
+        ]
+      })
+
+      {:ok, view, _html} = live(conn, "/console")
+      header = view |> element("header") |> render()
+
+      assert header =~ "held until"
+      assert header =~ "(from a reading 40m old)"
+      refute header =~ ">stale<"
+      refute header =~ "opacity-50"
+    end
   end
 
   test "the tabs switch the subject pane", %{conn: conn, sleeper: sleeper} do

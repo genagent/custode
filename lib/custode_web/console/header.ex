@@ -94,21 +94,28 @@ defmodule CustodeWeb.Console.Header do
   # How much of the plan's windows is used (#458). On a Max plan this is the
   # number that decides whether the fleet can keep working; dollars are
   # accounting. Unknown draws NOTHING: an empty header is honest and "0%" is
-  # not. Stale is dimmed and says so.
+  # not. Stale is dimmed and says so, unless a rejecting window's reset is
+  # still ahead (#525): that limit holds whatever the reading's age, so it is
+  # drawn at full strength with the instant it is held until.
   defp usage(assigns) do
     ~H"""
     <span
       :if={@usage.freshness != :unknown and @usage.windows != []}
       class={[
         "flex items-baseline gap-2 whitespace-nowrap font-mono text-sm",
-        @usage.freshness == :stale && "opacity-50"
+        @usage.freshness == :stale && !@usage.held_until && "opacity-50"
       ]}
       title={usage_title(@usage)}
     >
       <span :for={window <- @usage.windows} class={usage_tone(window)}>
         {window.label} {percent(window.utilization)}
       </span>
-      <span :if={@usage.freshness == :stale} class="text-xs text-base-content/50">stale</span>
+      <span :if={@usage.held_until} class="text-xs font-bold text-error">
+        held until {clock(@usage.held_until)}
+      </span>
+      <span :if={@usage.freshness == :stale and !@usage.held_until} class="text-xs text-base-content/50">
+        stale
+      </span>
     </span>
     """
   end
@@ -127,14 +134,24 @@ defmodule CustodeWeb.Console.Header do
   defp usage_tone(%{utilization: used}) when is_number(used) and used >= 0.8, do: "text-warning"
   defp usage_tone(_window), do: "text-base-content/70"
 
-  defp usage_title(%{windows: windows, observed_at: observed_at}) do
+  defp usage_title(%{windows: windows, observed_at: observed_at} = usage) do
     resets =
       Enum.map_join(windows, "; ", fn window ->
         "#{window.label} resets #{reset_words(window.resets_at)}"
       end)
 
-    "claude plan usage. #{resets}. Observed #{reset_words(observed_at)}."
+    "claude plan usage. #{resets}. Observed #{reset_words(observed_at)}." <> held_words(usage)
   end
+
+  defp held_words(%{held_until: %DateTime{} = until, age_seconds: age}),
+    do: " Limited until #{clock(until)} UTC (from a reading #{age_words(age)} old)."
+
+  defp held_words(_usage), do: ""
+
+  defp clock(%DateTime{} = at), do: Calendar.strftime(at, "%H:%M")
+
+  defp age_words(seconds) when seconds < 3600, do: "#{div(seconds, 60)}m"
+  defp age_words(seconds), do: "#{div(seconds, 3600)}h#{rem(div(seconds, 60), 60)}m"
 
   defp reset_words(nil), do: "at an unknown time"
   defp reset_words(%DateTime{} = at), do: Calendar.strftime(at, "%a %H:%M UTC")

@@ -64,7 +64,13 @@ defmodule Custode.UsageTest do
   describe "usage/2, what a page draws" do
     test "unknown is unknown, never zero percent" do
       assert Availability.usage("claude", now: @now) ==
-               %{freshness: :unknown, observed_at: nil, windows: []}
+               %{
+                 freshness: :unknown,
+                 observed_at: nil,
+                 age_seconds: nil,
+                 held_until: nil,
+                 windows: []
+               }
     end
 
     test "labels the windows and puts the shortest first, because it bites first" do

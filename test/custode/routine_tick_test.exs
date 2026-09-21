@@ -100,6 +100,87 @@ defmodule Custode.RoutineTickTest do
     assert [_tick] = ticks_for(id)
   end
 
+  describe "a provider limit held by its reset time (#525)" do
+    setup do
+      Custode.Availability.forget("claude")
+      on_exit(fn -> Custode.Availability.forget("claude") end)
+
+      id = uid("held")
+
+      put_env!(:routines, [
+        %{id: id, cron: "@daily", workspace: tmp_workspace!(), prompt: "sweep", model: "haiku"}
+      ])
+
+      %{id: id}
+    end
+
+    # a rejection observed 40 minutes ago: stale, and only its reset holds
+    defp reject_until(seconds_from_now) do
+      now = DateTime.utc_now()
+
+      Custode.Availability.put(%Custode.Availability.Snapshot{
+        provider: "claude",
+        source: "test",
+        observed_at: DateTime.add(now, -2400, :second),
+        buckets: [
+          %Custode.Availability.Bucket{
+            id: "five_hour",
+            status: :rejected,
+            resets_at: DateTime.add(now, seconds_from_now, :second)
+          }
+        ]
+      })
+    end
+
+    test "a reset inside the stale-tick window snoozes to just past it", %{id: id} do
+      reject_until(120)
+
+      assert {:snooze, seconds} = RoutineTick.perform(%Oban.Job{args: %{"routine_id" => id}})
+      assert seconds in 145..155
+      assert ticks_for(id) == []
+
+      assert %{"event" => "beat_deferred", "summary" => summary} = Custode.Feed.last_for(id)
+      assert summary =~ "claude is limited until"
+    end
+
+    test "a reset beyond the window is a missed beat, not a replay hours later", %{id: id} do
+      reject_until(7200)
+
+      assert {:cancel, {:provider_limited, ^id, %DateTime{}}} =
+               RoutineTick.perform(%Oban.Job{args: %{"routine_id" => id}})
+
+      assert ticks_for(id) == []
+      assert %{"event" => "beat_deferred", "summary" => summary} = Custode.Feed.last_for(id)
+      assert summary =~ "this beat is missed"
+    end
+
+    test "the window is measured from when the beat was due", %{id: id} do
+      reject_until(120)
+      due = DateTime.add(DateTime.utc_now(), -500, :second)
+
+      assert {:cancel, {:provider_limited, ^id, _until}} =
+               RoutineTick.perform(%Oban.Job{
+                 args: %{"routine_id" => id},
+                 scheduled_at: due,
+                 inserted_at: due
+               })
+    end
+
+    test "a reset that has passed beats as usual", %{id: id} do
+      reject_until(-60)
+
+      assert :ok = RoutineTick.perform(%Oban.Job{args: %{"routine_id" => id}})
+      assert [_tick] = ticks_for(id)
+    end
+
+    test "a manual beat inserts its Tick directly and is never deferred", %{id: id} do
+      reject_until(7200)
+
+      assert {:ok, _job_id} = Custode.beat(id)
+      assert [_tick] = ticks_for(id)
+    end
+  end
+
   test "cancels when the routine no longer exists" do
     ghost = uid("ghost")
 

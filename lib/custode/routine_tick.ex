@@ -31,12 +31,26 @@ defmodule Custode.RoutineTick do
   A beat that was never runnable is missed too (#442): one that waited out a
   withheld or paused queue cancels itself rather than firing late. See
   `Custode.Ticks`.
+
+  A beat does not spend a turn the provider has said it will reject (#525).
+  When `Custode.Availability.advise/2` says `:defer` with a reset instant, the
+  beat snoozes to just past it IF that still lands inside the stale-tick
+  window measured from when the beat was due; otherwise it is cancelled as a
+  missed beat, because replaying a beat hours late is exactly what
+  `Custode.Ticks` exists to prevent and the next cron fire is the retry.
+  Either way the feed says why the agent did not run. Only `:defer` with a
+  known instant does this: unknown, stale and `:reduce` beat as before, so a
+  broken collector cannot stop the fleet. An operator's message never comes
+  through here (`Custode.Operator.Actions.message/3` and `Custode.beat/0`
+  insert the `Tick` directly), so it is never deferred.
   """
 
   use Oban.Worker, queue: :ticks, max_attempts: 1
 
   require Logger
 
+  alias Custode.Availability
+  alias Custode.Availability.Advice
   alias Custode.Routine
   alias ObanClaude.Agent.Tick
 
@@ -48,12 +62,65 @@ defmodule Custode.RoutineTick do
       # most a cron interval away
       {:cancel, {:stale_tick, id}}
     else
-      beat(id)
+      case held(job, DateTime.utc_now()) do
+        :clear -> beat(id)
+        held -> deferred(id, held)
+      end
     end
   end
 
   def perform(%Oban.Job{args: args}) do
     {:cancel, {:invalid_routine_tick, "missing \"routine_id\" in #{inspect(args)}"}}
+  end
+
+  # every routine runs on claude until a routine can name its provider (#452)
+  @provider "claude"
+  # wake a little after the reset rather than on it: clocks differ
+  @reset_margin_s 30
+
+  defp held(job, now) do
+    case Availability.advise(@provider, now: now) do
+      %Advice{decision: :defer, defer_until: %DateTime{} = until} ->
+        wait(job, until, now)
+
+      _advice ->
+        :clear
+    end
+  end
+
+  # the stale-tick window is measured from when the beat was DUE, not from
+  # now: a snooze rewrites `scheduled_at`, so this is the only moment the
+  # beat's true age is still known
+  defp wait(job, until, now) do
+    seconds = max(DateTime.diff(until, now, :second), 0) + @reset_margin_s
+    wake = DateTime.add(now, seconds, :second)
+
+    # a job with no timestamp is never stale to `Ticks`, so the wait itself
+    # is held to the window too
+    if seconds > Custode.Ticks.stale_after_s() or Custode.Ticks.stale?(job, wake),
+      do: {:missed, until},
+      else: {:snooze, seconds, until}
+  end
+
+  defp deferred(id, {:snooze, seconds, until}) do
+    record_deferred(id, until, "waiting #{seconds}s for it")
+    {:snooze, seconds}
+  end
+
+  defp deferred(id, {:missed, until}) do
+    record_deferred(id, until, "this beat is missed and the next scheduled one will try again")
+    {:cancel, {:provider_limited, id, until}}
+  end
+
+  defp record_deferred(id, until, outcome) do
+    Custode.Feed.record(%{
+      event: "beat_deferred",
+      agent: id,
+      defer_until: DateTime.to_iso8601(until),
+      summary:
+        "scheduled beat not run: #{@provider} is limited until " <>
+          "#{Calendar.strftime(until, "%H:%M UTC")}; #{outcome}"
+    })
   end
 
   defp beat(id) do

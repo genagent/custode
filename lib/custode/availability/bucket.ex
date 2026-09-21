@@ -38,6 +38,18 @@ defmodule Custode.Availability.Bucket do
   def over?(%__MODULE__{utilization: nil}, _threshold), do: false
   def over?(%__MODULE__{utilization: used}, threshold), do: used >= threshold
 
+  @doc """
+  Is this bucket rejecting with a reset still ahead of `now` (#525)?
+
+  Only `:rejected` holds. A warning with a future reset is pressure, which is
+  a posture applied to a fresh reading, not a fact that outlives one.
+  """
+  @spec held?(t(), DateTime.t()) :: boolean()
+  def held?(%__MODULE__{status: :rejected, resets_at: %DateTime{} = at}, now),
+    do: DateTime.compare(at, now) == :gt
+
+  def held?(%__MODULE__{}, _now), do: false
+
   @doc "The wire shape recorded on Attempt provenance."
   @spec render(t()) :: map()
   def render(%__MODULE__{} = bucket) do
