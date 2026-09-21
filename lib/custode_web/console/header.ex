@@ -23,6 +23,9 @@ defmodule CustodeWeb.Console.Header do
       <.link navigate="/console" class="text-xl font-bold hover:opacity-70">custode</.link>
       <nav class="flex gap-3 text-sm text-base-content/60">
         <span class="font-semibold text-base-content underline underline-offset-4">console</span>
+        <.link navigate="/custode" class="hover:text-base-content" title="Cmd/Ctrl+K">
+          custode
+        </.link>
         <.link navigate="/" class="hover:text-base-content">fleet</.link>
         <.link navigate="/inbox" class="hover:text-base-content">inbox</.link>
         <.link navigate="/repos" class="hover:text-base-content">repos</.link>

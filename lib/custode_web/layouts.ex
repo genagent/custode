@@ -51,6 +51,20 @@ defmodule CustodeWeb.Layouts do
             liveSocket.connect();
             window.liveSocket = liveSocket;
           });
+
+          // Cmd/Ctrl+K talks to custode from any page (#451); Escape there
+          // goes back. A full navigation on purpose: it works from pages in
+          // another live session, and it is rare.
+          window.addEventListener("keydown", (event) => {
+            const onRoot = window.location.pathname === "/custode";
+            if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+              event.preventDefault();
+              if (!onRoot) window.location.assign("/custode");
+            } else if (event.key === "Escape" && onRoot) {
+              if (window.history.length > 1) window.history.back();
+              else window.location.assign("/console");
+            }
+          });
         </script>
         <style>
           /* agent-output markdown (journal tables and friends) */

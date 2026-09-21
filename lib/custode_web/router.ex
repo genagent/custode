@@ -41,6 +41,7 @@ defmodule CustodeWeb.Router do
       live("/", CustodeWeb.FleetLive)
       live("/console", CustodeWeb.ConsoleLive)
       live("/console/:id", CustodeWeb.ConsoleLive)
+      live("/custode", CustodeWeb.RootLive)
       live("/repos", CustodeWeb.ReposLive)
       live("/suggestions", CustodeWeb.SuggestionsLive)
       live("/workflows", CustodeWeb.WorkflowsLive)
