@@ -225,6 +225,36 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ ~r/note dropped.*a gate has waited.*sweep number 4/s
   end
 
+  test "the notebook tab reads older journal entries and shows what was done",
+       %{conn: conn, sleeper: sleeper} do
+    for n <- 1..11 do
+      {:ok, _entry} =
+        Custode.Notebook.journal_append(sleeper.id, "## entry-#{n}-title\n\nbody #{n}")
+    end
+
+    {:ok, keep} = Custode.Notebook.todo_add(sleeper.id, "still owed")
+    {:ok, finished} = Custode.Notebook.todo_add(sleeper.id, "finished last week")
+    {:ok, _todo} = Custode.Notebook.todo_complete(finished.id)
+
+    {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+    html = view |> element("button[phx-value-tab=notebook]") |> render_click()
+
+    # the ten newest, and a way to the eleventh
+    assert html =~ "entry-11-title"
+    assert html =~ "entry-2-title"
+    refute html =~ "entry-1-title"
+
+    html = view |> element("button[phx-click=journal_older]") |> render_click()
+    assert html =~ "entry-1-title"
+    refute has_element?(view, "button[phx-click=journal_older]")
+
+    # the open list is only what is owed; what was done is one click under it
+    done = view |> element("#done-todos") |> render()
+    assert done =~ "finished last week"
+    refute done =~ "still owed"
+    assert html =~ keep.text
+  end
+
   test "the item pane points at the next subject that needs you, and only then",
        %{conn: conn, asker: asker, sleeper: sleeper} do
     {:ok, _ask} = Asks.ask(asker.id, "is the diff yours?")
@@ -419,7 +449,9 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ "pool flakes on macOS CI"
 
     html = view |> element("button[phx-click=todo_done]") |> render_click()
-    refute html =~ "bench the pooled path"
+    # off the open list, and onto the done one
+    refute view |> element("#open-todos") |> render() =~ "bench the pooled path"
+    assert view |> element("#done-todos") |> render() =~ "bench the pooled path"
 
     html = view |> element("button[phx-click=forget_memory]") |> render_click()
     refute html =~ "pool flakes on macOS CI"
