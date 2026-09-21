@@ -56,3 +56,30 @@ chips); they never carry attention semantics.
 - **Questions are content, not alarm.** The ask panel presents the
   question at reading weight in a quiet container; only the badge and
   chip carry the "wants you" color.
+
+## The themes
+
+Two daisyUI 5 themes, defined once in `CustodeWeb.Layouts.theme_css/1` from
+the 2026-07-25 design session: `paper` (the light mockups) and `ink` (the dark
+`custode-root.png`). The page follows the OS preference; the header's `theme`
+button overrides it and is remembered in `localStorage` under `custode-theme`.
+
+They are tokens and nothing else. A page styles itself with the semantic
+classes and wears either theme with no change:
+
+| Token | paper | ink | Means |
+|---|---|---|---|
+| `base-200` | `#fbf9f4` | `#161511` | the ground |
+| `base-100` | `#ffffff` | `#201f1b` | a card |
+| `base-300` | `#e9e4d8` | `#34322b` | a hairline |
+| `primary` | `#4f46e5` | `#e8c55a` | the one thing to press |
+| `neutral` | `#1c1a17` | `#ece8dc` | the secondary button |
+| `warning` | `#b8860b` | `#e8c55a` | wants you |
+| `error` | `#dc2626` | `#f87171` | blocked on you |
+| `info` | `#0f766e` | `#5eead4` | working |
+| `success` | `#15803d` | `#6ee7a0` | done, green |
+
+Names, ids and metadata are set in the mono face (`font-mono`, JetBrains Mono);
+prose is the sans (Fira Sans). Cards are drawn with a hairline, not a shadow.
+Never hardcode a colour in a page: a hex value is a page that only works in
+one theme.

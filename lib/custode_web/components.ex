@@ -241,6 +241,7 @@ defmodule CustodeWeb.Components do
         <span :if={@readouts} class="ml-auto font-mono text-sm text-base-content/70">
           fleet today ${usd(@fleet_today)}
         </span>
+        <.theme_toggle />
       </header>
       <.host_banner />
       {render_slot(@inner_block)}
@@ -330,6 +331,25 @@ defmodule CustodeWeb.Components do
         <p class="mt-1 font-mono text-xs">{@signal.detail}</p>
       </div>
     </div>
+    """
+  end
+
+  @doc """
+  Switch between the `paper` and `ink` themes (`CustodeWeb.Layouts.theme_css/1`).
+  Client-side only: the choice is one attribute on `<html>` and one
+  `localStorage` key, read again before first paint on the next load, so no
+  LiveView round trip and no server state.
+  """
+  def theme_toggle(assigns) do
+    ~H"""
+    <button
+      type="button"
+      class="btn btn-ghost btn-xs font-mono"
+      title="switch between the paper and ink themes"
+      onclick="(()=>{const r=document.documentElement;const t=r.dataset.theme==='ink'?'paper':'ink';r.dataset.theme=t;localStorage.setItem('custode-theme',t);})()"
+    >
+      theme
+    </button>
     """
   end
 

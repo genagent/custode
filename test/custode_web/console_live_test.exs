@@ -56,6 +56,22 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ "1 need you"
   end
 
+  # the design session's visual language (design/ui/2026-07-25-design-session)
+  test "the page wears the custode themes, chosen before first paint, with a toggle",
+       %{conn: conn} do
+    html = conn |> get("/console") |> html_response(200)
+
+    assert html =~ ~s([data-theme="paper"])
+    assert html =~ ~s([data-theme="ink"])
+    # the remembered choice, else the OS preference, set before the body renders
+    assert html =~ ~s|localStorage.getItem("custode-theme")|
+    assert html =~ "prefers-color-scheme: dark"
+    assert html =~ "JetBrains+Mono"
+
+    {:ok, view, _html} = live(conn, "/console")
+    assert has_element?(view, "header button", "theme")
+  end
+
   # #530: a fresh checkout has no roster, and used to boot the maintainer's
   test "an empty fleet says how to add an agent", %{conn: conn} do
     put_env!(:routines, [])
