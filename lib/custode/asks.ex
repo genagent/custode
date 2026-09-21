@@ -87,20 +87,58 @@ defmodule Custode.Asks do
   def ask(agent_id, question, opts \\ []) do
     question = String.trim(to_string(question))
 
-    if question == "" do
-      {:error, "a question needs text"}
-    else
-      ask =
-        Repo.insert!(%Ask{
-          agent_id: agent_id,
-          question: question,
-          detail: opts[:detail],
-          replies: encode_replies(opts[:replies])
-        })
+    cond do
+      question == "" ->
+        {:error, "a question needs text"}
 
-      record_asked(ask)
-      {:ok, ask}
+      too_many = too_many_open(agent_id) ->
+        {:error, too_many}
+
+      true ->
+        file(agent_id, question, opts)
     end
+  end
+
+  # An unanswered question is not made louder by asking it again. On the live
+  # fleet `redisctl` filed the same SAML question eight times in a day, once a
+  # sweep, each worded a little differently, so no text comparison would have
+  # caught it. The cap is the mechanical answer: past it, the agent is told
+  # what it already has open, and that aging re-notifies the operator for it.
+  @default_max_open 2
+
+  defp too_many_open(agent_id) do
+    max = Application.get_env(:custode, :max_open_asks, @default_max_open)
+
+    open =
+      Repo.all(
+        from(a in Ask,
+          where: a.agent_id == ^agent_id and a.status == "open",
+          order_by: [asc: a.inserted_at]
+        )
+      )
+
+    if length(open) >= max, do: too_many_message(open)
+  end
+
+  defp too_many_message(open) do
+    listed = Enum.map_join(open, "; ", &~s(##{&1.id} "#{String.slice(&1.question, 0, 80)}"))
+
+    "you already have #{length(open)} unanswered question(s): #{listed}. " <>
+      "Asking again does not make one louder: the operator is re-notified as it ages. " <>
+      "Work on what is not blocked, and ask only something new once one is answered."
+  end
+
+  defp file(agent_id, question, opts) do
+    ask =
+      Repo.insert!(%Ask{
+        agent_id: agent_id,
+        question: question,
+        detail: opts[:detail],
+        replies: encode_replies(opts[:replies])
+      })
+
+    record_asked(ask)
+    {:ok, ask}
   end
 
   @max_replies 3

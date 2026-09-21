@@ -589,6 +589,16 @@ defmodule Custode.SpendLedger do
   # operator's rails rolled at 5pm and an overnight session consumed the
   # NEXT day's budget before breakfast (custode-dev, 2026-07-22). Rows are
   # stored UTC; only the boundary shifts.
+  @doc """
+  When "today" began for every `today*` function here: midnight in the
+  configured timezone, as a UTC instant. Public so a surface can SAY which
+  window it counted. The caretaker once read $0.00 for the whole fleet 47
+  seconds after local midnight, beside a feed full of that evening's costs,
+  and asked whether the rails were broken.
+  """
+  @spec day_started_at() :: DateTime.t()
+  def day_started_at, do: start_of_local_day()
+
   defp start_of_local_day do
     tz = Application.get_env(:custode, :timezone, "Etc/UTC")
     local_now = DateTime.now!(tz)

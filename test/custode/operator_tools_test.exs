@@ -226,6 +226,20 @@ defmodule Custode.OperatorToolsTest do
       assert row["daily_budget_usd"] == routine.daily_budget_usd
       assert json["fleet_today_usd"] >= 1.25
     end
+
+    # the caretaker read $0.00 for the whole fleet 47 seconds after LOCAL
+    # midnight and asked whether the ledger was broken: the tool said "UTC"
+    test "says which window it counted: local midnight, not UTC" do
+      put_env!(:timezone, "America/Los_Angeles")
+
+      json = tool_json(OperatorTools.SpendToday.execute(%{}, @frame))
+
+      assert json["timezone"] == "America/Los_Angeles"
+      {:ok, since, 0} = DateTime.from_iso8601(json["since"])
+      local = DateTime.shift_zone!(since, "America/Los_Angeles")
+      assert {local.hour, local.minute, local.second} == {0, 0, 0}
+      assert DateTime.compare(since, DateTime.utc_now()) == :lt
+    end
   end
 
   defp frame_for(kind, id),
