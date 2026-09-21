@@ -108,6 +108,23 @@ defmodule CustodeWeb.InboxLive do
     end
   end
 
+  def handle_event("dismiss_ask", %{"ask" => ask_id}, socket) do
+    ask_id = to_integer(ask_id)
+
+    socket =
+      if socket.assigns.replying_to == ask_id,
+        do: assign(socket, replying_to: nil),
+        else: socket
+
+    case Actions.dismiss_ask(ask_id) do
+      :ok ->
+        {:noreply, socket |> put_flash(:info, "ask dismissed; no answer sent") |> refresh()}
+
+      {:error, reason} ->
+        {:noreply, socket |> put_flash(:error, to_string(reason)) |> refresh()}
+    end
+  end
+
   def handle_event("apply_suggestion", params, socket) do
     %{"agent" => id, "field" => field, "proposed" => proposed} = params
 
@@ -198,6 +215,12 @@ defmodule CustodeWeb.InboxLive do
               <button type="button" class="btn btn-ghost btn-xs" phx-click="reply_cancel">
                 cancel
               </button>
+              <.action
+                :for={action <- item.actions}
+                :if={action.op == :dismiss_ask}
+                action={action}
+                subject={item.subject}
+              />
             </div>
           </form>
 
@@ -230,6 +253,19 @@ defmodule CustodeWeb.InboxLive do
     <button
       class="btn btn-primary btn-xs"
       phx-click="reply_open"
+      phx-value-ask={@action.args[:ask]}
+    >
+      {@action.label}
+    </button>
+    """
+  end
+
+  defp action(%{action: %{op: :dismiss_ask}} = assigns) do
+    ~H"""
+    <button
+      type="button"
+      class="btn btn-ghost btn-xs"
+      phx-click="dismiss_ask"
       phx-value-ask={@action.args[:ask]}
     >
       {@action.label}

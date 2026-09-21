@@ -149,6 +149,34 @@ defmodule Custode.CLI.Answer do
   defp render(other), do: inspect(other)
 end
 
+defmodule Custode.CLI.Dismiss do
+  @moduledoc false
+  use Cheer.Command
+
+  command "dismiss" do
+    about("Dismiss an agent's open question without sending it an answer.")
+    argument(:ask_id, type: :integer, required: true, help: "The ask id (see: mix custode asks).")
+    argument(:reason, help: "Why the question no longer needs a reply.")
+  end
+
+  @impl Cheer.Command
+  def run(%{ask_id: ask_id} = args, _raw) when is_integer(ask_id) do
+    arguments =
+      %{ask_id: ask_id}
+      |> then(&if args[:reason], do: Map.put(&1, :reason, args[:reason]), else: &1)
+
+    Custode.CLI.emit("dismiss_ask", arguments, false, &render/1)
+  end
+
+  def run(_args, _raw) do
+    Mix.shell().error("error: ask id must be an integer")
+    {:error, :run_failed}
+  end
+
+  defp render(%{"ask_id" => ask_id}), do: "ask #{ask_id} dismissed; no answer sent"
+  defp render(other), do: inspect(other)
+end
+
 defmodule Custode.CLI.Attention do
   @moduledoc false
   use Cheer.Command

@@ -360,7 +360,7 @@ defmodule Custode.Routine do
   # set_presence is deliberately absent: whether a human is around is the
   # human's own claim (or inference from their actions), never an agent's
   @operator_mcp_tools ~w(
-    list_asks answer_ask list_disowned
+    list_asks answer_ask dismiss_ask list_disowned
     beat drop_note list_gates feed_tail pause_agent resume_agent spend_today
     preview_routine add_routine preview_routine_edit update_routine
     remove_routine

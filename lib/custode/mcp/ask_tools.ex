@@ -1,7 +1,7 @@
 defmodule Custode.MCP.AskTools do
   @moduledoc """
   The ask surface (#299): one agent-callable tool for filing a non-blocking
-  question, and two operator-side tools for reading and closing them.
+  question, and operator-side tools for reading, answering and dismissing them.
 
   Deliberately an operation rather than a lifecycle directive. `ask_user`
   parks the agent (see `Custode.Asks`); `ask_operator` is a tool call that
@@ -147,6 +147,47 @@ defmodule Custode.MCP.AskTools.AnswerAsk do
   defp do_answer(params, frame) do
     case Custode.Asks.answer(params.ask_id, params.answer) do
       {:ok, ask} ->
+        reply(frame, %{ask_id: ask.id, agent_id: ask.agent_id, status: ask.status})
+
+      {:error, reason} ->
+        fail(frame, to_string(reason))
+    end
+  end
+end
+
+defmodule Custode.MCP.AskTools.DismissAsk do
+  @moduledoc """
+  Dismiss an open question without sending the agent an answer or an inbox
+  note. An optional reason records why the question no longer needs a reply.
+
+  Operator-only: an agent may not close a question owed to the operator.
+  """
+  use Anubis.Server.Component, type: :tool
+
+  import Custode.MCP.Tools
+
+  alias Custode.Operator.Actions
+
+  schema do
+    field(:ask_id, :integer, required: true, description: "the ask (see: list_asks)")
+    field(:reason, :string, description: "optional reason the question no longer needs a reply")
+  end
+
+  @impl true
+  def execute(params, frame) do
+    case Custode.MCP.caller(frame) do
+      %{kind: :operator} ->
+        do_dismiss(params, frame)
+
+      %{id: caller_id} ->
+        fail(frame, "identity: #{caller_id} may not dismiss the operator's questions")
+    end
+  end
+
+  defp do_dismiss(params, frame) do
+    case Actions.dismiss_ask(params.ask_id, params[:reason]) do
+      :ok ->
+        ask = Custode.Asks.get(params.ask_id)
         reply(frame, %{ask_id: ask.id, agent_id: ask.agent_id, status: ask.status})
 
       {:error, reason} ->

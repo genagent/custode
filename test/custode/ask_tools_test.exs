@@ -127,4 +127,59 @@ defmodule Custode.AskToolsTest do
       assert error =~ "no ask"
     end
   end
+
+  describe "dismiss_ask" do
+    test "the operator dismisses an ask without delivering an answer", %{
+      routine: routine,
+      workspace: workspace
+    } do
+      {:ok, ask} = Asks.ask(routine.id, "is SAML fixed?")
+
+      frame = %Anubis.Server.Frame{
+        assigns: %{custode_identity: %{kind: :operator, id: "operator"}}
+      }
+
+      json =
+        AskTools.DismissAsk.execute(%{ask_id: ask.id, reason: "already resolved"}, frame)
+        |> tool_json()
+
+      assert json["ask_id"] == ask.id
+      assert json["agent_id"] == routine.id
+      assert json["status"] == "dismissed"
+      assert Asks.get(ask.id).dismissal_reason == "already resolved"
+      refute File.exists?(Path.join([Path.expand(workspace), "inbox", "answer-#{ask.id}.md"]))
+    end
+
+    test "a reason is optional", %{routine: routine} do
+      {:ok, ask} = Asks.ask(routine.id, "is this still relevant?")
+
+      json = AskTools.DismissAsk.execute(%{ask_id: ask.id}, @operator) |> tool_json()
+
+      assert json["status"] == "dismissed"
+      assert is_nil(Asks.get(ask.id).dismissal_reason)
+    end
+
+    for kind <- [:routine, :sub_agent] do
+      test "a #{kind} may not dismiss the operator's question", %{routine: routine} do
+        {:ok, ask} = Asks.ask(routine.id, "which env?")
+
+        frame = %Anubis.Server.Frame{
+          assigns: %{custode_identity: %{kind: unquote(kind), id: routine.id}}
+        }
+
+        error =
+          AskTools.DismissAsk.execute(%{ask_id: ask.id, reason: "I'll close it myself"}, frame)
+          |> tool_error()
+
+        assert error =~ "identity"
+        assert Asks.get(ask.id).status == "open"
+        assert is_nil(Asks.get(ask.id).dismissed_at)
+      end
+    end
+
+    test "an unknown ask is a tool error" do
+      error = AskTools.DismissAsk.execute(%{ask_id: -1}, @operator) |> tool_error()
+      assert error =~ "no ask"
+    end
+  end
 end
