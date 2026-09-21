@@ -128,6 +128,7 @@ defmodule Custode.MCP.RosterTools.PreviewRoutine do
   in your request_permission action so the human approves the literal diff.
   """
   use Anubis.Server.Component, type: :tool
+  use Custode.MCP.NumericSchema
 
   import Custode.MCP.Tools
 
@@ -150,8 +151,8 @@ defmodule Custode.MCP.RosterTools.PreviewRoutine do
     field(:role, :string, description: "role override, e.g. \"backlog_worker\"")
     field(:mcp, :boolean, description: "grant the custode MCP tools")
     field(:hermetic, :boolean, description: "seal out the repo's ambient CLAUDE.md/persona")
-    field(:max_budget_usd, :number, description: "per-turn budget rail")
-    field(:daily_budget_usd, :number, description: "daily budget rail")
+    field(:max_budget_usd, {:either, {:integer, :float}}, description: "per-turn budget rail")
+    field(:daily_budget_usd, {:either, {:integer, :float}}, description: "daily budget rail")
     field(:daily_budget_tokens, :integer, description: "daily token rail")
     field(:timeout_ms, :integer, description: "per-turn subprocess timeout")
     field(:max_turns, :integer, description: "agentic turns per run")
@@ -183,6 +184,7 @@ defmodule Custode.MCP.RosterTools.AddRoutine do
   this; propose it via request_permission with the preview_routine render.
   """
   use Anubis.Server.Component, type: :tool
+  use Custode.MCP.NumericSchema
 
   import Custode.MCP.Tools
 
@@ -204,8 +206,8 @@ defmodule Custode.MCP.RosterTools.AddRoutine do
     field(:role, :string, description: "role override, e.g. \"backlog_worker\"")
     field(:mcp, :boolean, description: "grant the custode MCP tools")
     field(:hermetic, :boolean, description: "seal out the repo's ambient CLAUDE.md/persona")
-    field(:max_budget_usd, :number, description: "per-turn budget rail")
-    field(:daily_budget_usd, :number, description: "daily budget rail")
+    field(:max_budget_usd, {:either, {:integer, :float}}, description: "per-turn budget rail")
+    field(:daily_budget_usd, {:either, {:integer, :float}}, description: "daily budget rail")
     field(:daily_budget_tokens, :integer, description: "daily token rail")
     field(:timeout_ms, :integer, description: "per-turn subprocess timeout")
     field(:max_turns, :integer, description: "agentic turns per run")
@@ -256,6 +258,7 @@ defmodule Custode.MCP.RosterTools.PreviewRoutineEdit do
   value serves again.
   """
   use Anubis.Server.Component, type: :tool
+  use Custode.MCP.NumericSchema
 
   import Custode.MCP.Tools
 
@@ -283,8 +286,8 @@ defmodule Custode.MCP.RosterTools.PreviewRoutineEdit do
       description: "extra tool grants, e.g. [\"Bash(git log:*)\"]"
     )
 
-    field(:max_budget_usd, :number, description: "new per-turn budget rail")
-    field(:daily_budget_usd, :number, description: "new daily budget rail")
+    field(:max_budget_usd, {:either, {:integer, :float}}, description: "new per-turn budget rail")
+    field(:daily_budget_usd, {:either, {:integer, :float}}, description: "new daily budget rail")
     field(:timeout_ms, :integer, description: "new per-turn timeout")
     field(:max_turns, :integer, description: "new max turns")
     field(:tags, {:list, :string}, description: "replacement tag list")
@@ -316,6 +319,7 @@ defmodule Custode.MCP.RosterTools.UpdateRoutine do
   The id is immutable -- remove + add is the rename path.
   """
   use Anubis.Server.Component, type: :tool
+  use Custode.MCP.NumericSchema
 
   import Custode.MCP.Tools
 
@@ -343,8 +347,8 @@ defmodule Custode.MCP.RosterTools.UpdateRoutine do
       description: "extra tool grants, e.g. [\"Bash(git log:*)\"]"
     )
 
-    field(:max_budget_usd, :number, description: "new per-turn budget rail")
-    field(:daily_budget_usd, :number, description: "new daily budget rail")
+    field(:max_budget_usd, {:either, {:integer, :float}}, description: "new per-turn budget rail")
+    field(:daily_budget_usd, {:either, {:integer, :float}}, description: "new daily budget rail")
     field(:timeout_ms, :integer, description: "new per-turn timeout")
     field(:max_turns, :integer, description: "new max turns")
     field(:tags, {:list, :string}, description: "replacement tag list")
