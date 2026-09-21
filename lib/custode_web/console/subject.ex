@@ -349,7 +349,7 @@ defmodule CustodeWeb.Console.Subject do
       todo <span class="font-normal">{length(@subject.todos)}</span>
     </h3>
     <p :if={@subject.todos == []} class="text-sm text-base-content/50">nothing queued</p>
-    <ul class="space-y-1 text-sm">
+    <ul id="open-todos" class="space-y-1 text-sm">
       <li :for={todo <- @subject.todos} class="group flex items-baseline gap-2">
         <button
           class="btn btn-ghost btn-xs"
@@ -381,6 +381,21 @@ defmodule CustodeWeb.Console.Subject do
       </button>
     </div>
 
+    <%!-- what the agent finished, not only what it still owes: the open list
+          alone cannot say whether last week's queue was worked or dropped --%>
+    <details :if={@subject.done_todos != []} id="done-todos" class="mt-3 text-sm">
+      <summary class="cursor-pointer text-xs text-base-content/50">
+        done {length(@subject.done_todos)}
+      </summary>
+      <ul class="mt-1 space-y-1">
+        <li :for={todo <- @subject.done_todos} class="flex items-baseline gap-2 text-base-content/60">
+          <span class="min-w-0 line-through">{todo.text}</span>
+          <span class="ml-auto shrink-0 font-mono text-xs text-base-content/40">
+            <.ago at={todo.updated_at} />
+          </span>
+        </li>
+      </ul>
+    </details>
     <h3 class="mb-2 mt-6 text-xs font-bold uppercase tracking-widest text-base-content/50">
       journal
     </h3>
@@ -394,6 +409,15 @@ defmodule CustodeWeb.Console.Subject do
       </summary>
       <div class="mt-2"><.markdown text={entry.body || ""} /></div>
     </details>
+    <%!-- offered only when the read came back full: a short read means there
+          is nothing further back --%>
+    <button
+      :if={length(@subject.journal) >= @subject.journal_limit}
+      class="btn btn-ghost btn-sm mt-3"
+      phx-click="journal_older"
+    >
+      show older
+    </button>
     """
   end
 
