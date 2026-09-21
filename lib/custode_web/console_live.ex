@@ -367,6 +367,22 @@ defmodule CustodeWeb.ConsoleLive do
     end
   end
 
+  # One of the agent's own suggested answers (#450). The client sends an index
+  # and nothing else: the text comes from the selected signal, so this path
+  # can only ever send what the agent offered.
+  def handle_event("reply", %{"index" => index}, socket) do
+    with %Signal{resolving: resolving} <- socket.assigns.signal,
+         %{args: %{replies: replies} = args} <- Enum.find(resolving, &(&1.op == :answer_ask)),
+         {position, ""} <- Integer.parse(index),
+         reply when is_binary(reply) <- Enum.at(replies, position) do
+      :answer_ask
+      |> Actions.run(args, %{"text" => reply}, @opts)
+      |> after_action(socket, "answered")
+    else
+      _stale -> {:noreply, socket |> assign(notice: "that is no longer pending") |> refresh()}
+    end
+  end
+
   # A subject with no routine has no workspace to put an image in.
   defp save_images(%{assigns: %{subject: %{routine: %{} = routine}}} = socket) do
     consume_uploaded_entries(socket, :image, fn %{path: path}, entry ->

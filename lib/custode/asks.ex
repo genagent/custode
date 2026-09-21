@@ -67,6 +67,8 @@ defmodule Custode.Asks do
       field(:agent_id, :string)
       field(:question, :string)
       field(:detail, :string)
+      # a JSON array of suggested answers; read it with `Custode.Asks.replies/1`
+      field(:replies, :string)
       field(:answer, :string)
       field(:status, :string, default: "open")
       field(:answered_at, :utc_datetime_usec)
@@ -92,13 +94,48 @@ defmodule Custode.Asks do
         Repo.insert!(%Ask{
           agent_id: agent_id,
           question: question,
-          detail: opts[:detail]
+          detail: opts[:detail],
+          replies: encode_replies(opts[:replies])
         })
 
       record_asked(ask)
       {:ok, ask}
     end
   end
+
+  @max_replies 3
+  @max_reply_chars 120
+
+  # Suggestions are a convenience, so a malformed one is dropped and never an
+  # error: it must not cost the agent its question.
+  defp encode_replies(replies) when is_list(replies) do
+    cleaned =
+      replies
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == "" or String.length(&1) > @max_reply_chars))
+      |> Enum.uniq()
+      |> Enum.take(@max_replies)
+
+    if cleaned == [], do: nil, else: Jason.encode!(cleaned)
+  end
+
+  defp encode_replies(_none), do: nil
+
+  @doc """
+  The answers the agent suggested for `ask`, or `[]`. At most three, each one
+  something the agent said it would accept (`question-inline.png`'s "or just
+  say"), so a surface can offer them as one-click answers.
+  """
+  @spec replies(Ask.t()) :: [String.t()]
+  def replies(%Ask{replies: json}) when is_binary(json) do
+    case Jason.decode(json) do
+      {:ok, replies} when is_list(replies) -> Enum.filter(replies, &is_binary/1)
+      _other -> []
+    end
+  end
+
+  def replies(%Ask{}), do: []
 
   @doc "Every open ask, oldest first -- the order the operator should meet them in."
   @spec open() :: [Ask.t()]
