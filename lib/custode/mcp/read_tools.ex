@@ -258,7 +258,12 @@ defmodule Custode.MCP.ReadTools.Metrics do
 
   defp measure("spend", days), do: Custode.Metrics.daily_by_agent(days)
   defp measure("turns", days), do: Custode.Metrics.turns_by_day(days)
-  defp measure("gate_latency", _days), do: Custode.Metrics.gate_latencies()
+
+  defp measure("gate_latency", _days) do
+    {gates, median_minutes} = Custode.Metrics.gate_latencies()
+    %{gates: gates, median_minutes: median_minutes}
+  end
+
   defp measure("by_model", days), do: Custode.Metrics.by_model(days)
   defp measure("gate_outcomes", days), do: Custode.Metrics.gate_outcomes(days)
   # {repo, number} tuples do not survive JSON either.
