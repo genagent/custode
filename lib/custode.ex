@@ -264,8 +264,6 @@ defmodule Custode do
   defp paused?(:paused), do: true
   defp paused?(_status), do: false
 
-  @drain_queues [:ticks, :agents, :sensors]
-
   @doc """
   Begin a graceful drain without blocking the caller, and say how many turns
   it is waiting on.
@@ -276,20 +274,28 @@ defmodule Custode do
 
   One entry point for every surface that can drain (the MCP tool, the console)
   so they cannot drift. `:drain_fun` is the seam tests use: a real
-  `System.stop/0` would take down the test VM.
+  `System.stop/0` would take down the test VM. Queue admission must be
+  confirmed before either the active-work read or the background task starts.
+  A pause failure returns an error and leaves already-paused queues closed.
+  The second argument accepts the same test seams as `drain/1`.
   """
-  @spec start_drain(non_neg_integer() | nil) :: non_neg_integer()
-  def start_drain(timeout_ms \\ nil) do
-    for queue <- [:ticks, :agents, :sensors], do: Oban.pause_queue(queue: queue)
+  @spec start_drain(non_neg_integer() | nil, keyword()) ::
+          non_neg_integer() | {:error, String.t()}
+  def start_drain(timeout_ms \\ nil, opts \\ []) do
+    with {:ok, queues} <- Custode.Drain.pause(opts) do
+      executing = Keyword.get(opts, :executing, &executing_turns/0)
+      count = length(executing.())
+      opts = Keyword.put(opts, :queues, queues)
+      opts = if timeout_ms, do: Keyword.put(opts, :timeout, timeout_ms), else: opts
+      drain_fun = Application.get_env(:custode, :drain_fun, &drain/1)
 
-    executing = length(executing_turns())
-    opts = if timeout_ms, do: [timeout: timeout_ms], else: []
-    drain_fun = Application.get_env(:custode, :drain_fun, &drain/1)
+      wait = fn -> drain_fun.(opts) end
 
-    {:ok, _pid} =
-      Task.Supervisor.start_child(Custode.TaskSupervisor, fn -> drain_fun.(opts) end)
-
-    executing
+      case Task.Supervisor.start_child(Custode.TaskSupervisor, wait) do
+        {:ok, _pid} -> count
+        {:error, reason} -> {:error, "could not start drain wait: #{inspect(reason)}"}
+      end
+    end
   end
 
   @doc """
@@ -323,38 +329,37 @@ defmodule Custode do
 
     * `:timeout` -- ms to wait for executing to reach zero (default `:infinity`)
     * `:poll` -- ms between checks (default 250)
-    * `:queues` / `:pause` / `:executing` / `:stop` -- injectable seams
+    * `:pause_timeout` -- ms to await queue pause confirmation (default 5,000)
+    * `:queues` / `:pause` / `:check_queue` / `:executing` / `:stop` -- injectable seams
   """
   def drain(opts \\ []) do
-    queues = Keyword.get(opts, :queues, @drain_queues)
-    pause = Keyword.get(opts, :pause, &Oban.pause_queue(queue: &1))
     executing = Keyword.get(opts, :executing, &executing_jobs/0)
     stop = Keyword.get(opts, :stop, &System.stop/0)
     poll = Keyword.get(opts, :poll, 250)
     deadline = drain_deadline(Keyword.get(opts, :timeout, :infinity))
 
-    Enum.each(queues, pause)
+    with {:ok, queues} <- Custode.Drain.pause(opts) do
+      Custode.Feed.record(%{
+        event: "paused",
+        agent: "custode",
+        action: "drain: paused #{Enum.join(queues, ", ")}; waiting out executing turns"
+      })
 
-    Custode.Feed.record(%{
-      event: "paused",
-      agent: "custode",
-      action: "drain: paused #{Enum.join(queues, ", ")}; waiting out executing turns"
-    })
+      case await_drained(executing, poll, deadline) do
+        :ok ->
+          stop.()
+          :ok
 
-    case await_drained(executing, poll, deadline) do
-      :ok ->
-        stop.()
-        :ok
+        {:timeout, jobs} ->
+          Custode.Feed.record(%{
+            event: "turn_failed",
+            agent: "custode",
+            kind: "drain_timeout",
+            detail: "#{length(jobs)} turn(s) still executing at the drain deadline; not stopping"
+          })
 
-      {:timeout, jobs} ->
-        Custode.Feed.record(%{
-          event: "turn_failed",
-          agent: "custode",
-          kind: "drain_timeout",
-          detail: "#{length(jobs)} turn(s) still executing at the drain deadline; not stopping"
-        })
-
-        {:error, {:timeout, jobs}}
+          {:error, {:timeout, jobs}}
+      end
     end
   end
 
