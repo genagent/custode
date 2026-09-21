@@ -41,6 +41,8 @@ defmodule Custode.MixProject do
       # Codex implements the same Executor contract through its sibling Oban
       # integration. Keep the path configurable for isolated worktree builds.
       {:oban_codex, path: System.get_env("OBAN_CODEX_PATH", "../oban_codex")},
+      # Terminate the CLI process group on turn timeout or worker death.
+      {:forcola, "~> 0.3.3"},
       {:oban, "~> 2.23"},
       {:ecto_sqlite3, "~> 0.17"},
       {:jason, "~> 1.4"},
