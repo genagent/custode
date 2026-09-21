@@ -571,7 +571,7 @@ defmodule Custode.Attention do
         signal(view, :turn_failing, :high,
           headline: TurnFailure.remedy(category),
           detail: turn_failure_detail(failure),
-          item: {:turn_failure, category},
+          item: {:turn_failure, turn_failure_item(failure)},
           raised_at: Map.get(failure, :since),
           resolving: [op("Inspect", :open_agent, %{agent: view.id})]
         )
@@ -579,6 +579,17 @@ defmodule Custode.Attention do
       _none_or_a_blip ->
         nil
     end
+  end
+
+  # What the item pane shows: the classifier's verdict and the last failure's
+  # own words, so the page never reads the feed for them.
+  defp turn_failure_item(%{category: category, failures: failures} = failure) do
+    %{
+      category: category,
+      failures: failures,
+      retryable: TurnFailure.retryable?(category),
+      detail: Map.get(failure, :detail)
+    }
   end
 
   defp turn_failure_detail(%{category: category, failures: failures} = failure) do

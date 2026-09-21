@@ -76,6 +76,22 @@ A question outranks an approval because a question is blocked on a human
 by definition, whereas a gate is a structured hold the agent chose to
 raise and can describe.
 
+### Kinds added since
+
+The table above is the set this record was written against. The code has
+since gained seven kinds. `Custode.Attention`'s moduledoc holds the current
+precedence; `Custode.Signal` holds the kind type and the group mapping.
+
+| kind | raised by | group |
+| ---- | --------- | ----- |
+| `:host_down` | the boot doctor failed, so no agent can run; a fact about the host, resolved by `Attention.host/1` with no agent view, and ranked above every per-agent signal (#443) | `:needs_you` |
+| `:red_main` | the repository's default branch is failing; first in the per-agent precedence (#310) | `:needs_you` |
+| `:turn_failing` | the agent's last turn failed for a reason the next beat cannot fix: one `auth_failed` or `config_error`, or two in a row of any other non-retryable category; second in the per-agent precedence, above a question and a gate (#527) | `:needs_you` |
+| `:workflow_launch` | a workflow launch proposal is waiting on the operator's decision; resolved by `Attention.workflows/1`, not per agent (#447) | `:needs_you` |
+| `:disowned_check` | a failing check on a PR the agent declared not its work; ranked above `:red_check` (#313) | `:needs_you` |
+| `:sensor_failing` | one of the agent's sensors has failed N runs in a row; ranked between `:red_check` and `:rail_hit` (#444) | `:watching` |
+| `:workflow_rail` | a workflow run is parked on its budget rail until a human raises it or lets it go; resolved by `Attention.workflows/1` (#447) | `:needs_you` |
+
 ### Kind and group are different questions
 
 Precedence decides which kind wins for one agent. The GROUP decides where

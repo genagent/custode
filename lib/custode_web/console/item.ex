@@ -120,6 +120,34 @@ defmodule CustodeWeb.Console.Item do
     """
   end
 
+  # Why the turn failed, in the failure's own words. Bounded: a stack trace
+  # is evidence for the transcript, not for this pane.
+  def evidence(%{item: {:turn_failure, failure}} = assigns) do
+    assigns =
+      assign(assigns,
+        failure: failure,
+        lines: failure.detail |> to_string() |> String.split("\n", trim: true) |> Enum.take(6)
+      )
+
+    ~H"""
+    <div id="turn-failure" class="mt-3 text-sm">
+      <p class="flex flex-wrap items-center gap-2">
+        <span class="badge badge-outline badge-sm font-mono text-error">{@failure.category}</span>
+        <span>
+          {@failure.failures} failed {if @failure.failures == 1, do: "turn", else: "turns"} in a row
+        </span>
+        <span class="text-base-content/60">
+          {if @failure.retryable, do: "retryable", else: "not retryable: the next beat fails the same way"}
+        </span>
+      </p>
+      <pre
+        :if={@lines != []}
+        class="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded border border-base-300 bg-base-200 p-2 font-mono text-xs"
+      >{Enum.join(@lines, "\n")}</pre>
+    </div>
+    """
+  end
+
   def evidence(assigns), do: ~H""
 
   attr(:result, :any, required: true)
