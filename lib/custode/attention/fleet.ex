@@ -18,6 +18,7 @@ defmodule Custode.Attention.Fleet do
   re-check runs behind it (#317).
   """
 
+  alias Custode.Agents
   alias Custode.Asks
   alias Custode.Attention
   alias Custode.Attention.Verify
@@ -31,7 +32,6 @@ defmodule Custode.Attention.Fleet do
   alias Custode.TurnFailure
   alias Custode.Workflow.Launch
   alias Custode.Workflow.Run
-  alias ObanClaude.Agent
 
   @doc """
   Every agent's view: the configured routines, plus any live agent not in the
@@ -41,7 +41,7 @@ defmodule Custode.Attention.Fleet do
   @spec views() :: [map()]
   def views do
     routines = Routine.all()
-    running = Map.new(Agent.list())
+    running = Map.new(Agents.list())
 
     sources = %{
       gates: Gates.open_by_agent(),

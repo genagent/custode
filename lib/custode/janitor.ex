@@ -351,7 +351,7 @@ defmodule Custode.Janitor do
         routine_ids = Enum.map(Custode.Routine.all(), & &1.id)
         cutoff = DateTime.add(DateTime.utc_now(), -ttl)
 
-        ObanClaude.Agent.list()
+        Custode.Agents.list()
         |> Enum.filter(fn {id, status} -> id not in routine_ids and status == :idle end)
         |> Enum.count(fn {id, _status} -> maybe_stop(id, cutoff) end)
     end
@@ -360,7 +360,7 @@ defmodule Custode.Janitor do
   defp maybe_stop(id, cutoff) do
     with %DateTime{} = last <- Custode.Feed.last_activity_at(id),
          :lt <- DateTime.compare(last, cutoff) do
-      :ok = ObanClaude.Agent.stop_agent(id)
+      :ok = Custode.Agents.stop_agent(id)
       true
     else
       _fresh_or_unknown -> false

@@ -328,13 +328,13 @@ defmodule Custode.SpendLedger do
   defp boot_paused(routine) do
     start = Custode.Routine.tick_args(routine)["start"]
 
-    case ObanClaude.Agent.start_agent(routine.id,
+    case Custode.Agents.start_agent(routine.id,
            args: start["args"],
            approved_args: start["approved_args"],
            job_timeout: start["job_timeout"]
          ) do
       {:ok, _pid} ->
-        ObanClaude.Agent.emergency_pause(routine.id)
+        Custode.Agents.emergency_pause(routine.id)
 
         Custode.Feed.record(%{
           event: "budget_paused",
@@ -564,9 +564,9 @@ defmodule Custode.SpendLedger do
   defp token_overage(_routine, _agent_id), do: nil
 
   defp pause(agent_id, reason) do
-    case ObanClaude.Agent.status(agent_id) do
+    case Custode.Agents.status(agent_id) do
       {:ok, status} when status not in [:paused, :offline] ->
-        ObanClaude.Agent.emergency_pause(agent_id)
+        Custode.Agents.emergency_pause(agent_id)
 
         Custode.Feed.record(
           %{

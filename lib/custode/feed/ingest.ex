@@ -162,7 +162,7 @@ defmodule Custode.Feed.Ingest do
   defp presence(string), do: string
 
   defp gated(agent_id) do
-    case ObanClaude.Agent.status(agent_id) do
+    case Custode.Agents.status(agent_id) do
       {:ok, {:awaiting_permission, %{description: description}}} -> description
       {:ok, {:waiting_for_user, question}} -> question
       _other -> nil

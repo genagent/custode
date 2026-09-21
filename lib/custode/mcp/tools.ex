@@ -203,7 +203,7 @@ defmodule Custode.MCP.Tools.ListRoutines do
   def execute(_params, frame) do
     routines =
       for routine <- Custode.Routine.all() do
-        {:ok, status} = ObanClaude.Agent.status(routine.id)
+        {:ok, status} = Custode.Agents.status(routine.id)
 
         %{
           id: routine.id,
@@ -232,12 +232,12 @@ defmodule Custode.MCP.Tools.AgentStatus do
 
   @impl true
   def execute(%{agent_id: agent_id}, frame) do
-    case ObanClaude.Agent.status(agent_id) do
+    case Custode.Agents.status(agent_id) do
       {:ok, :offline} ->
         reply(frame, %{agent_id: agent_id, state: "offline"})
 
       {:ok, status} ->
-        {:ok, info} = ObanClaude.Agent.info(agent_id)
+        {:ok, info} = Custode.Agents.info(agent_id)
 
         reply(frame, %{
           agent_id: agent_id,
@@ -290,7 +290,7 @@ defmodule Custode.MCP.Tools.StartAgent do
         job_timeout: 240_000
       ]
 
-      case ObanClaude.Agent.start_agent(agent_id, config) do
+      case Custode.Agents.start_agent(agent_id, config) do
         {:ok, _pid} ->
           # the row is the sub-agent's spec (#5): after a restart the parent
           # gets an orphan notice with a revival handle instead of silence
@@ -351,7 +351,7 @@ defmodule Custode.MCP.Tools.PromptAgent do
   # activity, and it keeps the direct cast. A sub-agent has no routine to
   # start, and a parent must not resume what the operator paused.
   defp delegated_prompt(agent_id, prompt, frame) do
-    case ObanClaude.Agent.cast_prompt(agent_id, prompt) do
+    case Custode.Agents.cast_prompt(agent_id, prompt) do
       :ok -> reply(frame, %{agent_id: agent_id, delivered: true, how: :delivered})
       {:error, reason} -> fail(frame, "prompt failed: #{inspect(reason)}")
     end
@@ -380,9 +380,9 @@ defmodule Custode.MCP.Tools.AwaitAgent do
     timeout = params |> Map.get(:timeout_ms, 60_000) |> min(180_000)
 
     {timed_out, status} =
-      case ObanClaude.Agent.await(agent_id, @settled, timeout) do
+      case Custode.Agents.await(agent_id, @settled, timeout) do
         {:ok, status} -> {false, status}
-        {:error, :timeout} -> {true, elem(ObanClaude.Agent.status(agent_id), 1)}
+        {:error, :timeout} -> {true, elem(Custode.Agents.status(agent_id), 1)}
       end
 
     reply(frame, %{
@@ -395,7 +395,7 @@ defmodule Custode.MCP.Tools.AwaitAgent do
   end
 
   defp last_result(agent_id) do
-    with {:ok, history} <- ObanClaude.Agent.history(agent_id),
+    with {:ok, history} <- Custode.Agents.history(agent_id),
          {:result, result} <- Enum.reverse(history) |> Enum.find(&match?({:result, _}, &1)) do
       if is_map(result), do: result, else: String.slice(to_string(result), 0, 400)
     else
@@ -417,7 +417,7 @@ defmodule Custode.MCP.Tools.AgentHistory do
 
   @impl true
   def execute(%{agent_id: agent_id} = params, frame) do
-    case ObanClaude.Agent.history(agent_id) do
+    case Custode.Agents.history(agent_id) do
       {:ok, history} ->
         n = Map.get(params, :last, 20)
         entries = history |> Enum.take(-n) |> Enum.map(&inspect(&1, printable_limit: 200))
