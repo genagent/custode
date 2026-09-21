@@ -328,7 +328,7 @@ defmodule Custode.Gates do
 
   defp open(agent_id, state) do
     {kind, action_id, detail} =
-      case ObanClaude.Agent.status(agent_id) do
+      case Custode.Agents.status(agent_id) do
         {:ok, {:awaiting_permission, %{id: id, description: description}}} ->
           {"approval", id, description}
 

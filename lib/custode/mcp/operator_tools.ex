@@ -175,7 +175,7 @@ defmodule Custode.MCP.OperatorTools.ResumeAgent do
 
   @impl true
   def execute(%{agent_id: agent_id}, frame) do
-    case ObanClaude.Agent.resume_agent(agent_id) do
+    case Custode.Agents.resume_agent(agent_id) do
       :resumed -> reply(frame, %{agent_id: agent_id, state: "resumed"})
       {:error, reason} -> fail(frame, "resume failed: #{inspect(reason)}")
     end

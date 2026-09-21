@@ -57,7 +57,7 @@ defmodule Custode.Operations.Fleet.PauseAgent do
   end
 
   defp handle(%{agent_id: agent_id}, _envelope) do
-    case ObanClaude.Agent.emergency_pause(agent_id) do
+    case Custode.Agents.emergency_pause(agent_id) do
       :ok ->
         {:ok, %{agent_id: agent_id, state: "paused"},
          [%{type: "agent_paused", agent_id: agent_id}]}
@@ -70,7 +70,7 @@ defmodule Custode.Operations.Fleet.PauseAgent do
   defp reconcile(call) do
     agent_id = call.arguments["agent_id"]
 
-    case ObanClaude.Agent.status(agent_id) do
+    case Custode.Agents.status(agent_id) do
       {:ok, :paused} ->
         {:ok, %{agent_id: agent_id, state: "paused"},
          [%{type: "agent_paused", agent_id: agent_id}]}

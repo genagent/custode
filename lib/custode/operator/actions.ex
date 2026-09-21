@@ -21,9 +21,10 @@ defmodule Custode.Operator.Actions do
   (#448) and the operation log.
   """
 
+  alias Custode.Agents
   alias Custode.Operations.Fleet.PauseAgent
   alias Custode.Workflow.Launch
-  alias ObanClaude.Agent
+  alias ObanClaude.Agent.Tick
 
   @type result :: :ok | {:error, term()}
 
@@ -61,7 +62,7 @@ defmodule Custode.Operator.Actions do
 
       routine ->
         args = Map.put(Custode.Routine.tick_args(routine), "prompt", text)
-        {:ok, _job} = Oban.insert(Agent.Tick.new(args, queue: :ticks))
+        {:ok, _job} = Oban.insert(Tick.new(args, queue: :ticks))
         Custode.Feed.record_prompted(agent_id, text)
         {:ok, :started}
     end
@@ -76,7 +77,7 @@ defmodule Custode.Operator.Actions do
   # `how` is what the caller is told happened (#472), so a surface can say
   # "resumed" or "started" and not only "sent".
   defp cast(agent_id, text, how) do
-    case Agent.cast_prompt(agent_id, text) do
+    case Agents.cast_prompt(agent_id, text) do
       :ok ->
         Custode.Feed.record_prompted(agent_id, text)
         {:ok, how}
@@ -89,7 +90,7 @@ defmodule Custode.Operator.Actions do
   # `status/1` always answers `{:ok, status}`; an agent with no process is
   # `{:ok, :offline}`, which is the case `deliver/4` branches on.
   defp state_of(agent_id) do
-    {:ok, status} = Agent.status(agent_id)
+    {:ok, status} = Agents.status(agent_id)
     Custode.state_of(status)
   end
 
@@ -176,7 +177,7 @@ defmodule Custode.Operator.Actions do
   @doc "Resume a paused agent."
   @spec resume(String.t(), keyword()) :: result()
   def resume(agent_id, _opts \\ []) do
-    case Agent.resume_agent(agent_id) do
+    case Agents.resume_agent(agent_id) do
       {:error, reason} -> {:error, reason}
       _resumed -> :ok
     end

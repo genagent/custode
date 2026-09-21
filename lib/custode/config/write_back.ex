@@ -645,7 +645,7 @@ defmodule Custode.Config.WriteBack do
   defp join_lines(lines, :after), do: "\n" <> Enum.join(lines, "\n")
 
   defp stop_live_agent(id) do
-    ObanClaude.Agent.stop_agent(id)
+    Custode.Agents.stop_agent(id)
   catch
     # not running (or already stopping) is fine: removal is idempotent on the
     # process side, and the roster is already rewritten

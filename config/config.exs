@@ -1,5 +1,8 @@
 import Config
 
+# The routine query path must reap subprocesses when its owner exits.
+config :claude_wrapper, runner: ClaudeWrapper.Runner.Forcola
+
 config :custode,
   ecto_repos: [Custode.Repo],
   # Each entry is one always-on agent: a cron schedule + a workspace + a beat
