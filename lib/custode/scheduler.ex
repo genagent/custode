@@ -78,23 +78,34 @@ defmodule Custode.Scheduler do
   The routines in `routines` that match `now` and have not already fired for
   `now`'s minute. Returns `{fired_ids, updated_last_fired}`. Pure: no process,
   no insert. `@reboot` routines are never due here -- they fire once at boot.
+  `requested` is `%{routine_id => at}`, the agents' own next-beat requests.
   """
-  def due(routines, now, last_fired) do
+  def due(routines, now, last_fired, requested \\ %{}) do
     minute = truncate_to_minute(now)
 
     {fired, last_fired} =
       Enum.reduce(routines, {[], last_fired}, fn routine, {fired, seen} ->
-        expr = Expression.parse!(routine.cron)
-
-        cond do
-          expr.reboot? -> {fired, seen}
-          Map.get(seen, routine.id) == minute -> {fired, seen}
-          Expression.now?(expr, now) -> {[routine.id | fired], Map.put(seen, routine.id, minute)}
-          true -> {fired, seen}
-        end
+        if due?(routine, now, minute, seen, Map.get(requested, routine.id)),
+          do: {[routine.id | fired], Map.put(seen, routine.id, minute)},
+          else: {fired, seen}
       end)
 
     {Enum.reverse(fired), last_fired}
+  end
+
+  # An agent's own request for its next beat (#526, `Custode.NextBeat`) wins
+  # over the cron in both directions: while it is in the future the cron's
+  # beats are skipped, and once its time has come the routine is due whether
+  # or not the cron matches this minute.
+  defp due?(routine, now, minute, seen, requested_at) do
+    expr = Expression.parse!(routine.cron)
+
+    cond do
+      expr.reboot? -> false
+      Map.get(seen, routine.id) == minute -> false
+      match?(%DateTime{}, requested_at) -> DateTime.compare(requested_at, now) != :gt
+      true -> Expression.now?(expr, now)
+    end
   end
 
   @doc """
@@ -127,6 +138,8 @@ defmodule Custode.Scheduler do
       clock: Keyword.get(opts, :clock, &now_in_configured_tz/0),
       insert: Keyword.get(opts, :insert, &insert_tick/1),
       interval: Keyword.get(opts, :interval),
+      # agents' own next-beat requests (#526), injectable like the clock
+      requested: Keyword.get(opts, :requested, &Custode.NextBeat.pending/0),
       last_fired: %{}
     }
 
@@ -153,7 +166,14 @@ defmodule Custode.Scheduler do
 
   defp run_once(state) do
     now = state.clock.()
-    {fired, last_fired} = due(scheduled_routines(), now, state.last_fired)
+    requested = state.requested.()
+    {fired, last_fired} = due(scheduled_routines(), now, state.last_fired, requested)
+
+    # A request is one-shot, and it is spent the moment it fires: the turn may
+    # sit behind the queue for a while, and the next minute must not fire it
+    # again.
+    for id <- fired, Map.has_key?(requested, id), do: Custode.NextBeat.clear(id)
+
     Enum.each(fired, state.insert)
     {fired, %{state | last_fired: last_fired}}
   end

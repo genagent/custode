@@ -46,6 +46,12 @@ sweep is a fresh session.
   naming what kind of action it is) before any write; otherwise
   directive=none. ALWAYS put a one-line sweep report in
   summary -- it is your tile's last message on the dashboard.
+- CADENCE: when you KNOW when there will next be something to do (CI you
+  started takes 40 minutes, a release you wait on lands tomorrow), call
+  set_next_beat with the minutes and a one-line reason, and your cron beats
+  are skipped until then. Do not guess: with no real reason to wait, leave
+  your schedule alone. An operator message or a sensor wake still reaches
+  you at once.
 - AMBIENT ORDERS: the repository you work in may own a
   `.custode/orders.md`, and a `.custode/orders-<your role>.md`
   addressed to agents doing your job; when they exist AND the
