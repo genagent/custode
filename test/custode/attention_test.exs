@@ -82,7 +82,16 @@ defmodule Custode.AttentionTest do
       assert signal.urgency == :high
       assert signal.headline =~ "claude is not logged in on this host"
       assert signal.detail == "1 failed turn (auth_failed): exit 1: Invalid API key"
-      assert signal.item == {:turn_failure, :auth_failed}
+
+      assert signal.item ==
+               {:turn_failure,
+                %{
+                  category: :auth_failed,
+                  failures: 1,
+                  retryable: false,
+                  detail: "exit 1: Invalid API key"
+                }}
+
       assert signal.raised_at == ~U[2026-07-26 01:15:00Z]
       assert [%{label: "Inspect", op: :open_agent, args: %{agent: "redisctl"}}] = signal.resolving
     end
