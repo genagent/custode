@@ -105,6 +105,7 @@ defmodule Custode.MCP.ToolPolicy do
     "journal_append" => :self_write,
     "compact_journal" => :self_write,
     "set_panel" => :self_write,
+    "set_next_beat" => :self_write,
     "todo_add" => :self_write,
     "todo_complete" => :self_write,
     "inbox_mark_filed" => :self_write,
