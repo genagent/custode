@@ -117,6 +117,29 @@ defmodule Custode.TurnFailure do
   def from_entry(_entry), do: nil
 
   @doc """
+  The trailing run of failed turns in `agent_id`'s feed, newest first: every
+  `turn_failed` since the last `turn`. Empty once a turn has succeeded.
+
+  Only entries carrying a `category` count as outcomes. `turn_failed` is also
+  recorded for things that are not turns (a drain timeout, an undeliverable
+  orphan notice), and those neither start nor break a run. One read, shared by
+  `:turn_failing` (#527) and the beat backoff (#543).
+  """
+  @spec streak(String.t()) :: [map()]
+  def streak(agent_id) do
+    agent_id
+    |> Custode.Feed.for_agent(50)
+    |> Enum.reverse()
+    |> Enum.filter(&outcome?/1)
+    |> Enum.take_while(&(&1["event"] == "turn_failed"))
+  end
+
+  # A `beat_backoff` entry carries a category too (#543) and is not an outcome.
+  defp outcome?(%{"event" => "turn"}), do: true
+  defp outcome?(%{"event" => "turn_failed"} = entry), do: from_entry(entry) != nil
+  defp outcome?(_entry), do: false
+
+  @doc """
   What the operator must do about a failure that will not clear by itself, as
   a headline. `nil` for a retryable category: nothing is owed.
   """
