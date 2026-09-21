@@ -51,6 +51,7 @@ defmodule Custode.Attention.Fleet do
       disowned: Disowned.by_repo(),
       sensor_failures: sensor_failures(),
       turn_failures: turn_failures(),
+      next_beats: Custode.NextBeat.pending(),
       routines: Map.new(routines, &{&1.id, &1})
     }
 
@@ -204,7 +205,7 @@ defmodule Custode.Attention.Fleet do
       budget: routine && routine.daily_budget_usd,
       running_since: Map.get(sources.in_flight, id),
       cron: routine && routine.cron,
-      next_beat_at: routine && Custode.Scheduler.next_beat_at(routine.cron)
+      next_beat_at: routine && next_beat_at(routine, sources.next_beats)
     }
   end
 
@@ -288,6 +289,12 @@ defmodule Custode.Attention.Fleet do
       action_id: gate.action_id,
       opened_at: gate.inserted_at
     }
+  end
+
+  # An agent's own request (#526) is when it next runs; the cron only says so
+  # when there is none.
+  defp next_beat_at(routine, next_beats) do
+    Map.get(next_beats, routine.id) || Custode.Scheduler.next_beat_at(routine.cron)
   end
 
   defp risk_paths(json) when is_binary(json) do

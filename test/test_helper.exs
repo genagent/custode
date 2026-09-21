@@ -14,6 +14,7 @@ for table <- [
       "memories",
       "spend",
       "gates",
+      "next_beats",
       "disowned_prs",
       "asks",
       "observations",

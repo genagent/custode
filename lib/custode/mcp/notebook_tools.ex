@@ -153,6 +153,65 @@ defmodule Custode.MCP.NotebookTools.TodoAdd do
   end
 end
 
+defmodule Custode.MCP.NotebookTools.SetNextBeat do
+  @moduledoc """
+  Ask for your next scheduled beat to be in N minutes instead of whenever your
+  cron says (#526). Use it when you KNOW when there will be something to do:
+  CI you started takes 40 minutes, a release you are waiting on lands
+  tomorrow. One-shot: your cron beats are skipped until then, you run once at
+  that time, and the request is gone. Clamped to the operator's bounds; the
+  reply says what you got. An operator message, a sensor wake or an inbox
+  note still reaches you at once, and clears the request.
+  """
+  use Anubis.Server.Component, type: :tool
+
+  import Custode.MCP.Tools
+
+  @minutes "minutes from now until your next scheduled beat"
+  @reason "one line: what you are waiting for"
+
+  schema do
+    field(:routine_id, :string, description: "your own routine id (defaults to the caller)")
+    field(:agent_id, :string, description: alias_for("routine_id"))
+    field(:minutes, :integer, description: @minutes)
+    field(:reason, :string, description: @reason)
+  end
+
+  @impl true
+  def execute(params, frame) do
+    with {:ok, routine_id} <- fetch_self(params, frame),
+         :ok <- check_self(frame, routine_id),
+         {:ok, minutes} <- need(params, :minutes, @minutes),
+         {:ok, reason} <- need(params, :reason, @reason) do
+      set(routine_id, minutes, reason, frame)
+    else
+      {:error, message} -> fail(frame, message)
+    end
+  end
+
+  defp set(routine_id, minutes, reason, frame) when is_integer(minutes) do
+    {:ok, granted} = Custode.NextBeat.request(routine_id, minutes, reason: reason)
+
+    Custode.Feed.record(%{
+      event: "next_beat",
+      agent: routine_id,
+      minutes: granted.minutes,
+      requested_minutes: minutes,
+      reason: reason,
+      summary: "next beat in #{granted.minutes}m: #{reason}"
+    })
+
+    reply(frame, %{
+      next_beat_at: DateTime.to_iso8601(granted.at),
+      minutes: granted.minutes,
+      clamped: granted.clamped?
+    })
+  end
+
+  defp set(_routine_id, _minutes, _reason, frame),
+    do: fail(frame, "minutes must be a whole number")
+end
+
 defmodule Custode.MCP.NotebookTools.TodoList do
   @moduledoc "A routine's todos: open (default), done, or all."
   use Anubis.Server.Component, type: :tool
