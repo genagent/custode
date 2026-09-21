@@ -255,6 +255,37 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ keep.text
   end
 
+  test "the rail filter matches a routine's tags, repository and state, not only its name",
+       %{conn: conn, asker: asker} do
+    workspace = tmp_workspace!()
+    rusty = uid("crate")
+    plain = uid("other")
+
+    put_env!(:routines, [
+      %{id: rusty, cron: "@daily", workspace: workspace, prompt: "x", tags: [:rust, :external]},
+      %{id: plain, cron: "@daily", workspace: workspace, prompt: "x", repo: "acme/widgets"},
+      %{id: asker.id, cron: "@daily", workspace: workspace, prompt: "x"}
+    ])
+
+    {:ok, _ask} = Asks.ask(asker.id, "is the diff yours?")
+    {:ok, view, _html} = live(conn, "/console")
+
+    narrowed = fn q -> view |> form("#rail-filter", %{"q" => q}) |> render_change() end
+
+    html = narrowed.("RUST")
+    assert html =~ ~s(href="/console/#{rusty}")
+    refute html =~ ~s(href="/console/#{plain}")
+
+    html = narrowed.("acme/wid")
+    assert html =~ ~s(href="/console/#{plain}")
+    refute html =~ ~s(href="/console/#{rusty}")
+
+    # a state word finds what is in that state
+    html = narrowed.("asked you")
+    assert html =~ ~s(href="/console/#{asker.id}")
+    refute html =~ ~s(href="/console/#{rusty}")
+  end
+
   test "the item pane points at the next subject that needs you, and only then",
        %{conn: conn, asker: asker, sleeper: sleeper} do
     {:ok, _ask} = Asks.ask(asker.id, "is the diff yours?")

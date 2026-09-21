@@ -476,7 +476,7 @@ defmodule CustodeWeb.ConsoleLive do
 
     groups =
       signals
-      |> Enum.filter(&(filter == "" or String.contains?(String.downcase(&1.subject), filter)))
+      |> Enum.filter(&(filter == "" or String.contains?(haystack(&1), filter)))
       |> Attention.by_group()
 
     selected = socket.assigns.selected || default_selection(signals)
@@ -499,6 +499,20 @@ defmodule CustodeWeb.ConsoleLive do
       caretaker: Actions.caretaker(),
       presence: Custode.Presence.status()
     )
+  end
+
+  # What the rail filter matches: the subject's id, and for a routine its
+  # repository, role and tags, so "rust", "external" or an owner name narrows
+  # the rail the way a tag filter would. The headline too: "gate" or "red"
+  # finds everything in that state.
+  defp haystack(%Signal{subject: id, headline: headline}) do
+    routine = Custode.Routine.get(id)
+
+    [id, headline, routine && routine.repo, routine && Map.get(routine, :profile)]
+    |> Enum.concat((routine && Map.get(routine, :tags)) || [])
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map_join(" ", &to_string/1)
+    |> String.downcase()
   end
 
   # What most needs the operator is the right thing to open on.

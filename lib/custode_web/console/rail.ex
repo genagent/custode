@@ -34,7 +34,7 @@ defmodule CustodeWeb.Console.Rail do
           type="search"
           name="q"
           value={@filter}
-          placeholder="filter"
+          placeholder="filter: name, repo, tag, state"
           autocomplete="off"
           phx-debounce="150"
           class="input input-bordered input-sm w-full"
