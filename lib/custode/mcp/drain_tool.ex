@@ -21,6 +21,8 @@ defmodule Custode.MCP.Tools.Drain do
 
   import Custode.MCP.Tools
 
+  alias Custode.Operator.Actions
+
   schema do
     field(:timeout_ms, :integer,
       description: "give up (leaving queues paused) after this many ms; default unbounded"
@@ -31,22 +33,22 @@ defmodule Custode.MCP.Tools.Drain do
   def execute(params, frame) do
     case Custode.MCP.caller(frame) do
       %{kind: :operator} ->
-        executing = start_drain(params[:timeout_ms])
+        case Actions.drain(timeout_ms: params[:timeout_ms]) do
+          {:ok, executing} ->
+            reply(frame, %{
+              draining: true,
+              executing: executing,
+              note:
+                "queues paused; the server stops when the #{executing} executing turn(s) finish. " <>
+                  "Progress lands in the feed; on timeout the queues stay paused (resume_queue to abort)."
+            })
 
-        reply(frame, %{
-          draining: true,
-          executing: executing,
-          note:
-            "queues paused; the server stops when the #{executing} executing turn(s) finish. " <>
-              "Progress lands in the feed; on timeout the queues stay paused (resume_queue to abort)."
-        })
+          {:error, reason} ->
+            fail(frame, "drain admission failed: #{reason}")
+        end
 
       _agent ->
         fail(frame, "identity: drain is the operator's; agents propose restarts, humans run them")
     end
   end
-
-  # The pause-then-hand-off lives on the facade so the console drains the
-  # same way (#450).
-  defp start_drain(timeout_ms), do: Custode.start_drain(timeout_ms)
 end

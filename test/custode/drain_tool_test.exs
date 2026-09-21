@@ -31,7 +31,9 @@ defmodule Custode.DrainToolTest do
     assert json["note"] =~ "queues paused"
 
     # the background task got the wait+stop with the timeout threaded
-    assert_receive {:drained, [timeout: 5_000]}, 2_000
+    assert_receive {:drained, opts}, 2_000
+    assert opts[:timeout] == 5_000
+    assert opts[:queues] == []
   end
 
   test "agents are refused at the verb" do
