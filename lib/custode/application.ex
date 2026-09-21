@@ -32,6 +32,7 @@ defmodule Custode.Application do
     Custode.PubSubBridge.attach()
     Custode.SpendLedger.attach()
     Custode.Gates.attach()
+    Custode.NextBeat.attach()
     Custode.SubAgents.attach()
     Custode.WorktreeBreadcrumb.attach()
     Custode.RunClock.attach()

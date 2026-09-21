@@ -118,6 +118,7 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.NotebookTools.CompactJournal, name: "compact_journal")
   component(Custode.MCP.NotebookTools.SetPanel, name: "set_panel")
   component(Custode.MCP.NotebookTools.TodoAdd, name: "todo_add")
+  component(Custode.MCP.NotebookTools.SetNextBeat, name: "set_next_beat")
   component(Custode.MCP.NotebookTools.TodoList, name: "todo_list")
   component(Custode.MCP.NotebookTools.TodoComplete, name: "todo_complete")
   component(Custode.MCP.NotebookTools.InboxList, name: "inbox_list")
