@@ -157,6 +157,15 @@ defmodule Custode.Notebook do
     Repo.all(query)
   end
 
+  @doc "Whose todo this is, or `nil`. What a caller is checked against before completing it."
+  @spec todo_owner(integer()) :: String.t() | nil
+  def todo_owner(id) do
+    case Repo.get(Todo, id) do
+      %Todo{routine_id: routine_id} -> routine_id
+      nil -> nil
+    end
+  end
+
   @doc "Mark a todo done by id, re-render, notify."
   def todo_complete(id) do
     case Repo.get(Todo, id) do

@@ -249,6 +249,29 @@ defmodule Custode.IdentityTest do
     assert inspect(tool_json(reply)) =~ "readable"
   end
 
+  # found by the tool policy audit (#528): the tool took a bare id and never
+  # asked whose todo it was
+  test "a todo is completed only by its owner or the operator" do
+    workspace = tmp_workspace!()
+    owner = routine_fixture!(workspace, %{id: uid("owner")})
+    {:ok, todo} = Custode.Notebook.todo_add(owner.id, "mine to finish")
+
+    reply = NotebookTools.TodoComplete.execute(%{todo_id: todo.id}, frame_for(:routine, uid("x")))
+    assert tool_error(reply) =~ "may not write #{owner.id}'s records"
+    assert [%{status: "open"}] = Custode.Notebook.todos(owner.id)
+
+    reply = NotebookTools.TodoComplete.execute(%{todo_id: todo.id}, frame_for(:routine, owner.id))
+    assert %{"status" => "done"} = tool_json(reply)
+
+    # the operator may, and a missing id still says so
+    {:ok, second} = Custode.Notebook.todo_add(owner.id, "operator finishes this")
+    reply = NotebookTools.TodoComplete.execute(%{todo_id: second.id}, %Anubis.Server.Frame{})
+    assert %{"status" => "done"} = tool_json(reply)
+
+    reply = NotebookTools.TodoComplete.execute(%{todo_id: -1}, frame_for(:routine, owner.id))
+    assert tool_error(reply) =~ "no todo"
+  end
+
   test "per-routine configs carry bearer headers; sub-agent configs mint on demand" do
     workspace = tmp_workspace!()
     routine = routine_fixture!(workspace, %{mcp: true})
