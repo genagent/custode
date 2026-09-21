@@ -30,6 +30,7 @@ defmodule Custode.Config.WriteBack do
   """
 
   alias Custode.Config.Loader
+  alias Custode.Routine.Effort
 
   @doc """
   Append `attrs` (an atom-keyed routine entry in the exs/loader shape) to the
@@ -501,7 +502,14 @@ defmodule Custode.Config.WriteBack do
     cond do
       map_size(envelope) == 0 -> {:error, :empty_profile}
       (unknown = Map.keys(envelope) -- @profile_keys) != [] -> {:error, {:unknown_keys, unknown}}
-      true -> :ok
+      true -> validate_profile_effort(envelope)
+    end
+  end
+
+  defp validate_profile_effort(envelope) do
+    case Effort.normalize(Map.get(envelope, :effort)) do
+      {:ok, _effort} -> :ok
+      {:error, message} -> {:error, {:invalid_profile, message}}
     end
   end
 

@@ -11,7 +11,7 @@ defmodule Custode.Routine do
   """
 
   alias Custode.Gates.Class
-  alias Custode.Routine.Prompts
+  alias Custode.Routine.{Effort, Prompts}
 
   @doc "All configured routines, with profile and defaults applied."
   def all do
@@ -304,7 +304,7 @@ defmodule Custode.Routine do
 
     extra =
       if routine.effort != nil,
-        do: Keyword.put(extra, :effort, String.to_existing_atom(routine.effort)),
+        do: Keyword.put(extra, :effort, routine.effort),
         else: extra
 
     extra =
@@ -447,7 +447,7 @@ defmodule Custode.Routine do
       max_turns: Map.get(routine, :max_turns, 20),
       # reasoning effort for SWEEPS (approved_args may raise it for
       # implementations); nil leaves the CLI default
-      effort: Map.get(routine, :effort),
+      effort: Effort.normalize!(Map.get(routine, :effort)),
       system_prompt: resolve_prompt(routine, role, id),
       # non-hermetic runs inherit the repo's own CLAUDE.md/persona (#19);
       # set hermetic: true to shut ambient context out for a routine

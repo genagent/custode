@@ -46,6 +46,8 @@ defmodule Custode.Config.Loader do
   first fire.
   """
 
+  alias Custode.Routine.Effort
+
   # Keys allowed on a routine entry, mapped to the atoms normalize/1 reads.
   # A key outside this list is a boot error: silently dropping an operator's
   # typo'd override would be config drift wearing a helpful face.
@@ -112,7 +114,7 @@ defmodule Custode.Config.Loader do
   }
 
   # values that are atoms in the exs shape and strings in TOML
-  @atom_valued [:profile, :role, :effort]
+  @atom_valued [:profile, :role]
 
   @doc """
   Find and parse the routines file. Returns `{:ok, path, routines, sensors}`
@@ -234,6 +236,8 @@ defmodule Custode.Config.Loader do
       end
     end)
   end
+
+  defp convert_value(:effort, value), do: Effort.normalize!(value)
 
   # cron: "manual" is the one magic string; every other cron stays a string
   defp convert_value(:cron, "manual"), do: :manual

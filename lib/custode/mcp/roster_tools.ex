@@ -37,7 +37,7 @@ defmodule Custode.MCP.RosterTools do
     |> put_if(params, :workspace)
     |> put_if(params, :prompt)
     |> put_if(params, :model)
-    |> put_if(params, :effort, &String.to_existing_atom/1)
+    |> put_if(params, :effort)
     |> put_if(params, :agent)
     |> put_if(params, :max_budget_usd)
     |> put_if(params, :daily_budget_usd)
@@ -76,7 +76,7 @@ defmodule Custode.MCP.RosterTools do
     |> put_if(params, :workspace)
     |> put_if(params, :prompt)
     |> put_if(params, :model)
-    |> put_if(params, :effort, &String.to_existing_atom/1)
+    |> put_if(params, :effort)
     |> put_if(params, :agent)
     |> put_if(params, :max_budget_usd)
     |> put_if(params, :daily_budget_usd)
@@ -133,6 +133,7 @@ defmodule Custode.MCP.RosterTools.PreviewRoutine do
 
   alias Custode.Config.WriteBack
   alias Custode.MCP.RosterTools
+  alias Custode.Routine.Effort
 
   schema do
     field(:id, :string, required: true, description: "unique routine id")
@@ -164,7 +165,11 @@ defmodule Custode.MCP.RosterTools.PreviewRoutine do
   @impl true
   def execute(params, frame) do
     attrs = RosterTools.to_attrs(params)
-    reply(frame, %{toml: WriteBack.render_routine(attrs)})
+
+    case Effort.normalize(attrs[:effort]) do
+      {:ok, _effort} -> reply(frame, %{toml: WriteBack.render_routine(attrs)})
+      {:error, message} -> fail(frame, message)
+    end
   rescue
     ArgumentError -> fail(frame, "unknown profile #{inspect(params[:profile])}")
   end
