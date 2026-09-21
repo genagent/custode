@@ -97,8 +97,9 @@ defmodule CustodeWeb.Console.Rail do
 
   # One meaning per color (guides/ui-hierarchy.md): red is blocked on you,
   # yellow wants you, blue is working, grey is ambient.
-  defp dot(%Signal{kind: kind}) when kind in [:red_main, :rail_hit, :disowned_check],
-    do: "bg-error"
+  defp dot(%Signal{kind: kind})
+       when kind in [:red_main, :turn_failing, :rail_hit, :disowned_check],
+       do: "bg-error"
 
   defp dot(%Signal{group: :needs_you}), do: "bg-warning"
   defp dot(%Signal{group: :watching}), do: "bg-warning/60"
