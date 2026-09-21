@@ -62,7 +62,7 @@ defmodule CustodeWeb.Layouts do
               if (!onRoot) window.location.assign("/custode");
             } else if (event.key === "Escape" && onRoot) {
               if (window.history.length > 1) window.history.back();
-              else window.location.assign("/console");
+              else window.location.assign("/");
             }
           });
         </script>

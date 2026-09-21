@@ -20,13 +20,13 @@ defmodule CustodeWeb.Console.Header do
   def console_header(assigns) do
     ~H"""
     <header class="flex items-baseline gap-4 border-b border-base-300 bg-base-100 px-5 py-3">
-      <.link navigate="/console" class="text-xl font-bold hover:opacity-70">custode</.link>
+      <.link navigate="/" class="text-xl font-bold hover:opacity-70">custode</.link>
       <nav class="flex gap-3 text-sm text-base-content/60">
         <span class="font-semibold text-base-content underline underline-offset-4">console</span>
         <.link navigate="/custode" class="hover:text-base-content" title="Cmd/Ctrl+K">
           custode
         </.link>
-        <.link navigate="/" class="hover:text-base-content">fleet</.link>
+        <.link navigate="/fleet" class="hover:text-base-content">fleet</.link>
         <.link navigate="/inbox" class="hover:text-base-content">inbox</.link>
         <.link navigate="/repos" class="hover:text-base-content">repos</.link>
         <.link navigate="/workflows" class="hover:text-base-content">workflows</.link>

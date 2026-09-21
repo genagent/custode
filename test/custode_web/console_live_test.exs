@@ -84,6 +84,24 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert has_element?(view, "button[phx-click=new_open]")
   end
 
+  # the operator's decision, 2026-09-21: the console replaces the fleet page
+  # as the place the dashboard opens on
+  test "the console is the home page, and the fleet page is still there", %{
+    conn: conn,
+    sleeper: sleeper
+  } do
+    {:ok, view, html} = live(conn, "/")
+    assert html =~ ~s(id="rail-filter")
+    assert has_element?(view, ~s(header a[href="/fleet"]), "fleet")
+
+    # the rail's links leave home for the subject's own address
+    view |> element(~s(a[href="/console/#{sleeper.id}"])) |> render_click()
+    assert_patched(view, "/console/#{sleeper.id}")
+
+    {:ok, _view, html} = live(conn, "/fleet")
+    assert html =~ sleeper.id
+  end
+
   test "selecting a subject shows its pane, and the rail filter narrows",
        %{conn: conn, asker: asker, sleeper: sleeper} do
     {:ok, view, html} = live(conn, "/console/#{sleeper.id}")

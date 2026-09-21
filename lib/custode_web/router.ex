@@ -38,7 +38,9 @@ defmodule CustodeWeb.Router do
     # The live layout is set here rather than per-page so a page added later
     # cannot forget it and silently lose its flash messages (#337).
     live_session :dashboard, layout: {CustodeWeb.Layouts, :app} do
-      live("/", CustodeWeb.FleetLive)
+      # the console is home (#450); the fleet page it replaces keeps a route
+      live("/", CustodeWeb.ConsoleLive)
+      live("/fleet", CustodeWeb.FleetLive)
       live("/console", CustodeWeb.ConsoleLive)
       live("/console/:id", CustodeWeb.ConsoleLive)
       live("/custode", CustodeWeb.RootLive)

@@ -219,7 +219,7 @@ defmodule CustodeWeb.Components do
       <header class="mb-6 flex items-baseline gap-4">
         <.link navigate="/" class="text-3xl font-bold hover:opacity-70">custode</.link>
         <nav class="flex gap-3 text-sm">
-          <.link navigate="/" class={nav_class(@active == :fleet)}>fleet</.link>
+          <.link navigate="/fleet" class={nav_class(@active == :fleet)}>fleet</.link>
           <.link navigate="/console" class={nav_class(false)}>console</.link>
           <.link navigate="/custode" class={nav_class(false)} title="Cmd/Ctrl+K">custode</.link>
           <.link navigate="/inbox" class={nav_class(@active == :inbox)}>
