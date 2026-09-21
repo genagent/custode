@@ -35,6 +35,13 @@ defmodule Custode.MCP.AskTools.AskOperator do
       description: "what you were doing when it came up, for the operator's context"
     )
 
+    field(:replies, {:list, :string},
+      description:
+        "optional: up to 3 short answers you would accept, each a complete reply the operator " <>
+          ~s|can send with one click (e.g. "Yes, take it over", "No, leave it to me"). | <>
+          "Max 120 characters each. Offer them when the likely answers are predictable."
+    )
+
     field(:agent_id, :string,
       description: "whose question (defaults to the caller; a routine may only file its own)"
     )
@@ -50,7 +57,11 @@ defmodule Custode.MCP.AskTools.AskOperator do
     with {:ok, agent_id} <- fetch_self(params, frame),
          :ok <- check_self(frame, agent_id),
          {:ok, question} <- need(params, :question, @question),
-         {:ok, ask} <- Custode.Asks.ask(agent_id, question, detail: params[:detail]) do
+         {:ok, ask} <-
+           Custode.Asks.ask(agent_id, question,
+             detail: params[:detail],
+             replies: params[:replies]
+           ) do
       reply(frame, %{
         ask_id: ask.id,
         status: ask.status,

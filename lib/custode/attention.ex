@@ -446,7 +446,14 @@ defmodule Custode.Attention do
           item: {:ask, ask.id},
           raised_at: ask.asked_at,
           resolving: [
-            op("Answer", :answer_ask, %{ask: ask.id}),
+            # the agent's own suggested answers and its context ride on the
+            # op (#450): a surface reads args back from the signal, so a
+            # one-click reply is checked against what was actually offered
+            op("Answer", :answer_ask, %{
+              ask: ask.id,
+              replies: Map.get(ask, :replies, []),
+              context: Map.get(ask, :detail)
+            }),
             op("Open agent", :open_agent, %{agent: view.id})
           ]
         )
