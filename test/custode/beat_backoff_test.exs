@@ -60,7 +60,7 @@ defmodule Custode.BeatBackoffTest do
   end
 
   describe "after_failure/3" do
-    test "a retryable failure sets the next beat and says so in the feed" do
+    test "changing retryable categories keeps the failure count and doubles the wait" do
       id = routine!("*/15 * * * *")
       failed!(id)
 
@@ -80,8 +80,8 @@ defmodule Custode.BeatBackoffTest do
 
     test "a successful turn ends the run, with no reset code" do
       id = routine!("*/15 * * * *")
-      failed!(id)
-      failed!(id)
+      failed!(id, :rate_limited)
+      failed!(id, :unknown_harness_error)
       Feed.record(%{event: "turn", agent: id, summary: "fine"})
       failed!(id)
 
@@ -156,6 +156,22 @@ defmodule Custode.BeatBackoffTest do
       # an operator message, a sensor wake, the backoff's own beat: all of them
       transition(id, :idle, :running)
       assert NextBeat.get(id) == nil
+    end
+
+    test "changing category after a terminal failure does not mean a turn succeeded" do
+      id = routine!("*/15 * * * *")
+      fail_turn(id, %ClaudeWrapper.Error{kind: :auth, reason: :expired, message: "logged out"})
+      assert NextBeat.get(id) == nil
+      assert backoffs(id) == []
+
+      # Fixing authentication let the next turn start, but that turn still
+      # failed. Only a successful turn proves recovery and resets the count.
+      transition(id, :idle, :running)
+      fail_turn(id, %ClaudeWrapper.Error{kind: :timeout, message: "timed out"})
+      transition(id, :running, :idle)
+
+      assert [%{"failures" => 2, "minutes" => 30, "category" => "timeout"}] = backoffs(id)
+      assert NextBeat.get(id).reason =~ "2 consecutive failed turn(s)"
     end
 
     test "a terminal failure records turn_failed and no backoff" do
