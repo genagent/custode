@@ -56,6 +56,18 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ "1 need you"
   end
 
+  # #530: a fresh checkout has no roster, and used to boot the maintainer's
+  test "an empty fleet says how to add an agent", %{conn: conn} do
+    put_env!(:routines, [])
+
+    {:ok, view, html} = live(conn, "/console")
+
+    assert html =~ "No agents on this machine yet."
+    assert html =~ "routines.example.toml"
+    # and the way to add one is on the page
+    assert has_element?(view, "button[phx-click=new_open]")
+  end
+
   test "selecting a subject shows its pane, and the rail filter narrows",
        %{conn: conn, asker: asker, sleeper: sleeper} do
     {:ok, view, html} = live(conn, "/console/#{sleeper.id}")

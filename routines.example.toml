@@ -1,0 +1,31 @@
+# The fleet on THIS machine. Copy to `routines.toml` (gitignored) and edit.
+#
+#   cp routines.example.toml routines.toml
+#
+# With no routines.toml the node boots an empty fleet. A routine can also be
+# added from the dashboard (/console, "new agent"), which writes this file.
+# Set CUSTODE_CONFIG to keep it somewhere else.
+
+# One routine is one agent: a role (profile), a repository, a checkout of it
+# on this machine, and a schedule.
+[[routines]]
+id = "my-repo"
+profile = "backlog_worker"            # a role from the profiles in config/config.exs
+repo = "owner/my-repo"                # the repository it works, owner/name
+working_dir = "/path/to/checkout/of/my-repo"
+cron = "*/30 9-18 * * *"              # in the timezone set in config (default America/Los_Angeles)
+tags = ["rust"]
+daily_budget_usd = 10.0               # optional: the daily spend rail
+
+# Optional overrides, each falling back to the profile: model, max_turns,
+# max_budget_usd, timeout_ms, prompt, extra_allowed_tools.
+
+# A sensor is a cheap cron job that polls something and wakes a routine with
+# what it found. `module` is a name under Custode.Sensors.
+# [[sensors]]
+# id = "ci-my-repo"
+# cron = "*/15 * * * *"
+# module = "CiStatus"
+# notify = "my-repo"
+# [sensors.args]
+# repo = "owner/my-repo"

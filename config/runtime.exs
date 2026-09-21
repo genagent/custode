@@ -30,8 +30,13 @@ if config_env() != :test do
         config :custode, profiles: profiles
       end
 
+    # No local roster (#530): the fleet is empty, and says so. It used to
+    # fall back to a roster checked into config.exs, which was one person's.
     :no_file ->
-      :ok
+      IO.puts(
+        "custode: no routines.toml found, the fleet is empty " <>
+          "(cp routines.example.toml routines.toml, or add an agent from /console)"
+      )
   end
 
   # custode.toml (#267 / design 003 slice 2): the operator config beyond the

@@ -405,9 +405,30 @@ defmodule CustodeWeb.ConsoleLive do
 
         <main class="min-w-0 border-base-300 p-6 md:border-l">
           <.new_agent_form :if={@new_agent} new_agent={@new_agent} />
-          <p :if={@subject == nil and @new_agent == nil} class="text-base-content/50">
+          <p
+            :if={@subject == nil and @new_agent == nil and not @roster_empty}
+            class="text-base-content/50"
+          >
             Pick a subject from the rail.
           </p>
+          <%!-- A fresh checkout has no roster of its own (#530). Keyed on the
+                roster and not on the rail: an agent with no routine behind it
+                (a sub-agent, a one-shot) can be in the rail of a machine that
+                still has nothing configured. --%>
+          <div
+            :if={@roster_empty and @new_agent == nil}
+            id="empty-fleet"
+            class="mb-6 max-w-prose text-sm text-base-content/70"
+          >
+            <p class="font-semibold text-base-content">No agents on this machine yet.</p>
+            <p class="mt-2">
+              The fleet is local: a routine names a repository and a checkout of it here.
+              Add one with <span class="font-mono">new agent</span>
+              in the rail, or copy <span class="font-mono">routines.example.toml</span>
+              to <span class="font-mono">routines.toml</span>
+              and restart.
+            </p>
+          </div>
           <.subject
             :if={@subject && @new_agent == nil}
             subject={@subject}
@@ -460,6 +481,7 @@ defmodule CustodeWeb.ConsoleLive do
       subject: signal && load_subject(selected, socket.assigns.feed_limit),
       in_flight: Custode.RunClock.running(),
       needs_you: Enum.count(signals, &Signal.needs_you?/1),
+      roster_empty: Custode.Routine.all() == [],
       # already ranked by the resolver, so the first one that is not on screen
       # is the next one
       next_up: Enum.find(signals, &(Signal.needs_you?(&1) and &1.subject != selected)),
