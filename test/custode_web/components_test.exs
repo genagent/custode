@@ -164,6 +164,14 @@ defmodule CustodeWeb.ComponentsTest do
       assert html =~ "&lt;script&gt;"
     end
 
+    test "fenced code retains its language class through sanitization (#558)" do
+      html = md("```elixir\nIO.puts(\"<hi>\")\n```")
+
+      assert html =~ ~r/<pre[^>]*>\s*<code\b[^>]*class="language-elixir"/
+      assert html =~ "&lt;hi&gt;"
+      refute html =~ "<hi>"
+    end
+
     test "single newlines break, fenced code and strong render" do
       assert md("a\nb") =~ ~r/a<br\s*\/?>\s*b/
 
