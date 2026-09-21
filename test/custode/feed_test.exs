@@ -242,6 +242,21 @@ defmodule Custode.FeedTest do
     assert entry["detail"] =~ "exit 127"
     assert entry["detail"] =~ "spawn refused"
     assert entry["detail"] =~ "boom"
+    # a bare non-zero exit has no typed cause (#527)
+    assert entry["category"] == "unknown_harness_error"
+    assert entry["retryable"] == true
+  end
+
+  test "a failed run is stamped with its category and whether a beat can fix it (#527)" do
+    id = uid("feed-auth")
+
+    {{:cancel, :auth}, _} =
+      ObanClaude.run(%{"prompt" => "x"},
+        job: job_meta(id),
+        query_fun: fail(error(:auth, reason: :not_authenticated))
+      )
+
+    assert [%{"category" => "auth_failed", "retryable" => false}] = Custode.Feed.for_agent(id)
   end
 
   test "the gated states land with their payloads; pause and resume are recorded" do

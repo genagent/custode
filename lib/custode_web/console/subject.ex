@@ -637,8 +637,9 @@ defmodule CustodeWeb.Console.Subject do
   defp tab_count("panel", %{panel_pending: pending}, _signal) when is_binary(pending), do: 1
   defp tab_count(_tab, _subject, _signal), do: nil
 
-  defp signal_frame(%Signal{kind: kind}) when kind in [:red_main, :rail_hit, :disowned_check],
-    do: "border-error/40 bg-error/5"
+  defp signal_frame(%Signal{kind: kind})
+       when kind in [:red_main, :turn_failing, :rail_hit, :disowned_check],
+       do: "border-error/40 bg-error/5"
 
   defp signal_frame(%Signal{group: :needs_you}), do: "border-warning/50 bg-warning/5"
   defp signal_frame(%Signal{}), do: "border-base-300/60"
