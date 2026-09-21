@@ -64,6 +64,80 @@ defmodule Custode.AttentionTest do
     end
   end
 
+  describe "turn_failing (#527)" do
+    defp failed(category, failures, fields \\ []) do
+      Enum.into(fields, %{
+        category: category,
+        failures: failures,
+        detail: "exit 1: Invalid API key",
+        since: ~U[2026-07-26 01:15:00Z]
+      })
+    end
+
+    test "one auth failure says what the operator must do" do
+      signal = resolve(view("redisctl", cron: "@daily", turn_failure: failed(:auth_failed, 1)))
+
+      assert signal.kind == :turn_failing
+      assert signal.group == :needs_you
+      assert signal.urgency == :high
+      assert signal.headline =~ "claude is not logged in on this host"
+      assert signal.detail == "1 failed turn (auth_failed): exit 1: Invalid API key"
+      assert signal.item == {:turn_failure, :auth_failed}
+      assert signal.raised_at == ~U[2026-07-26 01:15:00Z]
+      assert [%{label: "Inspect", op: :open_agent, args: %{agent: "redisctl"}}] = signal.resolving
+    end
+
+    test "a config error is a fact about the host too, so one is enough" do
+      assert resolve(view("a", turn_failure: failed(:config_error, 1))).kind == :turn_failing
+    end
+
+    test "one crash or one refused cap can be one bad turn; the second in a row is not" do
+      for category <- [:process_crash, :capability_refused] do
+        once = view("a", cron: "@daily", turn_failure: failed(category, 1))
+        twice = view("a", cron: "@daily", turn_failure: failed(category, 2))
+
+        assert resolve(once).kind == :scheduled
+        assert resolve(twice).kind == :turn_failing
+        assert resolve(twice).detail =~ "2 failed turns"
+      end
+    end
+
+    test "no failure fact, no signal" do
+      assert resolve(view("a", cron: "@daily", turn_failure: nil)).kind == :scheduled
+    end
+
+    test "it outranks a question and a gate: answering only starts a turn that fails again" do
+      failure = failed(:auth_failed, 3)
+      ask = %{id: 1, question: "which branch?", blocking: false, asked_at: @now}
+
+      asked = view("a", ask: ask, turn_failure: failure)
+
+      gated =
+        view("b",
+          state: :awaiting_permission,
+          gate: gate("approval", @now),
+          turn_failure: failure
+        )
+
+      assert resolve(asked).kind == :turn_failing
+      assert resolve(gated).kind == :turn_failing
+    end
+
+    test "it ranks right after a red branch" do
+      kinds = Attention.kinds()
+      index = Enum.find_index(kinds, &(&1 == :turn_failing))
+
+      assert Enum.at(kinds, index - 1) == :red_main
+      assert Enum.at(kinds, index + 1) == :needs_answer
+    end
+
+    test "a failure with no detail still reads as a sentence" do
+      signal = resolve(view("a", turn_failure: failed(:auth_failed, 1, detail: nil)))
+
+      assert signal.detail == "1 failed turn (auth_failed)"
+    end
+  end
+
   describe "sensor_failing (#444)" do
     defp streak(id, failures, fields \\ []) do
       Enum.into(fields, %{

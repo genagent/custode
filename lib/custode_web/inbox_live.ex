@@ -363,6 +363,7 @@ defmodule CustodeWeb.InboxLive do
 
   defp kind_label(:host_down), do: "host down"
   defp kind_label(:red_main), do: "red branch"
+  defp kind_label(:turn_failing), do: "turns failing"
   defp kind_label(:disowned_check), do: "not its work"
   defp kind_label(:needs_answer), do: "question"
   defp kind_label(:approval), do: "approval"
@@ -374,6 +375,7 @@ defmodule CustodeWeb.InboxLive do
 
   defp kind_class(:host_down), do: "badge-error"
   defp kind_class(:red_main), do: "badge-error"
+  defp kind_class(:turn_failing), do: "badge-error"
   defp kind_class(:disowned_check), do: "badge-warning"
   defp kind_class(:needs_answer), do: "badge-accent"
   defp kind_class(:approval), do: "badge-warning"

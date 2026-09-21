@@ -28,6 +28,7 @@ defmodule Custode.Attention.Fleet do
   alias Custode.Sensor.Health
   alias Custode.Signal
   alias Custode.SpendLedger
+  alias Custode.TurnFailure
   alias Custode.Workflow.Launch
   alias Custode.Workflow.Run
   alias ObanClaude.Agent
@@ -49,6 +50,7 @@ defmodule Custode.Attention.Fleet do
       spend: SpendLedger.today_by_agent(),
       disowned: Disowned.by_repo(),
       sensor_failures: sensor_failures(),
+      turn_failures: turn_failures(),
       next_beats: Custode.NextBeat.pending(),
       routines: Map.new(routines, &{&1.id, &1})
     }
@@ -197,6 +199,7 @@ defmodule Custode.Attention.Fleet do
       ask: sources.asks |> Map.get(id, []) |> List.last() |> ask_view(),
       failing_prs: failing_prs(routine, sources.disowned),
       sensor_failures: Map.get(sources.sensor_failures, id, []),
+      turn_failure: Map.get(sources.turn_failures, id),
       default_branch: default_branch(routine),
       spend_today: Map.get(sources.spend, id, 0.0),
       budget: routine && routine.daily_budget_usd,
@@ -225,6 +228,51 @@ defmodule Custode.Attention.Fleet do
           Map.update(by_agent, sensor.notify, [fact], &[fact | &1])
       end
     end
+  end
+
+  # Agents whose most recent turn failed for a reason the next beat cannot fix
+  # (#527), keyed by agent. One read of the recent failures finds the
+  # candidates, and only a candidate's own feed is read for the streak, so a
+  # healthy fleet pays one query.
+  #
+  # Only entries carrying a `category` count as outcomes. `turn_failed` is
+  # also recorded for things that are not turns (a drain timeout, an
+  # undeliverable orphan notice), and those neither start nor break a streak.
+  defp turn_failures do
+    "turn_failed"
+    |> Custode.Feed.recent_by_event(limit: 100)
+    |> Enum.filter(&TurnFailure.from_entry/1)
+    |> Enum.uniq_by(& &1["agent"])
+    |> Enum.reject(&TurnFailure.retryable?(TurnFailure.from_entry(&1)))
+    |> Enum.flat_map(&turn_failure(&1["agent"]))
+    |> Map.new()
+  end
+
+  defp turn_failure(agent_id) do
+    agent_id
+    |> Custode.Feed.for_agent(50)
+    |> Enum.reverse()
+    |> Enum.filter(&(&1["event"] == "turn" or TurnFailure.from_entry(&1) != nil))
+    |> Enum.take_while(&(&1["event"] == "turn_failed"))
+    |> turn_failure_fact(agent_id)
+  end
+
+  # A success since the failure leaves nothing to take, so nothing is owed.
+  defp turn_failure_fact([], _agent_id), do: []
+
+  defp turn_failure_fact([latest | _older] = failed, agent_id) do
+    category = TurnFailure.from_entry(latest)
+    streak = Enum.take_while(failed, &(TurnFailure.from_entry(&1) == category))
+
+    [
+      {agent_id,
+       %{
+         category: category,
+         failures: length(streak),
+         detail: latest["detail"],
+         since: streak |> List.last() |> Map.get("at") |> parse_at()
+       }}
+    ]
   end
 
   # The gen_statem knows it is gated; only the durable row knows since when,
