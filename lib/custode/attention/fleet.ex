@@ -234,11 +234,22 @@ defmodule Custode.Attention.Fleet do
     %{
       kind: gate.kind,
       class: gate.class,
+      risk: gate.risk,
+      risk_paths: risk_paths(gate.risk_paths),
       detail: gate.detail,
       action_id: gate.action_id,
       opened_at: gate.inserted_at
     }
   end
+
+  defp risk_paths(json) when is_binary(json) do
+    case Jason.decode(json) do
+      {:ok, paths} when is_list(paths) -> paths
+      _other -> []
+    end
+  end
+
+  defp risk_paths(_none), do: []
 
   defp ask_view(nil), do: nil
   defp ask_view(ask), do: %{id: ask.id, question: ask.question, asked_at: ask.inserted_at}

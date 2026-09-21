@@ -16,6 +16,7 @@ defmodule Custode.Gates do
   import Ecto.Query, only: [from: 2]
 
   alias Custode.Gates.Class
+  alias Custode.Gates.Risk
   alias Custode.Repo
 
   defmodule Gate do
@@ -29,6 +30,11 @@ defmodule Custode.Gates do
       field(:detail, :string)
       # the class of action an approval asks for (#451); see Custode.Gates.Class
       field(:class, :string)
+      # the pull request the gate acts on and the risk of the paths it changes
+      # (#451); see Custode.Gates.Risk. nil risk = nobody looked, not low.
+      field(:pr_number, :integer)
+      field(:risk, :string)
+      field(:risk_paths, :string)
       field(:status, :string, default: "open")
       # what was decided, by whom, from which surface, and why (#448). `status`
       # says the gate is over; these say how it ended.
@@ -235,6 +241,7 @@ defmodule Custode.Gates do
   @spec approval_rates_by_class() :: [
           %{
             class: String.t(),
+            risk: String.t() | nil,
             approved: integer(),
             rejected: integer(),
             rate: float(),
@@ -248,18 +255,24 @@ defmodule Custode.Gates do
           where:
             g.kind == "approval" and g.outcome in ["approved", "rejected"] and
               not is_nil(g.class),
-          select: {g.class, g.outcome, g.inserted_at, g.updated_at}
+          select: {{g.class, g.risk}, g.outcome, g.inserted_at, g.updated_at}
         )
       )
 
-    by_class = Enum.group_by(rows, &elem(&1, 0))
+    by_key = Enum.group_by(rows, &elem(&1, 0))
 
-    for class <- Class.ids(), decided = Map.get(by_class, class), decided != nil do
+    # one row per class and risk (#451): a class splits only where a risk was
+    # assessed, and "not assessed" (nil) is its own row, last
+    for class <- Class.ids(),
+        risk <- Risk.levels() ++ [nil],
+        decided = Map.get(by_key, {class, risk}),
+        decided != nil do
       approved = Enum.count(decided, &(elem(&1, 1) == "approved"))
       waits = Enum.map(decided, fn {_c, _o, opened, closed} -> DateTime.diff(closed, opened) end)
 
       %{
         class: class,
+        risk: risk,
         approved: approved,
         rejected: length(decided) - approved,
         rate: approved / length(decided),
@@ -323,29 +336,83 @@ defmodule Custode.Gates do
           {to_string(state), nil, nil}
       end
 
-    Repo.insert!(%Gate{
-      agent_id: agent_id,
-      kind: kind,
-      action_id: action_id,
-      detail: detail,
-      class: declared_class(agent_id, kind)
-    })
+    turn = raising_turn(agent_id, kind)
+    class = turn && Class.normalize(turn["action_class"])
+
+    gate =
+      Repo.insert!(%Gate{
+        agent_id: agent_id,
+        kind: kind,
+        action_id: action_id,
+        detail: detail,
+        class: class,
+        pr_number: acted_on_pr(class, turn)
+      })
+
+    assess_risk(gate)
+    gate
   end
 
-  # The engine carries only the action's description, so the class the agent
-  # declared is read from the turn that raised the gate. That turn's feed
-  # entry is written on `[:oban_claude, :run, :stop]`, which the worker emits
-  # BEFORE it casts `job_finished`, so it is there by the time the transition
-  # that brought us here fires. A turn that did not raise this gate (an older
-  # entry, a different directive) declares nothing.
-  defp declared_class(agent_id, "approval") do
+  # The engine carries only the action's description, so what else the agent
+  # declared (the class, the pull requests it acted on) is read from the turn
+  # that raised the gate. That turn's feed entry is written on
+  # `[:oban_claude, :run, :stop]`, which the worker emits BEFORE it casts
+  # `job_finished`, so it is there by the time the transition that brought us
+  # here fires. A turn that did not raise this gate (an older entry, a
+  # different directive) declares nothing.
+  defp raising_turn(agent_id, "approval") do
     case Custode.Feed.recent_by_event("turn", agent: agent_id, limit: 1) do
-      [%{"directive" => "request_permission", "action_class" => class}] -> Class.normalize(class)
+      [%{"directive" => "request_permission"} = turn] -> turn
       _none -> nil
     end
   end
 
-  defp declared_class(_agent_id, _kind), do: nil
+  defp raising_turn(_agent_id, _kind), do: nil
+
+  # Classes that act on a pull request that already exists, so there is a diff
+  # to read. `implement` has none yet. Exactly one number or no claim: a turn
+  # that touched three PRs does not say which one the gate is about.
+  @pr_classes ~w(ready_pr merge pr_maintain review)
+
+  defp acted_on_pr(class, %{"prs" => [number]}) when class in @pr_classes and is_integer(number),
+    do: number
+
+  defp acted_on_pr(_class, _turn), do: nil
+
+  # The diff is a GitHub read, so it happens after the row exists and off the
+  # telemetry handler. Whatever goes wrong leaves `risk` nil: unknown is not
+  # low. `:gate_risk_async` is false in tests so a test can assert on the row.
+  defp assess_risk(%Gate{pr_number: nil}), do: :ok
+
+  defp assess_risk(%Gate{} = gate) do
+    if Application.get_env(:custode, :gate_risk_async, true),
+      do: Task.Supervisor.start_child(Custode.TaskSupervisor, fn -> record_risk(gate) end),
+      else: record_risk(gate)
+
+    :ok
+  end
+
+  @doc false
+  def record_risk(%Gate{id: id, agent_id: agent_id, pr_number: number}) do
+    with %{repo: repo} when is_binary(repo) <- Custode.Routine.get(agent_id),
+         {:ok, %{files: files}} <- Custode.Repository.pr_diff(repo, number) do
+      %{level: level, matched: matched} = files |> Risk.paths() |> Risk.assess()
+
+      Repo.update_all(from(g in Gate, where: g.id == ^id),
+        set: [risk: level, risk_paths: Jason.encode!(matched)]
+      )
+
+      # the same nudge a transition sends, so an open page redraws the gate
+      Custode.PubSubBridge.broadcast({:status_changed, agent_id})
+    end
+
+    :ok
+  rescue
+    exception ->
+      require Logger
+      Logger.warning("gate #{id}: risk not assessed: " <> Exception.message(exception))
+      :ok
+  end
 
   # The outcome goes on the row as well as the feed card (#448): the card is
   # JSON inside a feed entry, which nothing can aggregate over.
