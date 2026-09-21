@@ -17,6 +17,17 @@ defmodule CustodeWeb.Layouts do
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="csrf-token" content={Plug.CSRFProtection.get_csrf_token()} />
         <title>custode</title>
+        <%!-- Inline, so no page load asks the router for /favicon.ico or an
+              apple-touch-icon and logs three 404s. There is no asset pipeline
+              to put a file in. --%>
+        <link
+          rel="icon"
+          href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f2937'/%3E%3Ccircle cx='16' cy='16' r='7' fill='none' stroke='%23fbbf24' stroke-width='3'/%3E%3C/svg%3E"
+        />
+        <link
+          rel="apple-touch-icon"
+          href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%231f2937'/%3E%3Ccircle cx='16' cy='16' r='7' fill='none' stroke='%23fbbf24' stroke-width='3'/%3E%3C/svg%3E"
+        />
         <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
         <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
         <script src="/vendor/phoenix/phoenix.min.js"></script>
