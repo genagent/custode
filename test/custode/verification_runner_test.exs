@@ -45,46 +45,69 @@ defmodule Custode.Verification.RunnerTest do
   end
 
   test "timeout kills descendants in the owned process tree" do
-    root = Path.join(System.tmp_dir!(), "verification-tree-#{Ecto.UUID.generate()}")
-    script = Path.join(root, "spawn.sh")
-    marker = Path.join(root, "orphan")
-    File.mkdir_p!(root)
-
-    File.write!(
-      script,
-      """
-      #!/bin/sh
-      (sleep 0.3; printf orphan > "$1") &
-      sleep 5
-      """
-    )
+    fixture = process_tree_fixture(:wait)
 
     spec =
       spec!(
         name: "timeout",
-        argv: ["/bin/sh", script, marker],
-        timeout_ms: 50
+        argv: ["/bin/sh", fixture.script, fixture.root],
+        timeout_ms: 100
       )
 
-    assert {:ok, result} = Runner.run(spec, File.cwd!())
+    task = Task.async(fn -> Runner.run(spec, File.cwd!()) end)
+    assert eventually(fn -> File.exists?(fixture.ready) end)
+
+    :erlang.suspend_process(task.pid)
+    Process.sleep(150)
+    assert File.exists?(fixture.side_effect)
+    :erlang.resume_process(task.pid)
+
+    assert {:ok, result} = Task.await(task, 5_000)
     assert result["status"] == "timeout"
-    Process.sleep(500)
-    refute File.exists?(marker)
-    File.rm_rf!(root)
+    assert_processes_dead(fixture)
   end
 
-  test "cancellation is distinct from timeout" do
+  test "cancellation kills descendants and is distinct from timeout" do
+    fixture = process_tree_fixture(:wait)
+
     spec =
       spec!(
         name: "cancel",
-        argv: ["/bin/sleep", "5"],
+        argv: ["/bin/sh", fixture.script, fixture.root],
         timeout_ms: 5_000
       )
 
-    assert {:ok, result} =
-             Runner.run(spec, File.cwd!(), cancelled?: fn -> true end)
+    task =
+      Task.async(fn ->
+        Runner.run(spec, File.cwd!(), cancelled?: fn -> File.exists?(fixture.cancel) end)
+      end)
 
+    assert eventually(fn -> File.exists?(fixture.ready) end)
+    File.touch!(fixture.cancel)
+
+    assert {:ok, result} = Task.await(task, 2_000)
     assert result["status"] == "cancellation"
+    assert_processes_dead(fixture)
+  end
+
+  test "a normal parent exit cleans up observed descendants before returning" do
+    fixture = process_tree_fixture(:release)
+
+    spec =
+      spec!(
+        name: "normal_exit",
+        argv: ["/bin/sh", fixture.script, fixture.root],
+        timeout_ms: 5_000
+      )
+
+    task = Task.async(fn -> Runner.run(spec, File.cwd!()) end)
+    assert eventually(fn -> File.exists?(fixture.ready) end)
+    assert eventually(fn -> observed_descendant?(fixture) end)
+    File.touch!(fixture.release)
+
+    assert {:ok, result} = Task.await(task, 2_000)
+    assert result["status"] == "pass"
+    assert_processes_dead(fixture)
   end
 
   test "a terminated command exit is recorded as cancellation" do
@@ -213,5 +236,124 @@ defmodule Custode.Verification.RunnerTest do
     ]
 
     Keyword.merge(defaults, overrides)
+  end
+
+  defp process_tree_fixture(parent_action) do
+    root = Path.join(System.tmp_dir!(), "verification-tree-#{Ecto.UUID.generate()}")
+    script = Path.join(root, "spawn.sh")
+    File.mkdir_p!(root)
+
+    parent_command =
+      case parent_action do
+        :wait -> "sleep 5"
+        :release -> ~s(while [ ! -f "$1/release" ]; do sleep 0.01; done; sleep 0.1)
+      end
+
+    File.write!(
+      script,
+      """
+      #!/bin/sh
+      printf '%s' "$$" > "$1/parent_pid"
+      /bin/sh -c '
+        printf "%s" "$$" > "$1/child_pid"
+        trap "exit 0" TERM INT
+        sleep 30 &
+        printf "%s" "$!" > "$1/grandchild_pid"
+        printf completed > "$1/side_effect"
+        printf ready > "$1/ready"
+        wait
+      ' child "$1" &
+      #{parent_command}
+      """
+    )
+
+    fixture = %{
+      root: root,
+      script: script,
+      ready: Path.join(root, "ready"),
+      side_effect: Path.join(root, "side_effect"),
+      cancel: Path.join(root, "cancel"),
+      release: Path.join(root, "release")
+    }
+
+    on_exit(fn ->
+      for pid <- fixture_pids(fixture), process_alive?(pid) do
+        System.cmd("kill", ["-KILL", Integer.to_string(pid)], stderr_to_stdout: true)
+      end
+
+      File.rm_rf!(root)
+    end)
+
+    fixture
+  end
+
+  defp assert_processes_dead(fixture) do
+    pids = fixture_pids(fixture)
+    assert length(pids) == 3
+    assert eventually(fn -> Enum.all?(pids, &(not process_alive?(&1))) end)
+  end
+
+  defp observed_descendant?(fixture) do
+    case fixture_pids(fixture) do
+      [parent, child | _rest] -> child in descendants_of(parent)
+      _incomplete -> false
+    end
+  end
+
+  defp fixture_pids(fixture) do
+    ["parent_pid", "child_pid", "grandchild_pid"]
+    |> Enum.map(&File.read(Path.join(fixture.root, &1)))
+    |> Enum.flat_map(fn
+      {:ok, pid} ->
+        case Integer.parse(pid) do
+          {value, ""} -> [value]
+          _invalid -> []
+        end
+
+      {:error, _reason} ->
+        []
+    end)
+  end
+
+  defp descendants_of(parent) do
+    case System.cmd("ps", ["-axo", "pid=,ppid="], stderr_to_stdout: true) do
+      {output, 0} ->
+        output
+        |> String.split("\n", trim: true)
+        |> Enum.flat_map(&direct_child(&1, parent))
+
+      {_output, _status} ->
+        []
+    end
+  end
+
+  defp direct_child(line, parent) do
+    case line |> String.split(~r/\s+/, trim: true) |> Enum.map(&Integer.parse/1) do
+      [{pid, ""}, {^parent, ""}] -> [pid]
+      _other -> []
+    end
+  end
+
+  defp process_alive?(pid) do
+    case System.cmd("ps", ["-p", Integer.to_string(pid), "-o", "stat="], stderr_to_stdout: true) do
+      {state, 0} ->
+        state = String.trim(state)
+        state != "" and not String.starts_with?(state, "Z")
+
+      {_output, _status} ->
+        false
+    end
+  end
+
+  defp eventually(fun, remaining \\ 100)
+  defp eventually(fun, 0), do: fun.()
+
+  defp eventually(fun, remaining) do
+    if fun.() do
+      true
+    else
+      Process.sleep(10)
+      eventually(fun, remaining - 1)
+    end
   end
 end

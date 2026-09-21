@@ -4,13 +4,18 @@ defmodule Custode.Verification.Runner do
 
   A fixed private shell helper performs only stdout/stderr redirection before
   `exec`. Command text is never interpolated or evaluated by that helper.
+  Completion includes terminating every descendant identity observed while the
+  command was running. A cleanup that cannot verify process death is reported
+  as an infrastructure error.
   """
 
   alias Custode.Verification.CommandSpec
 
-  @runner_version "verification-runner-v1"
+  @runner_version "verification-runner-v2"
   @poll_ms 10
+  @tree_poll_ms 100
   @kill_grace_ms 50
+  @kill_verify_ms 200
   @cancellation_exit_codes [130, 137, 143]
 
   @spec run(CommandSpec.t() | map(), String.t(), keyword()) :: {:ok, map()}
@@ -123,10 +128,22 @@ defmodule Custode.Verification.Runner do
          {:ok, port} <- open_port(spec, runtime, stdout, stderr) do
       os_pid = port_pid(port)
       deadline = started + spec.timeout_ms
-      forced = await(port, os_pid, stdout, stderr, spec, deadline, options)
+
+      outcome =
+        await(
+          port,
+          os_pid,
+          stdout,
+          stderr,
+          spec,
+          deadline,
+          options,
+          %{known: %{}, next_scan: started}
+        )
+
       output = capture_output(stdout, stderr, spec)
       File.rm_rf(directory)
-      finish_execution(spec, forced, started, output)
+      finish_execution(spec, outcome, started, output)
     else
       {:error, reason} ->
         File.rm_rf(directory)
@@ -176,33 +193,44 @@ defmodule Custode.Verification.Runner do
     end
   end
 
-  defp await(port, os_pid, stdout, stderr, spec, deadline, options) do
+  defp await(port, os_pid, stdout, stderr, spec, deadline, options, tree) do
     receive do
       {^port, {:exit_status, status}} ->
-        {:exit, status}
+        finish_process_tree(port, Map.delete(tree.known, os_pid), {:exit, status})
 
       {^port, :eof} ->
-        await(port, os_pid, stdout, stderr, spec, deadline, options)
+        await(port, os_pid, stdout, stderr, spec, deadline, options, tree)
 
       {^port, {:data, _unexpected}} ->
-        await(port, os_pid, stdout, stderr, spec, deadline, options)
+        await(port, os_pid, stdout, stderr, spec, deadline, options, tree)
     after
       @poll_ms ->
+        tree = maybe_observe_process_tree(os_pid, tree)
+
         cond do
           cancelled?(options) ->
-            terminate(port, os_pid)
-            {:forced, "cancellation", :cancelled}
+            finish_process_tree(
+              port,
+              observe_process_tree(os_pid, tree.known),
+              {:forced, "cancellation", :cancelled}
+            )
 
           System.monotonic_time(:millisecond) >= deadline ->
-            terminate(port, os_pid)
-            {:forced, "timeout", :timeout}
+            finish_process_tree(
+              port,
+              observe_process_tree(os_pid, tree.known),
+              {:forced, "timeout", :timeout}
+            )
 
           output_limit_exceeded?(stdout, stderr, spec.output_limit_bytes) ->
-            terminate(port, os_pid)
-            {:forced, "policy_refusal", :output_limit_exceeded}
+            finish_process_tree(
+              port,
+              observe_process_tree(os_pid, tree.known),
+              {:forced, "policy_refusal", :output_limit_exceeded}
+            )
 
           true ->
-            await(port, os_pid, stdout, stderr, spec, deadline, options)
+            await(port, os_pid, stdout, stderr, spec, deadline, options, tree)
         end
     end
   end
@@ -223,26 +251,120 @@ defmodule Custode.Verification.Runner do
     file_size(stdout) > limit or file_size(stderr) > limit
   end
 
-  defp terminate(port, nil) do
-    close_port(port)
+  defp observe_process_tree(nil, known), do: known
+
+  defp observe_process_tree(root_pid, known) do
+    case process_snapshot() do
+      {:ok, snapshot} ->
+        observed =
+          [root_pid | descendants(root_pid, snapshot)]
+          |> then(&Map.take(snapshot, &1))
+          |> Map.new(fn {pid, process} -> {pid, process.started} end)
+
+        Map.merge(known, observed)
+
+      {:error, _reason} ->
+        known
+    end
   end
 
-  defp terminate(port, root_pid) do
-    signal([root_pid], "-STOP")
+  defp maybe_observe_process_tree(root_pid, tree) do
+    now = System.monotonic_time(:millisecond)
 
-    pids =
-      Enum.reduce(1..3, MapSet.new([root_pid]), fn _iteration, known ->
-        observed = descendants(root_pid) |> MapSet.new() |> MapSet.union(known)
-        signal(MapSet.to_list(observed), "-STOP")
-        observed
+    if now >= tree.next_scan do
+      %{known: observe_process_tree(root_pid, tree.known), next_scan: now + @tree_poll_ms}
+    else
+      tree
+    end
+  end
+
+  defp finish_process_tree(port, known, outcome) when map_size(known) == 0 do
+    close_port(port)
+    outcome
+  end
+
+  defp finish_process_tree(port, known, outcome) do
+    owned = alive_owned(known)
+    pids = Map.keys(owned)
+    signal(pids, "-STOP")
+
+    frozen =
+      Enum.reduce(1..3, owned, fn _iteration, observed ->
+        discovered = discover_owned_descendants(observed)
+
+        signal(Map.keys(discovered), "-STOP")
+        discovered
       end)
-      |> MapSet.to_list()
 
+    pids = Map.keys(frozen)
     signal(Enum.reverse(pids), "-TERM")
     signal(pids, "-CONT")
-    Process.sleep(@kill_grace_ms)
-    signal(Enum.reverse(pids), "-KILL")
+
+    survivors = await_death(frozen, @kill_grace_ms)
+    signal(survivors |> Map.keys() |> Enum.reverse(), "-KILL")
+    survivors = await_death(survivors, @kill_verify_ms)
     close_port(port)
+
+    case Map.keys(survivors) do
+      [] -> outcome
+      pids -> {:cleanup_failed, outcome, Enum.sort(pids)}
+    end
+  end
+
+  defp discover_owned_descendants(owned) do
+    case process_snapshot() do
+      {:ok, snapshot} ->
+        current = alive_owned(owned, snapshot)
+
+        discovered =
+          current
+          |> Map.keys()
+          |> Enum.flat_map(&descendants(&1, snapshot))
+          |> then(&Map.take(snapshot, &1))
+          |> Map.new(fn {pid, process} -> {pid, process.started} end)
+
+        Map.merge(current, discovered)
+
+      {:error, _reason} ->
+        owned
+    end
+  end
+
+  defp await_death(pids, timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    await_death_until(pids, deadline)
+  end
+
+  defp await_death_until(pids, deadline) do
+    survivors = alive_owned(pids)
+
+    cond do
+      map_size(survivors) == 0 ->
+        %{}
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        survivors
+
+      true ->
+        Process.sleep(@poll_ms)
+        await_death_until(survivors, deadline)
+    end
+  end
+
+  defp alive_owned(owned) do
+    case process_snapshot() do
+      {:ok, snapshot} -> alive_owned(owned, snapshot)
+      {:error, _reason} -> owned
+    end
+  end
+
+  defp alive_owned(owned, snapshot) do
+    Map.filter(owned, fn {pid, started} ->
+      case Map.get(snapshot, pid) do
+        %{started: ^started, state: state} -> not String.starts_with?(state, "Z")
+        _missing_or_reused -> false
+      end
+    end)
   end
 
   defp close_port(port) do
@@ -251,26 +373,41 @@ defmodule Custode.Verification.Runner do
     ArgumentError -> :ok
   end
 
-  defp descendants(root_pid) do
-    case System.cmd("ps", ["-axo", "pid=,ppid="], stderr_to_stdout: true) do
+  defp process_snapshot do
+    case System.cmd("ps", ["-axo", "pid=,ppid=,stat=,lstart="], stderr_to_stdout: true) do
       {output, 0} ->
-        children =
+        snapshot =
           output
           |> String.split("\n", trim: true)
-          |> Enum.reduce(%{}, &group_process/2)
+          |> Enum.reduce(%{}, &put_process/2)
 
-        collect_descendants([root_pid], children, [])
+        {:ok, snapshot}
 
-      {_output, _status} ->
-        []
+      {output, status} ->
+        {:error, {:process_snapshot_failed, status, String.trim(output)}}
+    end
+  rescue
+    error -> {:error, {:process_snapshot_failed, Exception.message(error)}}
+  end
+
+  defp put_process(line, snapshot) do
+    case String.split(line, ~r/\s+/, trim: true, parts: 4) do
+      [pid, parent, state, started] ->
+        with {pid, ""} <- Integer.parse(pid),
+             {parent, ""} <- Integer.parse(parent) do
+          Map.put(snapshot, pid, %{parent: parent, state: state, started: started})
+        else
+          _invalid -> snapshot
+        end
+
+      _invalid ->
+        snapshot
     end
   end
 
-  defp group_process(line, grouped) do
-    case line |> String.split(~r/\s+/, trim: true) |> Enum.map(&Integer.parse/1) do
-      [{pid, ""}, {parent, ""}] -> Map.update(grouped, parent, [pid], &[pid | &1])
-      _invalid -> grouped
-    end
+  defp descendants(root_pid, snapshot) do
+    children = Enum.group_by(snapshot, fn {_pid, process} -> process.parent end, &elem(&1, 0))
+    collect_descendants([root_pid], children, [])
   end
 
   defp collect_descendants([], _children, collected), do: collected
@@ -312,6 +449,20 @@ defmodule Custode.Verification.Runner do
 
   defp finish_execution(spec, {:forced, status, reason}, started, output),
     do: {:ok, result(spec, status, reason, nil, started, output)}
+
+  defp finish_execution(spec, {:cleanup_failed, outcome, pids}, started, output) do
+    exit_code = if match?({:exit, _status}, outcome), do: elem(outcome, 1)
+
+    {:ok,
+     result(
+       spec,
+       "infrastructure_error",
+       {:process_tree_cleanup_failed, pids},
+       exit_code,
+       started,
+       output
+     )}
+  end
 
   defp result(spec, status, reason, exit_code, started, output) do
     stdout = output["stdout"]
