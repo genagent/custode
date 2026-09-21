@@ -33,6 +33,15 @@ defmodule CustodeWeb.Console.Item do
       {@signal.detail}
     </p>
 
+    <%!-- what the agent was doing when the question came up --%>
+    <p
+      :if={context(@signal)}
+      id="ask-context"
+      class="mt-3 whitespace-pre-line border-l-2 border-base-300 pl-3 text-sm text-base-content/60"
+    >
+      {context(@signal)}
+    </p>
+
     <.evidence item={@signal.item} repo={@subject.repo} checks={@checks} />
     <.draft_batch :if={@subject.draft_batch} drafts={@subject.draft_batch} />
 
@@ -59,6 +68,16 @@ defmodule CustodeWeb.Console.Item do
       </.link>
     </p>
     """
+  end
+
+  defp context(%Signal{resolving: resolving}) do
+    Enum.find_value(resolving, fn
+      %{op: :answer_ask, args: %{context: context}} when is_binary(context) and context != "" ->
+        context
+
+      _other ->
+        nil
+    end)
   end
 
   attr(:item, :any, required: true)
@@ -269,6 +288,23 @@ defmodule CustodeWeb.Console.Item do
       ></textarea>
       <button type="submit" class="btn btn-primary btn-sm self-end">answer</button>
     </form>
+    <%!-- question-inline.png's "or just say": answers the agent said it would
+          accept. The click sends an INDEX; the text is read back from the
+          signal, so only what the agent offered can be sent this way. --%>
+    <div :if={replies(@op) != []} id="suggested-replies" class="mt-4 w-full">
+      <h3 class="mb-2 text-xs font-bold uppercase tracking-widest text-base-content/50">
+        or just say
+      </h3>
+      <button
+        :for={{reply, index} <- Enum.with_index(replies(@op))}
+        type="button"
+        phx-click="reply"
+        phx-value-index={index}
+        class="mb-2 block w-full rounded-lg border border-base-300 bg-base-100 px-3 py-2 text-left text-sm hover:border-base-content/40"
+      >
+        {reply}
+      </button>
+    </div>
     """
   end
 
@@ -289,4 +325,7 @@ defmodule CustodeWeb.Console.Item do
     </button>
     """
   end
+
+  defp replies(%{args: %{replies: replies}}) when is_list(replies), do: replies
+  defp replies(_op), do: []
 end

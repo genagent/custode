@@ -250,10 +250,7 @@ defmodule Custode.Attention.Fleet do
 
   defp turn_failure(agent_id) do
     agent_id
-    |> Custode.Feed.for_agent(50)
-    |> Enum.reverse()
-    |> Enum.filter(&(&1["event"] == "turn" or TurnFailure.from_entry(&1) != nil))
-    |> Enum.take_while(&(&1["event"] == "turn_failed"))
+    |> TurnFailure.streak()
     |> turn_failure_fact(agent_id)
   end
 
@@ -307,7 +304,16 @@ defmodule Custode.Attention.Fleet do
   defp risk_paths(_none), do: []
 
   defp ask_view(nil), do: nil
-  defp ask_view(ask), do: %{id: ask.id, question: ask.question, asked_at: ask.inserted_at}
+
+  defp ask_view(ask) do
+    %{
+      id: ask.id,
+      question: ask.question,
+      detail: ask.detail,
+      replies: Asks.replies(ask),
+      asked_at: ask.inserted_at
+    }
+  end
 
   # The live status payload for a gated agent: the question text, or the
   # pending action's description.

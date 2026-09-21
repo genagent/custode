@@ -326,6 +326,43 @@ defmodule CustodeWeb.ConsoleLiveTest do
     refute html =~ ~s(href="/console/#{rusty}")
   end
 
+  # design session, question-inline.png: "or just say"
+  test "a question's suggested replies are one-click answers, and only those can be sent",
+       %{conn: conn, asker: asker} do
+    {:ok, ask} =
+      Asks.ask(asker.id, "PR #400 is red and I filed it as yours. Take it over?",
+        detail: "sweeping open PRs; #400 touches your LSP config",
+        replies: ["Yes, take it over", "No, leave it to me", "   ", String.duplicate("x", 200)]
+      )
+
+    {:ok, view, html} = live(conn, "/console/#{asker.id}")
+
+    assert html =~ "sweeping open PRs; #400 touches your LSP config"
+    replies = view |> element("#suggested-replies") |> render()
+    assert replies =~ "Yes, take it over"
+    assert replies =~ "No, leave it to me"
+    # blank and over-long suggestions were dropped when the ask was filed
+    assert length(Regex.scan(~r/phx-click="reply"/, replies)) == 2
+
+    # an index the agent never offered sends nothing
+    assert render_click(view, "reply", %{"index" => "7"}) =~ "no longer pending"
+    assert [%{status: "open"}] = Asks.open()
+
+    view |> element(~s(button[phx-click=reply][phx-value-index="1"])) |> render_click()
+    assert Asks.open() == []
+    assert %{answer: "No, leave it to me"} = Custode.Repo.get!(Asks.Ask, ask.id)
+  end
+
+  test "an ask with no suggestions is answered by typing, as before",
+       %{conn: conn, asker: asker} do
+    {:ok, _ask} = Asks.ask(asker.id, "is the diff yours?")
+    {:ok, view, _html} = live(conn, "/console/#{asker.id}")
+
+    refute has_element?(view, "#suggested-replies")
+    refute has_element?(view, "#ask-context")
+    assert has_element?(view, "textarea[name=text]")
+  end
+
   test "the item pane points at the next subject that needs you, and only then",
        %{conn: conn, asker: asker, sleeper: sleeper} do
     {:ok, _ask} = Asks.ask(asker.id, "is the diff yours?")

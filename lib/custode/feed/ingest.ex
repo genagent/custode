@@ -69,6 +69,11 @@ defmodule Custode.Feed.Ingest do
       },
       notify: true
     )
+
+    # After the entry, so the streak it reads includes this failure (#543).
+    # The turn's own transition to :running is long past, so NextBeat's
+    # clear-on-running cannot take this back; the NEXT turn start does.
+    Custode.BeatBackoff.after_failure(agent_of(meta), category)
   end
 
   defp do_handle_event([:oban_claude, :agent, :transition], _measurements, meta, _config) do
