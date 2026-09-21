@@ -223,10 +223,16 @@ defmodule Custode.Operator.Actions do
 
   @doc """
   Drain for a restart (#132): pause the queues, let executing turns finish,
-  stop the node. Returns at once with how many turns it is waiting on.
+  stop the node. Confirms closed admission before returning how many turns
+  it is waiting on, or an error when a queue cannot confirm its pause.
   """
-  @spec drain(keyword()) :: {:ok, non_neg_integer()}
-  def drain(opts \\ []), do: {:ok, Custode.start_drain(opts[:timeout_ms])}
+  @spec drain(keyword()) :: {:ok, non_neg_integer()} | {:error, String.t()}
+  def drain(opts \\ []) do
+    case Custode.start_drain(opts[:timeout_ms], Keyword.delete(opts, :timeout_ms)) do
+      count when is_integer(count) -> {:ok, count}
+      {:error, _reason} = error -> error
+    end
+  end
 
   @doc """
   Approve the HTML panel an agent proposed for its own page (#100). The

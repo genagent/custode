@@ -226,12 +226,16 @@ defmodule CustodeWeb.ConsoleLive do
   end
 
   def handle_event("drain", _params, socket) do
-    {:ok, executing} = Actions.drain(@opts)
+    case Actions.drain(@opts) do
+      {:ok, executing} ->
+        notice =
+          "draining: queues paused, #{executing} turn(s) executing. The node stops when they finish."
 
-    notice =
-      "draining: queues paused, #{executing} turn(s) executing. The node stops when they finish."
+        {:noreply, socket |> assign(fleet_notice: notice) |> refresh()}
 
-    {:noreply, socket |> assign(fleet_notice: notice) |> refresh()}
+      {:error, _reason} = error ->
+        after_action(error, socket, nil)
+    end
   end
 
   def handle_event("approve_panel", _params, socket),
