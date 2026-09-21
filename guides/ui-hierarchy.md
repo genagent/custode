@@ -30,7 +30,7 @@ One meaning per color family, enforced by `status_class/1` and
 
 | Color | Meaning | Statuses / events |
 |---|---|---|
-| red (`error`) | blocked on you | paused (any reason), turn_failed |
+| red (`error`) | blocked on you | paused (any reason), turn_failed, the `:turn_failing` signal (#527) |
 | yellow (`warning`) | wants you | needs approval, needs answer, stale gates |
 | blue (`info`) | working | running |
 | grey (muted text) | ambient | idle, offline, ended, cron, tags |

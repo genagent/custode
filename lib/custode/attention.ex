@@ -40,17 +40,18 @@ defmodule Custode.Attention do
   | # | kind | condition |
   | - | ---- | --------- |
   | 1 | `:red_main` | the repository's default branch is failing (#310) |
-  | 2 | `:needs_answer` | an open question, blocking or not (#299) |
-  | 3 | `:approval` | a gate is open that only the operator can pass |
-  | 4 | `:disowned_check` | a red check the agent declared not its work (#313) |
-  | 5 | `:red_check` | failing checks on the agent's own open PRs |
-  | 6 | `:sensor_failing` | one of the agent's sensors has failed N runs in a row (#444) |
-  | 7 | `:rail_hit` | the daily rail is reached |
-  | 8 | `:stalled` | scheduled, running, producing no outcome (NOT IMPLEMENTED) |
-  | 9 | `:working` | a turn is executing right now |
-  | 10 | `:paused` | deliberately stopped |
-  | 11 | `:scheduled` | healthy, next beat known |
-  | 12 | `:quiet` | healthy, nothing found, nothing queued |
+  | 2 | `:turn_failing` | the agent's last turn failed for a reason the next beat cannot fix (#527) |
+  | 3 | `:needs_answer` | an open question, blocking or not (#299) |
+  | 4 | `:approval` | a gate is open that only the operator can pass |
+  | 5 | `:disowned_check` | a red check the agent declared not its work (#313) |
+  | 6 | `:red_check` | failing checks on the agent's own open PRs |
+  | 7 | `:sensor_failing` | one of the agent's sensors has failed N runs in a row (#444) |
+  | 8 | `:rail_hit` | the daily rail is reached |
+  | 9 | `:stalled` | scheduled, running, producing no outcome (NOT IMPLEMENTED) |
+  | 10 | `:working` | a turn is executing right now |
+  | 11 | `:paused` | deliberately stopped |
+  | 12 | `:scheduled` | healthy, next beat known |
+  | 13 | `:quiet` | healthy, nothing found, nothing queued |
 
   A question outranks an approval because a question is blocked on a human by
   definition, whereas a gate is a structured hold the agent chose to raise and
@@ -104,12 +105,14 @@ defmodule Custode.Attention do
 
   alias Custode.Attention.Projection
   alias Custode.Signal
+  alias Custode.TurnFailure
 
   # Ranked kinds, most urgent first. The index into this list IS the
   # precedence, so the table in the moduledoc and the ordering cannot drift.
   @precedence [
     :host_down,
     :red_main,
+    :turn_failing,
     :needs_answer,
     :approval,
     :workflow_launch,
@@ -128,6 +131,7 @@ defmodule Custode.Attention do
   @groups %{
     host_down: :needs_you,
     red_main: :needs_you,
+    turn_failing: :needs_you,
     needs_answer: :needs_you,
     approval: :needs_you,
     workflow_launch: :needs_you,
@@ -310,6 +314,11 @@ defmodule Custode.Attention do
       `%{id:, failures:, last_error:, since:}` (#444). Every streak, however
       short: the gatherer reports counts and the resolver holds the threshold,
       the same division as `:spend_today` and the rail.
+    * `:turn_failure` -- the agent's trailing run of failed turns with no
+      successful turn since, as `%{category:, failures:, detail:, since:}`, or
+      `nil` (#527). Only present when the latest failure's category is not
+      retryable (`Custode.TurnFailure`); `:failures` counts that category's
+      run.
     * `:spend_today` / `:budget` -- the daily ledger and the rail.
     * `:running_since` -- when the in-flight turn started, or `nil`.
     * `:cron` -- the schedule, or `nil` for a manual agent.
@@ -339,6 +348,7 @@ defmodule Custode.Attention do
   defp resolvers do
     [
       &red_main/2,
+      &turn_failing/2,
       &needs_answer/2,
       &approval/2,
       &disowned_check/2,
@@ -541,6 +551,39 @@ defmodule Custode.Attention do
           resolving: [op("Inspect", :open_agent, %{agent: view.id})]
         )
     end
+  end
+
+  # A turn that fails for a reason no later beat can fix (#527). A logged-out
+  # `claude` fails every turn, and the agent still reads `scheduled`: alive on
+  # every page, doing nothing (#443). In `:needs_you`, and above a question or
+  # a gate, because answering either only starts another turn that fails the
+  # same way.
+  #
+  # `auth_failed` and `config_error` are facts about the host, so one failure
+  # is enough. A crash or a refused cap can be one bad turn; those wait for a
+  # second in a row.
+  @immediate_turn_failures [:auth_failed, :config_error]
+
+  defp turn_failing(view, _context) do
+    case Map.get(view, :turn_failure) do
+      %{category: category, failures: failures} = failure
+      when category in @immediate_turn_failures or failures >= 2 ->
+        signal(view, :turn_failing, :high,
+          headline: TurnFailure.remedy(category),
+          detail: turn_failure_detail(failure),
+          item: {:turn_failure, category},
+          raised_at: Map.get(failure, :since),
+          resolving: [op("Inspect", :open_agent, %{agent: view.id})]
+        )
+
+      _none_or_a_blip ->
+        nil
+    end
+  end
+
+  defp turn_failure_detail(%{category: category, failures: failures} = failure) do
+    count = "#{failures} failed #{pluralise(failures, "turn")} (#{category})"
+    Enum.join([count | List.wrap(Map.get(failure, :detail))], ": ")
   end
 
   # A sensor that fails every run used to look exactly like one with nothing

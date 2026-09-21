@@ -34,7 +34,7 @@ defmodule Custode.Signal do
       :host_down                                                -> :needs_you
       :workflow_launch  :workflow_rail                          -> :needs_you
       :red_main  :needs_answer  :approval  :rail_hit  :stalled  -> :needs_you
-      :disowned_check                                           -> :needs_you
+      :disowned_check  :turn_failing                            -> :needs_you
       :red_check  :sensor_failing                               -> :watching
       :working                                       -> :working
       :scheduled                                     -> :scheduled
@@ -69,6 +69,7 @@ defmodule Custode.Signal do
   @type kind ::
           :host_down
           | :red_main
+          | :turn_failing
           | :needs_answer
           | :approval
           | :workflow_launch

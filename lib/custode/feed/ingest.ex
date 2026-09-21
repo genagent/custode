@@ -53,9 +53,19 @@ defmodule Custode.Feed.Ingest do
 
   defp do_handle_event([:oban_claude, :run, :exception], _measurements, meta, _config) do
     {kind, detail} = error_facts(meta.error)
+    # One classification, made here at the turn boundary (#527): readers ask
+    # "will the next beat fix this?" and must not each re-derive it from kind.
+    category = Custode.TurnFailure.classify(meta.error)
 
     Custode.Feed.record(
-      %{event: "turn_failed", agent: agent_of(meta), kind: kind, detail: detail},
+      %{
+        event: "turn_failed",
+        agent: agent_of(meta),
+        kind: kind,
+        detail: detail,
+        category: category,
+        retryable: Custode.TurnFailure.retryable?(category)
+      },
       notify: true
     )
   end
