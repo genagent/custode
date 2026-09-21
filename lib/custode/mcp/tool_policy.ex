@@ -104,6 +104,7 @@ defmodule Custode.MCP.ToolPolicy do
     "spend_today" => :read,
     # notebook
     "journal_append" => :self_write,
+    "journal_read" => :read,
     "compact_journal" => :self_write,
     "set_panel" => :self_write,
     "set_next_beat" => :self_write,

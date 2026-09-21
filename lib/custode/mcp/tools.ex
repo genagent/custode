@@ -60,7 +60,8 @@ defmodule Custode.MCP.Tools do
   end
 
   @doc """
-  Notebook/memory self-scope (#2, #488): WRITES ARE SELF-ONLY, READS ARE OPEN.
+  Notebook/memory self-scope (#2, #488): writes are self-only, as are
+  journal reads (#572). Other notebook and memory reads remain open.
 
   A record (journal, todos, memories, panel, drafts) is written only by the
   agent it belongs to, or by the operator. That holds for every kind of agent
@@ -73,7 +74,7 @@ defmodule Custode.MCP.Tools do
   a feature, and agents knowing about each other is what the mesh (#461)
   builds on. To tell another agent something, drop a note in its inbox.
   """
-  def check_self(frame, target_id) do
+  def check_self(frame, target_id, action \\ :write) when action in [:read, :write] do
     case Custode.MCP.caller(frame) do
       %{kind: :operator} ->
         :ok
@@ -82,9 +83,8 @@ defmodule Custode.MCP.Tools do
         :ok
 
       %{id: caller_id} ->
-        {:error,
-         "identity: #{caller_id} may not write #{target_id}'s records; " <>
-           "drop a note in its inbox instead"}
+        hint = if action == :write, do: "; drop a note in its inbox instead", else: ""
+        {:error, "identity: #{caller_id} may not #{action} #{target_id}'s records" <> hint}
     end
   end
 

@@ -91,7 +91,8 @@ what it returns.
 - **Notebook and memory.** Journal, todos, key-value memories and a
   self-curated panel, all in SQLite and written only through MCP tools.
   `journal.md` and `TODO.md` in the workspace are rendered views. Writes are
-  self-only, reads are open.
+  self-only. Journal reads are also self-only; todo, inbox and key-value
+  memory reads are open.
 - **Sensors.** Cheap cron jobs, never `claude`, that poll (CI status,
   contributors, feeds) and wake an agent with evidence only when something
   changed. Cheap sensor, expensive brain.
@@ -120,6 +121,26 @@ what it returns.
 
 Every MCP tool has an entry in `Custode.MCP.ToolPolicy`; a test fails, naming
 the tool, if one ships without it.
+
+### Journal reads over MCP
+
+`journal_read` reads SQLite directly on both `/mcp` and `/mcp/memory`.
+Routines and subagents can read only their own entries; the authenticated
+operator can select any identity. The caretaker gets no extra journal scope.
+
+| Optional argument | Contract |
+|---|---|
+| `routine_id` | String; defaults to the authenticated routine or subagent. The operator must select an identity. |
+| `agent_id` | Alias for `routine_id`; a nonblank `routine_id` takes precedence. |
+| `limit` | Integer, 1 through 100; defaults to 20. |
+| `search` | Case-insensitive title/body search using the notebook query. Empty or omitted searches do not filter. |
+| `live_only` | Boolean; defaults to true. False includes compacted entries until the janitor retires them. |
+
+The result is `{"entries": [...]}`, newest first (timestamp, then entry id).
+Each entry has `id`, nullable `title`, `body`, `inserted_at` (ISO 8601), and
+`compacted_at` (ISO 8601 or null for live entries). No entries returns an empty
+list. Invalid argument types are MCP invalid-params errors; an out-of-range
+limit, unauthorized identity or missing operator selection is a tool error.
 
 ## Development
 

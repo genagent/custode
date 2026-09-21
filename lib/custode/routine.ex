@@ -346,7 +346,8 @@ defmodule Custode.Routine do
     ask_operator
     list_routines agent_status start_agent prompt_agent await_agent
     agent_history approve_action reject_action run_job
-    journal_append compact_journal todo_add todo_list todo_complete inbox_list inbox_mark_filed
+    journal_append journal_read compact_journal
+    todo_add todo_list todo_complete inbox_list inbox_mark_filed
     set_next_beat
     remember recall forget
     repo_open_pr repo_open_issue repo_draft_issues repo_file_drafts

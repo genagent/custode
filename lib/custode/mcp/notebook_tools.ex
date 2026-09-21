@@ -1,9 +1,9 @@
 defmodule Custode.MCP.NotebookTools do
   @moduledoc """
-  The notebook write path for agents: journal, todos, and mechanical inbox
-  bookkeeping, all against the database (see `Custode.Notebook`) instead of
-  file edits -- so a routine agent needs NO filesystem write permission for
-  its bookkeeping.
+  The notebook tools for agents: journal reads and writes, todos, and
+  mechanical inbox bookkeeping, all against the database (see
+  `Custode.Notebook`) instead of file edits -- so a routine agent needs no
+  filesystem access to read its journal or write its bookkeeping.
 
   Identity: the bearer token says who is calling, so `routine_id` is optional
   on every self-scoped tool here and `agent_id` is accepted as its alias
@@ -52,6 +52,52 @@ defmodule Custode.MCP.NotebookTools.JournalAppend do
       {:error, message} -> fail(frame, message)
     end
   end
+end
+
+defmodule Custode.MCP.NotebookTools.JournalRead do
+  @moduledoc """
+  Read your own journal from the database, newest entries first. Defaults to
+  the latest 20 live entries, matching journal.md's compaction semantics.
+  Set live_only to false to include compacted entries until the janitor
+  retires them. Only the authenticated operator may read another identity.
+  """
+  use Anubis.Server.Component, type: :tool
+
+  import Custode.MCP.Tools
+
+  schema do
+    field(:routine_id, :string, description: "whose journal (defaults to the caller)")
+    field(:agent_id, :string, description: alias_for("routine_id"))
+    field(:limit, :integer, description: "max entries (default 20, range 1..100)")
+    field(:search, :string, description: "case-insensitive search in entry title or body")
+    field(:live_only, :boolean, description: "exclude compacted entries (default true)")
+  end
+
+  @impl true
+  def execute(params, frame) do
+    with {:ok, routine_id} <- fetch_self(params, frame),
+         :ok <- check_self(frame, routine_id, :read),
+         {:ok, limit} <- bounded_limit(params[:limit]) do
+      entries =
+        routine_id
+        |> Custode.Notebook.journal(limit,
+          search: params[:search],
+          live_only: params[:live_only] != false
+        )
+        |> Enum.map(&Map.take(&1, [:id, :title, :body, :inserted_at, :compacted_at]))
+
+      reply(frame, %{entries: entries})
+    else
+      {:error, message} -> fail(frame, message)
+    end
+  end
+
+  # Peri's numeric range validator also accepts floats for an integer field.
+  # Keep the schema's plain integer check, and enforce the bound here before
+  # the value reaches Ecto's limit expression.
+  defp bounded_limit(nil), do: {:ok, 20}
+  defp bounded_limit(limit) when is_integer(limit) and limit in 1..100, do: {:ok, limit}
+  defp bounded_limit(_limit), do: {:error, "limit must be a whole number from 1 through 100"}
 end
 
 defmodule Custode.MCP.NotebookTools.SetPanel do
