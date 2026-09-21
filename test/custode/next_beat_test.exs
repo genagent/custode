@@ -72,7 +72,11 @@ defmodule Custode.NextBeatTest do
         Scheduler.start_link(
           name: nil,
           autostart: false,
-          insert: fn routine_id -> send(test_pid, {:fired, routine_id}) end
+          insert_job: fn changeset ->
+            args = Ecto.Changeset.get_field(changeset, :args)
+            send(test_pid, {:fired, args["routine_id"]})
+            {:ok, %Oban.Job{args: args}}
+          end
         )
 
       assert id in Scheduler.tick(pid)

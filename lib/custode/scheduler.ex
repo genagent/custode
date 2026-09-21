@@ -21,9 +21,9 @@ defmodule Custode.Scheduler do
 
   Properties kept from Oban Cron:
 
-    * one insert per routine per matching minute -- a `last_fired` map keyed by
-      routine id holds the minute each last fired, so a timer that drifts and
-      fires twice inside one wall-clock minute still enqueues at most once
+    * one insert per routine per matching minute -- a `last_fired` map handles
+      timer drift in one scheduler process, while the Oban job carries a
+      durable routine/minute identity that survives scheduler restart
     * `@daily`/`@weekly` and friends keep working (the `Expression` parser
       handles them); `@reboot` becomes a one-time insert at boot, not a
       per-minute match (its `now?/2` is always true, which is why it is
@@ -47,7 +47,7 @@ defmodule Custode.Scheduler do
 
     * `:clock` -- a 0-arity fun returning the current `DateTime` (in the
       configured timezone by default)
-    * `:insert` -- a 1-arity fun given a routine id, enqueues its tick
+    * `:insert_job` -- a 1-arity fun given an Oban changeset, enqueues its tick
     * `:interval` -- ms between ticks; `nil` (default) aligns to the next
       minute boundary the way Oban Cron does
     * `:autostart` -- `false` skips arming the timer, so a test drives `tick/1`
@@ -55,6 +55,10 @@ defmodule Custode.Scheduler do
 
   use GenServer
 
+  require Logger
+
+  alias Custode.NextBeat
+  alias Custode.Repo
   alias Custode.Routine
   alias Custode.RoutineTick
   alias Oban.Cron.Expression
@@ -78,7 +82,10 @@ defmodule Custode.Scheduler do
   The routines in `routines` that match `now` and have not already fired for
   `now`'s minute. Returns `{fired_ids, updated_last_fired}`. Pure: no process,
   no insert. `@reboot` routines are never due here -- they fire once at boot.
-  `requested` is `%{routine_id => at}`, the agents' own next-beat requests.
+  `requested` is `%{routine_id => at_or_request}`, the agents' own next-beat
+  requests. Production passes full `NextBeat` rows so the handoff can consume
+  the exact request it observed; callers that only evaluate due work may pass
+  `DateTime` values.
   """
   def due(routines, now, last_fired, requested \\ %{}) do
     minute = truncate_to_minute(now)
@@ -99,6 +106,7 @@ defmodule Custode.Scheduler do
   # or not the cron matches this minute.
   defp due?(routine, now, minute, seen, requested_at) do
     expr = Expression.parse!(routine.cron)
+    requested_at = if match?(%NextBeat{}, requested_at), do: requested_at.at, else: requested_at
 
     cond do
       expr.reboot? -> false
@@ -134,12 +142,15 @@ defmodule Custode.Scheduler do
 
   @impl GenServer
   def init(opts) do
+    insert_job = Keyword.get(opts, :insert_job, &Oban.insert/1)
+    handoff = fn occurrence -> handoff(occurrence, insert_job) end
+
     state = %{
       clock: Keyword.get(opts, :clock, &now_in_configured_tz/0),
-      insert: Keyword.get(opts, :insert, &insert_tick/1),
+      handoff: handoff,
       interval: Keyword.get(opts, :interval),
       # agents' own next-beat requests (#526), injectable like the clock
-      requested: Keyword.get(opts, :requested, &Custode.NextBeat.pending/0),
+      requested: Keyword.get(opts, :requested, &NextBeat.pending_requests/0),
       last_fired: %{}
     }
 
@@ -167,15 +178,28 @@ defmodule Custode.Scheduler do
   defp run_once(state) do
     now = state.clock.()
     requested = state.requested.()
-    {fired, last_fired} = due(scheduled_routines(), now, state.last_fired, requested)
+    minute = truncate_to_minute(now)
+    {due_ids, _seen} = due(scheduled_routines(), now, state.last_fired, requested)
 
-    # A request is one-shot, and it is spent the moment it fires: the turn may
-    # sit behind the queue for a while, and the next minute must not fire it
-    # again.
-    for id <- fired, Map.has_key?(requested, id), do: Custode.NextBeat.clear(id)
+    {fired, handed_off} =
+      Enum.reduce(due_ids, {[], []}, fn id, {fired, handed_off} ->
+        occurrence = occurrence(id, minute, Map.get(requested, id))
 
-    Enum.each(fired, state.insert)
-    {fired, %{state | last_fired: last_fired}}
+        case safe_handoff(state.handoff, occurrence) do
+          :inserted ->
+            {[id | fired], [id | handed_off]}
+
+          :duplicate ->
+            {fired, [id | handed_off]}
+
+          {:error, reason} ->
+            Logger.warning("scheduler handoff failed for #{id}: #{inspect(reason)}")
+            {fired, handed_off}
+        end
+      end)
+
+    last_fired = Enum.reduce(handed_off, state.last_fired, &Map.put(&2, &1, minute))
+    {Enum.reverse(fired), %{state | last_fired: last_fired}}
   end
 
   defp scheduled_routines, do: for(r <- Routine.all(), r.cron != :manual, do: r)
@@ -184,7 +208,13 @@ defmodule Custode.Scheduler do
   # so they must NOT go through the minute loop or they would fire every tick.
   defp fire_reboot(state) do
     for r <- scheduled_routines(), Expression.parse!(r.cron).reboot? do
-      state.insert.(r.id)
+      case safe_handoff(state.handoff, %{routine_id: r.id, source: :reboot}) do
+        status when status in [:inserted, :duplicate] ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("@reboot handoff failed for #{r.id}: #{inspect(reason)}")
+      end
     end
   end
 
@@ -195,9 +225,92 @@ defmodule Custode.Scheduler do
 
   defp timezone, do: Application.get_env(:custode, :timezone, "Etc/UTC")
 
-  defp insert_tick(routine_id) do
-    {:ok, _job} = Oban.insert(RoutineTick.new(%{"routine_id" => routine_id}, queue: :ticks))
-    :ok
+  defp occurrence(routine_id, minute, %NextBeat{} = request) do
+    %{routine_id: routine_id, source: :requested, request: request, minute: minute}
+  end
+
+  defp occurrence(routine_id, minute, _request) do
+    %{routine_id: routine_id, source: :cron, minute: minute}
+  end
+
+  defp handoff(%{source: :requested, request: request} = occurrence, insert_job) do
+    Repo.transaction(
+      fn -> consume_request(request, occurrence, insert_job) end,
+      mode: :immediate
+    )
+    |> case do
+      {:ok, status} when status in [:inserted, :duplicate] -> status
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp handoff(occurrence, insert_job), do: insert_occurrence(occurrence, insert_job)
+
+  defp consume_request(request, occurrence, insert_job) do
+    case NextBeat.get(request.routine_id) do
+      %NextBeat{} = current
+      when current.at == request.at and current.inserted_at == request.inserted_at ->
+        consume_current_request(request, occurrence, insert_job)
+
+      _changed ->
+        Repo.rollback(:request_changed)
+    end
+  end
+
+  defp consume_current_request(request, occurrence, insert_job) do
+    with status when status in [:inserted, :duplicate] <-
+           insert_occurrence(occurrence, insert_job),
+         1 <- NextBeat.clear_observed(request) do
+      status
+    else
+      {:error, reason} -> Repo.rollback({:enqueue_failed, reason})
+      count -> Repo.rollback({:request_changed, count})
+    end
+  end
+
+  defp insert_occurrence(occurrence, insert_job) do
+    case insert_job.(tick_changeset(occurrence)) do
+      {:ok, %Oban.Job{conflict?: true}} -> :duplicate
+      {:ok, _job} -> :inserted
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:unexpected_insert_result, other}}
+    end
+  end
+
+  defp safe_handoff(handoff, occurrence) do
+    handoff.(occurrence)
+  rescue
+    exception -> {:error, {:exception, Exception.message(exception)}}
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
+
+  defp tick_changeset(%{routine_id: id, source: :reboot}) do
+    RoutineTick.new(%{"routine_id" => id, "schedule_source" => "reboot"}, queue: :ticks)
+  end
+
+  defp tick_changeset(%{routine_id: id} = occurrence) do
+    RoutineTick.new(
+      %{"routine_id" => id, "schedule_occurrence" => occurrence_key(occurrence)},
+      queue: :ticks,
+      unique: [
+        period: :infinity,
+        fields: [:worker, :args],
+        keys: [:schedule_occurrence],
+        states: :all
+      ]
+    )
+  end
+
+  defp occurrence_key(%{source: :cron, routine_id: id, minute: minute}) do
+    minute = minute |> DateTime.shift_zone!("Etc/UTC") |> DateTime.to_iso8601()
+    "cron:#{id}:#{minute}"
+  end
+
+  defp occurrence_key(%{source: :requested, request: request}) do
+    inserted_at = DateTime.to_iso8601(request.inserted_at)
+    requested_at = DateTime.to_iso8601(request.at)
+    "requested:#{request.routine_id}:#{inserted_at}:#{requested_at}"
   end
 
   defp truncate_to_minute(now), do: %{now | second: 0, microsecond: {0, 0}}

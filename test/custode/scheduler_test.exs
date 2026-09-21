@@ -1,8 +1,11 @@
 defmodule Custode.SchedulerTest do
   use ExUnit.Case, async: false
 
+  import Ecto.Query
   import Custode.TestHelpers
 
+  alias Custode.NextBeat
+  alias Custode.Repo
   alias Custode.Scheduler
 
   # A DateTime at a fixed wall-clock minute (UTC), seconds/micros settable so
@@ -44,7 +47,25 @@ defmodule Custode.SchedulerTest do
         name: nil,
         autostart: false,
         clock: fn -> Agent.get(now_ref, & &1) end,
-        insert: fn id -> send(test, {:fired, id}) end
+        insert_job: fn changeset ->
+          args = Ecto.Changeset.get_field(changeset, :args)
+          send(test, {:fired, args["routine_id"]})
+          {:ok, %Oban.Job{args: args}}
+        end
+      )
+
+    on_exit(fn -> stop(pid) end)
+    pid
+  end
+
+  defp start_durable_scheduler!(now_ref, opts \\ []) do
+    {:ok, pid} =
+      Scheduler.start_link(
+        [
+          name: nil,
+          autostart: false,
+          clock: fn -> Agent.get(now_ref, & &1) end
+        ] ++ opts
       )
 
     on_exit(fn -> stop(pid) end)
@@ -191,6 +212,101 @@ defmodule Custode.SchedulerTest do
     end
   end
 
+  describe "durable handoff" do
+    test "ordinary cron is unique across a same-minute scheduler restart" do
+      id = uid("cron-restart")
+      now_ref = start_clock!(at(9, 0, 0))
+      cleanup_schedule!(id)
+      put_env!(:routines, [routine(id, "* * * * *")])
+
+      first = start_durable_scheduler!(now_ref)
+      assert Scheduler.tick(first) == [id]
+      stop(first)
+
+      second = start_durable_scheduler!(now_ref)
+      assert Scheduler.tick(second) == []
+
+      assert [job] = scheduled_jobs(id)
+      assert job.args["schedule_occurrence"] =~ "cron:#{id}:"
+      assert job.conflict? == false
+    end
+
+    test "a requested beat inserts and consumes the observed request atomically" do
+      id = uid("requested")
+      now_ref = start_clock!(at(9, 10, 0))
+      cleanup_schedule!(id)
+      put_env!(:routines, [routine(id, "0 0 * * *")])
+      assert {:ok, _granted} = NextBeat.request(id, 5, now: at(9, 0, 0))
+
+      scheduler = start_durable_scheduler!(now_ref)
+      assert Scheduler.tick(scheduler) == [id]
+      assert NextBeat.get(id) == nil
+
+      assert [job] = scheduled_jobs(id)
+      assert job.args["schedule_occurrence"] =~ "requested:#{id}:"
+    end
+
+    test "an enqueue exception preserves the request and the next tick retries it" do
+      id = uid("enqueue-failure")
+      now_ref = start_clock!(at(9, 10, 0))
+      cleanup_schedule!(id)
+      put_env!(:routines, [routine(id, "0 0 * * *")])
+      assert {:ok, _granted} = NextBeat.request(id, 5, now: at(9, 0, 0))
+      {:ok, attempts} = Agent.start_link(fn -> 0 end)
+      on_exit(fn -> stop(attempts) end)
+
+      insert_job = fn changeset ->
+        case Agent.get_and_update(attempts, &{&1, &1 + 1}) do
+          0 -> raise "injected enqueue failure"
+          _retry -> Oban.insert(changeset)
+        end
+      end
+
+      scheduler = start_durable_scheduler!(now_ref, insert_job: insert_job)
+      assert Scheduler.tick(scheduler) == []
+      assert %NextBeat{} = NextBeat.get(id)
+      assert scheduled_jobs(id) == []
+
+      assert Scheduler.tick(scheduler) == [id]
+      assert NextBeat.get(id) == nil
+      assert length(scheduled_jobs(id)) == 1
+    end
+
+    test "a replacement request is not consumed with an older snapshot" do
+      id = uid("replacement")
+      now_ref = start_clock!(at(9, 10, 0))
+      cleanup_schedule!(id)
+      put_env!(:routines, [routine(id, "0 0 * * *")])
+      assert {:ok, _granted} = NextBeat.request(id, 5, now: at(9, 0, 0))
+      observed = NextBeat.get(id)
+
+      requested = fn ->
+        assert {:ok, _granted} = NextBeat.request(id, 60, now: at(9, 10, 0))
+        %{id => observed}
+      end
+
+      scheduler = start_durable_scheduler!(now_ref, requested: requested)
+      assert Scheduler.tick(scheduler) == []
+      assert %NextBeat{at: at} = NextBeat.get(id)
+      assert at == at(10, 10, 0)
+      assert scheduled_jobs(id) == []
+    end
+
+    test "@reboot remains one insertion per scheduler boot" do
+      id = uid("reboot")
+      now_ref = start_clock!(at(9, 0, 0))
+      cleanup_schedule!(id)
+      put_env!(:routines, [routine(id, "@reboot")])
+
+      first = start_durable_scheduler!(now_ref)
+      stop(first)
+      _second = start_durable_scheduler!(now_ref)
+
+      assert length(scheduled_jobs(id)) == 2
+      assert Enum.all?(scheduled_jobs(id), &(&1.args["schedule_source"] == "reboot"))
+    end
+  end
+
   describe "next_beat_at/2" do
     test "the next matching minute after now, in UTC" do
       assert Scheduler.next_beat_at("*/15 * * * *", ~U[2026-09-20 10:07:30Z]) ==
@@ -219,5 +335,28 @@ defmodule Custode.SchedulerTest do
       assert Scheduler.next_beat_at("") == nil
       assert Scheduler.next_beat_at(nil) == nil
     end
+  end
+
+  defp cleanup_schedule!(id) do
+    on_exit(fn ->
+      NextBeat.clear(id)
+
+      Repo.delete_all(
+        from(j in Oban.Job,
+          where: j.worker == "Custode.RoutineTick",
+          where: fragment("json_extract(?, '$.routine_id')", j.args) == ^id
+        )
+      )
+    end)
+  end
+
+  defp scheduled_jobs(id) do
+    Repo.all(
+      from(j in Oban.Job,
+        where: j.worker == "Custode.RoutineTick",
+        where: fragment("json_extract(?, '$.routine_id')", j.args) == ^id,
+        order_by: [asc: j.id]
+      )
+    )
   end
 end
