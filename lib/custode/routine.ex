@@ -519,6 +519,13 @@ defmodule Custode.Routine do
           items: %{type: "integer"},
           description: "PR numbers this sweep opened, pushed to, or acted on"
         },
+        # The repository a gate acts on (#542). An agent with a repository of
+        # its own omits it; a reviewer, which has none, names the one it read.
+        repo: %{
+          type: "string",
+          description:
+            "owner/name of the repository a request_permission acts on, when it is not your own"
+        },
         issues_touched: %{
           type: "array",
           items: %{type: "integer"},
