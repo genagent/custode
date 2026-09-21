@@ -16,6 +16,7 @@ defmodule Mix.Tasks.Custode do
       mix custode gates [--status open]       # what is waiting on a human
       mix custode approve <agent> <action>    # approve a gate
       mix custode reject <agent> <action> [reason]
+      mix custode dismiss <id> [reason]       # close an ask without sending an answer
       mix custode beat <agent>                # fire one sweep now
       mix custode note <agent> "<content>"    # drop an inbox note (wakes it)
       mix custode feed [-n 50] [--agent id]   # the activity feed
@@ -39,6 +40,7 @@ defmodule Mix.Tasks.Custode do
     subcommand(Custode.CLI.Gates)
     subcommand(Custode.CLI.Asks)
     subcommand(Custode.CLI.Answer)
+    subcommand(Custode.CLI.Dismiss)
     subcommand(Custode.CLI.Disowned)
     subcommand(Custode.CLI.Disown)
     subcommand(Custode.CLI.Reclaim)

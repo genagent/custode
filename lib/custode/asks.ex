@@ -72,6 +72,8 @@ defmodule Custode.Asks do
       field(:answer, :string)
       field(:status, :string, default: "open")
       field(:answered_at, :utc_datetime_usec)
+      field(:dismissal_reason, :string)
+      field(:dismissed_at, :utc_datetime_usec)
       timestamps(type: :utc_datetime_usec)
     end
   end
@@ -125,7 +127,7 @@ defmodule Custode.Asks do
 
     "you already have #{length(open)} unanswered question(s): #{listed}. " <>
       "Asking again does not make one louder: the operator is re-notified as it ages. " <>
-      "Work on what is not blocked, and ask only something new once one is answered."
+      "Work on what is not blocked, and ask only something new once one is closed."
   end
 
   defp file(agent_id, question, opts) do
@@ -223,18 +225,66 @@ defmodule Custode.Asks do
         {:error, "an answer to #{ask.id} needs text"}
 
       %Ask{} = ask ->
-        answered =
-          ask
-          |> Ecto.Changeset.change(
-            answer: text,
-            status: "answered",
-            answered_at: DateTime.utc_now()
-          )
-          |> Repo.update!()
+        with {:ok, answered} <-
+               close(ask,
+                 answer: text,
+                 status: "answered",
+                 answered_at: DateTime.utc_now()
+               ) do
+          deliver(answered)
+          record_answered(answered)
+          {:ok, answered}
+        end
+    end
+  end
 
-        deliver(answered)
-        record_answered(answered)
-        {:ok, answered}
+  @doc """
+  Dismiss an open ask without delivering an answer or waking the agent.
+
+  The optional reason and dismissal time stay on the ask even after feed
+  retention removes its audit entry. A dismissed ask is never an answer.
+  """
+  @spec dismiss(integer() | String.t(), String.t() | nil) ::
+          {:ok, Ask.t()} | {:error, term()}
+  def dismiss(id, reason \\ nil) do
+    reason = reason |> to_string() |> String.trim()
+    reason = if reason == "", do: nil, else: reason
+
+    case get(id) do
+      nil ->
+        {:error, "no ask #{id}"}
+
+      %Ask{status: status} when status != "open" ->
+        {:error, "ask #{id} is already #{status}"}
+
+      %Ask{} = ask ->
+        with {:ok, dismissed} <-
+               close(ask,
+                 status: "dismissed",
+                 dismissal_reason: reason,
+                 dismissed_at: DateTime.utc_now()
+               ) do
+          record_dismissed(dismissed)
+          {:ok, dismissed}
+        end
+    end
+  end
+
+  # Answer and dismissal compete for the same open row. Only the winning
+  # transition may emit an event or deliver an inbox note.
+  defp close(%Ask{} = ask, changes) do
+    changes = Keyword.put(changes, :updated_at, DateTime.utc_now())
+    query = from(a in Ask, where: a.id == ^ask.id and a.status == "open")
+
+    case Repo.update_all(query, set: changes) do
+      {1, _rows} ->
+        {:ok, struct!(ask, changes)}
+
+      {0, _rows} ->
+        case get(ask.id) do
+          nil -> {:error, "no ask #{ask.id}"}
+          closed -> {:error, "ask #{ask.id} is already #{closed.status}"}
+        end
     end
   end
 
@@ -260,6 +310,22 @@ defmodule Custode.Asks do
       question: ask.question,
       answer: ask.answer,
       summary: "operator answered ask #{ask.id}: " <> clip(ask.answer)
+    })
+  end
+
+  defp record_dismissed(%Ask{} = ask) do
+    summary = "operator dismissed ask #{ask.id}"
+
+    summary =
+      if ask.dismissal_reason, do: summary <> ": " <> clip(ask.dismissal_reason), else: summary
+
+    Feed.record(%{
+      event: "dismissed",
+      agent: ask.agent_id,
+      ask_id: ask.id,
+      question: ask.question,
+      reason: ask.dismissal_reason,
+      summary: summary
     })
   end
 

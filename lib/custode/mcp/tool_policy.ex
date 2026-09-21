@@ -79,6 +79,7 @@ defmodule Custode.MCP.ToolPolicy do
     "ask_operator" => :self_write,
     "list_asks" => :read,
     "answer_ask" => :operator,
+    "dismiss_ask" => :operator,
     # the fleet-wide reads (#346)
     "list_attention" => :read,
     "list_inbox" => :read,

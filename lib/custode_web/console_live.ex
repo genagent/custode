@@ -361,7 +361,8 @@ defmodule CustodeWeb.ConsoleLive do
   def handle_event("op", %{"op" => op} = params, socket) do
     with %Signal{resolving: resolving} <- socket.assigns.signal,
          %{op: atom, args: args} <- Enum.find(resolving, &(to_string(&1.op) == op)) do
-      atom |> Actions.run(args, params, @opts) |> after_action(socket, to_string(atom))
+      notice = if atom == :dismiss_ask, do: "dismissed", else: to_string(atom)
+      atom |> Actions.run(args, params, @opts) |> after_action(socket, notice)
     else
       _stale -> {:noreply, socket |> assign(notice: "that is no longer pending") |> refresh()}
     end

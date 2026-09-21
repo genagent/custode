@@ -133,10 +133,65 @@ defmodule CustodeWeb.ConsoleLiveTest do
     {:ok, view, _html} = live(conn, "/console/#{asker.id}")
 
     view
-    |> form("form[phx-submit=op]", %{"text" => "staging"})
+    |> form(~s(form[id^="reply-answer_ask-"]), %{"text" => "staging"})
     |> render_submit()
 
     assert %{status: "answered", answer: "staging"} = Asks.get(ask.id)
+  end
+
+  test "an ask can be dismissed with a blank reply and no reason",
+       %{conn: conn, asker: asker} do
+    {:ok, ask} = Asks.ask(asker.id, "is the access problem still happening?")
+    {:ok, view, _html} = live(conn, "/console/#{asker.id}")
+
+    assert has_element?(view, ~s(form[id^="reply-answer_ask-"] textarea[required]))
+    refute has_element?(view, ~s(form[id^="dismiss-ask-"] [required]))
+
+    html = view |> form(~s(form[id^="dismiss-ask-"])) |> render_submit()
+
+    assert html =~ "dismissed"
+    assert %{status: "dismissed", dismissal_reason: nil, answer: nil} = Asks.get(ask.id)
+    refute has_element?(view, ~s(form[id^="dismiss-ask-"]))
+    refute has_element?(view, ~s(form[id^="reply-answer_ask-"]))
+    refute html =~ "1 need you"
+  end
+
+  test "a dismissal can record a reason without sending an answer",
+       %{conn: conn, asker: asker} do
+    {:ok, ask} = Asks.ask(asker.id, "can you authorize the token?")
+    {:ok, view, _html} = live(conn, "/console/#{asker.id}")
+
+    view
+    |> form(~s(form[id^="dismiss-ask-"]), %{"reason" => "  fixed on the host  "})
+    |> render_submit()
+
+    assert %{status: "dismissed", dismissal_reason: "fixed on the host", answer: nil} =
+             Asks.get(ask.id)
+  end
+
+  test "a stale dismissal cannot close the next ask after the signal refreshes",
+       %{conn: conn, asker: asker} do
+    {:ok, first} = Asks.ask(asker.id, "first question?")
+    {:ok, second} = Asks.ask(asker.id, "second question?")
+    {:ok, view, _html} = live(conn, "/console/#{asker.id}")
+
+    assert has_element?(view, ~s(input[name=ask_id][value="#{first.id}"]))
+    {:ok, _dismissed} = Asks.dismiss(first.id)
+
+    eventually(fn ->
+      assert has_element?(view, ~s(input[name=ask_id][value="#{second.id}"]))
+    end)
+
+    html =
+      render_submit(view, "op", %{
+        "op" => "dismiss_ask",
+        "ask_id" => to_string(first.id),
+        "reason" => "this was the first question"
+      })
+
+    assert html =~ "no longer pending"
+    assert Asks.get(second.id).status == "open"
+    assert has_element?(view, ~s(input[name=ask_id][value="#{second.id}"]))
   end
 
   test "a failing turn's item pane says why: category, count, retryable, the last detail",

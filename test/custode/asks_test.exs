@@ -177,6 +177,106 @@ defmodule Custode.AsksTest do
     end
   end
 
+  describe "dismiss/2" do
+    test "retains a reason and time without an answer, inbox note, or wake",
+         %{routine: routine, workspace: workspace} do
+      {:ok, ask} = Asks.ask(routine.id, "authorize SAML?")
+      inbox = Path.wildcard(Path.join([workspace, "inbox", "*"]))
+      jobs = Custode.Repo.aggregate(Oban.Job, :count)
+
+      assert {:ok, dismissed} = Asks.dismiss(ask.id, "  already fixed  ")
+      assert dismissed.status == "dismissed"
+      assert dismissed.dismissal_reason == "already fixed"
+      assert %DateTime{} = dismissed.dismissed_at
+      assert dismissed.answer == nil
+      assert dismissed.answered_at == nil
+      assert Asks.get(ask.id) == dismissed
+      assert Path.wildcard(Path.join([workspace, "inbox", "*"])) == inbox
+      assert Custode.Repo.aggregate(Oban.Job, :count) == jobs
+      refute Enum.any?(Asks.open(), &(&1.id == ask.id))
+      refute Map.has_key?(Asks.open_by_agent(), routine.id)
+
+      assert [event] = feed_events(routine.id, "dismissed")
+      assert event["ask_id"] == ask.id
+      assert event["question"] == ask.question
+      assert event["reason"] == "already fixed"
+      assert event["summary"] =~ "already fixed"
+      assert feed_events(routine.id, "answered") == []
+      assert feed_events(routine.id, "inbox_note") == []
+    end
+
+    test "a reason is optional and blank reasons become nil", %{routine: routine} do
+      for reason <- [nil, "   "] do
+        {:ok, ask} = Asks.ask(routine.id, "obsolete")
+        assert {:ok, dismissed} = Asks.dismiss(ask.id, reason)
+        assert dismissed.dismissal_reason == nil
+      end
+    end
+
+    test "dismissal cannot be repeated or answered afterward", %{routine: routine} do
+      {:ok, ask} = Asks.ask(routine.id, "obsolete")
+      {:ok, dismissed} = Asks.dismiss(ask.id, "resolved elsewhere")
+
+      assert {:error, "ask " <> _rest} = Asks.dismiss(ask.id, "overwrite")
+      assert {:error, reason} = Asks.answer(ask.id, "wake up")
+      assert reason =~ "already dismissed"
+      assert Asks.get(ask.id) == dismissed
+      assert [_event] = feed_events(routine.id, "dismissed")
+      assert feed_events(routine.id, "answered") == []
+      assert feed_events(routine.id, "inbox_note") == []
+    end
+
+    test "an answer cannot be overwritten by dismissal", %{routine: routine} do
+      {:ok, ask} = Asks.ask(routine.id, "which environment?")
+      {:ok, answered} = Asks.answer(ask.id, "staging")
+
+      assert {:error, reason} = Asks.dismiss(ask.id, "obsolete")
+      assert reason =~ "already answered"
+      assert Asks.get(ask.id) == answered
+      assert feed_events(routine.id, "dismissed") == []
+    end
+
+    test "unknown ids are refused without a feed entry", %{routine: routine} do
+      assert {:error, "no ask -1"} = Asks.dismiss(-1)
+      assert feed_events(routine.id, "dismissed") == []
+    end
+
+    test "dismissal frees a slot under the unanswered ask cap", %{routine: routine} do
+      {:ok, first} = Asks.ask(routine.id, "obsolete")
+      {:ok, _second} = Asks.ask(routine.id, "still relevant")
+      assert {:error, _reason} = Asks.ask(routine.id, "new question")
+
+      assert {:ok, _dismissed} = Asks.dismiss(first.id)
+      assert {:ok, _new} = Asks.ask(routine.id, "new question")
+    end
+
+    test "competing answers and dismissals produce exactly one terminal event",
+         %{routine: routine, workspace: workspace} do
+      {:ok, ask} = Asks.ask(routine.id, "which environment?")
+
+      tasks =
+        for action <- [fn -> Asks.answer(ask.id, "staging") end, fn -> Asks.dismiss(ask.id) end] do
+          Task.async(fn ->
+            receive do
+              :close -> action.()
+            end
+          end)
+        end
+
+      Enum.each(tasks, &send(&1.pid, :close))
+      results = Enum.map(tasks, &Task.await/1)
+      assert Enum.count(results, &match?({:ok, _ask}, &1)) == 1
+      assert Enum.count(results, &match?({:error, _reason}, &1)) == 1
+
+      closed = Asks.get(ask.id)
+      events = feed_events(routine.id, "answered") ++ feed_events(routine.id, "dismissed")
+      assert [event] = events
+      assert event["event"] == closed.status
+      delivered? = File.exists?(Path.join([workspace, "inbox", "answer-#{ask.id}.md"]))
+      assert delivered? == (closed.status == "answered")
+    end
+  end
+
   # The feed table is shared by the whole suite, so every read here is scoped
   # to this test's own routine id.
   defp feed_events(agent_id, event) do

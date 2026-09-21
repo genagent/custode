@@ -82,11 +82,12 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.DisownTools.ReclaimPr, name: "repo_reclaim_pr")
   component(Custode.MCP.DisownTools.ListDisowned, name: "list_disowned")
 
-  # asking without blocking (#299): ask_operator is worker-tier, the two
+  # asking without blocking (#299): ask_operator is worker-tier; the
   # reading/closing tools are the operator's
   component(Custode.MCP.AskTools.AskOperator, name: "ask_operator")
   component(Custode.MCP.AskTools.ListAsks, name: "list_asks")
   component(Custode.MCP.AskTools.AnswerAsk, name: "answer_ask")
+  component(Custode.MCP.AskTools.DismissAsk, name: "dismiss_ask")
 
   # The reads a client could not reach (#346 / survey #345). Registered here
   # and granted to NO agent: Custode.Routine's allowlists decide who may call

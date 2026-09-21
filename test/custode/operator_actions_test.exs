@@ -5,6 +5,7 @@ defmodule Custode.Operator.ActionsTest do
   import Ecto.Query, only: [from: 2]
   import ObanClaude.Testing
 
+  alias Custode.Asks
   alias Custode.Operator.Actions
   alias Custode.Repo
   alias ObanClaude.Agent
@@ -13,6 +14,7 @@ defmodule Custode.Operator.ActionsTest do
     path = Path.join(System.tmp_dir!(), uid("actions") <> ".jsonl")
     put_env!(:feed_path, path)
     on_exit(fn -> File.rm(path) end)
+    on_exit(fn -> Repo.query!("DELETE FROM asks") end)
     :ok
   end
 
@@ -66,6 +68,26 @@ defmodule Custode.Operator.ActionsTest do
 
     test "blank text is not a message" do
       assert {:error, :empty} = Actions.message(start_stub_agent!(), "   ")
+    end
+  end
+
+  describe "dismiss_ask/2" do
+    test "closes an ask with an optional reason" do
+      {:ok, first} = Asks.ask(uid("asker"), "is this still blocked?")
+      assert :ok = Actions.dismiss_ask(first.id)
+      assert %{status: "dismissed", dismissal_reason: nil} = Asks.get(first.id)
+
+      {:ok, second} = Asks.ask(uid("asker"), "did the token get fixed?")
+      assert :ok = Actions.dismiss_ask(second.id, "fixed on the host")
+
+      assert %{status: "dismissed", dismissal_reason: "fixed on the host"} = Asks.get(second.id)
+    end
+
+    test "returns a closed ask's error without pretending to dismiss it again" do
+      {:ok, ask} = Asks.ask(uid("asker"), "still relevant?")
+      assert :ok = Actions.dismiss_ask(ask.id)
+      assert {:error, reason} = Actions.dismiss_ask(ask.id)
+      assert reason =~ "already dismissed"
     end
   end
 
@@ -134,6 +156,28 @@ defmodule Custode.Operator.ActionsTest do
       assert gate.outcome == "rejected"
       assert gate.reason == "never force-push"
       assert gate.decided_via == "liveview"
+    end
+
+    test "dismissal requires the ask id the operator actually saw" do
+      {:ok, first} = Asks.ask(uid("asker"), "old question?")
+      {:ok, current} = Asks.ask(uid("asker"), "current question?")
+      assert :ok = Actions.dismiss_ask(first.id)
+
+      assert {:error, reason} =
+               Actions.run(:dismiss_ask, %{ask: current.id}, %{"ask_id" => to_string(first.id)})
+
+      assert reason =~ "no longer pending"
+      assert {:error, _reason} = Actions.run(:dismiss_ask, %{ask: current.id})
+      assert Asks.get(current.id).status == "open"
+
+      assert :ok =
+               Actions.run(:dismiss_ask, %{ask: current.id}, %{
+                 "ask_id" => to_string(current.id),
+                 "reason" => "already resolved"
+               })
+
+      assert Asks.get(current.id).dismissal_reason == "already resolved"
+      assert Actions.handles?(:dismiss_ask)
     end
 
     test "answering a parked agent is a message" do

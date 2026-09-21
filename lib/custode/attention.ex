@@ -454,6 +454,7 @@ defmodule Custode.Attention do
               replies: Map.get(ask, :replies, []),
               context: Map.get(ask, :detail)
             }),
+            op("Dismiss", :dismiss_ask, %{ask: ask.id}),
             op("Open agent", :open_agent, %{agent: view.id})
           ]
         )

@@ -308,6 +308,28 @@ defmodule CustodeWeb.Console.Item do
     """
   end
 
+  # A dismissal sends no answer. Its own form makes a blank reply harmless.
+  defp op(%{op: %{op: :dismiss_ask}} = assigns) do
+    ~H"""
+    <form
+      id={"dismiss-ask-#{@op.args.ask}-#{@message_gen}"}
+      phx-submit="op"
+      class="flex w-full flex-wrap items-center gap-2"
+    >
+      <input type="hidden" name="op" value="dismiss_ask" />
+      <input type="hidden" name="ask_id" value={@op.args.ask} />
+      <input
+        name="reason"
+        type="text"
+        aria-label="Reason for dismissing this ask (optional)"
+        placeholder="reason (optional)"
+        class="input input-bordered input-sm min-w-0 flex-1"
+      />
+      <button type="submit" class="btn btn-ghost btn-sm">dismiss</button>
+    </form>
+    """
+  end
+
   defp op(%{op: %{op: :reject}} = assigns) do
     ~H"""
     <.reject_form agent={@op.args.agent} action={@op.args.action} size="btn-sm" />

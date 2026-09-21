@@ -86,6 +86,54 @@ defmodule CustodeWeb.InboxLiveTest do
     refute render(view) =~ "which env?"
   end
 
+  test "dismissing from an open reply closes only that ask and delivers nothing",
+       %{conn: conn, routine: routine, workspace: workspace} do
+    {:ok, first} = Asks.ask(routine.id, "obsolete question?")
+    {:ok, second} = Asks.ask(routine.id, "still relevant?")
+    inbox = Path.wildcard(Path.join([workspace, "inbox", "*"]))
+    {:ok, view, _html} = live(conn, "/inbox")
+
+    view
+    |> element(~s(button[phx-click=reply_open][phx-value-ask="#{first.id}"]))
+    |> render_click()
+
+    assert has_element?(view, "form[phx-submit=reply_send]")
+
+    html =
+      view
+      |> element(~s(button[phx-click=dismiss_ask][phx-value-ask="#{first.id}"]))
+      |> render_click()
+
+    assert %{status: "dismissed", dismissal_reason: nil, answer: nil} = Asks.get(first.id)
+    assert Asks.get(second.id).status == "open"
+    assert Path.wildcard(Path.join([workspace, "inbox", "*"])) == inbox
+    refute has_element?(view, "form[phx-submit=reply_send]")
+    refute html =~ "obsolete question?"
+    assert html =~ "still relevant?"
+    assert has_element?(view, ~s(button[phx-click=dismiss_ask][phx-value-ask="#{second.id}"]))
+  end
+
+  test "a stale dismissal keeps its displayed id and cannot dismiss the successor",
+       %{conn: conn, routine: routine} do
+    {:ok, first} = Asks.ask(routine.id, "old question?")
+    {:ok, second} = Asks.ask(routine.id, "next question?")
+    {:ok, view, _html} = live(conn, "/inbox")
+
+    assert has_element?(view, ~s(button[phx-click=dismiss_ask][phx-value-ask="#{first.id}"]))
+    {:ok, _dismissed} = Asks.dismiss(first.id)
+
+    eventually(fn ->
+      assert has_element?(view, ~s(button[phx-click=dismiss_ask][phx-value-ask="#{second.id}"]))
+    end)
+
+    for _repeat <- 1..2 do
+      html = render_click(view, "dismiss_ask", %{"ask" => to_string(first.id)})
+      assert html =~ "already dismissed"
+      assert Asks.get(second.id).status == "open"
+      assert has_element?(view, ~s(button[phx-click=dismiss_ask][phx-value-ask="#{second.id}"]))
+    end
+  end
+
   test "the hard bottom names what it left out", %{conn: conn, routine: routine} do
     {:ok, _ask} = Asks.ask(routine.id, "anything")
 

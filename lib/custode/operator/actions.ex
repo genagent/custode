@@ -123,6 +123,15 @@ defmodule Custode.Operator.Actions do
     end
   end
 
+  @doc "Dismiss a non-blocking question without delivering anything to the agent."
+  @spec dismiss_ask(integer() | String.t(), String.t() | nil) :: result()
+  def dismiss_ask(ask_id, reason \\ nil) do
+    case Custode.Asks.dismiss(ask_id, reason) do
+      {:ok, _ask} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   @doc "Answer an agent parked in `waiting_for_user`. The answer is a message."
   @spec answer(String.t(), String.t(), keyword()) :: result()
   def answer(agent_id, text, opts \\ []) do
@@ -355,6 +364,8 @@ defmodule Custode.Operator.Actions do
   @doc """
   Run a signal's `resolving` op. `params` carries what the op needs beyond its
   own `args`: `"text"` for an answer, `"reason"` and `"one_off"` for a reject.
+  Dismissal carries the displayed `"ask_id"` and an optional `"reason"`: the
+  id must still match the signal, so a stale click cannot dismiss the next ask.
 
   Returns `{:error, {:unhandled_op, op}}` for an op no surface can carry out
   here (`:open_agent` is navigation, `:set_rail` is an edit form), so a caller
@@ -372,6 +383,13 @@ defmodule Custode.Operator.Actions do
   end
 
   def run(:answer_ask, %{ask: ask}, params, opts), do: answer_ask(ask, params["text"], opts)
+
+  def run(:dismiss_ask, %{ask: ask}, params, _opts) do
+    if params["ask_id"] in [ask, to_string(ask)],
+      do: dismiss_ask(ask, params["reason"]),
+      else: {:error, "that ask is no longer pending"}
+  end
+
   def run(:answer, %{agent: agent}, params, opts), do: answer(agent, params["text"], opts)
   def run(:beat, %{agent: agent}, _params, opts), do: beat(agent, opts)
   def run(:resume, %{agent: agent}, _params, opts), do: resume(agent, opts)
@@ -397,6 +415,7 @@ defmodule Custode.Operator.Actions do
       :approve,
       :reject,
       :answer_ask,
+      :dismiss_ask,
       :answer,
       :beat,
       :resume,

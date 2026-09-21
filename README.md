@@ -78,7 +78,7 @@ what it returns.
 ## Operating from a shell
 
 `mix custode <command>` drives the running node over its MCP port:
-`status`, `gates`, `approve`, `reject`, `asks`, `answer`, `prompt`, `beat`,
+`status`, `gates`, `approve`, `reject`, `asks`, `answer`, `dismiss`, `prompt`, `beat`,
 `pause`, `resume`, `away`, `back`, `disown`, `reclaim`, `feed`, `spend`,
 `drain`, `doctor`. From a git worktree, pass the token:
 `CUSTODE_OPERATOR_TOKEN="$(cat <checkout>/tmp/operator.token)"`.
