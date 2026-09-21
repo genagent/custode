@@ -250,10 +250,7 @@ defmodule Custode.Attention.Fleet do
 
   defp turn_failure(agent_id) do
     agent_id
-    |> Custode.Feed.for_agent(50)
-    |> Enum.reverse()
-    |> Enum.filter(&(&1["event"] == "turn" or TurnFailure.from_entry(&1) != nil))
-    |> Enum.take_while(&(&1["event"] == "turn_failed"))
+    |> TurnFailure.streak()
     |> turn_failure_fact(agent_id)
   end
 
