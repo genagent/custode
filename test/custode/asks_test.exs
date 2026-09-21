@@ -182,4 +182,40 @@ defmodule Custode.AsksTest do
   defp feed_events(agent_id, event) do
     agent_id |> Custode.Feed.for_agent(50) |> Enum.filter(&(&1["event"] == event))
   end
+
+  # seen on the live fleet 2026-09-20/21: redisctl filed the same SAML question
+  # eight times, once a sweep, worded a little differently each time
+  describe "an agent's unanswered questions are capped" do
+    test "past the cap a new ask is refused, naming what is already open" do
+      id = uid("asker")
+      {:ok, first} = Asks.ask(id, "GitHub reads return 403 (SAML). Can you authorize the token?")
+      {:ok, _second} = Asks.ask(id, "Separately: is the uncommitted diff yours?")
+
+      assert {:error, message} = Asks.ask(id, "GitHub still returns 403, please authorize")
+      assert message =~ "you already have 2 unanswered question(s)"
+      assert message =~ "##{first.id}"
+      assert message =~ "GitHub reads return 403"
+      assert length(Asks.open_by_agent()[id]) == 2
+    end
+
+    test "an answer makes room, and the cap is per agent" do
+      id = uid("asker")
+      {:ok, first} = Asks.ask(id, "one?")
+      {:ok, _second} = Asks.ask(id, "two?")
+      assert {:error, _full} = Asks.ask(id, "three?")
+
+      # someone else's questions are their own
+      assert {:ok, _other} = Asks.ask(uid("other"), "mine?")
+
+      {:ok, _answered} = Asks.answer(first.id, "yes")
+      assert {:ok, _third} = Asks.ask(id, "three?")
+    end
+
+    test "the cap is configurable" do
+      put_env!(:max_open_asks, 1)
+      id = uid("asker")
+      {:ok, _first} = Asks.ask(id, "one?")
+      assert {:error, _full} = Asks.ask(id, "two?")
+    end
+  end
 end

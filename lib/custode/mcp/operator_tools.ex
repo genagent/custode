@@ -183,7 +183,13 @@ defmodule Custode.MCP.OperatorTools.ResumeAgent do
 end
 
 defmodule Custode.MCP.OperatorTools.SpendToday do
-  @moduledoc "Today's (UTC) spend: per routine with its daily rail, plus the fleet total."
+  @moduledoc """
+  Today's spend: per routine with its daily rail, plus the fleet total.
+  "Today" starts at midnight in the fleet's configured timezone, NOT UTC; the
+  reply's `since` and `timezone` say exactly which window was counted, so a
+  total of zero just after local midnight reads as a new day and not as a
+  broken ledger.
+  """
   use Anubis.Server.Component, type: :tool
 
   import Custode.MCP.Tools
@@ -205,6 +211,8 @@ defmodule Custode.MCP.OperatorTools.SpendToday do
       end
 
     reply(frame, %{
+      since: DateTime.to_iso8601(Custode.SpendLedger.day_started_at()),
+      timezone: Application.get_env(:custode, :timezone, "Etc/UTC"),
       routines: routines,
       fleet_today_usd: Custode.SpendLedger.fleet_today(),
       fleet_today_tokens: Custode.SpendLedger.fleet_today_tokens()
