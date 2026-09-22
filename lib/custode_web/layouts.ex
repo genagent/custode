@@ -48,6 +48,45 @@ defmodule CustodeWeb.Layouts do
             const draftKey = subject => `custode-subject-draft:${encodeURIComponent(subject)}`;
 
             const Hooks = {
+              SubjectRail: {
+                mounted() {
+                  this.onKeydown = event => {
+                    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+
+                    const key = event.key.toLowerCase();
+                    if (key !== "j" && key !== "k") return;
+
+                    const target = event.target;
+                    if (target instanceof Element && target.closest(
+                      "input, textarea, select, button, [contenteditable='true'], [role='textbox']"
+                    )) return;
+
+                    const subjects = Array.from(
+                      this.el.querySelectorAll("[data-rail-subject]")
+                    ).filter(subject => subject.getClientRects().length > 0);
+                    const selected = subjects.findIndex(
+                      subject => subject.getAttribute("aria-current") === "page"
+                    );
+                    const step = key === "j" ? 1 : -1;
+                    const start = selected === -1
+                      ? (step === 1 ? -1 : subjects.length)
+                      : selected;
+                    const next = subjects[start + step];
+
+                    if (!next) return;
+                    event.preventDefault();
+                    next.scrollIntoView({block: "nearest"});
+                    next.click();
+                  };
+
+                  window.addEventListener("keydown", this.onKeydown);
+                },
+
+                destroyed() {
+                  window.removeEventListener("keydown", this.onKeydown);
+                }
+              },
+
               SubjectDraft: {
                 mounted() {
                   this.subject = this.el.dataset.subject;
