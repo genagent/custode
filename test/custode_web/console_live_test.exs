@@ -12,6 +12,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
   alias Custode.Workflow.Launch
   alias Custode.Workflow.Run
   alias CustodeWeb.Console.Item
+  alias CustodeWeb.Console.Rail
 
   @endpoint CustodeWeb.Endpoint
 
@@ -80,6 +81,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
 
     assert html =~ "No agents on this machine yet."
     assert html =~ "routines.example.toml"
+    assert html =~ ~s(<nav aria-label="breadcrumb")
     # and the way to add one is on the page
     assert has_element?(view, "button[phx-click=new_open]")
   end
@@ -108,10 +110,23 @@ defmodule CustodeWeb.ConsoleLiveTest do
 
     assert html =~ ~s(<h1 class="font-mono text-2xl font-bold">#{sleeper.id}</h1>)
     assert html =~ "@daily"
+    assert has_element?(view, ~s(nav[aria-label="breadcrumb"] a[href="/console"]), "fleet")
+
+    assert has_element?(
+             view,
+             ~s(nav[aria-label="breadcrumb"] a[href="/console/#{sleeper.id}"]),
+             sleeper.id
+           )
+
+    assert has_element?(view, ~s(nav[aria-label="breadcrumb"] [aria-current="page"]), "next beat")
 
     html = view |> form("#rail-filter", %{"q" => "asker"}) |> render_change()
     assert html =~ ~s(href="/console/#{asker.id}")
-    refute html =~ ~s(href="/console/#{sleeper.id}")
+
+    refute has_element?(
+             view,
+             ~s(nav[aria-label="subjects"] a[href="/console/#{sleeper.id}"])
+           )
   end
 
   # #450: the agent page hides its composer for an offline agent
@@ -172,6 +187,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
     {:ok, ask} = Asks.ask(asker.id, "staging or prod?")
 
     {:ok, view, _html} = live(conn, "/console/#{asker.id}")
+    assert has_element?(view, ~s(nav[aria-label="breadcrumb"] [aria-current="page"]), "question")
 
     view
     |> form(~s(form[id^="reply-answer_ask-"]), %{"text" => "staging"})
@@ -549,7 +565,9 @@ defmodule CustodeWeb.ConsoleLiveTest do
 
     # @daily is at most a day away, so the wait is always hours, minutes or
     # seconds, never a bare cron string
-    assert view |> element(~s(a[href="/console/#{sleeper.id}"])) |> render() =~
+    assert view
+           |> element(~s(nav[aria-label="subjects"] a[href="/console/#{sleeper.id}"]))
+           |> render() =~
              ~r/>\s*\d+[hms]\s*</
 
     assert html =~ ~r/runs in <span class="font-mono">\d+[hms]<\/span>/
@@ -583,6 +601,16 @@ defmodule CustodeWeb.ConsoleLiveTest do
     # path segment
     html = view |> element("nav[aria-label=subjects] a", workflow.name) |> render_click()
     assert html =~ "wants your approval to launch"
+    workflow_subject = "#{workflow.name} on owner/repo"
+    workflow_path = Rail.subject_path(workflow_subject)
+
+    assert has_element?(
+             view,
+             ~s(nav[aria-label="breadcrumb"] a[href="#{workflow_path}"]),
+             workflow_subject
+           )
+
+    assert has_element?(view, ~s(nav[aria-label="breadcrumb"] [aria-current="page"]), "launch")
 
     # a workflow signal is not an agent: nothing to beat, pause or talk to
     assert html =~ "not an agent"
