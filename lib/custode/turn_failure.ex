@@ -91,6 +91,7 @@ defmodule Custode.TurnFailure do
 
   def classify(%ClaudeWrapper.Error{kind: kind}) when kind in @config_kinds, do: :config_error
   def classify(%ClaudeWrapper.Error{}), do: :unknown_harness_error
+  def classify(%ClaudeWrapper.Result{is_error: true}), do: :unknown_harness_error
   def classify(%ObanCodex.Error{kind: :timeout}), do: :timeout
 
   def classify(%ObanCodex.Error{kind: kind}) when kind in [:spawn, :signal, :io],
