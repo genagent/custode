@@ -164,7 +164,9 @@ defmodule CustodeWeb.ConsoleLiveTest do
            |> render() =~ ~r/see all \d+/
 
     view
-    |> element("#advisor-suggestions button[phx-click=dismiss_suggestion]")
+    |> element(
+      ~s(#advisor-suggestions button[phx-click=dismiss_suggestion][phx-value-agent="#{sleeper.id}"][phx-value-field="cron"][phx-value-proposed="@daily"])
+    )
     |> render_click()
 
     refute has_element?(view, "#advisor-suggestions", "most hourly sweeps found no work")
