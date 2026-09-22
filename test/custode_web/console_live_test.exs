@@ -104,6 +104,35 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ sleeper.id
   end
 
+  test "the return digest stays dismissed through console refreshes", %{conn: conn} do
+    previous = Application.get_env(:custode, :presence_override)
+    Application.put_env(:custode, :presence_override, nil)
+    on_exit(fn -> Application.put_env(:custode, :presence_override, previous) end)
+
+    now = DateTime.utc_now()
+
+    entries =
+      for seconds <- [60, 60 + 3 * 3600] do
+        Custode.Repo.insert!(%Custode.Feed.Entry{
+          event: "presence",
+          entry: "{}",
+          at: DateTime.add(now, -seconds, :second)
+        })
+      end
+
+    on_exit(fn -> Enum.each(entries, &Custode.Repo.delete!/1) end)
+
+    {:ok, view, html} = live(conn, "/console")
+    assert html =~ "while you were away"
+    assert html =~ "Fleet digest"
+
+    view |> element("#away-digest button", "dismiss") |> render_click()
+    refute render(view) =~ "while you were away"
+
+    send(view.pid, {:feed_entry, %{}})
+    refute render(view) =~ "while you were away"
+  end
+
   test "selecting a subject shows its pane, and the rail filter narrows",
        %{conn: conn, asker: asker, sleeper: sleeper} do
     {:ok, view, html} = live(conn, "/console/#{sleeper.id}")
@@ -169,7 +198,10 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert has_element?(view, "#quiet-subjects button[aria-expanded=false]")
     refute has_element?(view, "#quiet-subject-list")
     summary = view |> element("#quiet-subjects > button") |> render()
-    assert summary =~ ~r/quiet\s*<\/span>\s*<span>2<\/span>/
+    # Other async tests may have temporary agents in the global fleet. The
+    # row must report its actual numeric count and include this test's quiet
+    # subjects; it need not pretend the process registry is test-local.
+    assert summary =~ ~r/quiet\s*<\/span>\s*<span>\d+<\/span>/
     assert summary =~ first_quiet
     assert summary =~ second_quiet
 

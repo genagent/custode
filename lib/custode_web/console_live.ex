@@ -65,6 +65,7 @@ defmodule CustodeWeb.ConsoleLive do
      |> assign(
        filter: "",
        quiet_open: false,
+       away_dismissed: false,
        tab: "attention",
        selected: nil,
        message_gen: 0,
@@ -149,6 +150,11 @@ defmodule CustodeWeb.ConsoleLive do
 
   def handle_event("toggle_quiet", _params, socket),
     do: {:noreply, assign(socket, quiet_open: !socket.assigns.quiet_open)}
+
+  # The return digest is a greeting for this browser session. Once dismissed,
+  # ordinary fleet updates must not bring the same absence window back.
+  def handle_event("dismiss_away_digest", _params, socket),
+    do: {:noreply, assign(socket, away_dismissed: true, away_digest: nil)}
 
   def handle_event("tab", %{"tab" => tab}, socket) when tab in @tabs,
     do: {:noreply, assign(socket, tab: tab)}
@@ -456,6 +462,19 @@ defmodule CustodeWeb.ConsoleLive do
         />
 
         <main class="min-w-0 border-base-300 p-6 md:border-l">
+          <div
+            :if={@away_digest}
+            id="away-digest"
+            class="mb-6 rounded-lg border border-info/30 bg-info/5 p-3"
+          >
+            <div class="mb-2 flex items-center gap-2">
+              <span class="text-xs font-semibold text-info">while you were away</span>
+              <button class="btn btn-ghost btn-xs ml-auto" phx-click="dismiss_away_digest">
+                dismiss
+              </button>
+            </div>
+            <pre class="max-h-64 overflow-auto whitespace-pre-wrap text-xs text-base-content/80">{@away_digest}</pre>
+          </div>
           <.new_agent_form :if={@new_agent} new_agent={@new_agent} />
           <p
             :if={@subject == nil and @new_agent == nil and not @roster_empty}
@@ -511,6 +530,15 @@ defmodule CustodeWeb.ConsoleLive do
 
   # -- data -------------------------------------------------------------------
 
+  defp away_digest(%{assigns: %{away_dismissed: true}}), do: nil
+
+  defp away_digest(_socket) do
+    case Custode.Presence.away_window() do
+      {:since, since} -> since |> Custode.Digest.build_since() |> Custode.Digest.to_markdown()
+      :none -> nil
+    end
+  end
+
   defp refresh(socket) do
     filter = socket.assigns.filter |> String.trim() |> String.downcase()
 
@@ -541,7 +569,8 @@ defmodule CustodeWeb.ConsoleLive do
       fleet_today: Custode.SpendLedger.fleet_today(),
       usage: Custode.Availability.usage("claude"),
       caretaker: Actions.caretaker(),
-      presence: Custode.Presence.status()
+      presence: Custode.Presence.status(),
+      away_digest: away_digest(socket)
     )
   end
 
