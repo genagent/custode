@@ -47,6 +47,15 @@ defmodule Custode.RunClock do
   end
 
   @doc false
+  def handle_event(
+        [provider, :run, event],
+        _measurements,
+        %{job: %{meta: %{"custode_kind" => "gate_review"}}},
+        _config
+      )
+      when provider in [:oban_claude, :oban_codex] and event in [:start, :stop, :exception],
+      do: :ok
+
   def handle_event([provider, :run, :start], _measurements, meta, _config)
       when provider in [:oban_claude, :oban_codex] do
     case agent_of(meta) do

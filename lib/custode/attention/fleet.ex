@@ -24,6 +24,7 @@ defmodule Custode.Attention.Fleet do
   alias Custode.Attention.Verify
   alias Custode.Disowned
   alias Custode.Gates
+  alias Custode.Gates.Review
   alias Custode.Routine
   alias Custode.RunClock
   alias Custode.Sensor.Health
@@ -283,9 +284,23 @@ defmodule Custode.Attention.Fleet do
       risk_paths: risk_paths(gate.risk_paths),
       detail: gate.detail,
       action_id: gate.action_id,
+      review_state: gate.review_state,
+      review: review_view(gate.review),
       opened_at: gate.inserted_at
     }
   end
+
+  defp review_view(%Review{} = review) do
+    %{
+      provider: review.reviewer_provider,
+      head_sha: review.head_sha,
+      summary: review.summary,
+      findings: Review.findings(review),
+      error: review.error
+    }
+  end
+
+  defp review_view(_none), do: nil
 
   # An agent's own request (#526) is when it next runs; the cron only says so
   # when there is none.

@@ -16,6 +16,7 @@ defmodule Custode.Gates do
   import Ecto.Query, only: [from: 2]
 
   alias Custode.Gates.Class
+  alias Custode.Gates.CrossProviderReview
   alias Custode.Gates.Risk
   alias Custode.Repo
 
@@ -38,6 +39,8 @@ defmodule Custode.Gates do
       field(:repo, :string)
       field(:risk, :string)
       field(:risk_paths, :string)
+      belongs_to(:review, Custode.Gates.Review)
+      field(:review_state, :string)
       field(:status, :string, default: "open")
       # what was decided, by whom, from which surface, and why (#448). `status`
       # says the gate is over; these say how it ended.
@@ -123,7 +126,9 @@ defmodule Custode.Gates do
 
   @doc "Open gates for an agent."
   def open_gates(agent_id) do
-    Repo.all(from(g in Gate, where: g.agent_id == ^agent_id and g.status == "open"))
+    from(g in Gate, where: g.agent_id == ^agent_id and g.status == "open")
+    |> Repo.all()
+    |> Repo.preload(:review)
   end
 
   @doc """
@@ -137,6 +142,7 @@ defmodule Custode.Gates do
   def open_by_agent do
     from(g in Gate, where: g.status == "open", order_by: [desc: g.id])
     |> Repo.all()
+    |> Repo.preload(:review)
     |> Enum.group_by(& &1.agent_id)
   end
 
@@ -310,7 +316,7 @@ defmodule Custode.Gates do
         status -> from(g in query, where: g.status == ^status)
       end
 
-    Repo.all(query)
+    query |> Repo.all() |> Repo.preload(:review)
   end
 
   @doc """
@@ -360,6 +366,7 @@ defmodule Custode.Gates do
       })
 
     assess_risk(gate)
+    CrossProviderReview.maybe_enqueue(gate)
     gate
   end
 
@@ -404,7 +411,7 @@ defmodule Custode.Gates do
 
   @doc false
   def record_risk(%Gate{id: id, agent_id: agent_id, pr_number: number} = gate) do
-    with repo when is_binary(repo) <- risk_repo(gate),
+    with repo when is_binary(repo) <- repo_for(gate),
          true <- Custode.Repository.served?(repo),
          {:ok, %{files: files}} <- Custode.Repository.pr_diff(repo, number) do
       %{level: level, matched: matched} = files |> Risk.paths() |> Risk.assess()
@@ -428,9 +435,10 @@ defmodule Custode.Gates do
   # The repository the gate named wins over the routine's own (#542): a
   # reviewer has none, and its gates are about somebody else's pull request.
   # Only a served repository is read; any other leaves the risk nil.
-  defp risk_repo(%Gate{repo: repo}) when is_binary(repo), do: repo
+  @doc "The repository a gate acts on, including its routine's repository fallback."
+  def repo_for(%Gate{repo: repo}) when is_binary(repo), do: repo
 
-  defp risk_repo(%Gate{agent_id: agent_id}) do
+  def repo_for(%Gate{agent_id: agent_id}) do
     case Custode.Routine.get(agent_id) do
       %{repo: repo} -> repo
       _none -> nil

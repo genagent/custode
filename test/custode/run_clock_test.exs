@@ -69,4 +69,18 @@ defmodule Custode.RunClockTest do
     assert_received {:codex_in_flight?, true}
     refute Map.has_key?(Custode.RunClock.running(), agent)
   end
+
+  test "a gate review does not make the gated author look like it is running" do
+    agent = uid("rc-review")
+
+    :ok =
+      Custode.RunClock.handle_event(
+        [:oban_codex, :run, :start],
+        %{},
+        %{job: %{meta: %{"agent_id" => agent, "custode_kind" => "gate_review"}}},
+        nil
+      )
+
+    refute Map.has_key?(Custode.RunClock.running(), agent)
+  end
 end

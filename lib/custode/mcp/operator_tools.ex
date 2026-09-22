@@ -85,6 +85,8 @@ defmodule Custode.MCP.OperatorTools.ListGates do
 
   import Custode.MCP.Tools
 
+  alias Custode.Gates.Review
+
   schema do
     field(:status, :string, description: "filter: open | resolved | requeued | orphaned")
     field(:limit, :integer, description: "max rows (default 20)")
@@ -99,6 +101,12 @@ defmodule Custode.MCP.OperatorTools.ListGates do
           kind: gate.kind,
           action_id: gate.action_id,
           detail: gate.detail,
+          class: gate.class,
+          repo: gate.repo,
+          pr_number: gate.pr_number,
+          risk: gate.risk,
+          review_state: gate.review_state,
+          review: review(gate.review),
           status: gate.status,
           opened_at: gate.inserted_at
         }
@@ -106,6 +114,18 @@ defmodule Custode.MCP.OperatorTools.ListGates do
 
     reply(frame, %{gates: gates})
   end
+
+  defp review(%Review{} = review) do
+    %{
+      provider: review.reviewer_provider,
+      head_sha: review.head_sha,
+      summary: review.summary,
+      findings: Review.findings(review),
+      error: review.error
+    }
+  end
+
+  defp review(_none), do: nil
 end
 
 defmodule Custode.MCP.OperatorTools.FeedTail do
