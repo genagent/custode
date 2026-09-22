@@ -57,6 +57,32 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ "1 need you"
   end
 
+  test "the selected running agent shows a live elapsed strip", %{conn: conn, sleeper: sleeper} do
+    :ets.insert(
+      :custode_run_clock,
+      {sleeper.id, DateTime.add(DateTime.utc_now(), -65, :second)}
+    )
+
+    on_exit(fn -> :ets.delete(:custode_run_clock, sleeper.id) end)
+
+    {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+
+    assert has_element?(view, "#working-state", "working")
+    assert view |> element("#working-state") |> render() =~ ~r/1m\d+s elapsed/
+
+    :ets.insert(
+      :custode_run_clock,
+      {sleeper.id, DateTime.add(DateTime.utc_now(), -3_605, :second)}
+    )
+
+    send(view.pid, :inflight_tick)
+    assert view |> element("#working-state") |> render() =~ "1h0m elapsed"
+
+    :ets.delete(:custode_run_clock, sleeper.id)
+    send(view.pid, :inflight_tick)
+    refute has_element?(view, "#working-state")
+  end
+
   # the design session's visual language (design/ui/2026-07-25-design-session)
   test "the page wears the custode themes, chosen before first paint, with a toggle",
        %{conn: conn} do

@@ -55,7 +55,10 @@ defmodule CustodeWeb.ConsoleLive do
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
-    if connected?(socket), do: Custode.PubSubBridge.subscribe()
+    if connected?(socket) do
+      Custode.PubSubBridge.subscribe()
+      :timer.send_interval(5_000, self(), :inflight_tick)
+    end
 
     {:ok,
      socket
@@ -144,6 +147,10 @@ defmodule CustodeWeb.ConsoleLive do
   def handle_info({:notebook_changed, _routine_id}, socket), do: {:noreply, refresh(socket)}
   def handle_info({:repo_overview, _repo}, socket), do: {:noreply, refresh(socket)}
   def handle_info({:usage_changed, _provider}, socket), do: {:noreply, refresh(socket)}
+
+  def handle_info(:inflight_tick, socket),
+    do: {:noreply, assign(socket, in_flight: Custode.RunClock.running())}
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl Phoenix.LiveView
@@ -529,6 +536,7 @@ defmodule CustodeWeb.ConsoleLive do
             message_gen={@message_gen}
             edit={@edit}
             upload={@uploads.image}
+            running_since={Map.get(@in_flight, @subject.id)}
           />
         </main>
 
