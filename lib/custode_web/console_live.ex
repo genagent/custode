@@ -64,6 +64,7 @@ defmodule CustodeWeb.ConsoleLive do
      )
      |> assign(
        filter: "",
+       quiet_open: false,
        tab: "attention",
        selected: nil,
        message_gen: 0,
@@ -145,6 +146,9 @@ defmodule CustodeWeb.ConsoleLive do
   @impl Phoenix.LiveView
   def handle_event("filter", %{"q" => q}, socket),
     do: {:noreply, socket |> assign(filter: q) |> refresh()}
+
+  def handle_event("toggle_quiet", _params, socket),
+    do: {:noreply, assign(socket, quiet_open: !socket.assigns.quiet_open)}
 
   def handle_event("tab", %{"tab" => tab}, socket) when tab in @tabs,
     do: {:noreply, assign(socket, tab: tab)}
@@ -443,7 +447,13 @@ defmodule CustodeWeb.ConsoleLive do
       <div class="px-5 pt-4 empty:hidden"><.host_banner /></div>
 
       <div class="grid flex-1 grid-cols-1 md:grid-cols-[17rem_1fr] xl:grid-cols-[17rem_1fr_24rem]">
-        <.rail groups={@groups} selected={@selected} filter={@filter} in_flight={@in_flight} />
+        <.rail
+          groups={@groups}
+          selected={@selected}
+          filter={@filter}
+          in_flight={@in_flight}
+          quiet_open={@quiet_open}
+        />
 
         <main class="min-w-0 border-base-300 p-6 md:border-l">
           <.new_agent_form :if={@new_agent} new_agent={@new_agent} />
