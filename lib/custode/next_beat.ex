@@ -116,9 +116,12 @@ defmodule Custode.NextBeat do
 
   @doc "Clear a request the moment its agent starts a turn, whoever started it."
   def attach do
-    :telemetry.attach(
+    :telemetry.attach_many(
       "custode-next-beat",
-      [:oban_claude, :agent, :transition],
+      [
+        [:oban_claude, :agent, :transition],
+        [:oban_codex, :agent, :transition]
+      ],
       &__MODULE__.handle_event/4,
       nil
     )

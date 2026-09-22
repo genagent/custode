@@ -71,6 +71,7 @@ defmodule Custode.Application do
       {Task.Supervisor, name: Custode.TaskSupervisor},
       {Oban, oban_config()},
       ObanClaude.Agent.Supervisor,
+      ObanCodex.Agent.Supervisor,
       # identity before configs: tokens are minted into the per-agent
       # config files the boot task writes next (#1/#2)
       Custode.MCP.Identity,

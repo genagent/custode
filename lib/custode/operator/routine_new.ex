@@ -17,7 +17,7 @@ defmodule Custode.Operator.RoutineNew do
 
   alias Custode.Config.WriteBack
 
-  @fields ~w(id profile repo working_dir tags cron prompt)
+  @fields ~w(id provider profile repo working_dir tags cron prompt)
 
   @doc "The form's fields, in order."
   @spec fields() :: [String.t()]
@@ -40,6 +40,7 @@ defmodule Custode.Operator.RoutineNew do
       id ->
         {:ok,
          %{id: id}
+         |> put(params, "provider", &provider/1)
          |> put(params, "profile", &known_profile!/1)
          |> put(params, "cron")
          |> put(params, "repo")
@@ -49,7 +50,10 @@ defmodule Custode.Operator.RoutineNew do
          |> put(params, "tags", &tags/1)}
     end
   rescue
-    ArgumentError -> {:error, "unknown profile #{inspect(params["profile"])}"}
+    ArgumentError ->
+      if params["provider"] in [nil, "", "claude", "codex"],
+        do: {:error, "unknown profile #{inspect(params["profile"])}"},
+        else: {:error, "unknown provider #{inspect(params["provider"])}"}
   end
 
   @doc "The TOML a create would append, or why the form is not valid yet."
@@ -86,6 +90,9 @@ defmodule Custode.Operator.RoutineNew do
     atom = String.to_existing_atom(value)
     if Map.has_key?(Custode.Routine.profiles(), atom), do: atom, else: raise(ArgumentError)
   end
+
+  defp provider(value) when value in ["claude", "codex"], do: String.to_existing_atom(value)
+  defp provider(_value), do: raise(ArgumentError)
 
   defp tags(value) do
     value

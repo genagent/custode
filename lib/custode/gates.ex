@@ -54,10 +54,15 @@ defmodule Custode.Gates do
 
   @gated [:awaiting_permission, :waiting_for_user]
 
+  @events [
+    [:oban_claude, :agent, :transition],
+    [:oban_codex, :agent, :transition]
+  ]
+
   def attach do
-    :telemetry.attach(
+    :telemetry.attach_many(
       "custode-gates",
-      [:oban_claude, :agent, :transition],
+      @events,
       &__MODULE__.handle_event/4,
       nil
     )
@@ -81,7 +86,8 @@ defmodule Custode.Gates do
       :ok
   end
 
-  defp do_handle_event([:oban_claude, :agent, :transition], _measurements, meta, _config) do
+  defp do_handle_event([provider, :agent, :transition], _measurements, meta, _config)
+       when provider in [:oban_claude, :oban_codex] do
     if meta.from in @gated do
       outcome = resolution(meta.from, meta.to)
       resolve_open(meta.agent_id, outcome)
@@ -360,7 +366,7 @@ defmodule Custode.Gates do
   # The engine carries only the action's description, so what else the agent
   # declared (the class, the pull requests it acted on) is read from the turn
   # that raised the gate. That turn's feed entry is written on
-  # `[:oban_claude, :run, :stop]`, which the worker emits BEFORE it casts
+  # the provider's `[:run, :stop]`, which the worker emits BEFORE it casts
   # `job_finished`, so it is there by the time the transition that brought us
   # here fires. A turn that did not raise this gate (an older entry, a
   # different directive) declares nothing.

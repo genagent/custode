@@ -2,14 +2,14 @@ defmodule Custode.TurnFailure do
   @moduledoc """
   Why a turn failed, as one of seven categories (#527).
 
-  A `turn_failed` feed entry carried the wrapper's `kind` and a slice of
+  A `turn_failed` feed entry carries the provider wrapper's `kind` and a slice of
   stderr, and every reader drew its own conclusion from them. The conclusion
   that matters is whether the next beat can succeed on its own. A timeout
-  can; a logged-out `claude` cannot, and a fleet that fails every turn for
+  can; a logged-out CLI cannot, and a fleet that fails every turn for
   that reason reads as alive on every page (#443 was this, found after three
   days).
 
-  `classify/1` reads the error's TYPED fields, `kind` and `reason`, never its
+  `classify/1` reads typed error fields such as `kind` and `reason`, never its
   message or stderr. Where the wrapper has already parsed prose into a type
   (`ClaudeWrapper.Auth.classify_failure/3` behind `kind: :auth`), that type is
   what is read. A failure with no typed cause is `:unknown_harness_error`,
@@ -23,7 +23,7 @@ defmodule Custode.TurnFailure do
   | `:timeout` | yes | `kind: :timeout` |
   | `:rate_limited` | yes | `kind: :auth, reason: :rate_limit` |
   | `:unknown_harness_error` | yes | `:command_failed`, `:json`, any kind not listed |
-  | `:process_crash` | no | `:io`, `:terminated`, `:duplex_closed`, anything that is not a `ClaudeWrapper.Error` |
+  | `:process_crash` | no | provider process, I/O, or signal failures |
   | `:auth_failed` | no | `kind: :auth` with any other reason |
   | `:capability_refused` | no | a cap or an opt-in refused the turn: `:max_turns_exceeded`, `:max_budget_exceeded`, `:budget_exceeded`, `:dangerous_not_allowed` |
   | `:config_error` | no | the host or the settings are wrong: `:binary_not_found`, `:version_mismatch`, `:invalid_settings_json`, ... |
@@ -91,6 +91,13 @@ defmodule Custode.TurnFailure do
 
   def classify(%ClaudeWrapper.Error{kind: kind}) when kind in @config_kinds, do: :config_error
   def classify(%ClaudeWrapper.Error{}), do: :unknown_harness_error
+  def classify(%ObanCodex.Error{kind: :timeout}), do: :timeout
+
+  def classify(%ObanCodex.Error{kind: kind}) when kind in [:spawn, :signal, :io],
+    do: :process_crash
+
+  def classify(%ObanCodex.Error{}), do: :unknown_harness_error
+  def classify(%CodexWrapper.Result{success: false}), do: :unknown_harness_error
   # Not the wrapper's error at all: the worker raised or exited around it.
   def classify(_other), do: :process_crash
 

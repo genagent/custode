@@ -29,14 +29,33 @@ defmodule Custode.RoutineTickTest do
   # the Tick jobs RoutineTick enqueues for one agent, newest first (queues
   # are empty in test config, so they insert and sit there for inspection;
   # the oban_jobs table is shared across the suite, so always scope by id)
-  defp ticks_for(agent_id) do
+  defp ticks_for(agent_id, worker \\ "ObanClaude.Agent.Tick") do
     Repo.all(
       from(j in Oban.Job,
-        where: j.worker == "ObanClaude.Agent.Tick",
+        where: j.worker == ^worker,
         where: fragment("json_extract(?, '$.agent_id')", j.args) == ^agent_id,
         order_by: [desc: j.id]
       )
     )
+  end
+
+  test "a Codex routine schedules the Codex lifecycle tick" do
+    id = uid("codex-tick")
+
+    put_env!(:routines, [
+      %{
+        id: id,
+        provider: :codex,
+        cron: "@daily",
+        workspace: tmp_workspace!(),
+        prompt: "review"
+      }
+    ])
+
+    assert :ok = RoutineTick.perform(%Oban.Job{args: %{"routine_id" => id}})
+    assert [job] = ticks_for(id, "ObanCodex.Agent.Tick")
+    assert job.args["start"]["args"]["sandbox"] == "read_only"
+    assert ticks_for(id) == []
   end
 
   test "resolves the routine's current args at fire time, not at boot" do

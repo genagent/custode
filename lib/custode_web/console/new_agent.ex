@@ -33,6 +33,15 @@ defmodule CustodeWeb.Console.NewAgent do
           />
         </label>
         <label class="form-control">
+          <span class="mb-1 font-mono text-xs text-base-content/60">provider</span>
+          <select name="routine[provider]" class="select select-bordered select-sm w-full">
+            <option value="claude" selected={@new_agent.params["provider"] in [nil, "", "claude"]}>
+              claude
+            </option>
+            <option value="codex" selected={@new_agent.params["provider"] == "codex"}>codex</option>
+          </select>
+        </label>
+        <label class="form-control">
           <span class="mb-1 font-mono text-xs text-base-content/60">profile</span>
           <select name="routine[profile]" class="select select-bordered select-sm w-full">
             <option value="">(none: bespoke)</option>

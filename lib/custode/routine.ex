@@ -1,6 +1,6 @@
 defmodule Custode.Routine do
   @moduledoc """
-  Routine specs: config maps in, `ObanClaude.Agent.Tick` args out.
+  Routine specs: config maps in, provider-specific agent tick args out.
 
   A routine is one always-on agent: an id, a cron schedule, a workspace
   directory, and a beat prompt. `tick_args/1` turns it into a crontab entry
@@ -11,6 +11,7 @@ defmodule Custode.Routine do
   """
 
   alias Custode.Gates.Class
+  alias Custode.MCP.Identity
   alias Custode.Routine.{Effort, Prompts}
 
   @doc "All configured routines, with profile and defaults applied."
@@ -235,7 +236,7 @@ defmodule Custode.Routine do
       "if_busy" => "skip",
       "if_offline" => "start",
       "start" => %{
-        "args" => claude_args(routine),
+        "args" => agent_args(routine),
         # approvals may need more than reads (a gated delete runs rm; a repo
         # caretaker's approved edit runs in an isolated worktree)
         "approved_args" => routine.approved_args,
@@ -244,6 +245,9 @@ defmodule Custode.Routine do
       }
     }
   end
+
+  @doc "The provider-specific Oban worker that delivers a routine tick."
+  def tick_worker(routine), do: Custode.Agents.tick_worker(routine)
 
   @doc """
   Claude args for a sub-agent started via the `start_agent` MCP tool: same
@@ -314,6 +318,80 @@ defmodule Custode.Routine do
 
     ObanClaude.Args.defaults(base ++ extra)
   end
+
+  defp agent_args(%{provider: :claude} = routine), do: claude_args(routine)
+  defp agent_args(%{provider: :codex} = routine), do: codex_args(routine)
+
+  defp codex_args(routine) do
+    base = [
+      working_dir: Path.expand(routine.working_dir),
+      timeout: routine.timeout_ms,
+      sandbox: :read_only,
+      approval_policy: :never,
+      skip_git_repo_check: true,
+      output_schema: directive_schema_path(),
+      config_overrides: codex_config_overrides(routine)
+    ]
+
+    base = if routine.model, do: Keyword.put(base, :model, routine.model), else: base
+    base = if routine.hermetic == true, do: Keyword.put(base, :ignore_rules, true), else: base
+    ObanCodex.Args.defaults(base)
+  end
+
+  defp codex_config_overrides(routine) do
+    overrides = [toml_override("developer_instructions", system_prompt(routine))]
+
+    overrides =
+      if routine.effort,
+        do: [toml_override("model_reasoning_effort", routine.effort) | overrides],
+        else: overrides
+
+    if routine.mcp do
+      overrides ++ codex_custode_overrides(routine) ++ codex_external_overrides()
+    else
+      overrides
+    end
+  end
+
+  defp codex_custode_overrides(routine) do
+    token =
+      case Identity.token(:routine, routine.id) do
+        {:ok, token} -> token
+        :error -> Identity.mint(:routine, routine.id)
+      end
+
+    tools = Enum.map(mcp_tools(routine.role), &String.replace_prefix(&1, "mcp__custode__", ""))
+    server = ~s(mcp_servers."custode")
+
+    [
+      toml_override(server <> ".url", Custode.MCP.url()),
+      toml_override(server <> ".http_headers.Authorization", "Bearer " <> token),
+      toml_override(server <> ".enabled_tools", tools),
+      toml_override(server <> ".default_tools_approval_mode", "approve"),
+      server <> ".required=true"
+    ]
+  end
+
+  defp codex_external_overrides do
+    Enum.flat_map(Custode.MCP.external_servers(), fn server ->
+      root = ~s(mcp_servers."#{String.replace(server.name, "\"", "\\\"")}")
+
+      case server do
+        %{type: :http, url: url} when is_binary(url) ->
+          [toml_override(root <> ".url", url)]
+
+        %{type: :stdio, command: command, args: args} when is_binary(command) ->
+          [toml_override(root <> ".command", command), toml_override(root <> ".args", args)]
+
+        # Codex supports streamable HTTP and stdio. A Claude SSE entry cannot
+        # be translated without changing the transport contract.
+        _unsupported ->
+          []
+      end
+    end)
+  end
+
+  defp toml_override(key, value), do: key <> "=" <> Jason.encode!(value)
 
   # Policies (#50) append to EVERY prompt, including operator-supplied
   # system_prompt: overrides -- fleet law rides along regardless of role.
@@ -402,6 +480,7 @@ defmodule Custode.Routine do
     profile = Map.get(routine, :profile)
     routine = apply_profile(routine)
     id = Map.fetch!(routine, :id)
+    provider = normalize_provider!(Map.get(routine, :provider, :claude))
     workspace = Map.get(routine, :workspace, "workspaces/" <> id)
     # Least privilege by default (#161): a roster entry that FORGETS role
     # gets the powerless :assistant, never the caretaker's operator verbs.
@@ -427,7 +506,8 @@ defmodule Custode.Routine do
       # execution still consumes the fully applied values below.
       profile: profile,
       role: role,
-      model: Map.get(routine, :model, Application.fetch_env!(:custode, :model)),
+      provider: provider,
+      model: Map.get(routine, :model, default_model(provider)),
       max_budget_usd:
         Map.get(routine, :max_budget_usd, Application.fetch_env!(:custode, :max_budget_usd)),
       daily_budget_usd:
@@ -458,8 +538,7 @@ defmodule Custode.Routine do
       agent: Map.get(routine, :agent),
       # merged over the args on approve continuations only; a repo caretaker
       # adds "worktree" so approved edits land in an isolated branch
-      approved_args:
-        Map.get(routine, :approved_args, %{"permission_mode" => "bypass_permissions"}),
+      approved_args: Map.get(routine, :approved_args, default_approved_args(provider)),
       # appended to the tool allowlist, e.g. read-only git Bash grants
       extra_allowed_tools: Map.get(routine, :extra_allowed_tools, []),
       # the event kickoff: a dropped inbox note schedules a debounced beat
@@ -478,6 +557,22 @@ defmodule Custode.Routine do
     }
   end
 
+  defp normalize_provider!(provider) when provider in [:claude, "claude"], do: :claude
+  defp normalize_provider!(provider) when provider in [:codex, "codex"], do: :codex
+
+  defp normalize_provider!(provider) do
+    raise ArgumentError,
+          "unknown routine provider #{inspect(provider)} (expected claude or codex)"
+  end
+
+  defp default_model(:claude), do: Application.fetch_env!(:custode, :model)
+  defp default_model(:codex), do: Application.get_env(:custode, :codex_model)
+
+  defp default_approved_args(:claude), do: %{"permission_mode" => "bypass_permissions"}
+
+  defp default_approved_args(:codex),
+    do: %{"sandbox" => "workspace_write", "approval_policy" => "never"}
+
   defp default_prompt(role, id), do: Prompts.for_role(role, id)
 
   # #19: a routine may own its standing orders as a FILE (versioned prose,
@@ -494,8 +589,21 @@ defmodule Custode.Routine do
     end
   end
 
-  defp directive_schema do
-    Jason.encode!(%{
+  defp directive_schema, do: Jason.encode!(directive_schema_map())
+
+  defp directive_schema_path do
+    path =
+      Application.get_env(:custode, :mcp_config_dir, "tmp")
+      |> Path.join("routine_directive_schema.json")
+      |> Path.expand()
+
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, directive_schema())
+    path
+  end
+
+  defp directive_schema_map do
+    %{
       type: "object",
       additionalProperties: false,
       required: ["directive", "summary"],
@@ -533,7 +641,7 @@ defmodule Custode.Routine do
           description: "issue numbers this sweep worked, commented on, or judged"
         }
       }
-    })
+    }
   end
 
   defp sub_agent_prompt, do: Prompts.sub_agent()

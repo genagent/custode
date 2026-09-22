@@ -7,7 +7,7 @@ config :custode,
   ecto_repos: [Custode.Repo],
   # Each entry is one always-on agent: a cron schedule + a workspace + a beat
   # prompt. The crontab entry that Custode builds from it is the WHOLE agent
-  # spec (ObanClaude.Agent.Tick with if_offline: "start"), so agents cold-start
+  # spec (the provider Agent Tick with if_offline: "start"), so agents cold-start
   # from the schedule after any restart. Add more maps to run a fleet -- e.g.
   # point a second one's :workspace at a repo checkout with its own :prompt.
   # Profiles (#38's envelope layer, enabling #75's one-liner setup): a
@@ -131,6 +131,9 @@ config :custode,
   sensors: [],
   # Defaults shared by every routine unless overridden per-entry.
   model: "sonnet",
+  # A Codex routine with no model override follows the installed CLI's
+  # configured default. Set this to pin one fleet-wide Codex model instead.
+  codex_model: nil,
   # The budget rails guard against runaway loops, NOT dollar cost: on a
   # subscription (claude Max) the CLI-reported cost_usd is notional, so
   # every cap here is sized as an "obviously wrong" threshold rather than

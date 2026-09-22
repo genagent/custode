@@ -26,7 +26,7 @@ defmodule Custode.Operator.RoutineEdit do
   alias Custode.Config.WriteBack
   alias Custode.Routine.Effort
 
-  @fields ~w(agent cron model effort max_budget_usd daily_budget_usd timeout_ms max_turns prompt tags)
+  @fields ~w(provider agent cron model effort max_budget_usd daily_budget_usd daily_budget_tokens timeout_ms max_turns prompt tags)
 
   @type strings :: %{String.t() => String.t()}
 
@@ -127,6 +127,12 @@ defmodule Custode.Operator.RoutineEdit do
 
   defp parse(field, value) when field in ~w(agent cron model prompt), do: {:ok, value}
 
+  defp parse("provider", value) when value in ["claude", "codex"],
+    do: {:ok, String.to_existing_atom(value)}
+
+  defp parse("provider", value),
+    do: {:error, "provider must be claude or codex, got #{inspect(value)}"}
+
   defp parse("effort", value), do: Effort.normalize(value)
 
   defp parse(field, value) when field in ~w(max_budget_usd daily_budget_usd) do
@@ -136,7 +142,7 @@ defmodule Custode.Operator.RoutineEdit do
     end
   end
 
-  defp parse(field, value) when field in ~w(timeout_ms max_turns) do
+  defp parse(field, value) when field in ~w(daily_budget_tokens timeout_ms max_turns) do
     case Integer.parse(value) do
       {n, ""} -> {:ok, n}
       _other -> {:error, "#{field} must be an integer, got #{inspect(value)}"}

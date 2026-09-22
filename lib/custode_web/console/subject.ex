@@ -511,9 +511,11 @@ defmodule CustodeWeb.Console.Subject do
             ({Custode.Roles.tier(@subject.routine.role)} tier)
           </span>
         </dd>
+        <dt class="text-base-content/50">provider</dt>
+        <dd><b>{@subject.routine.provider}</b></dd>
         <dt class="text-base-content/50">sweeps on</dt>
         <dd>
-          <b>{@subject.routine.model}</b><span :if={@subject.routine.effort}>
+          <b>{@subject.routine.model || "CLI default"}</b><span :if={@subject.routine.effort}>
             at {@subject.routine.effort} effort
           </span>
         </dd>
@@ -623,6 +625,7 @@ defmodule CustodeWeb.Console.Subject do
   defp facts(%{routine: routine, spend_today: spend}) do
     [
       routine.role,
+      routine.provider,
       routine.model,
       routine.cron,
       routine.repo,

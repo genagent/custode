@@ -30,6 +30,7 @@ defmodule Custode.MCP.RosterTools do
   # TOML loader converts them.
   def to_attrs(params) do
     %{id: params.id}
+    |> put_if(params, :provider, &String.to_existing_atom/1)
     |> put_if(params, :profile, &String.to_existing_atom/1)
     |> put_if(params, :cron)
     |> put_if(params, :repo)
@@ -69,6 +70,7 @@ defmodule Custode.MCP.RosterTools do
   # nil-drops-the-key semantics.
   def to_changes(params) do
     %{}
+    |> put_if(params, :provider, &String.to_existing_atom/1)
     |> put_if(params, :profile, &String.to_existing_atom/1)
     |> put_if(params, :cron)
     |> put_if(params, :repo)
@@ -138,6 +140,7 @@ defmodule Custode.MCP.RosterTools.PreviewRoutine do
 
   schema do
     field(:id, :string, required: true, description: "unique routine id")
+    field(:provider, :string, description: "agent provider: claude or codex")
     field(:profile, :string, description: "profile name, e.g. \"backlog_worker\"")
     field(:cron, :string, description: "cron override (the profile usually supplies it)")
     field(:repo, :string, description: "owner/name the routine serves")
@@ -193,6 +196,7 @@ defmodule Custode.MCP.RosterTools.AddRoutine do
 
   schema do
     field(:id, :string, required: true, description: "unique routine id")
+    field(:provider, :string, description: "agent provider: claude or codex")
     field(:profile, :string, description: "profile name, e.g. \"backlog_worker\"")
     field(:cron, :string, description: "cron override (the profile usually supplies it)")
     field(:repo, :string, description: "owner/name the routine serves")
@@ -267,6 +271,7 @@ defmodule Custode.MCP.RosterTools.PreviewRoutineEdit do
 
   schema do
     field(:id, :string, required: true, description: "routine id to edit")
+    field(:provider, :string, description: "new agent provider: claude or codex")
     field(:profile, :string, description: "new profile name")
     field(:cron, :string, description: "new cron override")
     field(:repo, :string, description: "new owner/name")
@@ -328,6 +333,7 @@ defmodule Custode.MCP.RosterTools.UpdateRoutine do
 
   schema do
     field(:id, :string, required: true, description: "routine id to edit")
+    field(:provider, :string, description: "new agent provider: claude or codex")
     field(:profile, :string, description: "new profile name")
     field(:cron, :string, description: "new cron override")
     field(:repo, :string, description: "new owner/name")

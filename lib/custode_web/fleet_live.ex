@@ -528,6 +528,15 @@ defmodule CustodeWeb.FleetLive do
               />
             </label>
             <label class="form-control">
+              <span class="label-text text-xs">provider</span>
+              <select name="routine[provider]" class="select select-bordered select-sm">
+                <option value="claude" selected={@new_agent.params["provider"] in [nil, "", "claude"]}>
+                  claude
+                </option>
+                <option value="codex" selected={@new_agent.params["provider"] == "codex"}>codex</option>
+              </select>
+            </label>
+            <label class="form-control">
               <span class="label-text text-xs">profile</span>
               <select name="routine[profile]" class="select select-bordered select-sm">
                 <option value="">(none -- bespoke)</option>

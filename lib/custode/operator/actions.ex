@@ -24,7 +24,6 @@ defmodule Custode.Operator.Actions do
   alias Custode.Agents
   alias Custode.Operations.Fleet.PauseAgent
   alias Custode.Workflow.Launch
-  alias ObanClaude.Agent.Tick
 
   @type result :: :ok | {:error, term()}
 
@@ -62,7 +61,8 @@ defmodule Custode.Operator.Actions do
 
       routine ->
         args = Map.put(Custode.Routine.tick_args(routine), "prompt", text)
-        {:ok, _job} = Oban.insert(Tick.new(args, queue: :ticks))
+        tick = Custode.Routine.tick_worker(routine)
+        {:ok, _job} = Oban.insert(tick.new(args, queue: :ticks))
         Custode.Feed.record_prompted(agent_id, text)
         {:ok, :started}
     end

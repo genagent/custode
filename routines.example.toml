@@ -10,12 +10,24 @@
 # on this machine, and a schedule.
 [[routines]]
 id = "my-repo"
+provider = "claude"                    # optional; claude is the default
 profile = "backlog_worker"            # a role from the profiles in config/config.exs
 repo = "owner/my-repo"                # the repository it works, owner/name
 working_dir = "/path/to/checkout/of/my-repo"
 cron = "*/30 9-18 * * *"              # in the timezone set in config (default America/Los_Angeles)
 tags = ["rust"]
 daily_budget_usd = 10.0               # optional: the daily spend rail
+
+# A provider-neutral reviewer can use Codex without owning one repository.
+# It sees the same Custode MCP tools and lifecycle as a Claude routine.
+# [[routines]]
+# id = "reviewer"
+# provider = "codex"
+# role = "reviewer"
+# cron = "@daily"
+# prompt = "Do your review sweep now."
+# mcp = true
+# daily_budget_tokens = 500000
 
 # Optional overrides, each falling back to the profile: model, max_turns,
 # max_budget_usd, timeout_ms, prompt, extra_allowed_tools.

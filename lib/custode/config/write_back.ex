@@ -75,10 +75,18 @@ defmodule Custode.Config.WriteBack do
          {:ok, raw} <- fetch_raw(id),
          merged = merge_changes(raw, changes),
          :ok <- validate_entry(merged) do
+      old_provider = Custode.Routine.get(id).provider
       path = Loader.target_path()
       ensure_file!(path)
       splice!(path, id, render_routine(merged))
       {:ok, _path, _routines, _sensors, _profiles} = Loader.load!()
+      new_provider = Custode.Routine.get(id).provider
+
+      if old_provider != new_provider do
+        stop_live_agent(id, old_provider)
+        Custode.MCP.write_routine_config!(id)
+      end
+
       # a repo change serves the new one and retires the old if orphaned (#221)
       if is_binary(merged[:repo]), do: Custode.Repository.ensure_served(merged.repo, id)
       old_repo = Map.get(raw, :repo)
@@ -121,12 +129,13 @@ defmodule Custode.Config.WriteBack do
   """
   def remove_routine(id) when is_binary(id) do
     with {:ok, raw} <- fetch_raw(id) do
+      provider = Custode.Routine.get(id).provider
       path = Loader.target_path()
       ensure_file!(path)
       raw_repo = Map.get(raw, :repo)
       splice!(path, id, nil)
       {:ok, _path, _routines, _sensors, _profiles} = Loader.load!()
-      stop_live_agent(id)
+      stop_live_agent(id, provider)
       if is_binary(raw_repo), do: Custode.Repository.stop_serving(raw_repo)
       {:ok, path}
     end
@@ -167,10 +176,12 @@ defmodule Custode.Config.WriteBack do
          {:ok, envelope} <- fetch_profile(name),
          merged = merge_changes(envelope, changes),
          :ok <- validate_profile_envelope(merged) do
+      old_providers = profile_wearer_providers(name)
       path = Loader.target_path()
       ensure_file!(path)
       splice_profile!(path, name, render_profile(name, merged))
       {:ok, _path, _routines, _sensors, _profiles} = Loader.load!()
+      reconcile_profile_provider_changes(old_providers)
       {:ok, path}
     end
   end
@@ -265,6 +276,7 @@ defmodule Custode.Config.WriteBack do
       :cron,
       :prompt,
       :role,
+      :provider,
       :model,
       :effort,
       :agent,
@@ -319,6 +331,7 @@ defmodule Custode.Config.WriteBack do
       :tags,
       :prompt,
       :role,
+      :provider,
       :model,
       :effort,
       :agent,
@@ -475,6 +488,7 @@ defmodule Custode.Config.WriteBack do
     :cron,
     :prompt,
     :role,
+    :provider,
     :model,
     :effort,
     :agent,
@@ -545,6 +559,7 @@ defmodule Custode.Config.WriteBack do
     :tags,
     :prompt,
     :role,
+    :provider,
     :model,
     :effort,
     :agent,
@@ -644,12 +659,33 @@ defmodule Custode.Config.WriteBack do
   defp join_lines(lines, :before), do: Enum.join(lines, "\n") <> "\n"
   defp join_lines(lines, :after), do: "\n" <> Enum.join(lines, "\n")
 
-  defp stop_live_agent(id) do
-    Custode.Agents.stop_agent(id)
+  defp stop_live_agent(id, provider) do
+    Custode.Agents.stop_agent(id, provider)
   catch
     # not running (or already stopping) is fine: removal is idempotent on the
     # process side, and the roster is already rewritten
     _kind, _reason -> :ok
+  end
+
+  defp profile_wearer_providers(name) do
+    for routine <- Custode.Routine.all(),
+        routine.profile == String.to_existing_atom(name),
+        into: %{} do
+      {routine.id, routine.provider}
+    end
+  end
+
+  defp reconcile_profile_provider_changes(old_providers) do
+    Enum.each(old_providers, fn {id, old_provider} ->
+      case Custode.Routine.get(id) do
+        %{provider: new_provider} when new_provider != old_provider ->
+          stop_live_agent(id, old_provider)
+          Custode.MCP.write_routine_config!(id)
+
+        _unchanged_or_removed ->
+          :ok
+      end
+    end)
   end
 
   # normalize raises on a broken entry; surface that as a value, not a

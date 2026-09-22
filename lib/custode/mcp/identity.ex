@@ -33,6 +33,14 @@ defmodule Custode.MCP.Identity do
 
   def verify(_token), do: :error
 
+  @doc "Return the live token for an identity, or `:error` when none was minted."
+  def token(kind, id) when kind in [:operator, :routine, :sub_agent] do
+    case :ets.match(@table, {:"$1", %{kind: kind, id: id}}) do
+      [[token]] -> {:ok, token}
+      [] -> :error
+    end
+  end
+
   @doc "The operator token file path (0600, rewritten each boot)."
   def operator_token_path do
     Path.expand(

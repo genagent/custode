@@ -2,8 +2,8 @@ defmodule Custode.RunClock do
   @moduledoc """
   What is executing RIGHT NOW, and since when (#211's in-flight panel).
 
-  oban_claude emits `[:oban_claude, :run, :start]` before every claude
-  subprocess and `:stop`/`:exception` after. This owns a public ETS table
+  Each provider emits its `[:run, :start]` event before a subprocess and
+  `:stop`/`:exception` after. This owns a public ETS table
   mapping `agent_id => started_at`: a start writes it, a stop/exception
   clears it, so `running/0` is the live set of in-flight turns with their
   ages. Pure observability; the handlers are armored (a clock must never
@@ -19,7 +19,10 @@ defmodule Custode.RunClock do
   @events [
     [:oban_claude, :run, :start],
     [:oban_claude, :run, :stop],
-    [:oban_claude, :run, :exception]
+    [:oban_claude, :run, :exception],
+    [:oban_codex, :run, :start],
+    [:oban_codex, :run, :stop],
+    [:oban_codex, :run, :exception]
   ]
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
@@ -44,7 +47,8 @@ defmodule Custode.RunClock do
   end
 
   @doc false
-  def handle_event([:oban_claude, :run, :start], _measurements, meta, _config) do
+  def handle_event([provider, :run, :start], _measurements, meta, _config)
+      when provider in [:oban_claude, :oban_codex] do
     case agent_of(meta) do
       nil -> :ok
       agent -> :ets.insert(@table, {agent, DateTime.utc_now()})
@@ -60,7 +64,8 @@ defmodule Custode.RunClock do
       :ok
   end
 
-  def handle_event([:oban_claude, :run, _stop_or_exception], _measurements, meta, _config) do
+  def handle_event([provider, :run, _stop_or_exception], _measurements, meta, _config)
+      when provider in [:oban_claude, :oban_codex] do
     case agent_of(meta) do
       nil -> :ok
       agent -> :ets.delete(@table, agent)

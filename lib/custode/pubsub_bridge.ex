@@ -12,15 +12,19 @@ defmodule Custode.PubSubBridge do
   def topic, do: @topic
 
   def attach do
-    :telemetry.attach(
+    :telemetry.attach_many(
       "custode-pubsub-bridge",
-      [:oban_claude, :agent, :transition],
+      [
+        [:oban_claude, :agent, :transition],
+        [:oban_codex, :agent, :transition]
+      ],
       &__MODULE__.handle_event/4,
       nil
     )
   end
 
-  def handle_event([:oban_claude, :agent, :transition], _measurements, meta, _config) do
+  def handle_event([provider, :agent, :transition], _measurements, meta, _config)
+      when provider in [:oban_claude, :oban_codex] do
     broadcast({:status_changed, meta.agent_id})
   end
 

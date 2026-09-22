@@ -73,10 +73,20 @@ defmodule Custode.Gates.Grant do
   shell use cannot be observed from here, and changing the elevation is not
   an observation.
   """
-  @spec approval_args(String.t() | nil) :: %{optional(String.t()) => String.t()}
-  def approval_args(class) do
+  @spec approval_args(String.t() | nil, :claude | :codex) :: %{
+          optional(String.t()) => String.t()
+        }
+  def approval_args(class, provider \\ :claude)
+
+  def approval_args(class, :claude) do
     if mode() == :enforce and not Class.shell?(class),
       do: %{"permission_mode" => "default"},
+      else: %{}
+  end
+
+  def approval_args(class, :codex) do
+    if mode() == :enforce and not Class.shell?(class),
+      do: %{"sandbox" => "read_only", "approval_policy" => "never"},
       else: %{}
   end
 

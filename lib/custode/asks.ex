@@ -6,7 +6,7 @@ defmodule Custode.Asks do
   ## Why this is not a gate
 
   `Custode.Gates` records a blocking hold. The agent sits in
-  `:awaiting_permission` or `:waiting_for_user` and `ObanClaude.Agent.Tick`
+  `:awaiting_permission` or `:waiting_for_user` and provider Agent Tick jobs
   skips every beat until the operator decides, which is correct when nothing
   should proceed without a decision.
 

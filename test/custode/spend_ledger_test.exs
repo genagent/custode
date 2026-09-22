@@ -162,6 +162,46 @@ defmodule Custode.SpendLedgerTest do
              )
     end)
   end
+
+  test "a Codex routine's reported usage trips the shared token rail" do
+    routine =
+      routine_fixture!(tmp_workspace!(), %{
+        provider: :codex,
+        daily_budget_tokens: 1_000,
+        daily_budget_usd: nil
+      })
+
+    {:ok, _pid} =
+      Custode.Agents.start_agent(routine.id, enqueue_fun: fn _args, _meta -> {:ok, :queued} end)
+
+    on_exit(fn -> Custode.Agents.stop_agent(routine.id, :codex) end)
+
+    result =
+      ObanCodex.Testing.result(
+        usage: %{
+          "input_tokens" => 900,
+          "output_tokens" => 400,
+          "cached_input_tokens" => 200
+        }
+      )
+
+    {:ok, _} =
+      ObanCodex.run(%{"prompt" => "x"},
+        job: %Oban.Job{meta: %{"agent_id" => routine.id}},
+        query_fun: ObanCodex.Testing.respond(result)
+      )
+
+    assert SpendLedger.today_tokens(routine.id) == 1_300
+    assert {:ok, :paused} = Custode.Agents.await(routine.id, :paused, 1_000)
+
+    [[provider]] =
+      Custode.Repo.query!(
+        "SELECT provider FROM spend WHERE agent_id = ? ORDER BY id DESC LIMIT 1",
+        [routine.id]
+      ).rows
+
+    assert provider == "codex"
+  end
 end
 
 defmodule Custode.SpendLedgerDayBoundaryTest do

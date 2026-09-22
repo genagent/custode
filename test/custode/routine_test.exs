@@ -10,6 +10,7 @@ defmodule Custode.RoutineTest do
       routine = routine_fixture!("workspace")
 
       assert routine.model == Application.fetch_env!(:custode, :model)
+      assert routine.provider == :claude
       assert routine.max_budget_usd == Application.fetch_env!(:custode, :max_budget_usd)
       # least privilege by default (#161): no role named means :assistant,
       # never the caretaker's operator toolset
@@ -31,6 +32,26 @@ defmodule Custode.RoutineTest do
       assert routine.max_budget_usd == 0.1
       assert routine.system_prompt == "you are a test"
       assert routine.mcp == true
+    end
+
+    test "Codex is an explicit provider with its own model and approval defaults" do
+      routine = routine_fixture!("workspace", %{provider: :codex})
+
+      assert routine.provider == :codex
+      assert routine.model == Application.get_env(:custode, :codex_model)
+
+      assert routine.approved_args == %{
+               "sandbox" => "workspace_write",
+               "approval_policy" => "never"
+             }
+
+      assert Custode.Routine.tick_worker(routine) == ObanCodex.Agent.Tick
+    end
+
+    test "an unknown provider is rejected during normalization" do
+      assert_raise ArgumentError, ~r/unknown routine provider/, fn ->
+        routine_fixture!("workspace", %{provider: :other})
+      end
     end
 
     test "max_turns defaults to 20 and flows into the claude args when overridden" do
@@ -277,6 +298,43 @@ defmodule Custode.RoutineTest do
       refute Map.has_key?(claude_args, "mcp_config")
       refute Map.has_key?(claude_args, "allowed_tools")
       refute claude_args["append_system_prompt"] =~ "Delegation"
+    end
+
+    test "Codex receives its sandbox, schema, reasoning and MCP server config" do
+      routine =
+        routine_fixture!(tmp_workspace!(), %{
+          provider: :codex,
+          model: "gpt-6",
+          effort: "high",
+          hermetic: true,
+          mcp: true,
+          role: :backlog_worker
+        })
+
+      args = Custode.Routine.tick_args(routine)["start"]["args"]
+
+      assert args["model"] == "gpt-6"
+      assert args["sandbox"] == "read_only"
+      assert args["approval_policy"] == "never"
+      assert args["ignore_rules"] == true
+      assert args["skip_git_repo_check"] == true
+      assert File.exists?(args["output_schema"])
+
+      assert Jason.decode!(File.read!(args["output_schema"]))["required"] == [
+               "directive",
+               "summary"
+             ]
+
+      overrides = args["config_overrides"]
+      assert Enum.any?(overrides, &String.starts_with?(&1, "developer_instructions="))
+      assert "model_reasoning_effort=\"high\"" in overrides
+      assert Enum.any?(overrides, &String.starts_with?(&1, ~s(mcp_servers."custode".url=)))
+
+      enabled =
+        Enum.find(overrides, &String.starts_with?(&1, ~s(mcp_servers."custode".enabled_tools=)))
+
+      assert enabled =~ "repo_list_prs"
+      refute enabled =~ "mcp__custode__"
     end
   end
 
