@@ -6,6 +6,7 @@ defmodule Custode.FeedTest do
   import Custode.TestHelpers
   import ObanClaude.Testing
 
+  alias Custode.Feed.Ingest
   alias ObanClaude.Agent
 
   doctest Custode.Feed
@@ -57,6 +58,27 @@ defmodule Custode.FeedTest do
     assert [entry] = Custode.Feed.for_agent("feed-codex")
     assert %{"event" => "turn", "agent" => "feed-codex", "summary" => "reviewed"} = entry
     assert entry["tokens"] == 17
+  end
+
+  test "a cross-provider gate review is not recorded as a standing-agent turn" do
+    result =
+      ObanCodex.Testing.structured_result(%{
+        "summary" => "one warning",
+        "findings" => []
+      })
+
+    :ok =
+      Ingest.handle_event(
+        [:oban_codex, :run, :stop],
+        %{cost_usd: 0.0},
+        %{
+          result: result,
+          job: %{meta: %{"agent_id" => "review-author", "custode_kind" => "gate_review"}}
+        },
+        nil
+      )
+
+    assert Custode.Feed.for_agent("review-author") == []
   end
 
   describe "the schema'd epilogue (#120 slice 2)" do

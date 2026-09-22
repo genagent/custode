@@ -34,6 +34,15 @@ defmodule Custode.Feed.Ingest do
   end
 
   defp do_handle_event(
+         [provider, :run, outcome],
+         _measurements,
+         %{job: %{meta: %{"custode_kind" => "gate_review"}}},
+         _config
+       )
+       when provider in [:oban_claude, :oban_codex] and outcome in [:stop, :exception],
+       do: :ok
+
+  defp do_handle_event(
          [:oban_codex, :run, :stop],
          _measurements,
          %{result: %CodexWrapper.Result{success: false} = result} = meta,

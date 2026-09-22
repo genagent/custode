@@ -523,6 +523,36 @@ defmodule Custode.AttentionTest do
       assert gated.([]).headline == "wants your approval"
     end
 
+    test "an approval includes the other provider's typed review evidence" do
+      signal =
+        resolve(
+          view("git-spawn",
+            state: :awaiting_permission,
+            gate:
+              gate("approval", @now,
+                action_id: "act_1",
+                review_state: "completed",
+                review: %{
+                  provider: "codex",
+                  summary: "one warning",
+                  findings: [
+                    %{
+                      "severity" => "WARN",
+                      "claim" => "edge case is uncovered",
+                      "evidence" => %{
+                        "files" => [%{"path" => "diff.patch", "lines" => "1-3"}]
+                      }
+                    }
+                  ]
+                }
+              )
+          )
+        )
+
+      assert signal.detail =~ "codex review: one warning"
+      assert signal.detail =~ "WARN: edge case is uncovered (diff.patch:1-3)"
+    end
+
     test "needs_answer outranks approval when both could apply" do
       signal =
         resolve(view("both", state: :waiting_for_user, gate: gate("approval", @now)))

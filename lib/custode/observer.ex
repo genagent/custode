@@ -26,6 +26,16 @@ defmodule Custode.Observer do
     Logger.info("[#{meta.agent_id}] #{meta.from} -> #{meta.to}")
   end
 
+  def handle_event(
+        [provider, :run, :stop],
+        _measurements,
+        %{job: %{meta: %{"custode_kind" => "gate_review"}}} = meta,
+        _config
+      )
+      when provider in [:oban_claude, :oban_codex] do
+    Logger.info("[#{agent_of(meta)}] cross-provider gate review finished")
+  end
+
   def handle_event([provider, :run, :stop], measurements, meta, _config)
       when provider in [:oban_claude, :oban_codex] do
     out = structured(provider, meta.result) || %{}
@@ -37,6 +47,16 @@ defmodule Custode.Observer do
       do: Logger.warning("[#{agent}] turn failed: command_failed"),
       else:
         Logger.info("[#{agent}] turn done ($#{cost}) directive=#{out["directive"]}: #{report}")
+  end
+
+  def handle_event(
+        [provider, :run, :exception],
+        _measurements,
+        %{job: %{meta: %{"custode_kind" => "gate_review"}}} = meta,
+        _config
+      )
+      when provider in [:oban_claude, :oban_codex] do
+    Logger.warning("[#{agent_of(meta)}] cross-provider gate review failed")
   end
 
   def handle_event([provider, :run, :exception], _measurements, meta, _config)

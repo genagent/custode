@@ -708,13 +708,13 @@ Read recent blocking questions and approval gates.
 | limit | integer | no | max rows (default 20) |  |
 | status | string | no | filter: open &#124; resolved &#124; requeued &#124; orphaned |  |
 
-**Result:** gates array: agent_id, kind, action_id, detail, status and opened_at.
+**Result:** gates array: agent_id, kind, action_id, detail, class, repo, pr_number, risk, review_state, review, status and opened_at. review is null or the other provider's head-pinned summary, typed findings and error.
 
 **Side effects:** None.
 
 **Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
 
-**Behavior, defaults and errors:** status optionally filters open, resolved, requeued or orphaned; omission includes recent gates generally. limit defaults to 20 without a schema bound. Newest first. Use action_id, not the database row ID, for approve_action/reject_action.
+**Behavior, defaults and errors:** status optionally filters open, resolved, requeued or orphaned; omission includes recent gates generally. limit defaults to 20 without a schema bound. Newest first. Use action_id, not the database row ID, for approve_action/reject_action. Eligible ready_pr and merge gates enqueue a sealed review by the other provider family. Reviews are reused for an unchanged PR head and capped at three rounds per PR by default.
 
 ### Tool: list_inbox
 

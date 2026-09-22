@@ -82,7 +82,7 @@ defmodule Custode.TestHelpers do
   one that failed.
   """
   def clear_attention! do
-    for table <- ~w(asks gates disowned_prs workflow_node_results workflow_runs) do
+    for table <- ~w(asks gates gate_reviews disowned_prs workflow_node_results workflow_runs) do
       Custode.Repo.query!("DELETE FROM #{table}")
     end
 

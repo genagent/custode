@@ -5,6 +5,7 @@ defmodule Custode.OperatorToolsTest do
   import Custode.TestHelpers
   import ObanClaude.Testing
 
+  alias Custode.Gates.{Gate, Review}
   alias Custode.MCP.OperatorTools
   alias Custode.{OperationCall, OperationRegistry, Repo}
   alias ObanClaude.Agent
@@ -90,6 +91,52 @@ defmodule Custode.OperatorToolsTest do
       {:ok, :idle} = Agent.await(id, :idle, 1_000)
       json = tool_json(OperatorTools.ListGates.execute(%{status: "open"}, @frame))
       refute Enum.find(json["gates"], &(&1["agent_id"] == id))
+    end
+
+    test "returns the review attached to a gate" do
+      repo = "acme/#{uid("reviewed")}"
+
+      review =
+        %Review{}
+        |> Review.changeset(%{
+          repo: repo,
+          pr_number: 7,
+          head_sha: "head-7",
+          author_provider: "claude",
+          reviewer_provider: "codex",
+          round: 1,
+          status: "completed"
+        })
+        |> Repo.insert!()
+        |> Ecto.Changeset.change(
+          summary: "one warning",
+          findings: Jason.encode!([%{"severity" => "WARN", "claim" => "missing test"}])
+        )
+        |> Repo.update!()
+
+      gate =
+        Repo.insert!(%Gate{
+          agent_id: uid("review-gate"),
+          kind: "approval",
+          action_id: uid("act"),
+          detail: "merge it",
+          class: "merge",
+          repo: repo,
+          pr_number: 7,
+          review_id: review.id,
+          review_state: "completed"
+        })
+
+      on_exit(fn ->
+        Repo.delete_all(from(g in Gate, where: g.id == ^gate.id))
+        Repo.delete_all(from(r in Review, where: r.id == ^review.id))
+      end)
+
+      json = tool_json(OperatorTools.ListGates.execute(%{status: "open"}, @frame))
+      assert row = Enum.find(json["gates"], &(&1["action_id"] == gate.action_id))
+      assert row["review_state"] == "completed"
+      assert row["review"]["provider"] == "codex"
+      assert row["review"]["findings"] == [%{"severity" => "WARN", "claim" => "missing test"}]
     end
   end
 

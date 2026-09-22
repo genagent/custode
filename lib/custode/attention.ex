@@ -508,15 +508,37 @@ defmodule Custode.Attention do
   # What set the risk goes under what was asked, so "high" is never a bare
   # adjective: it is these paths.
   defp approval_detail(view) do
-    case get_in(view, [:gate, :risk_paths]) do
-      [_path | _rest] = paths ->
-        [detail(view), "risk: " <> Enum.join(paths, ", ")]
-        |> Enum.reject(&is_nil/1)
-        |> Enum.join("\n\n")
+    risk =
+      case get_in(view, [:gate, :risk_paths]) do
+        [_path | _rest] = paths -> "risk: " <> Enum.join(paths, ", ")
+        _none -> nil
+      end
 
-      _none ->
-        detail(view)
-    end
+    [detail(view), risk, review_detail(Map.get(view, :gate))]
+    |> Enum.reject(&blank?/1)
+    |> Enum.join("\n\n")
+  end
+
+  defp review_detail(%{review: %{summary: summary, findings: findings, provider: provider}})
+       when is_binary(summary) do
+    rows = Enum.map(findings, &review_finding/1)
+    Enum.join(["#{provider} review: #{summary}" | rows], "\n")
+  end
+
+  defp review_detail(%{review_state: state}) when is_binary(state),
+    do: "cross-provider review: #{state}"
+
+  defp review_detail(_gate), do: nil
+
+  defp review_finding(finding) do
+    citation =
+      finding
+      |> get_in(["evidence", "files"])
+      |> List.wrap()
+      |> Enum.map_join(", ", &"#{&1["path"]}:#{&1["lines"]}")
+
+    suffix = if citation == "", do: "", else: " (#{citation})"
+    "#{finding["severity"]}: #{finding["claim"]}#{suffix}"
   end
 
   # A red check on a PR the agent DISOWNED (#313). Nothing in the fleet will
