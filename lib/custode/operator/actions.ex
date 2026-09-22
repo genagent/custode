@@ -23,6 +23,7 @@ defmodule Custode.Operator.Actions do
 
   alias Custode.Agents
   alias Custode.Operations.Fleet.PauseAgent
+  alias Custode.Suggestions
   alias Custode.Workflow.Launch
 
   @type result :: :ok | {:error, term()}
@@ -337,6 +338,18 @@ defmodule Custode.Operator.Actions do
     Custode.Presence.set(mode)
     :ok
   end
+
+  @doc "Apply a standing advisor suggestion through the roster write-back."
+  @spec apply_suggestion(String.t(), String.t(), String.t(), keyword()) ::
+          {:ok, String.t()} | {:error, term()}
+  def apply_suggestion(agent, field, proposed, _opts \\ []),
+    do: Suggestions.apply(agent, field, proposed)
+
+  @doc "Dismiss a standing advisor suggestion, optionally recording why."
+  @spec dismiss_suggestion(String.t(), String.t(), String.t(), String.t() | nil, keyword()) ::
+          {:ok, String.t()}
+  def dismiss_suggestion(agent, field, proposed, reason, _opts \\ []),
+    do: Suggestions.dismiss(agent, field, proposed, reason)
 
   @doc """
   Approve a standing workflow launch (#447). Starts the run on the rail the

@@ -17,6 +17,7 @@ defmodule CustodeWeb.FleetLive do
   import CustodeWeb.Components
 
   alias Custode.Attention
+  alias Custode.Operator.Actions
   alias Custode.Operator.RoutineNew
   alias Custode.Routine
   alias Custode.Workflow.Launch
@@ -111,7 +112,7 @@ defmodule CustodeWeb.FleetLive do
   def handle_event("apply_suggestion", params, socket) do
     %{"agent" => id, "field" => field, "proposed" => proposed} = params
 
-    case Custode.Suggestions.apply(id, field, proposed) do
+    case Actions.apply_suggestion(id, field, proposed, via: :liveview) do
       {:ok, message} ->
         {:noreply, socket |> put_flash(:info, message) |> refresh()}
 
@@ -122,7 +123,7 @@ defmodule CustodeWeb.FleetLive do
 
   def handle_event("dismiss_suggestion", params, socket) do
     %{"agent" => id, "field" => field, "proposed" => proposed} = params
-    {:ok, message} = Custode.Suggestions.dismiss(id, field, proposed)
+    {:ok, message} = Actions.dismiss_suggestion(id, field, proposed, nil, via: :liveview)
     {:noreply, socket |> put_flash(:info, message) |> refresh()}
   end
 
@@ -445,60 +446,6 @@ defmodule CustodeWeb.FleetLive do
           <button class="btn btn-primary btn-xs">send</button>
         </div>
       </form>
-    </div>
-    """
-  end
-
-  attr(:suggestion, :map, required: true)
-
-  # An advisor's standing proposal (#124/#125) as a card in the rail: the
-  # change it wants, the evidence behind it, and how sure it is. The apply
-  # button (#192) writes through WriteBack.update_routine -- the operator
-  # clicking the dashboard is their own authority, same as the new-agent
-  # form; agents proposing the same change still go through the caretaker's
-  # gate. Only whitelisted fields render the button.
-  defp suggestion_card(assigns) do
-    ~H"""
-    <div class="rounded-lg bg-base-100 p-2 text-xs shadow">
-      <div class="mb-1 flex items-center gap-2 text-base-content/50">
-        <span class="badge badge-secondary badge-xs">suggestion</span>
-        <span class="font-mono"><.ago at={@suggestion["at"]} /></span>
-        <span class="ml-auto">{@suggestion["confidence"]}</span>
-      </div>
-      <p class="text-base-content/80">
-        <.link navigate={"/agents/#{@suggestion["agent"]}"} class="font-mono hover:underline">
-          {@suggestion["agent"]}
-        </.link>
-        <span class="font-mono">{@suggestion["field"]}</span>
-        {@suggestion["current"]} &rarr; <b>{@suggestion["proposed"]}</b>
-        <button
-          :if={applicable_field?(@suggestion["field"])}
-          class="btn btn-primary btn-xs ml-1"
-          phx-click="apply_suggestion"
-          phx-value-agent={@suggestion["agent"]}
-          phx-value-field={@suggestion["field"]}
-          phx-value-proposed={@suggestion["proposed"]}
-        >
-          apply
-        </button>
-        <button
-          class="btn btn-ghost btn-xs"
-          phx-click="dismiss_suggestion"
-          phx-value-agent={@suggestion["agent"]}
-          phx-value-field={@suggestion["field"]}
-          phx-value-proposed={@suggestion["proposed"]}
-        >
-          dismiss
-        </button>
-      </p>
-      <details :if={@suggestion["evidence"]} class="group mt-1 text-base-content/50">
-        <summary
-          class="line-clamp-3 cursor-pointer list-none group-open:line-clamp-none"
-          title="click to expand the advisor's full reasoning"
-        >
-          {@suggestion["evidence"]}
-        </summary>
-      </details>
     </div>
     """
   end
@@ -972,8 +919,6 @@ defmodule CustodeWeb.FleetLive do
 
   # the rail shows the top few (Custode.Suggestions holds the standing list +
   # apply); the full list lives on /suggestions (#284)
-  defp applicable_field?(field), do: Custode.Suggestions.applicable_field?(field)
-
   # Threshold banners (#211, the desktop-app cue): say an agent is
   # APPROACHING its rail before the rail says it out loud by pausing.
   # 80% and rising, not yet paused (a paused tile already reads 'daily
