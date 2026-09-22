@@ -12,6 +12,7 @@ defmodule Custode.Application do
   use Application
 
   alias Custode.Feed
+  alias Custode.MCP.MCPEx
   alias Custode.Workflow
 
   @impl Application
@@ -119,12 +120,7 @@ defmodule Custode.Application do
       Supervisor.child_spec({Task, fn -> Workflow.Runner.resume_all() end},
         id: :workflow_resume
       ),
-      # start: true is load-bearing: anubis otherwise guesses whether to boot
-      # its session machinery by sniffing for Phoenix config, and the
-      # dashboard's endpoint config flips that guess to "no" -- which
-      # silently breaks every MCP request with a missing session_config
-      {Custode.MCP.Server, transport: {:streamable_http, start: true}},
-      {Custode.MCP.MemoryServer, transport: {:streamable_http, start: true}},
+      MCPEx.executor_child_spec(),
       {Bandit, plug: Custode.MCP.Router, port: Custode.MCP.port(), ip: {127, 0, 0, 1}},
       # the ticks queue starts only after this loopback probe confirms the
       # MCP surface answers -- the first-sweep-after-restart tool blackout

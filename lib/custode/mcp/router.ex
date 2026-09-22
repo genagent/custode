@@ -1,24 +1,32 @@
 defmodule Custode.MCP.Router do
   @moduledoc false
 
-  use Plug.Router
+  @behaviour Plug
 
-  alias Anubis.Server.Transport.StreamableHTTP
-  alias Custode.MCP.Identity
+  alias Custode.MCP.{Identity, MCPEx}
+  alias MCP.Transport.Plug, as: MCPPlug
 
-  plug(:match)
-  plug(:authenticate)
-  plug(:dispatch)
+  @impl Plug
+  def init(_opts), do: MCPEx.plug_options()
+
+  @impl Plug
+  def call(conn, catalogs) do
+    conn
+    |> authenticate()
+    |> dispatch(catalogs)
+  end
 
   # #1 + #2: no request proceeds without a verified bearer token, and the
-  # resolved identity rides Plug assigns -- which anubis inherits into
-  # every tool's frame.assigns. Localhost is no longer the only wall.
-  def authenticate(conn, _opts) do
+  # resolved identity rides trusted Plug assigns into every tool context.
+  def authenticate(conn, _opts \\ []) do
     with ["Bearer " <> token] <- Plug.Conn.get_req_header(conn, "authorization"),
          {:ok, identity} <- Identity.verify(token) do
+      origin = origin_transport(conn, identity)
+
       conn
       |> Plug.Conn.assign(:custode_identity, identity)
-      |> Plug.Conn.assign(:custode_transport, origin_transport(conn, identity))
+      |> Plug.Conn.assign(:custode_transport, origin)
+      |> Plug.Conn.assign(:mcp_auth, %{identity: identity, origin: origin})
     else
       _missing_or_invalid ->
         conn
@@ -38,20 +46,14 @@ defmodule Custode.MCP.Router do
 
   defp origin_transport(_conn, _identity), do: :mcp
 
-  # Not `forward`: the Anubis plug's init opts contain closures, which Plug's
-  # compile-time forward cannot escape. Init at runtime instead.
-  match "/mcp" do
-    opts = StreamableHTTP.Plug.init(server: Custode.MCP.Server)
-    StreamableHTTP.Plug.call(conn, opts)
+  defp dispatch(%Plug.Conn{halted: true} = conn, _catalogs), do: conn
+
+  defp dispatch(%Plug.Conn{request_path: path} = conn, catalogs)
+       when path in ["/mcp", "/mcp/memory"] do
+    identity = conn.assigns.custode_identity
+    opts = Map.fetch!(catalogs, {path, identity.kind})
+    MCPPlug.call(conn, opts)
   end
 
-  # The memory-only server sub-agents are pointed at.
-  match "/mcp/memory" do
-    opts = StreamableHTTP.Plug.init(server: Custode.MCP.MemoryServer)
-    StreamableHTTP.Plug.call(conn, opts)
-  end
-
-  match _ do
-    send_resp(conn, 404, "not found")
-  end
+  defp dispatch(conn, _catalogs), do: Plug.Conn.send_resp(conn, 404, "not found")
 end

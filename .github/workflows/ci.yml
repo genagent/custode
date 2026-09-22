@@ -22,10 +22,18 @@ jobs:
         with:
           repository: genagent/oban_codex
           path: .oban_codex
+      - uses: actions/checkout@v7
+        with:
+          repository: joshrotenberg/mcp_ex
+          ref: bb433998ddaccb9ff0159b6ef149a994b6674e1b
+          path: .mcp_ex
+          ssh-key: ${{ secrets.MCP_EX_DEPLOY_KEY }}
       - name: Point the path deps at the CI checkouts
         run: |
           echo "OBAN_CLAUDE_PATH=$GITHUB_WORKSPACE/.oban_claude" >> "$GITHUB_ENV"
           echo "OBAN_CODEX_PATH=$GITHUB_WORKSPACE/.oban_codex" >> "$GITHUB_ENV"
+          echo "MCP_EX_PATH=$GITHUB_WORKSPACE/.mcp_ex" >> "$GITHUB_ENV"
+          echo "MCP_EX_REV=$(git -C .mcp_ex rev-parse --short HEAD)" >> "$GITHUB_ENV"
 
       - uses: erlef/setup-beam@v1
         with:
@@ -37,7 +45,7 @@ jobs:
           path: |
             deps
             _build
-          key: mix-${{ runner.os }}-${{ hashFiles('mix.lock') }}
+          key: mix-${{ runner.os }}-${{ hashFiles('mix.lock') }}-${{ env.MCP_EX_REV }}
           restore-keys: mix-${{ runner.os }}-
 
       - run: mix deps.get
@@ -65,15 +73,22 @@ jobs:
         with:
           repository: genagent/oban_codex
           path: .oban_codex
+      - uses: actions/checkout@v7
+        with:
+          repository: joshrotenberg/mcp_ex
+          ref: bb433998ddaccb9ff0159b6ef149a994b6674e1b
+          path: .mcp_ex
+          ssh-key: ${{ secrets.MCP_EX_DEPLOY_KEY }}
       - name: Point the path deps at the CI checkouts
         run: |
           echo "OBAN_CLAUDE_PATH=$GITHUB_WORKSPACE/.oban_claude" >> "$GITHUB_ENV"
           echo "OBAN_CODEX_PATH=$GITHUB_WORKSPACE/.oban_codex" >> "$GITHUB_ENV"
+          echo "MCP_EX_PATH=$GITHUB_WORKSPACE/.mcp_ex" >> "$GITHUB_ENV"
           # The engines are path deps, so mix.lock does not move when they do.
           # Their commits go in the cache keys, or the PLT keeps analysing an
           # engine that is no longer the one checked out (call_to_missing on a
           # function the engine had just gained).
-          echo "ENGINES=$(git -C .oban_claude rev-parse --short HEAD)-$(git -C .oban_codex rev-parse --short HEAD)" >> "$GITHUB_ENV"
+          echo "ENGINES=$(git -C .oban_claude rev-parse --short HEAD)-$(git -C .oban_codex rev-parse --short HEAD)-$(git -C .mcp_ex rev-parse --short HEAD)" >> "$GITHUB_ENV"
 
       - uses: erlef/setup-beam@v1
         with:

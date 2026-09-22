@@ -4,10 +4,10 @@ defmodule Custode.MCP.Probe do
   a loopback MCP `initialize` succeeds.
 
   The recurring failure was always the FIRST agent sweep after a server
-  restart: the claude CLI would race the MCP session layer coming up, fail
+  restart: the claude CLI would race the MCP HTTP surface coming up, fail
   to connect, and drop the custode server for that whole session -- the
   agent then swept without its notebook. Holding the ticks queue until the
-  HTTP surface demonstrably answers removes the race mechanically; agent
+  stateless HTTP surface demonstrably answers removes the race mechanically; agent
   turns cannot exist before a tick does.
 
   Fail-open: if the probe never succeeds within the window, the queue starts
