@@ -28,6 +28,7 @@ defmodule CustodeWeb.Console.Subject do
   attr(:message_gen, :integer, required: true)
   attr(:edit, :any, default: nil)
   attr(:upload, :map, required: true)
+  attr(:running_since, :any, default: nil)
 
   def subject(assigns) do
     ~H"""
@@ -50,6 +51,19 @@ defmodule CustodeWeb.Console.Subject do
     </div>
 
     <p class="mt-1 font-mono text-xs text-base-content/60">{facts(@subject)}</p>
+
+    <div
+      :if={@running_since}
+      id="working-state"
+      class="mt-3 flex items-center gap-2 rounded-lg bg-info/5 px-3 py-2 text-xs text-base-content/70"
+    >
+      <span class="badge badge-info badge-sm gap-1">
+        <span class="inline-block size-1.5 animate-pulse rounded-full bg-current"></span>
+        working
+      </span>
+      <span>current turn</span>
+      <span class="ml-auto font-mono">{elapsed(@running_since)}</span>
+    </div>
 
     <%!-- Always here, whatever the agent's state (#450). The button says
           what sending will do: queue, answer, resume first, or start a turn. --%>
@@ -655,6 +669,16 @@ defmodule CustodeWeb.Console.Subject do
 
   defp budget(nil), do: " today"
   defp budget(limit), do: " of $#{usd(limit)}"
+
+  defp elapsed(%DateTime{} = started_at) do
+    seconds = max(DateTime.diff(DateTime.utc_now(), started_at, :second), 0)
+
+    cond do
+      seconds < 60 -> "#{seconds}s elapsed"
+      seconds < 3_600 -> "#{div(seconds, 60)}m#{rem(seconds, 60)}s elapsed"
+      true -> "#{div(seconds, 3_600)}h#{div(rem(seconds, 3_600), 60)}m elapsed"
+    end
+  end
 
   defp upload_error_text(:too_large), do: "too large (10MB max)"
   defp upload_error_text(:too_many_files), do: "one image at a time"
