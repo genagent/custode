@@ -4,6 +4,7 @@ defmodule Custode.RepositoryTest do
   import Custode.TestHelpers
 
   alias Custode.Repository
+  alias Custode.Repository.Ops
 
   defmodule FakeOps do
     @behaviour Custode.Repository.OpsBehaviour
@@ -64,6 +65,11 @@ defmodule Custode.RepositoryTest do
     def pr_checks(owner, repo, number) do
       send(pid(), {:pr_checks, owner, repo, number})
       {:ok, %{sha: "abc", checks: [%{name: "test", status: "completed", conclusion: "success"}]}}
+    end
+
+    def job_log_tail(owner, repo, job_id) do
+      send(pid(), {:job_log_tail, owner, repo, job_id})
+      {:ok, "the failure"}
     end
 
     def pr_diff(owner, repo, number) do
@@ -263,6 +269,9 @@ defmodule Custode.RepositoryTest do
     assert {:ok, %{checks: [%{conclusion: "success"}]}} = Repository.pr_checks(repo, 9)
     assert_receive {:pr_checks, "acme", _bare, 9}
 
+    assert {:ok, "the failure"} = Repository.job_log_tail(repo, 91)
+    assert_receive {:job_log_tail, "acme", _bare, 91}
+
     assert {:ok, %{files: [%{filename: "lib/x.ex"}]}} = Repository.pr_diff(repo, 9)
     assert_receive {:pr_diff, "acme", _bare, 9}
 
@@ -270,6 +279,20 @@ defmodule Custode.RepositoryTest do
              Repository.review_snapshot(repo, 9)
 
     assert_receive {:review_snapshot, "acme", _bare, 9}
+  end
+
+  test "failure tails strip terminal control codes and stay bounded" do
+    log =
+      Enum.map_join(1..20, "\n", fn line ->
+        if line == 20, do: "\e[31mline #{line} failed\e[0m", else: "line #{line}"
+      end)
+
+    tail = Ops.failure_tail(log)
+
+    refute tail =~ "line 8\n"
+    assert tail =~ "line 9\n"
+    assert tail =~ "line 20 failed"
+    refute tail =~ "\e["
   end
 
   test "reads do NOT record a feed entry (only writes do)", %{repo: repo} do
