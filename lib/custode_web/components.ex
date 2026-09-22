@@ -158,6 +158,8 @@ defmodule CustodeWeb.Components do
   attr(:entry, :map, required: true)
   attr(:show_agent, :boolean, default: true)
 
+  attr(:restore_prompt, :boolean, default: false)
+
   @doc "One feed entry card (used by the feed page and the agent detail page)."
   def feed_entry(assigns) do
     ~H"""
@@ -188,6 +190,15 @@ defmodule CustodeWeb.Components do
         </div>
         <p class="text-base-content/80">{feed_text(@entry)}</p>
         <.prompt_answer entry={@entry} />
+        <button
+          :if={@restore_prompt && restore_text(@entry)}
+          type="button"
+          class="link mt-1 self-start text-xs"
+          phx-click="restore_message"
+          phx-value-text={restore_text(@entry)}
+        >
+          edit and send again
+        </button>
       </div>
     </div>
     """
@@ -608,6 +619,13 @@ defmodule CustodeWeb.Components do
   # event's `prompt`, if any, is not the thing this block shows.
   defp prompt_text(%{"event" => "prompted"} = entry), do: entry["prompt"]
   defp prompt_text(_entry), do: nil
+
+  defp restore_text(%{"event" => "prompted", "prompt" => prompt, "agent" => agent}) do
+    {text, _images} = attachments(prompt, agent)
+    text
+  end
+
+  defp restore_text(_entry), do: nil
 
   # The line agent_live composes onto a prompt when an image rides along
   # (#180): `attached image: <absolute path> -- Read it before answering`.

@@ -169,9 +169,20 @@ defmodule CustodeWeb.ConsoleLive do
     text = Attachments.compose(text, save_images(socket))
 
     case Actions.message(socket.assigns.selected, text, @opts) do
-      {:ok, how} -> after_action(:ok, socket, sent_notice(how))
-      {:error, reason} -> after_action({:error, reason}, socket, nil)
+      {:ok, how} ->
+        socket = push_event(socket, "draft:clear", %{subject: socket.assigns.selected})
+        after_action(:ok, socket, sent_notice(how))
+
+      {:error, reason} ->
+        after_action({:error, reason}, socket, nil)
     end
+  end
+
+  # Prompt history restores into the browser-owned composer. It does not call
+  # an operator action and therefore cannot resend an old instruction.
+  def handle_event("restore_message", %{"text" => text}, socket) when is_binary(text) do
+    {:noreply,
+     push_event(socket, "draft:restore", %{subject: socket.assigns.selected, text: text})}
   end
 
   # A sentence to the caretaker, from wherever the operator is (#451).

@@ -45,8 +45,76 @@ defmodule CustodeWeb.Layouts do
         <script>
           window.addEventListener("DOMContentLoaded", () => {
             const csrf = document.querySelector("meta[name='csrf-token']").content;
+            const draftKey = subject => `custode-subject-draft:${encodeURIComponent(subject)}`;
+
+            const Hooks = {
+              SubjectDraft: {
+                mounted() {
+                  this.subject = this.el.dataset.subject;
+                  this.input = this.el.querySelector("[data-draft-input]");
+                  this.state = this.el.querySelector("[data-draft-state]");
+                  this.discard = this.el.querySelector("[data-discard-draft]");
+
+                  this.showState = () => {
+                    const present = this.input.value.length > 0;
+                    this.state.hidden = !present;
+                    this.discard.hidden = !present;
+                  };
+
+                  this.loadDraft = () => {
+                    this.input.value = localStorage.getItem(draftKey(this.subject)) || "";
+                    this.showState();
+                  };
+
+                  this.input.addEventListener("input", () => {
+                    if (this.input.value.length > 0) {
+                      localStorage.setItem(draftKey(this.subject), this.input.value);
+                    } else {
+                      localStorage.removeItem(draftKey(this.subject));
+                    }
+                    this.showState();
+                  });
+
+                  this.discard.addEventListener("click", () => {
+                    localStorage.removeItem(draftKey(this.subject));
+                    this.input.value = "";
+                    this.showState();
+                    this.input.focus();
+                  });
+
+                  this.loadDraft();
+                },
+
+                updated() {
+                  if (this.subject !== this.el.dataset.subject) {
+                    this.subject = this.el.dataset.subject;
+                    this.loadDraft();
+                  }
+                }
+              }
+            };
+
+            // Drafts belong to this browser profile. They survive navigation,
+            // reloads and reconnects until an accepted send or explicit discard.
+            window.addEventListener("phx:draft:clear", event => {
+              localStorage.removeItem(draftKey(event.detail.subject));
+            });
+
+            window.addEventListener("phx:draft:restore", event => {
+              const form = document.querySelector(
+                `[data-subject-draft][data-subject="${CSS.escape(event.detail.subject)}"]`
+              );
+              if (!form) return;
+
+              const input = form.querySelector("[data-draft-input]");
+              input.value = event.detail.text;
+              input.dispatchEvent(new Event("input", {bubbles: true}));
+              input.focus();
+            });
+
             const liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
-              params: {_csrf_token: csrf}
+              params: {_csrf_token: csrf},
+              hooks: Hooks
             });
             liveSocket.connect();
             window.liveSocket = liveSocket;

@@ -2,6 +2,10 @@ defmodule CustodeWeb.Console.Subject do
   @moduledoc """
   The console's subject pane (#450): the selected agent. Who it is, a message
   box that is there in every state, and what it has been doing, in tabs.
+
+  Unsent message drafts live in browser `localStorage`, one key per subject.
+  They survive navigation, reload and reconnect until an accepted send or the
+  operator's explicit discard. They never enter Custode's feed or database.
   """
 
   use Phoenix.Component
@@ -52,8 +56,11 @@ defmodule CustodeWeb.Console.Subject do
     <form
       :if={@subject.kind != :other}
       id={"message-#{@message_gen}"}
+      phx-hook="SubjectDraft"
       phx-submit="message"
       phx-change="validate_message"
+      data-subject-draft
+      data-subject={@subject.id}
       class="mt-4"
     >
       <div :for={entry <- @upload.entries} class="mb-1 flex items-center gap-2 text-xs">
@@ -78,12 +85,22 @@ defmodule CustodeWeb.Console.Subject do
         <textarea
           name="text"
           rows="2"
+          data-draft-input
           class="textarea textarea-bordered w-full text-sm"
           placeholder={"message #{@subject.id}... #{message_hint(@subject.state)}"}
         ></textarea>
-        <button type="submit" class="btn btn-primary btn-sm self-end">
+        <button
+          type="submit"
+          class="btn btn-primary btn-sm self-end"
+          phx-disable-with="sending..."
+        >
           {message_label(@subject.state)}
         </button>
+      </div>
+
+      <div class="mt-1 flex items-center gap-2 text-xs text-base-content/50">
+        <span data-draft-state hidden>unsent draft saved in this browser</span>
+        <button type="button" data-discard-draft hidden class="link">discard draft</button>
       </div>
 
       <%!-- An image reaches the agent as a path in its own workspace (#180),
@@ -256,6 +273,7 @@ defmodule CustodeWeb.Console.Subject do
         :for={entry <- Custode.Feed.collapse_repeats(@subject.feed)}
         entry={entry}
         show_agent={false}
+        restore_prompt={true}
       />
     </div>
     <button
