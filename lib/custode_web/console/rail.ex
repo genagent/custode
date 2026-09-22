@@ -28,7 +28,7 @@ defmodule CustodeWeb.Console.Rail do
 
   def rail(assigns) do
     ~H"""
-    <nav class="bg-base-100 p-4" aria-label="subjects">
+    <nav id="subject-rail" class="bg-base-100 p-4" aria-label="subjects" phx-hook="SubjectRail">
       <form id="rail-filter" phx-change="filter" phx-submit="filter" class="mb-4">
         <input
           type="search"
@@ -53,6 +53,8 @@ defmodule CustodeWeb.Console.Rail do
           <li :for={signal <- signals}>
             <.link
               patch={subject_path(signal.subject)}
+              data-rail-subject
+              aria-current={signal.subject == @selected && "page"}
               class={[
                 "flex items-center gap-2 rounded px-2 py-1.5 font-mono text-sm hover:bg-base-200",
                 signal.subject == @selected && "bg-base-200 font-bold",

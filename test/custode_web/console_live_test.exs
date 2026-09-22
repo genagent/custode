@@ -110,6 +110,14 @@ defmodule CustodeWeb.ConsoleLiveTest do
 
     assert html =~ ~s(<h1 class="font-mono text-2xl font-bold">#{sleeper.id}</h1>)
     assert html =~ "@daily"
+    assert has_element?(view, ~s(nav#subject-rail[phx-hook="SubjectRail"]))
+
+    assert has_element?(
+             view,
+             ~s(nav#subject-rail a[data-rail-subject][aria-current="page"]),
+             sleeper.id
+           )
+
     assert has_element?(view, ~s(nav[aria-label="breadcrumb"] a[href="/console"]), "fleet")
 
     assert has_element?(
@@ -127,6 +135,21 @@ defmodule CustodeWeb.ConsoleLiveTest do
              view,
              ~s(nav[aria-label="subjects"] a[href="/console/#{sleeper.id}"])
            )
+  end
+
+  test "the rail's j and k shortcuts move among visible subjects and leave editors alone",
+       %{conn: conn} do
+    html = conn |> get("/console") |> html_response(200)
+
+    assert html =~ ~S|const key = event.key.toLowerCase()|
+    assert html =~ ~S|key !== "j" && key !== "k"|
+    assert html =~ ~S|this.el.querySelectorAll("[data-rail-subject]")|
+    assert html =~ ~S|subject.getClientRects().length > 0|
+    assert html =~ ~S|subject.getAttribute("aria-current") === "page"|
+    assert html =~ ~S|const next = subjects[start + step]|
+    assert html =~ ~S|next.scrollIntoView({block: "nearest"})|
+    assert html =~ ~S|input, textarea, select, button, [contenteditable='true'], [role='textbox']|
+    assert html =~ ~S|window.removeEventListener("keydown", this.onKeydown)|
   end
 
   # #450: the agent page hides its composer for an offline agent
