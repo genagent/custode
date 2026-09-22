@@ -436,6 +436,8 @@ defmodule CustodeWeb.ConsoleLive do
         usage={@usage}
         fleet_today={@fleet_today}
         notice={@fleet_notice}
+        selected={@selected}
+        signal={@signal}
       />
 
       <div class="px-5 pt-4 empty:hidden"><.host_banner /></div>

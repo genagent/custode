@@ -9,6 +9,9 @@ defmodule CustodeWeb.Console.Header do
 
   import CustodeWeb.Components, only: [theme_toggle: 1, usd: 1]
 
+  alias Custode.Signal
+  alias CustodeWeb.Console.Rail
+
   attr(:caretaker, :any, required: true)
   attr(:tell_gen, :integer, required: true)
   attr(:needs_you, :integer, required: true)
@@ -16,11 +19,14 @@ defmodule CustodeWeb.Console.Header do
   attr(:usage, :map, required: true)
   attr(:fleet_today, :any, required: true)
   attr(:notice, :string, default: nil)
+  attr(:selected, :string, default: nil)
+  attr(:signal, :any, default: nil)
 
   def console_header(assigns) do
     ~H"""
     <header class="flex items-baseline gap-4 border-b border-base-300 bg-base-100 px-5 py-3">
       <.link navigate="/" class="text-xl font-bold hover:opacity-70">custode</.link>
+      <.breadcrumb selected={@selected} signal={@signal} />
       <nav class="flex gap-3 text-sm text-base-content/60">
         <span class="font-semibold text-base-content underline underline-offset-4">console</span>
         <.link navigate="/custode" class="hover:text-base-content" title="Cmd/Ctrl+K">
@@ -92,6 +98,58 @@ defmodule CustodeWeb.Console.Header do
     </p>
     """
   end
+
+  attr(:selected, :string, default: nil)
+  attr(:signal, :any, default: nil)
+
+  defp breadcrumb(assigns) do
+    assigns = assign(assigns, :item, item_label(assigns.signal))
+
+    ~H"""
+    <nav aria-label="breadcrumb" class="flex min-w-0 items-center gap-2 font-mono text-sm">
+      <.link
+        :if={@selected}
+        patch="/console"
+        class="text-base-content/50 hover:text-base-content"
+      >
+        fleet
+      </.link>
+      <span :if={!@selected} aria-current="page" class="font-semibold">fleet</span>
+      <span :if={@selected} aria-hidden="true" class="text-base-content/30">/</span>
+      <.link
+        :if={@selected && @item}
+        patch={Rail.subject_path(@selected)}
+        class="max-w-48 truncate font-semibold hover:underline"
+      >
+        {@selected}
+      </.link>
+      <span
+        :if={@selected && !@item}
+        aria-current="page"
+        class="max-w-48 truncate font-semibold"
+      >
+        {@selected}
+      </span>
+      <span :if={@item} aria-hidden="true" class="text-base-content/30">/</span>
+      <span :if={@item} aria-current="page" class="max-w-40 truncate font-semibold">
+        {@item}
+      </span>
+    </nav>
+    """
+  end
+
+  defp item_label(%Signal{item: {:prs, [number]}}), do: "##{number}"
+  defp item_label(%Signal{item: {:prs, numbers}}), do: "#{length(numbers)} PRs"
+  defp item_label(%Signal{item: {:branch, branch}}), do: branch
+  defp item_label(%Signal{item: {:proposal, _id}}), do: "launch"
+  defp item_label(%Signal{item: {:run, _id}}), do: "run"
+  defp item_label(%Signal{item: {:ask, _id}}), do: "question"
+  defp item_label(%Signal{item: {:turn_failure, _failure}}), do: "turn failure"
+  defp item_label(%Signal{item: {:sensors, [_one]}}), do: "sensor"
+  defp item_label(%Signal{item: {:sensors, many}}), do: "#{length(many)} sensors"
+  defp item_label(%Signal{kind: :approval}), do: "approval"
+  defp item_label(%Signal{kind: :scheduled, item: {:next_beat, %DateTime{}}}), do: "next beat"
+  defp item_label(_signal), do: nil
 
   attr(:usage, :map, required: true)
 
