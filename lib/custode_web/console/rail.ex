@@ -25,6 +25,7 @@ defmodule CustodeWeb.Console.Rail do
   attr(:selected, :string, default: nil)
   attr(:filter, :string, required: true)
   attr(:in_flight, :map, required: true)
+  attr(:quiet_open, :boolean, required: true)
 
   def rail(assigns) do
     ~H"""
@@ -45,43 +46,95 @@ defmodule CustodeWeb.Console.Rail do
       <button class="btn btn-outline btn-xs mb-4 w-full" phx-click="new_open">new agent</button>
 
       <section :for={{group, signals} <- @groups} class="mb-5">
-        <h2 class={["mb-1 text-xs font-bold uppercase tracking-widest", group_tone(group)]}>
-          {group_title(group)}
-          <span class="font-normal text-base-content/40">{length(signals)}</span>
-        </h2>
-        <ul>
-          <li :for={signal <- signals}>
-            <.link
-              patch={subject_path(signal.subject)}
-              data-rail-subject
-              aria-current={signal.subject == @selected && "page"}
-              class={[
-                "flex items-center gap-2 rounded px-2 py-1.5 font-mono text-sm hover:bg-base-200",
-                signal.subject == @selected && "bg-base-200 font-bold",
-                group in [:scheduled, :quiet] && "text-base-content/60"
-              ]}
-            >
-              <span class={["inline-block size-2 shrink-0 rounded-full", dot(signal)]}></span>
-              <span class="min-w-0 flex-1">
-                <span class="block truncate">{signal.subject}</span>
-                <%!-- Seeing many things at once is the point: a rail of bare
-                      names made every one of them a click. Only the groups
-                      that mean something is wrong pay the second line. --%>
-                <span
-                  :if={group in [:needs_you, :watching]}
-                  class="block truncate font-sans text-xs font-normal text-base-content/60"
-                >
-                  {signal.headline}
-                </span>
-              </span>
-              <span class="ml-auto shrink-0 self-start text-xs font-normal text-base-content/50">
-                {rail_note(signal, @in_flight)}
-              </span>
-            </.link>
-          </li>
-        </ul>
+        <div
+          :if={group == :quiet}
+          id="quiet-subjects"
+          class="rounded-lg bg-base-200/40"
+        >
+          <button
+            type="button"
+            phx-click="toggle_quiet"
+            aria-expanded={
+              if @quiet_open || selected_in?(@selected, signals), do: "true", else: "false"
+            }
+            aria-controls="quiet-subject-list"
+            class="flex w-full items-center gap-2 px-2 py-2 text-left font-mono text-xs text-base-content/50"
+          >
+            <span aria-hidden="true">
+              {if @quiet_open || selected_in?(@selected, signals), do: "▾", else: "▸"}
+            </span>
+            <span class="font-bold uppercase tracking-widest">quiet</span>
+            <span>{length(signals)}</span>
+            <span class="min-w-0 flex-1 truncate text-right" title={quiet_names(signals)}>
+              {quiet_names(signals)}
+            </span>
+          </button>
+          <.subject_list
+            :if={@quiet_open || selected_in?(@selected, signals)}
+            id="quiet-subject-list"
+            signals={signals}
+            selected={@selected}
+            group={group}
+            in_flight={@in_flight}
+          />
+        </div>
+
+        <div :if={group != :quiet}>
+          <h2 class={["mb-1 text-xs font-bold uppercase tracking-widest", group_tone(group)]}>
+            {group_title(group)}
+            <span class="font-normal text-base-content/40">{length(signals)}</span>
+          </h2>
+          <.subject_list
+            signals={signals}
+            selected={@selected}
+            group={group}
+            in_flight={@in_flight}
+          />
+        </div>
       </section>
     </nav>
+    """
+  end
+
+  attr(:signals, :list, required: true)
+  attr(:selected, :string, default: nil)
+  attr(:group, :atom, required: true)
+  attr(:in_flight, :map, required: true)
+  attr(:id, :string, default: nil)
+
+  defp subject_list(assigns) do
+    ~H"""
+    <ul id={@id}>
+      <li :for={signal <- @signals}>
+        <.link
+          patch={subject_path(signal.subject)}
+          data-rail-subject
+          aria-current={signal.subject == @selected && "page"}
+          class={[
+            "flex items-center gap-2 rounded px-2 py-1.5 font-mono text-sm hover:bg-base-200",
+            signal.subject == @selected && "bg-base-200 font-bold",
+            @group in [:scheduled, :quiet] && "text-base-content/60"
+          ]}
+        >
+          <span class={["inline-block size-2 shrink-0 rounded-full", dot(signal)]}></span>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate">{signal.subject}</span>
+            <%!-- Seeing many things at once is the point: a rail of bare
+                  names made every one of them a click. Only the groups
+                  that mean something is wrong pay the second line. --%>
+            <span
+              :if={@group in [:needs_you, :watching]}
+              class="block truncate font-sans text-xs font-normal text-base-content/60"
+            >
+              {signal.headline}
+            </span>
+          </span>
+          <span class="ml-auto shrink-0 self-start text-xs font-normal text-base-content/50">
+            {rail_note(signal, @in_flight)}
+          </span>
+        </.link>
+      </li>
+    </ul>
     """
   end
 
@@ -89,6 +142,12 @@ defmodule CustodeWeb.Console.Rail do
   # subject is "<workflow> on <owner>/<repo>" (#447), and an unencoded slash
   # there would be a second path segment and no route.
   def subject_path(subject), do: "/console/" <> URI.encode(subject, &URI.char_unreserved?/1)
+
+  defp selected_in?(selected, signals),
+    do: Enum.any?(signals, &(&1.subject == selected))
+
+  defp quiet_names(signals),
+    do: Enum.map_join(signals, " · ", & &1.subject)
 
   defp group_title(group), do: Map.fetch!(@group_titles, group)
 

@@ -152,6 +152,44 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ ~S|window.removeEventListener("keydown", this.onKeydown)|
   end
 
+  test "quiet subjects collapse to one line and open when one is selected", %{conn: conn} do
+    workspace = tmp_workspace!()
+    scheduled = uid("scheduled")
+    first_quiet = uid("quiet")
+    second_quiet = uid("paused")
+
+    put_env!(:routines, [
+      %{id: scheduled, cron: "@daily", workspace: workspace, prompt: "sweep"},
+      %{id: first_quiet, cron: :manual, workspace: workspace, prompt: "sweep"},
+      %{id: second_quiet, cron: :manual, workspace: workspace, prompt: "sweep"}
+    ])
+
+    {:ok, view, _html} = live(conn, "/console/#{scheduled}")
+
+    assert has_element?(view, "#quiet-subjects button[aria-expanded=false]")
+    refute has_element?(view, "#quiet-subject-list")
+    summary = view |> element("#quiet-subjects > button") |> render()
+    assert summary =~ ~r/quiet\s*<\/span>\s*<span>2<\/span>/
+    assert summary =~ first_quiet
+    assert summary =~ second_quiet
+
+    view |> element("#quiet-subjects > button") |> render_click()
+    assert has_element?(view, "#quiet-subjects button[aria-expanded=true]")
+    assert has_element?(view, "#quiet-subject-list")
+
+    view |> element("#quiet-subjects > button") |> render_click()
+    refute has_element?(view, "#quiet-subject-list")
+
+    {:ok, selected_view, _html} = live(conn, "/console/#{first_quiet}")
+    assert has_element?(selected_view, "#quiet-subjects button[aria-expanded=true]")
+
+    assert has_element?(
+             selected_view,
+             "#quiet-subject-list a[aria-current=page]",
+             first_quiet
+           )
+  end
+
   # #450: the agent page hides its composer for an offline agent
   test "an offline agent still has a message box, and it says what sending does",
        %{conn: conn, sleeper: sleeper} do
