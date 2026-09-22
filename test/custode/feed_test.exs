@@ -308,6 +308,44 @@ defmodule Custode.FeedTest do
     assert entry["detail"] =~ "codex failed"
   end
 
+  test "Claude result errors stay failures for integer and float costs" do
+    workspace = tmp_workspace!()
+    agents = [uid("result-zero"), uid("result-float")]
+
+    put_env!(:routines, [
+      %{id: Enum.at(agents, 0), cron: "@hourly", workspace: workspace, prompt: "sweep"},
+      %{id: Enum.at(agents, 1), cron: "@hourly", workspace: workspace, prompt: "sweep"}
+    ])
+
+    assert observer_attached?()
+
+    for {agent, cost} <- Enum.zip(agents, [0, 0.001]) do
+      result =
+        result(
+          result: "API Error: 500 Internal server error",
+          is_error: true,
+          cost_usd: cost
+        )
+
+      assert {{:error, :result_error}, ^result} =
+               ObanClaude.run(%{"prompt" => "x"},
+                 job: job_meta(agent),
+                 query_fun: respond(result)
+               )
+
+      assert [failure] = Custode.Feed.recent_by_event("turn_failed", agent: agent)
+      assert failure["kind"] == "result_error"
+      assert failure["category"] == "unknown_harness_error"
+      assert failure["retryable"] == true
+      assert failure["detail"] == "API Error: 500 Internal server error"
+
+      assert [%{"category" => "unknown_harness_error", "failures" => 1}] =
+               Custode.Feed.recent_by_event("beat_backoff", agent: agent)
+    end
+
+    assert observer_attached?()
+  end
+
   test "a failed run is stamped with its category and whether a beat can fix it (#527)" do
     id = uid("feed-auth")
 
@@ -318,6 +356,12 @@ defmodule Custode.FeedTest do
       )
 
     assert [%{"category" => "auth_failed", "retryable" => false}] = Custode.Feed.for_agent(id)
+  end
+
+  defp observer_attached? do
+    [:oban_claude, :run, :stop]
+    |> :telemetry.list_handlers()
+    |> Enum.any?(&(&1.id == "custode-observer"))
   end
 
   test "the gated states land with their payloads; pause and resume are recorded" do

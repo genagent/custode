@@ -51,6 +51,15 @@ defmodule Custode.Feed.Ingest do
     record_failure(meta, result)
   end
 
+  defp do_handle_event(
+         [:oban_claude, :run, :stop],
+         _measurements,
+         %{result: %ClaudeWrapper.Result{is_error: true} = result} = meta,
+         _config
+       ) do
+    record_failure(meta, result)
+  end
+
   defp do_handle_event([provider, :run, :stop], measurements, meta, _config)
        when provider in [:oban_claude, :oban_codex] do
     out = structured(provider, meta.result) || %{}
@@ -64,7 +73,7 @@ defmodule Custode.Feed.Ingest do
       # full answer persists on the entry so a restart cannot strand it in
       # process memory. Sweep turns stay summary-only.
       response: prompt_response(provider, meta),
-      cost_usd: Float.round(measurements.cost_usd, 4),
+      cost_usd: round_cost(measurements.cost_usd),
       tokens: usage_total(provider, meta.result)
     }
     |> put_touched(out)
@@ -183,6 +192,11 @@ defmodule Custode.Feed.Ingest do
     {error.kind, presence(detail)}
   end
 
+  defp error_facts(%ClaudeWrapper.Result{is_error: true, result: result}) do
+    detail = if is_binary(result), do: result |> String.slice(0, 300) |> presence()
+    {:result_error, detail}
+  end
+
   defp error_facts(%ObanCodex.Error{} = error) do
     detail =
       [error.message, inspect_reason(error.reason)] |> Enum.reject(&is_nil/1) |> Enum.join(" -- ")
@@ -207,6 +221,9 @@ defmodule Custode.Feed.Ingest do
 
   defp presence(""), do: nil
   defp presence(string), do: string
+
+  defp round_cost(cost) when is_number(cost), do: Float.round(cost * 1.0, 4)
+  defp round_cost(_other), do: 0.0
 
   defp inspect_reason(nil), do: nil
   defp inspect_reason(reason), do: reason |> inspect(printable_limit: 300) |> String.slice(0, 300)
