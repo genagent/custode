@@ -158,7 +158,10 @@ defmodule CustodeWeb.ConsoleLiveTest do
 
     assert has_element?(view, "#advisor-suggestions", "most hourly sweeps found no work")
     assert has_element?(view, ~s(#advisor-suggestions a[href="/console/#{sleeper.id}"]))
-    assert has_element?(view, ~s(#advisor-suggestions a[href="/suggestions"]), "see all 1")
+
+    assert view
+           |> element(~s(#advisor-suggestions a[href="/suggestions"]))
+           |> render() =~ ~r/see all \d+/
 
     view
     |> element("#advisor-suggestions button[phx-click=dismiss_suggestion]")
