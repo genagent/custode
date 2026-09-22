@@ -117,13 +117,54 @@ defmodule CustodeWeb.ConsoleLiveTest do
   # #450: the agent page hides its composer for an offline agent
   test "an offline agent still has a message box, and it says what sending does",
        %{conn: conn, sleeper: sleeper} do
+    subject = sleeper.id
     {:ok, view, html} = live(conn, "/console/#{sleeper.id}")
 
     assert html =~ "start + send"
     assert html =~ "this starts a turn with your message"
+    assert has_element?(view, ~s(form[phx-hook="SubjectDraft"][data-subject="#{sleeper.id}"]))
+    assert has_element?(view, "[data-draft-state][hidden]", "unsent draft saved in this browser")
+    assert has_element?(view, "button[data-discard-draft][hidden]", "discard draft")
 
     html = view |> form("form[phx-submit=message]", %{"text" => "look at 42"}) |> render_submit()
+    assert_push_event(view, "draft:clear", %{subject: ^subject})
     assert html =~ "started a turn with your message"
+  end
+
+  test "draft storage is browser-local, per subject, and retained until send or discard",
+       %{conn: conn} do
+    html = conn |> get("/console") |> html_response(200)
+
+    assert html =~ "custode-subject-draft:${encodeURIComponent(subject)}"
+    assert html =~ "localStorage.setItem(draftKey(this.subject), this.input.value)"
+    assert html =~ "localStorage.getItem(draftKey(this.subject))"
+    assert html =~ "Drafts belong to this browser profile"
+  end
+
+  test "an empty rejected submission does not clear the saved draft",
+       %{conn: conn, sleeper: sleeper} do
+    subject = sleeper.id
+    {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+
+    view |> form("form[phx-submit=message]", %{"text" => "   "}) |> render_submit()
+
+    refute_push_event(view, "draft:clear", %{subject: ^subject})
+  end
+
+  test "prompt history restores multiline text into the composer without sending",
+       %{conn: conn, sleeper: sleeper} do
+    subject = sleeper.id
+    prompt = "compare both approaches\nthen recommend one"
+    :ok = Custode.Feed.record_prompted(sleeper.id, prompt)
+    {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+
+    view |> element("button[phx-click=tab][phx-value-tab=activity]") |> render_click()
+    assert has_element?(view, "button[phx-click=restore_message]", "edit and send again")
+
+    view |> element("button[phx-click=restore_message]") |> render_click()
+    assert_push_event(view, "draft:restore", %{subject: ^subject, text: ^prompt})
+
+    assert [%{"event" => "prompted", "prompt" => ^prompt}] = Custode.Feed.for_agent(subject)
   end
 
   test "a question is answered in place, from the item pane",
