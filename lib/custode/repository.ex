@@ -14,7 +14,8 @@ defmodule Custode.Repository do
 
   Write verbs: `open_pr/2`, `comment/3`, `ready_pr/2`, `merge_pr/2`.
   Read verbs (#129): `list_issues/2`, `view_issue/2`, `list_prs/2`,
-  `view_pr/2`, `pr_checks/2`, `pr_diff/2`, `review_snapshot/2` -- scoped
+  `view_pr/2`, `pr_checks/2`, `job_log_tail/2`, `pr_diff/2`,
+  `review_snapshot/2` -- scoped
   GitHub reads through the bound server, replacing the unscoped
   `gh issue list` / `gh pr view` Bash grants. `Custode.GitHub` still owns the
   dashboard panel fetcher/cache.
@@ -241,6 +242,9 @@ defmodule Custode.Repository do
   @doc "The check runs on a PR's head commit (name, status, conclusion)."
   def pr_checks(name, number), do: call(name, {:pr_checks, number})
 
+  @doc "A bounded tail of one GitHub Actions job log."
+  def job_log_tail(name, job_id), do: call(name, {:job_log_tail, job_id})
+
   @doc "The changed files of a PR, each with its patch (the diff)."
   def pr_diff(name, number), do: call(name, {:pr_diff, number})
 
@@ -350,6 +354,10 @@ defmodule Custode.Repository do
 
   def handle_call({:pr_checks, number}, _from, state) do
     read_op(:pr_checks, [state.owner, state.repo, number]) |> reply(state)
+  end
+
+  def handle_call({:job_log_tail, job_id}, _from, state) do
+    read_op(:job_log_tail, [state.owner, state.repo, job_id]) |> reply(state)
   end
 
   def handle_call({:pr_diff, number}, _from, state) do
@@ -500,6 +508,7 @@ defmodule Custode.Repository.OpsBehaviour do
   @callback list_prs(owner, repo, keyword() | map()) :: result
   @callback view_pr(owner, repo, pos_integer()) :: result
   @callback pr_checks(owner, repo, pos_integer()) :: result
+  @callback job_log_tail(owner, repo, pos_integer()) :: result
   @callback pr_diff(owner, repo, pos_integer()) :: result
   @callback review_snapshot(owner, repo, pos_integer()) :: result
   @callback review_state(owner, repo, pos_integer()) :: result
@@ -609,6 +618,24 @@ defmodule Custode.Repository.Ops do
          {:ok, result} <- unwrap(GhEx.Checks.list_for_ref(client, owner, repo, sha)) do
       {:ok, %{sha: sha, checks: Enum.map(result["check_runs"] || [], &check_row/1)}}
     end
+  end
+
+  def job_log_tail(owner, repo, job_id) do
+    with {:ok, client} <- client(),
+         {:ok, log} <- unwrap(GhEx.Actions.download_job_logs(client, owner, repo, job_id)) do
+      {:ok, failure_tail(log)}
+    end
+  end
+
+  @doc false
+  def failure_tail(log) when is_binary(log) do
+    log
+    |> String.replace(~r/\e\[[0-9;?]*[ -\/]*[@-~]/, "")
+    |> String.trim_trailing("\n")
+    |> String.split("\n")
+    |> Enum.take(-12)
+    |> Enum.join("\n")
+    |> String.slice(-8_000, 8_000)
   end
 
   def pr_diff(owner, repo, number) do
