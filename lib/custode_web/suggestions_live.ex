@@ -12,6 +12,7 @@ defmodule CustodeWeb.SuggestionsLive do
   import CustodeWeb.Components
 
   alias Custode.Advisors.Record
+  alias Custode.Operator.Actions
   alias Custode.Suggestions.Outcome
 
   @impl Phoenix.LiveView
@@ -27,7 +28,7 @@ defmodule CustodeWeb.SuggestionsLive do
   def handle_event("apply_suggestion", params, socket) do
     %{"agent" => id, "field" => field, "proposed" => proposed} = params
 
-    case Custode.Suggestions.apply(id, field, proposed) do
+    case Actions.apply_suggestion(id, field, proposed, via: :liveview) do
       {:ok, message} ->
         {:noreply, socket |> put_flash(:info, message) |> refresh()}
 
@@ -48,7 +49,9 @@ defmodule CustodeWeb.SuggestionsLive do
 
   def handle_event("dismiss_suggestion", params, socket) do
     %{"agent" => id, "field" => field, "proposed" => proposed} = params
-    {:ok, message} = Custode.Suggestions.dismiss(id, field, proposed, params["reason"])
+
+    {:ok, message} =
+      Actions.dismiss_suggestion(id, field, proposed, params["reason"], via: :liveview)
 
     {:noreply, socket |> assign(dismissing: nil) |> put_flash(:info, message) |> refresh()}
   end

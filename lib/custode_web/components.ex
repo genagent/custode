@@ -778,6 +778,56 @@ defmodule CustodeWeb.Components do
 
   def ago_text(_other), do: "?"
 
+  attr(:suggestion, :map, required: true)
+  attr(:agent_base, :string, default: "/agents/")
+
+  @doc "A compact standing advisor suggestion with its operator actions."
+  def suggestion_card(assigns) do
+    ~H"""
+    <div class="rounded-lg bg-base-100 p-2 text-xs shadow">
+      <div class="mb-1 flex items-center gap-2 text-base-content/50">
+        <span class="badge badge-secondary badge-xs">suggestion</span>
+        <span class="font-mono"><.ago at={@suggestion["at"]} /></span>
+        <span class="ml-auto">{@suggestion["confidence"]}</span>
+      </div>
+      <p class="text-base-content/80">
+        <.link navigate={@agent_base <> @suggestion["agent"]} class="font-mono hover:underline">
+          {@suggestion["agent"]}
+        </.link>
+        <span class="font-mono">{@suggestion["field"]}</span>
+        {@suggestion["current"]} &rarr; <b>{@suggestion["proposed"]}</b>
+        <button
+          :if={Custode.Suggestions.applicable_field?(@suggestion["field"])}
+          class="btn btn-primary btn-xs ml-1"
+          phx-click="apply_suggestion"
+          phx-value-agent={@suggestion["agent"]}
+          phx-value-field={@suggestion["field"]}
+          phx-value-proposed={@suggestion["proposed"]}
+        >
+          apply
+        </button>
+        <button
+          class="btn btn-ghost btn-xs"
+          phx-click="dismiss_suggestion"
+          phx-value-agent={@suggestion["agent"]}
+          phx-value-field={@suggestion["field"]}
+          phx-value-proposed={@suggestion["proposed"]}
+        >
+          dismiss
+        </button>
+      </p>
+      <details :if={@suggestion["evidence"]} class="group mt-1 text-base-content/50">
+        <summary
+          class="line-clamp-3 cursor-pointer list-none group-open:line-clamp-none"
+          title="click to expand the advisor's full reasoning"
+        >
+          {@suggestion["evidence"]}
+        </summary>
+      </details>
+    </div>
+    """
+  end
+
   @doc """
   How long until `at`, as the rail prints it beside a scheduled agent: "40s",
   "12m", "3h", "2d". A time already past is "now": the beat is due and the

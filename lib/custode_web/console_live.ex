@@ -24,7 +24,7 @@ defmodule CustodeWeb.ConsoleLive do
 
   use Phoenix.LiveView
 
-  import CustodeWeb.Components, only: [host_banner: 1]
+  import CustodeWeb.Components, only: [host_banner: 1, suggestion_card: 1]
   import CustodeWeb.Console.Header
   import CustodeWeb.Console.Item
   import CustodeWeb.Console.NewAgent
@@ -50,6 +50,8 @@ defmodule CustodeWeb.ConsoleLive do
 
   # the notebook tab's journal, read this many at a time
   @journal_page 10
+
+  @suggestion_limit 3
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
@@ -155,6 +157,24 @@ defmodule CustodeWeb.ConsoleLive do
   # ordinary fleet updates must not bring the same absence window back.
   def handle_event("dismiss_away_digest", _params, socket),
     do: {:noreply, assign(socket, away_dismissed: true, away_digest: nil)}
+
+  def handle_event("apply_suggestion", params, socket) do
+    %{"agent" => id, "field" => field, "proposed" => proposed} = params
+
+    case Actions.apply_suggestion(id, field, proposed, @opts) do
+      {:ok, message} ->
+        {:noreply, socket |> assign(fleet_notice: message) |> refresh()}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, fleet_notice: "apply refused: #{inspect(reason)}")}
+    end
+  end
+
+  def handle_event("dismiss_suggestion", params, socket) do
+    %{"agent" => id, "field" => field, "proposed" => proposed} = params
+    {:ok, message} = Actions.dismiss_suggestion(id, field, proposed, nil, @opts)
+    {:noreply, socket |> assign(fleet_notice: message) |> refresh()}
+  end
 
   def handle_event("tab", %{"tab" => tab}, socket) when tab in @tabs,
     do: {:noreply, assign(socket, tab: tab)}
@@ -522,6 +542,21 @@ defmodule CustodeWeb.ConsoleLive do
             next_up={@next_up}
             checks={@checks}
           />
+          <section :if={@suggestions != []} id="advisor-suggestions" class="mt-6 flex flex-col gap-2">
+            <div class="flex items-baseline gap-2">
+              <h2 class="text-xs font-bold uppercase tracking-widest text-base-content/50">
+                suggestions
+              </h2>
+              <.link navigate="/suggestions" class="ml-auto text-xs text-primary hover:underline">
+                see all {@suggestion_count} &rarr;
+              </.link>
+            </div>
+            <.suggestion_card
+              :for={suggestion <- @suggestions}
+              suggestion={suggestion}
+              agent_base="/console/"
+            />
+          </section>
         </aside>
       </div>
     </div>
@@ -554,6 +589,8 @@ defmodule CustodeWeb.ConsoleLive do
     selected = socket.assigns.selected || default_selection(signals)
     signal = Enum.find(signals, &(&1.subject == selected))
 
+    standing_suggestions = Custode.Suggestions.standing()
+
     assign(socket,
       groups: groups,
       selected: selected,
@@ -570,7 +607,9 @@ defmodule CustodeWeb.ConsoleLive do
       usage: Custode.Availability.usage("claude"),
       caretaker: Actions.caretaker(),
       presence: Custode.Presence.status(),
-      away_digest: away_digest(socket)
+      away_digest: away_digest(socket),
+      suggestions: Enum.take(standing_suggestions, @suggestion_limit),
+      suggestion_count: length(standing_suggestions)
     )
   end
 

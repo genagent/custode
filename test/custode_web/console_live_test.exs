@@ -133,6 +133,41 @@ defmodule CustodeWeb.ConsoleLiveTest do
     refute render(view) =~ "while you were away"
   end
 
+  test "advisor suggestions are actionable from the console", %{conn: conn, sleeper: sleeper} do
+    on_exit(fn ->
+      Custode.Repo.query!(
+        "DELETE FROM feed_entries WHERE agent = ? AND event LIKE 'advisor_%'",
+        [sleeper.id]
+      )
+    end)
+
+    :ok =
+      Custode.Feed.record(%{
+        event: "advisor_suggestion",
+        agent: sleeper.id,
+        advisor: "advisor-cadence",
+        field: "cron",
+        current: "@hourly",
+        proposed: "@daily",
+        confidence: "medium",
+        evidence: "most hourly sweeps found no work",
+        summary: "suggests a quieter cadence"
+      })
+
+    {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+
+    assert has_element?(view, "#advisor-suggestions", "most hourly sweeps found no work")
+    assert has_element?(view, ~s(#advisor-suggestions a[href="/console/#{sleeper.id}"]))
+    assert has_element?(view, ~s(#advisor-suggestions a[href="/suggestions"]), "see all 1")
+
+    view
+    |> element("#advisor-suggestions button[phx-click=dismiss_suggestion]")
+    |> render_click()
+
+    refute has_element?(view, "#advisor-suggestions", "most hourly sweeps found no work")
+    assert render(view) =~ "dismissed"
+  end
+
   test "selecting a subject shows its pane, and the rail filter narrows",
        %{conn: conn, asker: asker, sleeper: sleeper} do
     {:ok, view, html} = live(conn, "/console/#{sleeper.id}")
