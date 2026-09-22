@@ -199,6 +199,7 @@ Add a routine to the configuration and live roster.
 | model | string | no | sweep model override, e.g. "sonnet" |  |
 | profile | string | no | profile name, e.g. "backlog_worker" |  |
 | prompt | string | no | sweep prompt (the profile usually supplies it) |  |
+| provider | string | no | agent provider: claude or codex |  |
 | repo | string | no | owner/name the routine serves |  |
 | role | string | no | role override, e.g. "backlog_worker" |  |
 | system_prompt_file | string | no | path to a standing-orders file |  |
@@ -213,7 +214,7 @@ Add a routine to the configuration and live roster.
 
 **Access:** Authenticated operator or a configured routine whose role is caretaker. Other routines and sub-agents are refused. The tool does not independently verify an approval grant.
 
-**Behavior, defaults and errors:** id is required. Intended flow is preview, human approval, then add. The tool's current external-tag policy check allows the write; it does not impose a separate human-only restriction. No idempotency key; duplicate IDs are validated by the configuration writer.
+**Behavior, defaults and errors:** id is required. provider is claude or codex and defaults to claude. Intended flow is preview, human approval, then add. The tool's current external-tag policy check allows the write; it does not impose a separate human-only restriction. No idempotency key; duplicate IDs are validated by the configuration writer.
 
 ### Tool: agent_history
 
@@ -394,6 +395,7 @@ Create a reusable routine profile.
 | model | string | no | sweep model |  |
 | name | string | yes | new profile name |  |
 | prompt | string | no | default sweep prompt |  |
+| provider | string | no | agent provider: claude or codex |  |
 | role | string | no | role (which prompt/toolset) |  |
 | sensors | array | no | sensors derived per wearer | {"items":{"type":"string"}} |
 | system_prompt_file | string | no | standing-orders file path |  |
@@ -408,7 +410,7 @@ Create a reusable routine profile.
 
 **Access:** Authenticated operator or a configured routine whose role is caretaker. Other routines and sub-agents are refused. The tool does not independently verify an approval grant.
 
-**Behavior, defaults and errors:** name is required. Intended flow requires preview and human approval of dangerous grants. approve_bypass_permissions=false is omitted. No restart is required for configuration reload; this is not a runtime permission revocation protocol for an in-flight turn.
+**Behavior, defaults and errors:** name is required. provider is claude or codex and becomes the default provider for wearers. Intended flow requires preview and human approval of dangerous grants. approve_bypass_permissions=false is omitted. No restart is required for configuration reload; this is not a runtime permission revocation protocol for an in-flight turn.
 
 ### Tool: digest
 
@@ -774,7 +776,7 @@ List configured routines and their current status.
 
 **Arguments:** none.
 
-**Result:** Object with routines array: id, cron, repo, tags, workspace, working_dir, status.
+**Result:** Object with routines array: id, provider, cron, repo, tags, workspace, working_dir, status.
 
 **Side effects:** None; reads configured routines and live lifecycle status.
 
@@ -895,6 +897,7 @@ Preview a reusable routine profile and its permissions.
 | model | string | no | sweep model, e.g. "sonnet" |  |
 | name | string | yes | new profile name, e.g. "reviewer" |  |
 | prompt | string | no | default sweep prompt |  |
+| provider | string | no | agent provider: claude or codex |  |
 | role | string | no | role, e.g. "backlog_worker" (which prompt/toolset) |  |
 | sensors | array | no | sensors derived per wearer, e.g. ["ci"] | {"items":{"type":"string"}} |
 | system_prompt_file | string | no | path to a standing-orders file |  |
@@ -909,7 +912,7 @@ Preview a reusable routine profile and its permissions.
 
 **Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
 
-**Behavior, defaults and errors:** name is required. The four approve_* inputs are a deliberately narrow permission/model/worktree override surface. approve_bypass_permissions=false is omitted, not an explicit removal operation.
+**Behavior, defaults and errors:** name is required. provider is claude or codex. The four approve_* inputs are a deliberately narrow Claude permission/model/worktree override surface; Codex profiles use the provider's default approved continuation arguments unless approved_args are authored in configuration. approve_bypass_permissions=false is omitted, not an explicit removal operation.
 
 ### Tool: preview_profile_edit
 
@@ -937,6 +940,7 @@ Preview edits to a reusable routine profile.
 | model | string | no | new model |  |
 | name | string | yes | profile name to edit |  |
 | prompt | string | no | new default sweep prompt |  |
+| provider | string | no | new agent provider: claude or codex |  |
 | role | string | no | new role |  |
 | sensors | array | no | replacement sensor list | {"items":{"type":"string"}} |
 | system_prompt_file | string | no | path to a standing-orders file |  |
@@ -951,7 +955,7 @@ Preview edits to a reusable routine profile.
 
 **Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
 
-**Behavior, defaults and errors:** name is required. Omitted envelope fields remain unchanged; lists replace; drop removes named envelope keys and wins over supplied values. approve_* inputs build the approved_args envelope; false bypass does not remove an existing grant. Inspect the preview when altering these grants. Supplying any approve_* values replaces the approved_args envelope rather than merging individual nested keys.
+**Behavior, defaults and errors:** name is required. provider is claude or codex. Omitted envelope fields remain unchanged; lists replace; drop removes named envelope keys and wins over supplied values. approve_* inputs build the Claude approved_args envelope; false bypass does not remove an existing grant. Inspect the preview when altering these grants. Supplying any approve_* values replaces the approved_args envelope rather than merging individual nested keys.
 
 ### Tool: preview_routine
 
@@ -975,6 +979,7 @@ Preview the configuration for a new routine.
 | model | string | no | sweep model override, e.g. "sonnet" |  |
 | profile | string | no | profile name, e.g. "backlog_worker" |  |
 | prompt | string | no | sweep prompt (the profile usually supplies it) |  |
+| provider | string | no | agent provider: claude or codex |  |
 | repo | string | no | owner/name the routine serves |  |
 | role | string | no | role override, e.g. "backlog_worker" |  |
 | system_prompt_file | string | no | path to a standing-orders file |  |
@@ -989,7 +994,7 @@ Preview the configuration for a new routine.
 
 **Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
 
-**Behavior, defaults and errors:** id is required. This creation preview checks effort but is not the complete write-time validation. Unknown profile/role values can be reported as 'unknown profile'. The workspace default is workspaces/&lt;id&gt;; profile and fleet defaults supply omitted settings.
+**Behavior, defaults and errors:** id is required. provider is claude or codex and defaults to claude. This creation preview checks effort but is not the complete write-time validation. Unknown profile/role values can be reported as 'unknown profile'. The workspace default is workspaces/&lt;id&gt;; profile and fleet defaults supply omitted settings.
 
 ### Tool: preview_routine_edit
 
@@ -1014,6 +1019,7 @@ Preview a change to an existing routine.
 | model | string | no | new model override, e.g. "sonnet" |  |
 | profile | string | no | new profile name |  |
 | prompt | string | no | new sweep prompt |  |
+| provider | string | no | new agent provider: claude or codex |  |
 | repo | string | no | new owner/name |  |
 | role | string | no | role override, e.g. "backlog_worker" |  |
 | system_prompt_file | string | no | path to a standing-orders file |  |
@@ -1028,7 +1034,7 @@ Preview a change to an existing routine.
 
 **Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
 
-**Behavior, defaults and errors:** id is required. Omitted fields are unchanged; drop removes named overrides so inherited values can apply. Lists replace existing lists. Conflicting drop and supplied values resolve to removal. The routine ID is immutable.
+**Behavior, defaults and errors:** id is required. provider is claude or codex. Omitted fields are unchanged; drop removes named overrides so inherited values can apply. Lists replace existing lists. Conflicting drop and supplied values resolve to removal. The routine ID is immutable.
 
 ### Tool: prompt_agent
 
@@ -1725,6 +1731,7 @@ Change a reusable routine profile.
 | model | string | no | new model |  |
 | name | string | yes | profile name to edit |  |
 | prompt | string | no | new default sweep prompt |  |
+| provider | string | no | new agent provider: claude or codex |  |
 | role | string | no | new role |  |
 | sensors | array | no | replacement sensor list | {"items":{"type":"string"}} |
 | system_prompt_file | string | no | standing-orders file path |  |
@@ -1735,11 +1742,11 @@ Change a reusable routine profile.
 
 **Result:** name, configuration path and live=true. Unlike define_profile, this result does not include grants.
 
-**Side effects:** Rewrites the profile, reloads the roster and records a feed entry. Routines inheriting it receive the change on their next run.
+**Side effects:** Rewrites the profile, reloads the roster and records a feed entry. Routines inheriting it receive the change on their next run. If the effective provider changes, live wearers are stopped on the old provider and restart on their next beat.
 
 **Access:** Authenticated operator or a configured routine whose role is caretaker. Other routines and sub-agents are refused. The tool does not independently verify an approval grant.
 
-**Behavior, defaults and errors:** name is required. Omitted fields remain unchanged; drop removes envelope keys, lists replace, and false bypass does not explicitly revoke an existing grant. Preview the resulting approved_args before writing. Supplying any approve_* values replaces the approved_args envelope rather than merging nested keys. Rewriting removes comments inside the edited section.
+**Behavior, defaults and errors:** name is required. provider is claude or codex. Omitted fields remain unchanged; drop removes envelope keys, lists replace, and false bypass does not explicitly revoke an existing grant. Preview the resulting approved_args before writing. Supplying any approve_* values replaces the approved_args envelope rather than merging nested keys. Rewriting removes comments inside the edited section.
 
 ### Tool: update_routine
 
@@ -1764,6 +1771,7 @@ Update an existing routine configuration.
 | model | string | no | new model override, e.g. "sonnet" |  |
 | profile | string | no | new profile name |  |
 | prompt | string | no | new sweep prompt |  |
+| provider | string | no | new agent provider: claude or codex |  |
 | repo | string | no | new owner/name |  |
 | role | string | no | role override, e.g. "backlog_worker" |  |
 | system_prompt_file | string | no | path to a standing-orders file |  |
@@ -1774,11 +1782,11 @@ Update an existing routine configuration.
 
 **Result:** id, path of configuration file, live=true.
 
-**Side effects:** Rewrites configuration, reloads the live roster and records changed field names in the feed. Updated schedule is used by subsequent scheduler checks. A repository change starts service for the new repository and can retire the old service if no longer needed.
+**Side effects:** Rewrites configuration, reloads the live roster and records changed field names in the feed. Updated schedule is used by subsequent scheduler checks. A provider change stops the live agent on the old provider; the next beat starts it on the new provider. A repository change starts service for the new repository and can retire the old service if no longer needed.
 
 **Access:** Authenticated operator or a configured routine whose role is caretaker. Other routines and sub-agents are refused. The tool does not independently verify an approval grant.
 
-**Behavior, defaults and errors:** id is required and immutable. Omitted fields stay unchanged; lists replace; drop removes overrides and wins over a supplied value. Preview before applying. This response does not promise changes to an already executing turn. Rewriting removes comments inside the edited configuration section; comments in other sections are preserved.
+**Behavior, defaults and errors:** id is required and immutable. provider is claude or codex. Omitted fields stay unchanged; lists replace; drop removes overrides and wins over a supplied value. Preview before applying. This response does not promise changes to an already executing turn. Rewriting removes comments inside the edited configuration section; comments in other sections are preserved.
 
 ## Resources
 

@@ -50,4 +50,23 @@ defmodule Custode.RunClockTest do
 
     refute Map.has_key?(Custode.RunClock.running(), agent)
   end
+
+  test "a Codex run uses the same in-flight clock" do
+    agent = uid("rc-codex")
+    test_pid = self()
+
+    query_fun = fn _prompt, _opts ->
+      send(test_pid, {:codex_in_flight?, Map.has_key?(Custode.RunClock.running(), agent)})
+      {:ok, ObanCodex.Testing.result("done")}
+    end
+
+    {:ok, _} =
+      ObanCodex.run(%{"prompt" => "x"},
+        job: %Oban.Job{meta: %{"agent_id" => agent, "origin" => "tick"}},
+        query_fun: query_fun
+      )
+
+    assert_received {:codex_in_flight?, true}
+    refute Map.has_key?(Custode.RunClock.running(), agent)
+  end
 end

@@ -61,6 +61,7 @@ defmodule Custode.Config.Loader do
     "tags" => :tags,
     "prompt" => :prompt,
     "role" => :role,
+    "provider" => :provider,
     "model" => :model,
     "effort" => :effort,
     "agent" => :agent,
@@ -93,6 +94,7 @@ defmodule Custode.Config.Loader do
     "cron" => :cron,
     "prompt" => :prompt,
     "role" => :role,
+    "provider" => :provider,
     "mcp" => :mcp,
     "model" => :model,
     "effort" => :effort,
@@ -114,7 +116,7 @@ defmodule Custode.Config.Loader do
   }
 
   # values that are atoms in the exs shape and strings in TOML
-  @atom_valued [:profile, :role]
+  @atom_valued [:profile, :role, :provider]
 
   @doc """
   Find and parse the routines file. Returns `{:ok, path, routines, sensors}`

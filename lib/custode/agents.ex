@@ -1,49 +1,81 @@
 defmodule Custode.Agents do
   @moduledoc """
-  The lifecycle boundary used by Custode's active application (#581).
+  Provider-neutral lifecycle boundary for Custode's active agents.
 
-  The backend is currently `ObanClaude.Agent`. These delegates preserve its
-  identities, return values, synchronous versus cast behavior, and options.
-  In particular, prompt `:session` / `:origin` options and approval `:args`
-  overrides reach the engine unchanged. No provider registry or routing
-  policy is introduced here.
-
-  This module contains no operator rules: UI and MCP operator message paths
-  use `Custode.Operator.Actions.message/3`, which handles offline and paused
-  agents before calling this boundary. Existing legacy LiveView casts retain
-  their current semantics; consolidating those message paths is separate
-  work.
-
-  ## Remaining provider seams (#452)
-
-  `Custode.Application` still starts the Claude engine supervisor. The
-  console, operator actions, inbox and routine scheduler still construct
-  `ObanClaude.Agent.Tick` jobs, `Custode.Routine` still builds Claude args,
-  and one-shot/workflow workers still use `ObanClaude.Worker`. Those paths,
-  provider identity and token rails belong to Codex activation. The frozen
-  work kernel is unchanged.
-
-  Codex's current `approve_action/2` does not accept the one-turn argument
-  overrides of Claude's `approve_action/3`. Activation must resolve that
-  contract; dropping the options is not a compatible adapter.
+  A configured routine selects its engine with `:provider`; unconfigured
+  agents, including the current sub-agent surface, retain the historical
+  Claude default. Agent ids remain fleet-wide identities, so callers do not
+  need to carry a provider beside every operation.
   """
 
-  defdelegate start_agent(agent_id, config \\ []), to: ObanClaude.Agent
-  defdelegate stop_agent(agent_id), to: ObanClaude.Agent
-  defdelegate status(agent_id), to: ObanClaude.Agent
-  defdelegate list(), to: ObanClaude.Agent
-  defdelegate await(agent_id, states, timeout \\ 60_000), to: ObanClaude.Agent
-  defdelegate submit_prompt(agent_id, prompt, opts \\ []), to: ObanClaude.Agent
-  defdelegate cast_prompt(agent_id, prompt, opts \\ []), to: ObanClaude.Agent
+  @providers %{
+    claude: ObanClaude.Agent,
+    codex: ObanCodex.Agent
+  }
 
-  # Keep the two-argument call available independently of the newer options
-  # arity. Custode.approve_action/3 only uses options for an actual override.
-  defdelegate approve_action(agent_id, action_id), to: ObanClaude.Agent
-  defdelegate approve_action(agent_id, action_id, opts), to: ObanClaude.Agent
+  @doc "The configured provider for an agent id, defaulting to Claude."
+  def provider(agent_id) do
+    case Custode.Routine.get(agent_id) do
+      %{provider: provider} -> provider
+      nil -> active_provider(agent_id)
+    end
+  end
 
-  defdelegate reject_action(agent_id, action_id, reason \\ "denied"), to: ObanClaude.Agent
-  defdelegate emergency_pause(agent_id), to: ObanClaude.Agent
-  defdelegate resume_agent(agent_id), to: ObanClaude.Agent
-  defdelegate info(agent_id), to: ObanClaude.Agent
-  defdelegate history(agent_id), to: ObanClaude.Agent
+  @doc "The provider-specific scheduled tick worker for a routine."
+  def tick_worker(%{provider: :claude}), do: ObanClaude.Agent.Tick
+  def tick_worker(%{provider: :codex}), do: ObanCodex.Agent.Tick
+
+  def start_agent(agent_id, config \\ []),
+    do: call_provider(agent_id, :start_agent, [agent_id, config])
+
+  def stop_agent(agent_id), do: stop_agent(agent_id, provider(agent_id))
+
+  @doc "Stop an agent through an explicitly captured provider, such as after roster removal."
+  def stop_agent(agent_id, provider), do: module(provider).stop_agent(agent_id)
+
+  def status(agent_id), do: call_provider(agent_id, :status, [agent_id])
+
+  @doc "Every live agent from both engines, in stable id order."
+  def list do
+    (ObanClaude.Agent.list() ++ ObanCodex.Agent.list())
+    |> Enum.sort_by(&elem(&1, 0))
+  end
+
+  def await(agent_id, states, timeout \\ 60_000),
+    do: call_provider(agent_id, :await, [agent_id, states, timeout])
+
+  def submit_prompt(agent_id, prompt, opts \\ []),
+    do: call_provider(agent_id, :submit_prompt, [agent_id, prompt, opts])
+
+  def cast_prompt(agent_id, prompt, opts \\ []),
+    do: call_provider(agent_id, :cast_prompt, [agent_id, prompt, opts])
+
+  def approve_action(agent_id, action_id),
+    do: call_provider(agent_id, :approve_action, [agent_id, action_id])
+
+  def approve_action(agent_id, action_id, opts),
+    do: call_provider(agent_id, :approve_action, [agent_id, action_id, opts])
+
+  def reject_action(agent_id, action_id, reason \\ "denied"),
+    do: call_provider(agent_id, :reject_action, [agent_id, action_id, reason])
+
+  def emergency_pause(agent_id), do: call_provider(agent_id, :emergency_pause, [agent_id])
+  def resume_agent(agent_id), do: call_provider(agent_id, :resume_agent, [agent_id])
+  def info(agent_id), do: call_provider(agent_id, :info, [agent_id])
+  def history(agent_id), do: call_provider(agent_id, :history, [agent_id])
+
+  defp call_provider(agent_id, function, args),
+    do: apply(module(provider(agent_id)), function, args)
+
+  defp module(provider), do: Map.fetch!(@providers, provider)
+
+  # Once a routine has been removed from the live roster, cleanup still has
+  # to find a Codex process that was started from the old entry. Unknown ids
+  # otherwise remain Claude for sub-agent compatibility.
+  defp active_provider(agent_id) do
+    case ObanCodex.Agent.status(agent_id) do
+      {:ok, :offline} -> :claude
+      {:ok, _live} -> :codex
+    end
+  end
 end

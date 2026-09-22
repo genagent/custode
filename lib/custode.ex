@@ -15,7 +15,6 @@ defmodule Custode do
   alias Custode.Agents
   alias Custode.Gates.Grant
   alias Custode.Routine
-  alias ObanClaude.Agent.Tick
 
   @doc """
   The bare state inside a status, whether it arrives gated
@@ -42,8 +41,9 @@ defmodule Custode do
   @doc "Fire one sweep right now (an out-of-schedule tick through the same policy)."
   def beat(id \\ nil) do
     routine = fetch!(id)
+    tick = Routine.tick_worker(routine)
 
-    {:ok, job} = Oban.insert(Tick.new(Routine.tick_args(routine), queue: :ticks))
+    {:ok, job} = Oban.insert(tick.new(Routine.tick_args(routine), queue: :ticks))
     {:ok, job.id}
   end
 
@@ -77,7 +77,10 @@ defmodule Custode do
   def approve_action(agent_id, action_id, opts \\ []) do
     # The elevation is sized to what was approved (#451): read the class
     # before the decision is recorded, while the gate is still open.
-    args = agent_id |> Custode.Gates.open_class(action_id) |> Grant.approval_args()
+    args =
+      agent_id
+      |> Custode.Gates.open_class(action_id)
+      |> Grant.approval_args(Agents.provider(agent_id))
 
     Custode.Gates.record_decision(agent_id, action_id, opts)
 

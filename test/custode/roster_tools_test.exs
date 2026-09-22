@@ -70,6 +70,23 @@ defmodule Custode.RosterToolsTest do
     refute File.exists?(path)
   end
 
+  test "provider is exposed by preview and add", %{path: path} do
+    json = tool_json(PreviewRoutine.execute(%{id: "codex-preview", provider: "codex"}, @operator))
+    assert json["toml"] =~ ~s(provider = "codex")
+
+    json =
+      tool_json(
+        AddRoutine.execute(
+          %{id: "codex-add", provider: "codex", profile: "backlog_worker", repo: "o/codex"},
+          @operator
+        )
+      )
+
+    assert json["live"] == true
+    assert Custode.Routine.get("codex-add").provider == :codex
+    assert File.read!(path) =~ ~s(provider = "codex")
+  end
+
   test "the operator adds a routine: file written, roster live", %{path: path} do
     json =
       tool_json(

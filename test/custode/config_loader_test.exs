@@ -79,6 +79,24 @@ defmodule Custode.Config.LoaderTest do
     assert profiles.steward.approved_args == %{"permission_mode" => "bypass_permissions"}
   end
 
+  test "provider parses for routines and profiles" do
+    toml = """
+    [[routines]]
+    id = "reviewer"
+    provider = "codex"
+    cron = "manual"
+    prompt = "review"
+
+    [[profiles]]
+    name = "codex-review"
+    provider = "codex"
+    """
+
+    {[routine], _sensors, profiles} = Loader.parse!(toml)
+    assert routine.provider == :codex
+    assert profiles[:"codex-review"].provider == :codex
+  end
+
   test "apply_profiles/1 leaves config profiles intact for a profile-less file (#236 regression)" do
     # the bug: a legacy routines.toml (routines only, no [[profiles]]) parsed
     # to %{} and, applied strictly, wiped every config.exs profile the running

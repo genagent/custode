@@ -41,6 +41,24 @@ defmodule Custode.FeedTest do
     assert entry["response"] == nil
   end
 
+  test "a finished Codex run writes the same turn entry shape" do
+    {:ok, _} =
+      ObanCodex.run(%{"prompt" => "x"},
+        job: job_meta("feed-codex"),
+        query_fun:
+          ObanCodex.Testing.respond(
+            ObanCodex.Testing.structured_result(
+              %{"directive" => "none", "summary" => "reviewed"},
+              usage: %{"input_tokens" => 12, "output_tokens" => 5}
+            )
+          )
+      )
+
+    assert [entry] = Custode.Feed.for_agent("feed-codex")
+    assert %{"event" => "turn", "agent" => "feed-codex", "summary" => "reviewed"} = entry
+    assert entry["tokens"] == 17
+  end
+
   describe "the schema'd epilogue (#120 slice 2)" do
     test "prs and issues_touched land on the turn entry as typed arrays" do
       {:ok, _} =
@@ -245,6 +263,27 @@ defmodule Custode.FeedTest do
     # a bare non-zero exit has no typed cause (#527)
     assert entry["category"] == "unknown_harness_error"
     assert entry["retryable"] == true
+  end
+
+  test "a failed Codex result is recorded as a failure, not a successful turn" do
+    {{:error, {:command_failed, 17}}, _} =
+      ObanCodex.run(%{"prompt" => "x"},
+        job: job_meta("feed-codex-failed"),
+        query_fun:
+          ObanCodex.Testing.respond(
+            ObanCodex.Testing.failed_result("partial output",
+              exit_code: 17,
+              stderr: "codex failed"
+            )
+          )
+      )
+
+    assert [entry] = Custode.Feed.for_agent("feed-codex-failed")
+    assert entry["event"] == "turn_failed"
+    assert entry["kind"] == "command_failed"
+    assert entry["category"] == "unknown_harness_error"
+    assert entry["detail"] =~ "exit 17"
+    assert entry["detail"] =~ "codex failed"
   end
 
   test "a failed run is stamped with its category and whether a beat can fix it (#527)" do

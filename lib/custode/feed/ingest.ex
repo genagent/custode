@@ -1,7 +1,7 @@
 defmodule Custode.Feed.Ingest do
   @moduledoc """
   The telemetry half of the feed (#92 item 5): armored handlers that turn
-  oban_claude events into `Custode.Feed.record/2` calls. Storage and
+  provider events into `Custode.Feed.record/2` calls. Storage and
   queries live in `Custode.Feed`; notification dispatch in
   `Custode.Feed.Notify`.
   """
@@ -9,7 +9,10 @@ defmodule Custode.Feed.Ingest do
   @events [
     [:oban_claude, :agent, :transition],
     [:oban_claude, :run, :stop],
-    [:oban_claude, :run, :exception]
+    [:oban_claude, :run, :exception],
+    [:oban_codex, :agent, :transition],
+    [:oban_codex, :run, :stop],
+    [:oban_codex, :run, :exception]
   ]
 
   def attach do
@@ -30,21 +33,30 @@ defmodule Custode.Feed.Ingest do
       :ok
   end
 
-  defp do_handle_event([:oban_claude, :run, :stop], measurements, meta, _config) do
-    out = ObanClaude.structured(meta.result) || %{}
-    usage = ClaudeWrapper.Result.usage(meta.result)
+  defp do_handle_event(
+         [:oban_codex, :run, :stop],
+         _measurements,
+         %{result: %CodexWrapper.Result{success: false} = result} = meta,
+         _config
+       ) do
+    record_failure(meta, result)
+  end
+
+  defp do_handle_event([provider, :run, :stop], measurements, meta, _config)
+       when provider in [:oban_claude, :oban_codex] do
+    out = structured(provider, meta.result) || %{}
 
     %{
       event: "turn",
       agent: agent_of(meta),
       directive: out["directive"],
-      summary: out["summary"] || String.slice(meta.result.result || "", 0, 160),
+      summary: out["summary"] || String.slice(text(provider, meta.result) || "", 0, 160),
       # An operator-origin turn is conversation, not telemetry (#138): the
       # full answer persists on the entry so a restart cannot strand it in
       # process memory. Sweep turns stay summary-only.
-      response: prompt_response(meta),
+      response: prompt_response(provider, meta),
       cost_usd: Float.round(measurements.cost_usd, 4),
-      tokens: usage && usage.total
+      tokens: usage_total(provider, meta.result)
     }
     |> put_touched(out)
     |> put_action_class(out)
@@ -52,31 +64,13 @@ defmodule Custode.Feed.Ingest do
     |> Custode.Feed.record()
   end
 
-  defp do_handle_event([:oban_claude, :run, :exception], _measurements, meta, _config) do
-    {kind, detail} = error_facts(meta.error)
-    # One classification, made here at the turn boundary (#527): readers ask
-    # "will the next beat fix this?" and must not each re-derive it from kind.
-    category = Custode.TurnFailure.classify(meta.error)
-
-    Custode.Feed.record(
-      %{
-        event: "turn_failed",
-        agent: agent_of(meta),
-        kind: kind,
-        detail: detail,
-        category: category,
-        retryable: Custode.TurnFailure.retryable?(category)
-      },
-      notify: true
-    )
-
-    # After the entry, so the streak it reads includes this failure (#543).
-    # The turn's own transition to :running is long past, so NextBeat's
-    # clear-on-running cannot take this back; the NEXT turn start does.
-    Custode.BeatBackoff.after_failure(agent_of(meta), category)
+  defp do_handle_event([provider, :run, :exception], _measurements, meta, _config)
+       when provider in [:oban_claude, :oban_codex] do
+    record_failure(meta, meta.error)
   end
 
-  defp do_handle_event([:oban_claude, :agent, :transition], _measurements, meta, _config) do
+  defp do_handle_event([provider, :agent, :transition], _measurements, meta, _config)
+       when provider in [:oban_claude, :oban_codex] do
     # The registry is already synced when transition telemetry fires, so the
     # gated payload is atomically readable here.
     case {meta.from, meta.to} do
@@ -101,6 +95,30 @@ defmodule Custode.Feed.Ingest do
       _other ->
         :ok
     end
+  end
+
+  defp record_failure(meta, error) do
+    {kind, detail} = error_facts(error)
+    # One classification, made here at the turn boundary (#527): readers ask
+    # "will the next beat fix this?" and must not each re-derive it from kind.
+    category = Custode.TurnFailure.classify(error)
+
+    Custode.Feed.record(
+      %{
+        event: "turn_failed",
+        agent: agent_of(meta),
+        kind: kind,
+        detail: detail,
+        category: category,
+        retryable: Custode.TurnFailure.retryable?(category)
+      },
+      notify: true
+    )
+
+    # After the entry, so the streak it reads includes this failure (#543).
+    # The turn's own transition to :running is long past, so NextBeat's
+    # clear-on-running cannot take this back; the NEXT turn start does.
+    Custode.BeatBackoff.after_failure(agent_of(meta), category)
   end
 
   # The schema'd sweep epilogue (#120 slice 2): what the turn touched arrives
@@ -156,10 +174,33 @@ defmodule Custode.Feed.Ingest do
     {error.kind, presence(detail)}
   end
 
+  defp error_facts(%ObanCodex.Error{} = error) do
+    detail =
+      [error.message, inspect_reason(error.reason)] |> Enum.reject(&is_nil/1) |> Enum.join(" -- ")
+
+    {error.kind, presence(detail)}
+  end
+
+  defp error_facts(%CodexWrapper.Result{} = result) do
+    detail =
+      [
+        "exit #{result.exit_code}",
+        result.stderr && String.slice(result.stderr, 0, 300),
+        result.stdout && String.slice(result.stdout, 0, 300)
+      ]
+      |> Enum.reject(&(&1 in [nil, ""]))
+      |> Enum.join(": ")
+
+    {:command_failed, presence(detail)}
+  end
+
   defp error_facts(other), do: {:unknown, presence(inspect(other))}
 
   defp presence(""), do: nil
   defp presence(string), do: string
+
+  defp inspect_reason(nil), do: nil
+  defp inspect_reason(reason), do: reason |> inspect(printable_limit: 300) |> String.slice(0, 300)
 
   defp gated(agent_id) do
     case Custode.Agents.status(agent_id) do
@@ -176,16 +217,35 @@ defmodule Custode.Feed.Ingest do
   # Capped generously: prompt answers are prose, not payloads, and the cap
   # only guards against a pathological turn flooding a feed row.
   @response_cap 16_384
-  defp prompt_response(%{job: %{meta: %{"origin" => "operator"}}, result: result}) do
+  defp prompt_response(provider, %{job: %{meta: %{"origin" => "operator"}}, result: result}) do
     # a schema'd run's raw text IS the directive JSON, and the whole answer
     # already persists uncapped in the entry's summary -- echoing the blob
     # here just renders the answer twice, once as escaped JSON (#201)
-    case {ObanClaude.structured(result), result.result} do
+    case {structured(provider, result), text(provider, result)} do
       {%{}, _raw} -> nil
       {nil, text} when is_binary(text) and text != "" -> String.slice(text, 0, @response_cap)
       _other -> nil
     end
   end
 
-  defp prompt_response(_meta), do: nil
+  defp prompt_response(_provider, _meta), do: nil
+
+  defp structured(:oban_claude, result), do: ObanClaude.structured(result)
+  defp structured(:oban_codex, result), do: ObanCodex.structured(result)
+  defp text(:oban_claude, result), do: result.result
+  defp text(:oban_codex, result), do: ObanCodex.text(result)
+
+  defp usage_total(:oban_claude, result) do
+    case ClaudeWrapper.Result.usage(result) do
+      nil -> nil
+      usage -> usage.total
+    end
+  end
+
+  defp usage_total(:oban_codex, result) do
+    case ObanCodex.usage(result) do
+      nil -> nil
+      usage -> (usage["input_tokens"] || 0) + (usage["output_tokens"] || 0)
+    end
+  end
 end

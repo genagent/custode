@@ -59,6 +59,7 @@ defmodule Custode.Advisors.Model do
     for routine <- Custode.Routine.all(), routine.cron != :manual do
       %{
         routine_id: routine.id,
+        provider: routine.provider,
         model: routine.model,
         sweeps: Map.get(sweeps, routine.id, 0),
         yields: Map.get(yields, routine.id, 0)
@@ -71,6 +72,7 @@ defmodule Custode.Advisors.Model do
     baseline = baseline_rate(observations)
 
     for obs <- observations,
+        obs.provider == :claude,
         obs.model == @expensive,
         obs.sweeps >= @min_sweeps,
         rate(obs) <= baseline do
@@ -97,7 +99,12 @@ defmodule Custode.Advisors.Model do
   # then suggests nothing (an opus routine cannot yield <= nothing usefully
   # -- guarded by requiring a positive baseline)
   defp baseline_rate(observations) do
-    peers = Enum.filter(observations, &(&1.model == @suggested and &1.sweeps >= @min_sweeps))
+    peers =
+      Enum.filter(
+        observations,
+        &(&1.provider == :claude and &1.model == @suggested and &1.sweeps >= @min_sweeps)
+      )
+
     total_sweeps = peers |> Enum.map(& &1.sweeps) |> Enum.sum()
     total_yields = peers |> Enum.map(& &1.yields) |> Enum.sum()
     if total_sweeps > 0, do: total_yields / total_sweeps, else: 1.0e9

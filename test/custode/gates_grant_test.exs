@@ -156,6 +156,7 @@ defmodule Custode.Gates.GrantTest do
 
     test "observing, every approval keeps the routine's approved_args" do
       assert Grant.approval_args("ready_pr") == %{}
+      assert Grant.approval_args("ready_pr", :codex) == %{}
 
       assert %{"permission_mode" => "bypass_permissions"} =
                approve!(%{"action_class" => "ready_pr"})
@@ -166,6 +167,11 @@ defmodule Custode.Gates.GrantTest do
 
       for class <- ~w(comment file_issue review ready_pr merge roster) do
         assert Grant.approval_args(class) == %{"permission_mode" => "default"}
+
+        assert Grant.approval_args(class, :codex) == %{
+                 "sandbox" => "read_only",
+                 "approval_policy" => "never"
+               }
       end
 
       assert %{"permission_mode" => "default"} = approve!(%{"action_class" => "ready_pr"})
@@ -176,6 +182,7 @@ defmodule Custode.Gates.GrantTest do
 
       for class <- ["implement", "pr_maintain", "other", nil] do
         assert Grant.approval_args(class) == %{}
+        assert Grant.approval_args(class, :codex) == %{}
       end
 
       assert %{"permission_mode" => "bypass_permissions"} =

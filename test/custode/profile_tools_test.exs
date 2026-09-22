@@ -82,6 +82,23 @@ defmodule Custode.ProfileToolsTest do
     refute File.exists?(path)
   end
 
+  test "provider is exposed by profile preview and define" do
+    params = %{
+      name: "codex-reviewer",
+      provider: "codex",
+      cron: "@daily",
+      prompt: "review",
+      role: "backlog_worker"
+    }
+
+    preview = tool_json(PreviewProfile.execute(params, @operator))
+    assert preview["toml"] =~ ~s(provider = "codex")
+
+    defined = tool_json(DefineProfile.execute(params, @operator))
+    assert defined["live"] == true
+    assert Application.get_env(:custode, :profiles)[:"codex-reviewer"].provider == :codex
+  end
+
   test "the operator defines a profile: file written, roster live", %{path: path} do
     json = tool_json(DefineProfile.execute(define_params("reviewer"), @operator))
 

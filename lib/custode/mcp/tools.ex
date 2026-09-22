@@ -207,6 +207,7 @@ defmodule Custode.MCP.Tools.ListRoutines do
 
         %{
           id: routine.id,
+          provider: routine.provider,
           cron: routine.cron,
           repo: routine.repo,
           tags: routine.tags,

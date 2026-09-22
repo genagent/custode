@@ -27,6 +27,20 @@ defmodule Custode.PubSubBridgeTest do
     assert_receive {:status_changed, ^id}
   end
 
+  test "Codex agent transitions broadcast the same status_changed nudge" do
+    id = uid("codex-bridge")
+
+    :ok =
+      Custode.PubSubBridge.handle_event(
+        [:oban_codex, :agent, :transition],
+        %{},
+        %{agent_id: id, from: :idle, to: :running},
+        nil
+      )
+
+    assert_receive {:status_changed, ^id}
+  end
+
   test "feed entries ride the same topic, in the tail/1 string-key shape" do
     {:ok, _} =
       ObanClaude.run(%{"prompt" => "x"},

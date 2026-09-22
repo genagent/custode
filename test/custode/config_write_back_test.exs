@@ -131,6 +131,25 @@ defmodule Custode.Config.WriteBackTest do
       refute Map.has_key?(raw, :model)
     end
 
+    test "changing provider stops the old engine before the next beat", %{path: path} do
+      {:ok, _pid} =
+        ObanClaude.Agent.start_agent("newbie",
+          enqueue_fun: fn _args, _meta -> {:ok, :queued} end
+        )
+
+      on_exit(fn ->
+        case ObanClaude.Agent.status("newbie") do
+          {:ok, :offline} -> :ok
+          {:ok, _state} -> ObanClaude.Agent.stop_agent("newbie")
+        end
+      end)
+
+      assert {:ok, :idle} = ObanClaude.Agent.status("newbie")
+      assert {:ok, ^path} = WriteBack.update_routine("newbie", %{provider: :codex})
+      assert {:ok, :offline} = ObanClaude.Agent.await("newbie", :offline, 1_000)
+      assert Custode.Routine.get("newbie").provider == :codex
+    end
+
     test "the splice preserves other entries byte-for-byte, comments included", %{path: path} do
       # an operator hand-comment above the OTHER entry's section
       content = File.read!(path)
@@ -293,6 +312,40 @@ defmodule Custode.Config.WriteBackTest do
     refute Map.has_key?(profiles.reviewer, :extra_allowed_tools)
     # the other profile survives the splice byte-for-byte
     assert profiles.tutor.role == :tutor
+  end
+
+  test "changing a profile provider stops live wearers on the old engine", %{path: path} do
+    seed_profiles(path)
+    assert {:ok, ^path} = WriteBack.add_profile("reviewer", new_envelope())
+
+    assert {:ok, ^path} =
+             WriteBack.add_routine(%{
+               id: "profile-wearer",
+               profile: :reviewer,
+               workspace: tmp_workspace!()
+             })
+
+    {:ok, _pid} =
+      ObanClaude.Agent.start_agent("profile-wearer",
+        enqueue_fun: fn _args, _meta -> {:ok, :queued} end
+      )
+
+    on_exit(fn ->
+      case ObanClaude.Agent.status("profile-wearer") do
+        {:ok, :offline} -> :ok
+        {:ok, _state} -> ObanClaude.Agent.stop_agent("profile-wearer")
+      end
+    end)
+
+    assert {:ok, ^path} =
+             WriteBack.update_profile("reviewer", %{
+               provider: :codex,
+               model: nil,
+               approved_args: nil
+             })
+
+    assert {:ok, :offline} = ObanClaude.Agent.await("profile-wearer", :offline, 1_000)
+    assert Custode.Routine.get("profile-wearer").provider == :codex
   end
 
   test "remove_profile refuses while a routine wears it, allows once orphaned", %{path: path} do

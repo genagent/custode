@@ -12,7 +12,7 @@ defmodule Custode.RoutineTick do
   This worker gives the scheduled path the same freshness. `Custode.Scheduler`
   inserts only `%{"routine_id" => id}` (#142 moved routine firing off the
   static Oban crontab); every fire resolves the routine's CURRENT config and
-  enqueues a `ObanClaude.Agent.Tick` with freshly built args. A
+  enqueues the selected provider's Agent Tick with freshly built args. A
   prompt/model/budget edit takes effect on the routine's next beat, no restart
   required -- and with the scheduler reading the roster live, a cadence edit
   now takes effect at the next minute too.
@@ -52,7 +52,6 @@ defmodule Custode.RoutineTick do
   alias Custode.Availability
   alias Custode.Availability.Advice
   alias Custode.Routine
-  alias ObanClaude.Agent.Tick
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"routine_id" => id}} = job) do
@@ -62,7 +61,7 @@ defmodule Custode.RoutineTick do
       # most a cron interval away
       {:cancel, {:stale_tick, id}}
     else
-      case held(job, DateTime.utc_now()) do
+      case held(id, job, DateTime.utc_now()) do
         :clear -> beat(id)
         held -> deferred(id, held)
       end
@@ -73,13 +72,13 @@ defmodule Custode.RoutineTick do
     {:cancel, {:invalid_routine_tick, "missing \"routine_id\" in #{inspect(args)}"}}
   end
 
-  # every routine runs on claude until a routine can name its provider (#452)
-  @provider "claude"
   # wake a little after the reset rather than on it: clocks differ
   @reset_margin_s 30
 
-  defp held(job, now) do
-    case Availability.advise(@provider, now: now) do
+  defp held(id, job, now) do
+    provider = id |> Routine.get() |> provider_name()
+
+    case Availability.advise(provider, now: now) do
       %Advice{decision: :defer, defer_until: %DateTime{} = until} ->
         wait(job, until, now)
 
@@ -113,12 +112,14 @@ defmodule Custode.RoutineTick do
   end
 
   defp record_deferred(id, until, outcome) do
+    provider = id |> Routine.get() |> provider_name()
+
     Custode.Feed.record(%{
       event: "beat_deferred",
       agent: id,
       defer_until: DateTime.to_iso8601(until),
       summary:
-        "scheduled beat not run: #{@provider} is limited until " <>
+        "scheduled beat not run: #{provider} is limited until " <>
           "#{Calendar.strftime(until, "%H:%M UTC")}; #{outcome}"
     })
   end
@@ -131,10 +132,14 @@ defmodule Custode.RoutineTick do
 
       routine ->
         run_intake(routine)
-        {:ok, _job} = Oban.insert(Tick.new(Routine.tick_args(routine), queue: :ticks))
+        tick = Routine.tick_worker(routine)
+        {:ok, _job} = Oban.insert(tick.new(Routine.tick_args(routine), queue: :ticks))
         :ok
     end
   end
+
+  defp provider_name(%{provider: provider}), do: Atom.to_string(provider)
+  defp provider_name(nil), do: "claude"
 
   defp run_intake(routine) do
     intake = Application.get_env(:custode, :work_intake, Custode.GitHubIssueIntake)

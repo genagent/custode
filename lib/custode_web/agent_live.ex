@@ -299,7 +299,7 @@ defmodule CustodeWeb.AgentLive do
         <summary class="collapse-title text-sm font-semibold text-base-content/70">
           about this agent
           <span class="text-xs font-normal text-base-content/50">
-            {@routine.role} &middot; {@routine.model}{if @routine.effort, do: "/#{@routine.effort}"} &middot; {cadence_words(@routine.cron)}
+            {@routine.role} &middot; {@routine.provider} &middot; {@routine.model || "CLI default"}{if @routine.effort, do: "/#{@routine.effort}"} &middot; {cadence_words(@routine.cron)}
           </span>
         </summary>
         <div class="collapse-content space-y-2 text-sm">
@@ -309,8 +309,9 @@ defmodule CustodeWeb.AgentLive do
           <p class="text-base-content/60 italic">{Custode.Roles.summary(@routine.role)}</p>
           <div class="flex flex-wrap gap-x-6 gap-y-1 text-base-content/70">
             <span>role <b>{@routine.role}</b><span class="text-base-content/40"> &middot; {Custode.Roles.tier(@routine.role)} tier</span></span>
+            <span>provider <b>{@routine.provider}</b></span>
             <span>
-              sweeps <b>{@routine.model}</b><span :if={@routine.effort}> at {@routine.effort} effort</span>
+              sweeps <b>{@routine.model || "CLI default"}</b><span :if={@routine.effort}> at {@routine.effort} effort</span>
             </span>
             <span :if={@routine.approved_args["model"]}>
               approved work <b>{@routine.approved_args["model"]}</b><span :if={@routine.approved_args["effort"]}> at {@routine.approved_args["effort"]}</span>

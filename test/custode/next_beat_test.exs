@@ -101,6 +101,21 @@ defmodule Custode.NextBeatTest do
       assert NextBeat.get(id) == nil
     end
 
+    test "a Codex transition to :running also forgets the request" do
+      id = uid("codex-woken")
+      {:ok, _granted} = NextBeat.request(id, 60)
+
+      :ok =
+        NextBeat.handle_event(
+          [:oban_codex, :agent, :transition],
+          %{},
+          %{agent_id: id, from: :idle, to: :running},
+          nil
+        )
+
+      assert NextBeat.get(id) == nil
+    end
+
     test "other transitions leave it alone" do
       id = uid("resting")
       {:ok, _granted} = NextBeat.request(id, 60)
