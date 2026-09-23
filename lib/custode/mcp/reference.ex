@@ -6,7 +6,7 @@ defmodule Custode.MCP.Reference do
   """
 
   alias Anubis.Server.{Frame, Handlers}
-  alias Custode.MCP.{MemoryServer, Server, ToolPolicy, WorkResources}
+  alias Custode.MCP.{MCPEx, MemoryServer, Server, ToolPolicy, WorkResources}
 
   @servers [{"/mcp", Server}, {"/mcp/memory", MemoryServer}]
   @kinds ~w(tools resources resourceTemplates prompts)
@@ -52,7 +52,7 @@ defmodule Custode.MCP.Reference do
       "path" => path,
       "serverInfo" => server.server_info(),
       "capabilities" => server.server_capabilities(),
-      "protocolVersions" => server.supported_protocol_versions(),
+      "protocolVersions" => MCPEx.protocol_versions(),
       "tools" => Enum.map(Handlers.get_server_tools(server, frame), &wire/1),
       "resources" => Enum.map(Handlers.get_server_resources(server, frame), &wire/1),
       "resourceTemplates" =>

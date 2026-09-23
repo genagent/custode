@@ -154,20 +154,21 @@ defmodule Custode.MCPCapabilitiesTest do
   end
 
   defp session(token, path) do
-    response = initialize(token, path)
+    version = "2025-06-18"
+    response = initialize(token, path, version)
     assert response.status == 200
-    [session_id] = Req.Response.get_header(response, "mcp-session-id")
+    assert Req.Response.get_header(response, "mcp-session-id") == []
 
     client = %{
       url: url(path),
-      headers: headers(token) ++ [{"mcp-session-id", session_id}]
+      headers: headers(token) ++ [{"mcp-protocol-version", version}]
     }
 
     assert post(client, %{jsonrpc: "2.0", method: "notifications/initialized"}).status == 202
     client
   end
 
-  defp initialize(token, path) do
+  defp initialize(token, path, version \\ "2025-06-18") do
     client = %{url: url(path), headers: headers(token)}
 
     post(client, %{
@@ -175,7 +176,7 @@ defmodule Custode.MCPCapabilitiesTest do
       id: 1,
       method: "initialize",
       params: %{
-        protocolVersion: "2025-06-18",
+        protocolVersion: version,
         capabilities: %{},
         clientInfo: %{name: "capability-test", version: "0"}
       }

@@ -148,6 +148,14 @@ defmodule Custode.MCP.WorkResources do
     }
   ]
 
+  @doc "Return the fixed resource definitions advertised to operator clients."
+  @spec resource_definitions() :: [map()]
+  def resource_definitions, do: @resources
+
+  @doc "Return the resource-template definitions advertised to operator clients."
+  @spec template_definitions() :: [map()]
+  def template_definitions, do: @templates
+
   @doc "Register work resources for an authenticated operator session."
   @spec register(Frame.t()) :: Frame.t()
   def register(%Frame{} = frame) do

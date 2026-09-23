@@ -1,6 +1,6 @@
 defmodule Custode.MCPToolsTest do
   # Tool handlers called directly with params + a bare Frame; the HTTP
-  # transport is exercised separately (it is anubis's contract, not ours).
+  # transport is exercised separately.
   # Queues never execute in test, so "started" sub-agents insert real rows in
   # oban_jobs that never run -- the full plumbing, zero claude.
   use ExUnit.Case, async: false
@@ -8,20 +8,16 @@ defmodule Custode.MCPToolsTest do
   import Custode.TestHelpers
   import ObanClaude.Testing
 
-  alias Custode.MCP.Tools
+  alias Custode.MCP.{MCPEx, Tools}
   alias ObanClaude.Agent
 
   @frame %Anubis.Server.Frame{}
 
   describe "server boot" do
-    test "both MCP servers booted their session machinery (start: true is load-bearing)" do
-      # anubis's should_start? heuristic sniffs Phoenix config; without the
-      # explicit start: true the dashboard's endpoint config disables the MCP
-      # session layer and every request 500s on a missing session_config
-      for server <- [Custode.MCP.Server, Custode.MCP.MemoryServer] do
-        assert %{server_module: ^server} =
-                 :persistent_term.get({Anubis.Server.Supervisor, server, :session_config})
-      end
+    test "the bounded mcp_ex request executor is running" do
+      executor = Process.whereis(MCPEx.executor())
+      assert is_pid(executor)
+      assert Process.alive?(executor)
     end
   end
 

@@ -210,7 +210,7 @@ defmodule Custode.MCPJournalReadTest do
 
     for args <- arguments do
       assert %{"error" => %{"code" => -32_602}} =
-               rpc(ctx.own, "tools/call", %{name: "journal_read", arguments: args})
+               rpc_error(ctx.own, "tools/call", %{name: "journal_read", arguments: args})
     end
 
     assert call(ctx.own, "journal_read", %{limit: nil, search: nil, live_only: nil}) ==
@@ -239,8 +239,14 @@ defmodule Custode.MCPJournalReadTest do
       })
 
     assert response.status == 200
-    [session_id] = Req.Response.get_header(response, "mcp-session-id")
-    client = %{client | headers: [{"mcp-session-id", session_id} | client.headers]}
+    assert response.body["result"]["protocolVersion"] == "2025-06-18"
+    assert Req.Response.get_header(response, "mcp-session-id") == []
+
+    client = %{
+      client
+      | headers: [{"mcp-protocol-version", "2025-06-18"} | client.headers]
+    }
+
     assert post(client, %{jsonrpc: "2.0", method: "notifications/initialized"}).status == 202
     client
   end
@@ -269,6 +275,19 @@ defmodule Custode.MCPJournalReadTest do
       })
 
     assert response.status == 200
+    decode(response.body)
+  end
+
+  defp rpc_error(client, method, params) do
+    response =
+      post(client, %{
+        jsonrpc: "2.0",
+        id: System.unique_integer([:positive]),
+        method: method,
+        params: params
+      })
+
+    assert response.status == 400
     decode(response.body)
   end
 

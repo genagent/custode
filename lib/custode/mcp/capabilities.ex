@@ -9,9 +9,13 @@ defmodule Custode.MCP.Capabilities do
 
   require Logger
 
-  alias Anubis.MCP.Error
+  @behaviour MCP.Authorization
+
+  alias Anubis.MCP.Error, as: AnubisError
   alias Anubis.Server.Handlers
   alias Custode.Routine
+  alias MCP.Authorization.Component
+  alias MCP.Error, as: MCPError
 
   @memory_tools ~w(journal_read remember recall forget)
 
@@ -99,6 +103,29 @@ defmodule Custode.MCP.Capabilities do
   def authorized_tool_names(:memory, %{kind: :sub_agent}), do: @memory_tools
   def authorized_tool_names(_endpoint, _identity), do: []
 
+  @impl MCP.Authorization
+  def authorize(phase, %Component{} = component, context, endpoint)
+      when phase in [:discovery, :invocation] and endpoint in [:main, :memory] do
+    identity = get_in(context.auth, [:identity])
+
+    with :ok <- authorize_endpoint(endpoint, identity),
+         true <- component_allowed?(endpoint, identity, component) do
+      :ok
+    else
+      false ->
+        refuse_component(
+          phase,
+          endpoint,
+          identity,
+          component,
+          "component is outside the caller's capability set"
+        )
+
+      {:error, reason} ->
+        refuse_component(phase, endpoint, identity, component, reason)
+    end
+  end
+
   @doc false
   def handle_request(%{"method" => "tools/list"} = request, endpoint, server, frame) do
     identity = identity(frame)
@@ -176,6 +203,36 @@ defmodule Custode.MCP.Capabilities do
     )
 
     message = "MCP capability refused: #{reason}"
-    {:error, Error.execution(message, %{endpoint: endpoint, capability: capability}), frame}
+    {:error, AnubisError.execution(message, %{endpoint: endpoint, capability: capability}), frame}
+  end
+
+  defp component_allowed?(endpoint, identity, %Component{kind: :tool, name: name}),
+    do: tool_allowed?(endpoint, identity, name)
+
+  defp component_allowed?(:main, %{kind: :operator}, %Component{
+         kind: kind
+       })
+       when kind in [:resource, :resource_template],
+       do: true
+
+  defp component_allowed?(_endpoint, _identity, _component), do: false
+
+  defp refuse_component(:discovery, _endpoint, _identity, _component, _reason),
+    do: {:error, MCPError.authorization(-32_003, "Not authorized")}
+
+  defp refuse_component(:invocation, endpoint, identity, component, reason) do
+    capability = component.uri || component.name
+    caller = if identity, do: "#{identity.kind}:#{identity.id}", else: "missing"
+
+    Logger.warning(
+      "MCP capability refused endpoint=#{endpoint} caller=#{caller} " <>
+        "capability=#{inspect(capability)} reason=#{reason}"
+    )
+
+    {:error,
+     MCPError.authorization(-32_003, "MCP capability refused: #{reason}", %{
+       "endpoint" => Atom.to_string(endpoint),
+       "capability" => capability
+     })}
   end
 end

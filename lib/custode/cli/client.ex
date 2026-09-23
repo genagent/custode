@@ -3,7 +3,7 @@ defmodule Custode.CLI.Client do
   ## Why a bare Req poster and not Anubis.Client (#156, decided 2026-07-22)
 
   Anubis.Client is the right client for anything LONG-LIVED -- it brings
-  supervision, session initialization, protocol negotiation, and pooled
+  supervision, protocol negotiation, connection lifecycle, and pooled
   HTTP, and the federation direction (design 002) should use it from day
   one. A one-shot `mix custode <cmd>` VM is the opposite shape: total
   invocation latency measures ~0.53s and is dominated by VM boot; the
@@ -18,7 +18,9 @@ defmodule Custode.CLI.Client do
   to the RUNNING custode server over loopback. The mix task never starts
   the custode app (the server owns the ports and the database); it talks to
   the same operator tools every other agent does -- which makes each CLI
-  invocation a live integration test of the MCP surface.
+  invocation a live integration test of the MCP surface. The running server is
+  stateless: initialize returns the negotiated version, and later requests send
+  that value in `mcp-protocol-version` rather than a session id.
   """
 
   alias Custode.MCP.Identity
@@ -32,9 +34,9 @@ defmodule Custode.CLI.Client do
   def call(tool, arguments \\ %{}) do
     url = url()
 
-    with {:ok, session_id} <- initialize(url),
-         :ok <- initialized(url, session_id) do
-      tool_call(url, session_id, tool, arguments)
+    with {:ok, protocol_version} <- initialize(url),
+         :ok <- initialized(url, protocol_version) do
+      tool_call(url, protocol_version, tool, arguments)
     end
   end
 
@@ -59,10 +61,13 @@ defmodule Custode.CLI.Client do
     }
 
     case post(url, body, []) do
-      {:ok, %Req.Response{status: 200} = response} ->
-        case Req.Response.get_header(response, "mcp-session-id") do
-          [session_id | _rest] -> {:ok, session_id}
-          [] -> {:error, "server answered without an mcp-session-id"}
+      {:ok, %Req.Response{status: 200, body: raw}} ->
+        case decode(raw) do
+          %{"result" => %{"protocolVersion" => version}} when is_binary(version) ->
+            {:ok, version}
+
+          _other ->
+            {:error, "server answered without a negotiated protocol version"}
         end
 
       {:ok, %Req.Response{status: status}} ->
@@ -73,14 +78,14 @@ defmodule Custode.CLI.Client do
     end
   end
 
-  defp initialized(url, session_id) do
-    case post(url, %{jsonrpc: "2.0", method: "notifications/initialized"}, session_id) do
+  defp initialized(url, protocol_version) do
+    case post(url, %{jsonrpc: "2.0", method: "notifications/initialized"}, protocol_version) do
       {:ok, _response} -> :ok
       {:error, _reason} -> {:error, "session handshake failed"}
     end
   end
 
-  defp tool_call(url, session_id, tool, arguments) do
+  defp tool_call(url, protocol_version, tool, arguments) do
     body = %{
       jsonrpc: "2.0",
       id: 2,
@@ -88,22 +93,27 @@ defmodule Custode.CLI.Client do
       params: %{name: tool, arguments: arguments}
     }
 
-    with {:ok, %Req.Response{status: 200, body: raw}} <- post(url, body, session_id),
-         %{"result" => result} <- decode(raw) do
-      unpack(result)
-    else
-      {:ok, %Req.Response{status: status}} -> {:error, "tools/call answered #{status}"}
-      %{"error" => %{"message" => message}} -> {:error, message}
-      {:error, _reason} -> {:error, "lost the server mid-call"}
-      other -> {:error, "unexpected reply: #{inspect(other)}"}
+    case post(url, body, protocol_version) do
+      {:ok, %Req.Response{status: status, body: raw}} ->
+        case decode(raw) do
+          %{"result" => result} -> unpack(result)
+          %{"error" => %{"message" => message}} -> {:error, message}
+          _other -> {:error, "tools/call answered #{status}"}
+        end
+
+      {:error, _reason} ->
+        {:error, "lost the server mid-call"}
     end
   end
 
-  defp post(url, body, session_id) do
+  defp post(url, body, protocol_version) do
     headers =
-      case session_id do
-        id when is_binary(id) -> [{"mcp-session-id", id} | auth_headers()]
-        _none -> auth_headers()
+      case protocol_version do
+        version when is_binary(version) ->
+          [{"mcp-protocol-version", version} | auth_headers()]
+
+        _none ->
+          auth_headers()
       end
 
     Req.post(url,
