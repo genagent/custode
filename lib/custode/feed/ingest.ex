@@ -79,6 +79,7 @@ defmodule Custode.Feed.Ingest do
     |> put_touched(out)
     |> put_action_class(out)
     |> put_repo(out)
+    |> put_hydration(meta)
     |> Custode.Feed.record()
   end
 
@@ -121,7 +122,7 @@ defmodule Custode.Feed.Ingest do
     # "will the next beat fix this?" and must not each re-derive it from kind.
     category = Custode.TurnFailure.classify(error)
 
-    Custode.Feed.record(
+    entry =
       %{
         event: "turn_failed",
         agent: agent_of(meta),
@@ -129,7 +130,11 @@ defmodule Custode.Feed.Ingest do
         detail: detail,
         category: category,
         retryable: Custode.TurnFailure.retryable?(category)
-      },
+      }
+      |> put_hydration(meta)
+
+    Custode.Feed.record(
+      entry,
       notify: true
     )
 
@@ -171,6 +176,36 @@ defmodule Custode.Feed.Ingest do
 
   defp maybe_put(entry, _key, []), do: entry
   defp maybe_put(entry, key, numbers), do: Map.put(entry, key, numbers)
+
+  defp put_hydration(entry, meta), do: Map.put(entry, :hydration, hydration(meta))
+
+  defp hydration(%{job: %{meta: meta}} = run_meta) when is_map(meta) do
+    case meta["continuation_decision"] do
+      "resume" -> "native_resume"
+      decision when decision in ["fresh", "fresh_fallback"] -> context_hydration(run_meta)
+      _other -> legacy_hydration(run_meta)
+    end
+  end
+
+  defp hydration(meta), do: legacy_hydration(meta)
+
+  defp context_hydration(meta) do
+    if is_binary(context_args(meta)["custode_context_path"]), do: "packet", else: "fresh"
+  end
+
+  defp legacy_hydration(meta) do
+    args = context_args(meta)
+
+    cond do
+      is_binary(args["resume"]) -> "native_resume"
+      is_binary(args["custode_context_path"]) -> "packet"
+      true -> "fresh"
+    end
+  end
+
+  defp context_args(%{args: args}) when is_map(args), do: args
+  defp context_args(%{job: %{args: args}}) when is_map(args), do: args
+  defp context_args(_meta), do: %{}
 
   defp numbers(values) when is_list(values), do: Enum.filter(values, &is_integer/1)
   defp numbers(_other), do: []

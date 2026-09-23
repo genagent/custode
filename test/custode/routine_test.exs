@@ -207,6 +207,11 @@ defmodule Custode.RoutineTest do
       assert args["start"]["approved_args"] == %{"permission_mode" => "bypass_permissions"}
       assert is_integer(args["start"]["job_timeout"])
 
+      context_path = Path.join(Path.expand(routine.workspace), "HANDOFF.md")
+      assert args["start"]["args"]["custode_context_path"] == context_path
+      assert args["start"]["args"]["append_system_prompt"] =~ context_path
+      assert File.exists?(context_path)
+
       # the whole thing must survive the crontab -> oban_jobs JSON round trip
       assert args == args |> Jason.encode!() |> Jason.decode!()
     end
@@ -353,6 +358,10 @@ defmodule Custode.RoutineTest do
       assert args["approval_policy"] == "never"
       assert args["ignore_rules"] == true
       assert args["skip_git_repo_check"] == true
+
+      assert args["custode_context_path"] ==
+               Path.join(Path.expand(routine.workspace), "HANDOFF.md")
+
       assert File.exists?(args["output_schema"])
 
       assert Jason.decode!(File.read!(args["output_schema"]))["required"] == [
@@ -362,6 +371,7 @@ defmodule Custode.RoutineTest do
 
       overrides = args["config_overrides"]
       assert Enum.any?(overrides, &String.starts_with?(&1, "developer_instructions="))
+      assert Enum.any?(overrides, &String.contains?(&1, args["custode_context_path"]))
       assert "model_reasoning_effort=\"high\"" in overrides
       assert Enum.any?(overrides, &String.starts_with?(&1, ~s(mcp_servers."custode".url=)))
 
