@@ -12,6 +12,7 @@ defmodule Custode.Application do
   use Application
 
   alias Custode.Feed
+  alias Custode.OwnedCheckout.Barrier
   alias Custode.Workflow
 
   @impl Application
@@ -34,6 +35,7 @@ defmodule Custode.Application do
     Custode.Gates.attach()
     Custode.NextBeat.attach()
     Custode.SubAgents.attach()
+    Barrier.attach()
     Custode.WorktreeBreadcrumb.attach()
     Custode.RunClock.attach()
     # the provider-availability observation cache (#393)
