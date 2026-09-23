@@ -31,16 +31,8 @@ defmodule Custode.MixProject do
 
   defp deps do
     [
-      # The agent layer shipped in oban_claude 0.4.0; the path dep (ecosystem
-      # convention for local apps) picks up in-flight changes from the sibling
-      # checkout. Swap for {:oban_claude, "~> 0.4"} to run against hex.
-      # OBAN_CLAUDE_PATH lets a worktree checkout (whose relative ".." differs)
-      # point at the real sibling repo so mix compile/test work inside
-      # .claude/worktrees/* -- proposed by the custode-dev routine.
-      {:oban_claude, path: System.get_env("OBAN_CLAUDE_PATH", "../oban_claude")},
-      # Codex implements the same Executor contract through its sibling Oban
-      # integration. Keep the path configurable for isolated worktree builds.
-      {:oban_codex, path: System.get_env("OBAN_CODEX_PATH", "../oban_codex")},
+      wrapper_dep(:oban_claude, "~> 0.5.1", "OBAN_CLAUDE_PATH"),
+      wrapper_dep(:oban_codex, "~> 0.2.0", "OBAN_CODEX_PATH"),
       # Terminate the CLI process group on turn timeout or worker death.
       {:forcola, "~> 0.3.3"},
       {:oban, "~> 2.23"},
@@ -73,6 +65,13 @@ defmodule Custode.MixProject do
       # The mix custode CLI command tree (#45).
       {:cheer, "~> 0.2"}
     ]
+  end
+
+  defp wrapper_dep(application, requirement, path_variable) do
+    case System.get_env(path_variable) do
+      path when is_binary(path) and path != "" -> {application, path: path}
+      _unset -> {application, requirement}
+    end
   end
 
   defp mcp_ex_dep do

@@ -8,7 +8,7 @@ defmodule Custode.Verification.Recipes do
 
   alias Custode.Verification.Recipe
 
-  @environment_allowlist ~w(HOME PATH LANG LC_ALL MIX_HOME HEX_HOME OBAN_CLAUDE_PATH)
+  @environment_allowlist ~w(HOME PATH LANG LC_ALL MIX_HOME HEX_HOME OBAN_CLAUDE_PATH OBAN_CODEX_PATH)
   @output_limit_bytes 1_000_000
   @tail_bytes 8_000
 
@@ -22,8 +22,8 @@ defmodule Custode.Verification.Recipes do
   end
 
   @doc "The current Elixir repository recipe."
-  def elixir(options \\ []) do
-    environment = elixir_environment(options)
+  def elixir(_options \\ []) do
+    environment = elixir_environment()
 
     Recipe.new(%{
       name: "elixir_repository",
@@ -67,19 +67,5 @@ defmodule Custode.Verification.Recipes do
     }
   end
 
-  defp elixir_environment(options) do
-    environment = System.get_env() |> Map.take(@environment_allowlist)
-
-    case Keyword.get(options, :repository_path) do
-      repository_path when is_binary(repository_path) ->
-        dependency = Path.expand("../oban_claude", repository_path)
-
-        if File.dir?(dependency),
-          do: Map.put(environment, "OBAN_CLAUDE_PATH", dependency),
-          else: Map.delete(environment, "OBAN_CLAUDE_PATH")
-
-      _missing ->
-        environment
-    end
-  end
+  defp elixir_environment, do: System.get_env() |> Map.take(@environment_allowlist)
 end
