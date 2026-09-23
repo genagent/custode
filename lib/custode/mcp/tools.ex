@@ -36,6 +36,11 @@ defmodule Custode.MCP.Tools do
     [by: by, via: Custode.MCP.origin_transport(frame)]
   end
 
+  @doc false
+  def actor_opts(frame) do
+    [actor: Custode.MCP.caller(frame), via: Custode.MCP.origin_transport(frame)]
+  end
+
   @doc """
   Gate target authorization uses the same parent relationship as every other
   delegated-agent operation.

@@ -21,6 +21,7 @@ defmodule Custode.MCP.OperatorTools.Beat do
   use Anubis.Server.Component, type: :tool
 
   import Custode.MCP.Tools
+  alias Custode.Operator.Actions
 
   schema do
     field(:agent_id, :string, required: true, description: "the routine to beat")
@@ -28,13 +29,15 @@ defmodule Custode.MCP.OperatorTools.Beat do
 
   @impl true
   def execute(%{agent_id: agent_id}, frame) do
-    case Custode.Routine.get(agent_id) do
-      nil ->
+    case Actions.beat_with_job(agent_id, actor_opts(frame)) do
+      {:ok, job_id} ->
+        reply(frame, %{agent_id: agent_id, job_id: job_id, state: "beat scheduled"})
+
+      {:error, :no_routine} ->
         fail(frame, "unknown routine: #{agent_id}")
 
-      _routine ->
-        {:ok, job_id} = Custode.beat(agent_id)
-        reply(frame, %{agent_id: agent_id, job_id: job_id, state: "beat scheduled"})
+      {:error, reason} ->
+        fail(frame, "beat refused: #{reason}")
     end
   end
 end
@@ -49,6 +52,7 @@ defmodule Custode.MCP.OperatorTools.DropNote do
   use Anubis.Server.Component, type: :tool
 
   import Custode.MCP.Tools
+  alias Custode.Operator.Actions
 
   schema do
     field(:agent_id, :string,
@@ -64,7 +68,7 @@ defmodule Custode.MCP.OperatorTools.DropNote do
   def execute(%{agent_id: agent_id, content: content} = params, frame) do
     name = params[:name] || default_name()
 
-    case Custode.Inbox.drop(agent_id, name, content) do
+    case Actions.drop_note(agent_id, name, content, actor_opts(frame)) do
       {:ok, path} -> reply(frame, %{agent_id: agent_id, path: path})
       {:error, reason} -> fail(frame, "drop failed: #{inspect(reason)}")
     end
@@ -84,7 +88,6 @@ defmodule Custode.MCP.OperatorTools.ListGates do
   use Anubis.Server.Component, type: :tool
 
   import Custode.MCP.Tools
-
   alias Custode.Gates.Review
 
   schema do
@@ -188,6 +191,7 @@ defmodule Custode.MCP.OperatorTools.ResumeAgent do
   use Anubis.Server.Component, type: :tool
 
   import Custode.MCP.Tools
+  alias Custode.Operator.Actions
 
   schema do
     field(:agent_id, :string, required: true, description: "the agent to resume")
@@ -195,8 +199,8 @@ defmodule Custode.MCP.OperatorTools.ResumeAgent do
 
   @impl true
   def execute(%{agent_id: agent_id}, frame) do
-    case Custode.Agents.resume_agent(agent_id) do
-      :resumed -> reply(frame, %{agent_id: agent_id, state: "resumed"})
+    case Actions.resume(agent_id, actor_opts(frame)) do
+      :ok -> reply(frame, %{agent_id: agent_id, state: "resumed"})
       {:error, reason} -> fail(frame, "resume failed: #{inspect(reason)}")
     end
   end
@@ -250,6 +254,7 @@ defmodule Custode.MCP.OperatorTools.SetPresence do
   use Anubis.Server.Component, type: :tool
 
   import Custode.MCP.Tools
+  alias Custode.Operator.Actions
 
   schema do
     field(:mode, :string, required: true, description: ~s(one of "present", "away", "auto"))
@@ -257,8 +262,14 @@ defmodule Custode.MCP.OperatorTools.SetPresence do
 
   @impl true
   def execute(%{mode: mode}, frame) when mode in ["present", "away", "auto"] do
-    {state, _at} = Custode.Presence.set(String.to_existing_atom(mode))
-    reply(frame, %{mode: mode, reading: to_string(state)})
+    case Actions.set_presence(String.to_existing_atom(mode), actor_opts(frame)) do
+      :ok ->
+        {state, _at} = Custode.Presence.status()
+        reply(frame, %{mode: mode, reading: to_string(state)})
+
+      {:error, reason} ->
+        fail(frame, "presence refused: #{reason}")
+    end
   end
 
   def execute(%{mode: mode}, frame),

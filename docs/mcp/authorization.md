@@ -98,13 +98,14 @@ The current handlers enforce these boundaries:
   capability, and reason metadata.
 - Notebook and memory writes, journal reads, and operator asks are self-scoped
   for agent identities. The human operator may provide an explicit target.
-- Answering and dismissing asks, and draining the fleet, require the human
-  operator identity.
-- Roster and profile writes require the human operator or a routine whose
-  current role is caretaker.
-- Pause and owned-checkout operations use shared operation authorization. They
-  accept the human operator and operator-tier routines, which currently means
-  the caretaker.
+- Answering and dismissing asks, changing operator presence, and draining the
+  fleet require the human operator identity in the handler or shared action.
+- Roster and profile writes require the human operator or a caretaker whose
+  live human-approved continuation has action class `roster`.
+- Beat, note, pause, and resume use shared operator authorization. They accept
+  the human operator and the current caretaker, and refuse specialists and
+  temporary agents before changing state. Owned-checkout operations use the
+  registered operation authorization with the same role boundary.
 - A routine cannot approve or reject a configured routine's gate. This is the
   mechanical sibling-judgment boundary described by the operated-fleet design.
 - Delegated-agent lifecycle, prompts, history, and gate decisions verify the
@@ -118,12 +119,8 @@ The current handlers enforce these boundaries:
 The following narrower restrictions are not yet uniformly enforced in shared
 operations:
 
-- Some fleet handlers rely on the central MCP capability check rather than
-  repeating their role restriction in the shared operation.
 - `run_job` does not constrain its workspace, reporting inbox, or elevated
   mode to the caller's identity or an approved continuation.
-- Roster and profile writes prove caretaker role, but do not prove that the
-  call is the continuation of an approved action.
 - `repo_reclaim_pr` does not verify that the caller owns the disowned record.
 - The repository grant checker defaults to observation. Turning refusal on is
   the policy decision tracked by #554.

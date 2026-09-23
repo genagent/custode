@@ -265,6 +265,40 @@ defmodule Custode.OperatorToolsTest do
     end
   end
 
+  describe "handler authority" do
+    test "blind specialist and temporary calls reach the shared refusal", %{
+      routine: specialist,
+      workspace: workspace
+    } do
+      specialist_frame = frame_for(:routine, specialist.id)
+      temporary_frame = frame_for(:sub_agent, uid("temporary"))
+
+      assert tool_error(OperatorTools.Beat.execute(%{agent_id: specialist.id}, specialist_frame)) =~
+               "caretaker role"
+
+      refute Enum.any?(
+               jobs_for("ObanClaude.Agent.Tick"),
+               &(&1.args["agent_id"] == specialist.id)
+             )
+
+      assert tool_error(
+               OperatorTools.DropNote.execute(
+                 %{agent_id: specialist.id, name: "denied.md", content: "no"},
+                 temporary_frame
+               )
+             ) =~ "caretaker role"
+
+      refute File.exists?(Path.join([workspace, "inbox", "denied.md"]))
+
+      put_env!(:presence_override, :away)
+
+      assert tool_error(OperatorTools.SetPresence.execute(%{mode: "present"}, specialist_frame)) =~
+               "human operator"
+
+      assert Application.get_env(:custode, :presence_override) == :away
+    end
+  end
+
   describe "owned checkout operations" do
     setup do
       home = tmp_workspace!()

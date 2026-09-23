@@ -38,6 +38,6 @@ defmodule Custode.DrainToolTest do
 
   test "agents are refused at the verb" do
     refused = tool_error(Drain.execute(%{}, routine_frame("custode")))
-    assert refused =~ "drain is the operator's"
+    assert refused =~ "requires the human operator"
   end
 end
