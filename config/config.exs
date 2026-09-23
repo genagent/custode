@@ -229,71 +229,9 @@ config :custode, Custode.Repo,
 # The MCP endpoint (localhost only) agents use to drive sibling agents/jobs.
 config :custode, mcp_port: 6161
 
-# One-way Mission mapping declarations for legacy routines without a single
-# repository target. Repository routines resolve through GitHub's stable
-# repository ID instead. These declarations describe scope only; routines.toml
-# remains authoritative for schedule and executor fields.
-config :custode,
-  legacy_mission_mappings: %{
-    "custode" => %{
-      strategy: "fixed_mission",
-      mission: %{
-        key: "system:custode",
-        purpose: "Operate Custode",
-        lifecycle: "persistent",
-        targets: [
-          %{kind: "system", external_id: "custode", display_name: "Custode"}
-        ]
-      }
-    },
-    "quakes" => %{
-      strategy: "fixed_mission",
-      mission: %{
-        key: "watch:usgs-earthquakes",
-        purpose: "Monitor significant USGS earthquakes",
-        lifecycle: "persistent",
-        targets: [
-          %{
-            kind: "usgs_feed",
-            external_id: "earthquakes-m4.5-day",
-            display_name: "USGS M4.5+ earthquakes"
-          }
-        ]
-      }
-    },
-    "stars" => %{
-      strategy: "fixed_mission",
-      mission: %{
-        key: "observation:github-stars",
-        purpose: "Observe GitHub star changes",
-        lifecycle: "persistent",
-        targets: [
-          %{
-            kind: "github_owner_set",
-            external_id: "genagent+joshrotenberg",
-            display_name: "genagent and joshrotenberg stars"
-          }
-        ]
-      }
-    },
-    "contributors" => %{
-      strategy: "fixed_mission",
-      mission: %{
-        key: "observation:github-contributors",
-        purpose: "Observe GitHub contributor activity",
-        lifecycle: "persistent",
-        targets: [
-          %{
-            kind: "github_owner_set",
-            external_id: "genagent+joshrotenberg",
-            display_name: "genagent and joshrotenberg contributors"
-          }
-        ]
-      }
-    },
-    "reviewer" => %{strategy: "repository_attempts"},
-    "consistency" => %{strategy: "ephemeral_per_investigation"}
-  }
+# Legacy Mission mappings belong to an operator's roster. The work kernel is
+# frozen and a fresh checkout must not inherit one maintainer's subjects.
+config :custode, legacy_mission_mappings: %{}
 
 # The fleet-tuning advisors (#125/#260): a name -> cron map naming which run
 # and how often. `false` (or omitting a name) disables one. Toggleable via
@@ -313,11 +251,11 @@ config :custode,
 
 # Repo-owned ambient orders (#19): which routines may compose their
 # working_dir's .custode/orders.md into the prompt. Scoped with the same
-# selector language as the policies below. A file in a repo is prompt
-# content, so this is opt-in by repo: genagent/custode is the fleet's own
-# repository, where the operator owns every file that lands. Routines tagged
-# :external never pick up orders regardless of what is listed here.
-config :custode, ambient_orders: [repo: "genagent/custode"]
+# selector language as the policies below. A file in a repo is prompt content,
+# so a fresh checkout opts in to nothing. The operator selects trusted repos
+# in custode.toml. Routines tagged :external never pick up orders regardless
+# of what is listed there.
+config :custode, ambient_orders: []
 
 # The policy layer (#50): fleet rules declared once, rendered into every
 # binding agent's prompt AND shown on gate cards at review time. When verb
