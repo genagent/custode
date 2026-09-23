@@ -1,13 +1,12 @@
 defmodule Custode.MCP.Server do
   @moduledoc """
   The MCP server agents connect to (streamable HTTP on localhost, see
-  `Custode.MCP`). Routines opt in per-entry with `mcp: true`, which adds the
-  config-file reference and the `mcp__custode` tool allowlist to their claude
-  args -- so which agents get fleet powers is a per-routine decision, gated by
-  claude's own tool permissions.
+  `Custode.MCP`). `Custode.MCP.Capabilities` enforces endpoint and role scope
+  before dispatch. Routines that opt in per-entry with `mcp: true` also receive
+  a compact provider allowlist projected from that policy.
   """
 
-  alias Custode.MCP.WorkResources
+  alias Custode.MCP.{Capabilities, WorkResources}
 
   use Anubis.Server,
     name: "custode",
@@ -24,6 +23,10 @@ defmodule Custode.MCP.Server do
   @impl true
   def handle_resource_read(uri, frame),
     do: WorkResources.read(uri, frame)
+
+  @impl true
+  def handle_request(request, frame),
+    do: Capabilities.handle_request(request, :main, __MODULE__, frame)
 
   component(Custode.MCP.Tools.ListRoutines, name: "list_routines")
   component(Custode.MCP.Tools.AgentStatus, name: "agent_status")
@@ -141,10 +144,16 @@ defmodule Custode.MCP.MemoryServer do
   journal without gaining delegation, notebook writes, or lifecycle powers.
   """
 
+  alias Custode.MCP.Capabilities
+
   use Anubis.Server,
     name: "memory",
     version: "0.1.0",
     capabilities: [:tools]
+
+  @impl true
+  def handle_request(request, frame),
+    do: Capabilities.handle_request(request, :memory, __MODULE__, frame)
 
   component(Custode.MCP.NotebookTools.JournalRead, name: "journal_read")
   component(Custode.MCP.MemoryTools.Remember, name: "remember")

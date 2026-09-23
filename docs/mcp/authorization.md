@@ -33,16 +33,16 @@ not an enforcement mechanism.
 
 | Identity | Main endpoint | Memory endpoint | Normal client exposure |
 | --- | --- | --- | --- |
-| Human operator | Full operator surface | No routine-generated connection | All tools and operator resources |
-| Caretaker routine | Yes | No routine-generated connection | Worker tools plus a bounded operator bundle and roster/profile management |
-| Specialist routine | Yes | No routine-generated connection | Worker tools |
+| Human operator | Full operator surface | Refused | All tools and operator resources |
+| Caretaker routine | Yes | Refused | Worker tools plus a bounded operator bundle and roster/profile management |
+| Specialist routine | Yes | Refused | Worker tools |
 | Temporary sub-agent | No | Yes | `journal_read`, `remember`, `recall`, and `forget` |
 
-The router currently accepts every valid identity at both endpoints. It does not
-enforce the intended endpoint column above. In particular, a temporary
-sub-agent token can initialize the main server and directly invoke any tool
-whose handler lacks a stricter check. Likewise, main-endpoint discovery is not
-filtered by role or generated allowlist.
+The router enforces endpoint membership. The server filters main-endpoint tool
+discovery by current routine role and refuses a direct call outside the same
+capability set before dispatch. The caretaker can explicitly discover several
+low-frequency fleet reads and owned-checkout operations that remain absent from
+its compact provider allowlist.
 
 Main-endpoint resources are a separate surface. Their list and read operations
 are restricted to the human operator at runtime. Routine and sub-agent callers
@@ -91,6 +91,11 @@ operations elsewhere.
 The current handlers enforce these boundaries:
 
 - Every HTTP request must carry a valid bearer token.
+- The main endpoint admits operators and routines; the memory endpoint admits
+  only temporary agents.
+- Main-endpoint discovery and blind calls enforce operator, caretaker, and
+  specialist capability sets. Refusals record token-free caller, endpoint,
+  capability, and reason metadata.
 - Notebook and memory writes, journal reads, and operator asks are self-scoped
   for agent identities. The human operator may provide an explicit target.
 - Answering and dismissing asks, and draining the fleet, require the human
@@ -107,14 +112,11 @@ The current handlers enforce these boundaries:
   records an out-of-grant call rather than refusing it.
 - Main-endpoint resources require the human operator identity.
 
-The following restrictions are expressed only by normal client exposure,
-prompts, or descriptive policy today:
+The following narrower restrictions are not yet uniformly enforced in shared
+operations:
 
-- Endpoint membership is not identity-scoped. A sub-agent can call the main
-  endpoint if it knows the URL.
-- `beat`, `drop_note`, `resume_agent`, and `set_presence` do not check the
-  caller in their MCP handlers.
-- Fleet and lifecycle reads generally do not enforce a role.
+- Some fleet handlers rely on the central MCP capability check rather than
+  repeating their role restriction in the shared operation.
 - Starting, prompting, awaiting, inspecting, and reading the history of a
   temporary agent do not verify its recorded parent.
 - A routine caller is blocked from deciding a configured routine's gate, but
@@ -135,9 +137,9 @@ decision from the same authenticated request.
 
 ## Target architecture
 
-Custode should derive discovery, generated client allowlists, and call-time
-authorization from one executable capability policy. A tool invocation should
-be authorized using this context:
+Custode derives endpoint admission, discovery, generated client allowlists, and
+call-time role authorization from one executable capability policy. Narrower
+operation authorization should continue to use this context:
 
 - authenticated identity kind and current routine role;
 - endpoint kind;
@@ -147,7 +149,7 @@ be authorized using this context:
   one;
 - tool-specific policy that cannot be represented by a broad role grant.
 
-The server should deny a blind call before the handler performs work. Shared
+The server denies a blind call before the handler performs work. Shared
 operator operations must retain their own authorization checks because the
 dashboard, CLI, console, and future transports also call them. Client allowlists
 remain useful as a compact user experience and least-context mechanism, but

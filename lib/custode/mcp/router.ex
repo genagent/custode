@@ -4,7 +4,7 @@ defmodule Custode.MCP.Router do
   use Plug.Router
 
   alias Anubis.Server.Transport.StreamableHTTP
-  alias Custode.MCP.Identity
+  alias Custode.MCP.{Capabilities, Identity}
 
   plug(:match)
   plug(:authenticate)
@@ -41,17 +41,28 @@ defmodule Custode.MCP.Router do
   # Not `forward`: the Anubis plug's init opts contain closures, which Plug's
   # compile-time forward cannot escape. Init at runtime instead.
   match "/mcp" do
-    opts = StreamableHTTP.Plug.init(server: Custode.MCP.Server)
-    StreamableHTTP.Plug.call(conn, opts)
+    dispatch_endpoint(conn, :main, Custode.MCP.Server)
   end
 
   # The memory-only server sub-agents are pointed at.
   match "/mcp/memory" do
-    opts = StreamableHTTP.Plug.init(server: Custode.MCP.MemoryServer)
-    StreamableHTTP.Plug.call(conn, opts)
+    dispatch_endpoint(conn, :memory, Custode.MCP.MemoryServer)
   end
 
   match _ do
     send_resp(conn, 404, "not found")
+  end
+
+  defp dispatch_endpoint(conn, endpoint, server) do
+    case Capabilities.authorize_endpoint(endpoint, conn.assigns.custode_identity) do
+      :ok ->
+        opts = StreamableHTTP.Plug.init(server: server)
+        StreamableHTTP.Plug.call(conn, opts)
+
+      {:error, reason} ->
+        conn
+        |> Plug.Conn.send_resp(403, reason)
+        |> Plug.Conn.halt()
+    end
   end
 end

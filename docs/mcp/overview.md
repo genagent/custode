@@ -10,7 +10,7 @@ The resources describe the work-kernel data model, whose workflow intake is curr
 
 ## Authentication and session setup
 
-Every HTTP request requires `Authorization: Bearer <token>`. The token identifies an operator, routine, or sub-agent. Missing or invalid tokens receive HTTP 401. Tokens expire across a server restart, and issuing a new token for an identity revokes its previous token. Operator clients can use the local operator token file or the `CUSTODE_OPERATOR_TOKEN` environment override; do not put a real token in shared examples or saved discovery output.
+Every HTTP request requires `Authorization: Bearer <token>`. The token identifies an operator, routine, or sub-agent. Missing or invalid tokens receive HTTP 401. The main endpoint admits operator and routine identities; the memory endpoint admits only sub-agents. A valid identity at the wrong endpoint receives HTTP 403. Tokens expire across a server restart, and issuing a new token for an identity revokes its previous token. Operator clients can use the local operator token file or the `CUSTODE_OPERATOR_TOKEN` environment override; do not put a real token in shared examples or saved discovery output.
 
 Start with an `initialize` request, inspect the returned protocol version and capabilities, then send `notifications/initialized`. Retain the returned `mcp-session-id` header for subsequent requests. Clients should accept both `application/json` and `text/event-stream` responses.
 
@@ -33,7 +33,7 @@ Authenticated operator requests may include `x-custode-origin: cli` for audit at
 
 ## Discovery and result envelopes
 
-Discover tools with `tools/list`, fixed resources with `resources/list`, and URI templates with `resources/templates/list`. Follow `nextCursor` when discovery responses include it. Resource discovery returns no resources or templates to routine and sub-agent identities. Main-endpoint tool discovery is not filtered by an agent's configured client allowlist, so discovery alone does not establish permission to execute a tool.
+Discover tools with `tools/list`, fixed resources with `resources/list`, and URI templates with `resources/templates/list`. Follow `nextCursor` when discovery responses include it. Tool discovery is filtered by the authenticated identity's endpoint and current routine role. The generated provider allowlist is a compact projection and can omit low-frequency capabilities that the server authorizes, so clients should still discover before calling. Resource discovery returns no resources or templates to routine identities.
 
 Invoke a tool with its public name and JSON arguments:
 
@@ -69,7 +69,7 @@ The schema is the wire-level argument contract. Some arguments marked optional t
 
 Several notebook and memory tools accept either `routine_id` or `agent_id`. A nonblank `routine_id` takes precedence, followed by `agent_id`, then the authenticated agent's own ID. An operator must provide a target because the operator has no personal agent records. Notebook/memory writes and journal reads enforce self-scope for agents; the operator can target other identities. Other reads such as `recall`, `todo_list`, and `inbox_list` deliberately allow reading another agent's records.
 
-Each entry distinguishes intended usage from implemented access checks. A tool's category, presence in discovery, or absence from a client-side allowlist is not a substitute for a server-side authorization check. Some tools enforce operator identity, caretaker role, target ownership, repository policy, or approved action grants; these are documented individually. Do not assume one blanket access rule covers all write tools.
+Each entry distinguishes endpoint and role capability checks from narrower operation checks. The server filters discovery and refuses blind calls outside the caller's capability set. Tool handlers and shared operations separately enforce target ownership, repository policy, approved grants, and human-only decisions; these are documented individually. A descriptive category or client-side allowlist is not a substitute for either server-side layer.
 
 The maintained [authorization matrix](authorization.md) maps identities and
 endpoints to intended authority, records current enforcement gaps, and defines
