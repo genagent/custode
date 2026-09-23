@@ -16,6 +16,65 @@ defmodule Custode.OwnedCheckout do
   alias Custode.{Home, Repository}
 
   @routine_id ~r/\A[A-Za-z0-9][A-Za-z0-9._-]*\z/
+  @safe_failure_reasons [
+    :authentication_failed,
+    :command_unavailable,
+    :runner_failed,
+    :invalid_repository,
+    :eacces,
+    :enoent,
+    :enotdir,
+    :eloop
+  ]
+
+  defmodule GitHubCloneRunner do
+    @moduledoc """
+    Clones a GitHub repository through the authenticated `gh` CLI.
+
+    The command is always invoked as an executable plus argument vector. Its
+    output is inspected only to classify authentication failures and is never
+    returned, logged or placed in a job argument.
+    """
+
+    @type failure_reason ::
+            :authentication_failed | :command_unavailable | {:exit_status, non_neg_integer()}
+
+    @doc "Clone `owner/name` to an absolute destination with host GitHub credentials."
+    @spec clone(String.t(), String.t(), keyword()) :: :ok | {:error, failure_reason()}
+    def clone(repository, destination, opts \\ []) do
+      command = Keyword.get(opts, :command, &System.cmd/3)
+
+      case command.(
+             "gh",
+             ["repo", "clone", repository, destination],
+             stderr_to_stdout: true
+           ) do
+        {_output, 0} -> :ok
+        {output, status} -> {:error, classify_failure(output, status)}
+      end
+    rescue
+      _error -> {:error, :command_unavailable}
+    end
+
+    defp classify_failure(output, status) do
+      normalized = output |> to_string() |> String.downcase()
+
+      if Enum.any?(
+           [
+             "authentication failed",
+             "could not read username",
+             "gh auth login",
+             "not logged into",
+             "permission denied (publickey)"
+           ],
+           &String.contains?(normalized, &1)
+         ) do
+        :authentication_failed
+      else
+        {:exit_status, status}
+      end
+    end
+  end
 
   @typedoc "Why a destination cannot be used as the expected repository."
   @type mismatch_reason :: :origin_missing | :origin_unrecognized | :repository_mismatch
@@ -45,6 +104,28 @@ defmodule Custode.OwnedCheckout do
       {:ok, Path.join([root, "checkouts", routine_id])}
     else
       {:error, :invalid_routine_id}
+    end
+  end
+
+  @doc """
+  Provision a routine-owned clone at its deterministic destination.
+
+  Calls for the same destination are serialized. A matching clone is an
+  idempotent success; occupied or mismatched destinations are never mutated.
+  The default runner uses `gh repo clone` and the host's existing
+  authentication. `:clone` may supply a two-argument function for a local
+  fixture or another host adapter.
+  """
+  @spec provision(String.t(), String.t(), keyword()) ::
+          {:ok,
+           %{status: :provisioned | :already_provisioned, path: String.t(), repo: String.t()}}
+          | {:error, map() | :invalid_routine_id}
+  def provision(routine_id, repository, opts \\ []) do
+    with {:ok, destination} <- path(routine_id, opts) do
+      clone = Keyword.get(opts, :clone, &GitHubCloneRunner.clone/2)
+      lock_id = {{__MODULE__, destination}, self()}
+
+      :global.trans(lock_id, fn -> provision_locked(destination, repository, clone) end)
     end
   end
 
@@ -91,6 +172,113 @@ defmodule Custode.OwnedCheckout do
   end
 
   defp valid_routine_id?(_routine_id), do: false
+
+  defp provision_locked(destination, repository, clone) do
+    case inspect_destination(destination, repository) do
+      {:ok, %{state: :matching}} ->
+        provisioned(:already_provisioned, destination, repository)
+
+      {:ok, %{state: state}} when state in [:missing, :empty] ->
+        clone_destination(destination, repository, clone)
+
+      {:ok, inspection} ->
+        {:error,
+         %{
+           kind: :destination_refused,
+           path: destination,
+           repo: repository,
+           inspection: inspection
+         }}
+
+      {:error, reason} ->
+        {:error, %{kind: :inspection_failed, path: destination, repo: repository, reason: reason}}
+    end
+  end
+
+  defp clone_destination(destination, repository, clone) do
+    with :ok <- mkdir_parent(destination, repository),
+         :ok <- run_clone(clone, repository, destination),
+         {:ok, %{state: :matching}} <- inspect_destination(destination, repository) do
+      provisioned(:provisioned, destination, repository)
+    else
+      {:error, %{kind: _kind}} = error ->
+        error
+
+      {:error, reason} ->
+        {:error,
+         %{
+           kind: :postcondition_failed,
+           path: destination,
+           repo: repository,
+           reason: safe_reason(reason)
+         }}
+
+      {:ok, inspection} ->
+        {:error,
+         %{
+           kind: :postcondition_failed,
+           path: destination,
+           repo: repository,
+           inspection: inspection
+         }}
+    end
+  end
+
+  defp mkdir_parent(destination, repository) do
+    case File.mkdir_p(Path.dirname(destination)) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        {:error,
+         %{
+           kind: :filesystem_failed,
+           path: destination,
+           repo: repository,
+           reason: safe_reason(reason)
+         }}
+    end
+  end
+
+  defp run_clone(clone, repository, destination) do
+    case clone.(repository, destination) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        {:error,
+         %{
+           kind: :clone_failed,
+           path: destination,
+           repo: repository,
+           reason: safe_reason(reason)
+         }}
+
+      _invalid ->
+        {:error,
+         %{
+           kind: :clone_failed,
+           path: destination,
+           repo: repository,
+           reason: :runner_failed
+         }}
+    end
+  rescue
+    _error ->
+      {:error,
+       %{
+         kind: :clone_failed,
+         path: destination,
+         repo: repository,
+         reason: :runner_failed
+       }}
+  end
+
+  defp safe_reason(reason) when reason in @safe_failure_reasons, do: reason
+  defp safe_reason({:exit_status, status}) when is_integer(status), do: {:exit_status, status}
+  defp safe_reason(_reason), do: :unknown
+
+  defp provisioned(status, path, repo), do: {:ok, %{status: status, path: path, repo: repo}}
 
   defp inspect_path(path, expected_repo) do
     case File.lstat(path) do
