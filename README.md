@@ -31,14 +31,14 @@ nothing until you add a routine.
 - sibling checkouts of [oban_claude](https://github.com/genagent/oban_claude)
   at `../oban_claude` and oban_codex at `../oban_codex` (path deps;
   `OBAN_CLAUDE_PATH` and `OBAN_CODEX_PATH` override)
-- local checkouts of the repositories the agents will work
+- local checkouts for agents configured to use an existing checkout; the
+  dashboard can provision routine-owned clones instead
 
 ## Run it
 
 ```sh
 mix deps.get
 mix ecto.migrate
-cp routines.example.toml routines.toml   # then edit: the fleet is local
 mix custode doctor                        # preflight: claude, gh, migrations, checkout
 mix phx.server                            # dashboard :4646, MCP 127.0.0.1:6161
 ```
@@ -48,6 +48,15 @@ repository and a working directory on one machine. With no `routines.toml`
 the node boots an empty fleet and says so. A routine can also be added from
 the dashboard ("new agent") or by asking custode; both write the same file.
 `config/config.exs` holds defaults and role profiles only.
+
+On an empty fleet, open the dashboard and choose the first agent. The fleet
+caretaker is recommended because it enables the Custode conversation surface,
+but backlog workers, stewards, specialists, tutors and bespoke agents are also
+available. Setup shows provider, cadence, resolved model and rails before it
+writes anything. Repository agents can use a Custode-managed clone under the
+data directory or an existing host checkout selected with the directory
+browser. Configure additional browser roots with `config :custode,
+checkout_roots: ["/path/to/code"]`.
 
 For a second machine, a separate state directory (`CUSTODE_HOME`) and phone
 access, see [guides/install.md](guides/install.md).

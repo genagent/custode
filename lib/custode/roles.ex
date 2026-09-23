@@ -69,6 +69,14 @@ defmodule Custode.Roles do
       writes: [:prs],
       cadence: :active
     },
+    specialist: %{
+      summary:
+        "Handles difficult persistent work with a high-capacity model for the entire sweep.",
+      tier: :specialist,
+      watches: :assignment,
+      writes: [:notebook, :issues, :prs],
+      cadence: :active
+    },
     steward: %{
       summary:
         "A repository's groundskeeper: runs the health battery, files upkeep findings, and fixes the occasional doorknob.",

@@ -124,6 +124,41 @@ defmodule Custode.RoutineTest do
                Enum.find(Custode.Routine.sensors(), &(&1.id == "ci-prof-a"))
     end
 
+    test "specialist profile resolves provider-specific strong models without broader authority" do
+      workspace = tmp_workspace!()
+
+      put_env!(:routines, [
+        %{id: "claude-specialist", profile: :specialist, provider: :claude, workspace: workspace},
+        %{id: "codex-specialist", profile: :specialist, provider: :codex, workspace: workspace}
+      ])
+
+      claude = Custode.Routine.get("claude-specialist")
+      codex = Custode.Routine.get("codex-specialist")
+
+      assert {claude.model, claude.effort} == {"opus", :high}
+      assert {codex.model, codex.effort} == {"gpt-6-sol", :high}
+      assert claude.max_turns > 75
+      assert claude.timeout_ms > 900_000
+      assert Custode.Roles.grants(claude.role) == :worker
+      assert Custode.Roles.grants(codex.role) == :worker
+    end
+
+    test "a provider change cannot silently retain a known incompatible model" do
+      assert_raise ArgumentError, ~r/Claude model opus cannot be used by a Codex routine/, fn ->
+        routine_fixture!("workspace", %{profile: :specialist, provider: :codex, model: "opus"})
+      end
+
+      assert_raise ArgumentError,
+                   ~r/Codex model gpt-6-sol cannot be used by a Claude routine/,
+                   fn ->
+                     routine_fixture!("workspace", %{
+                       profile: :specialist,
+                       provider: :claude,
+                       model: "gpt-6-sol"
+                     })
+                   end
+    end
+
     test "system_prompt_file composes charter + file body; hermetic passes through (#19/#17)" do
       dir = Path.join(System.tmp_dir!(), uid("pfile"))
       File.mkdir_p!(dir)
