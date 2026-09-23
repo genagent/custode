@@ -118,7 +118,7 @@ defmodule Custode.IdentityTest do
         frame_for(:routine, caller.id)
       )
 
-    assert tool_error(reply) =~ "may not decide routine"
+    assert tool_error(reply) =~ "may not control routine"
     {:ok, {:awaiting_permission, _still}} = Agent.status(sibling.id)
 
     # operator frame: allowed
@@ -133,6 +133,8 @@ defmodule Custode.IdentityTest do
 
     # sub-agent targets are not routines: gate ops allowed for routines
     sub = start_stub_agent!()
+    :ok = Custode.SubAgents.record_spawn!(sub, caller.id, %{workspace: workspace})
+    on_exit(fn -> Custode.SubAgents.forget(sub) end)
     :processing = Agent.submit_prompt(sub, "go")
 
     assert_receive {:enqueued, _args, %{"agent_id" => ^sub} = turn_meta}

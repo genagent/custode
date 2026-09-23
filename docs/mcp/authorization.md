@@ -107,6 +107,9 @@ The current handlers enforce these boundaries:
   the caretaker.
 - A routine cannot approve or reject a configured routine's gate. This is the
   mechanical sibling-judgment boundary described by the operated-fleet design.
+- Delegated-agent lifecycle, prompts, history, and gate decisions verify the
+  durable parent record. Missing or reconciled records deny routine access;
+  the human operator retains an override.
 - Repository writes check served-repository policy. Agent writes also pass
   through the action-grant check, whose default mode currently observes and
   records an out-of-grant call rather than refusing it.
@@ -117,11 +120,6 @@ operations:
 
 - Some fleet handlers rely on the central MCP capability check rather than
   repeating their role restriction in the shared operation.
-- Starting, prompting, awaiting, inspecting, and reading the history of a
-  temporary agent do not verify its recorded parent.
-- A routine caller is blocked from deciding a configured routine's gate, but
-  gate decisions do not otherwise verify temporary-agent parentage. A
-  sub-agent caller is not rejected by that check.
 - `run_job` does not constrain its workspace, reporting inbox, or elevated
   mode to the caller's identity or an approved continuation.
 - Roster and profile writes prove caretaker role, but do not prove that the

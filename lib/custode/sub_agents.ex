@@ -64,6 +64,9 @@ defmodule Custode.SubAgents do
   @doc "The recorded rows, oldest first (test/introspection surface)."
   def all, do: Repo.all(from(r in Row, order_by: r.spawned_at))
 
+  @doc "The durable spawn record for one temporary agent, or nil."
+  def get(agent_id), do: Repo.get(Row, agent_id)
+
   @doc """
   Boot reconciliation: every surviving row is an orphan (sub-agent processes
   never survive a restart). Drop one notice per orphan into its parent's

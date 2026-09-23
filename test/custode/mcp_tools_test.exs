@@ -116,6 +116,8 @@ defmodule Custode.MCPToolsTest do
       {:ok, :paused} = Agent.await(id, :paused, 1_000)
 
       parent = %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :routine, id: "boss"}}}
+      :ok = Custode.SubAgents.record_spawn!(id, "boss", %{workspace: "/tmp"})
+      on_exit(fn -> Custode.SubAgents.forget(id) end)
       json = tool_json(Tools.PromptAgent.execute(%{agent_id: id, prompt: "go"}, parent))
 
       assert json["how"] == "delivered"
