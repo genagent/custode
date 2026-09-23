@@ -47,11 +47,11 @@ defmodule CustodeWeb.ReposLiveTest do
 
     # one section for the shared repo, no tile for the repo-less routine
     assert html =~ repo
-    refute html =~ "/agents/#{no_repo_id}"
+    refute html =~ "/console/#{no_repo_id}"
 
     # both agents ride the same tile as links, each showing its role (#255)
-    assert html =~ "/agents/#{worker_id}"
-    assert html =~ "/agents/#{steward_id}"
+    assert html =~ "/console/#{worker_id}"
+    assert html =~ "/console/#{steward_id}"
     assert html =~ "backlog_worker"
     assert html =~ "steward"
 

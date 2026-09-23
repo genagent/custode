@@ -76,7 +76,7 @@ defmodule Custode.Ntfy do
     base = Application.get_env(:custode, :dashboard_base_url, "http://localhost:4646")
 
     case agent do
-      agent when is_binary(agent) and agent != "?" -> base <> "/agents/" <> agent
+      agent when is_binary(agent) and agent != "?" -> base <> "/console/" <> agent
       _unknown -> base
     end
   end
