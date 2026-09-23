@@ -37,25 +37,47 @@ defmodule Custode.MCP.Tools do
   end
 
   @doc """
-  The sibling-gate ban as a verb-guarantee (#2): a ROUTINE caller may
-  operate gates of its own sub-agents, but never of another routine.
-  Operators (the human, the CLI) pass. Returns :ok or {:error, reason}.
+  Gate target authorization uses the same parent relationship as every other
+  delegated-agent operation.
   """
-  def check_gate_target(frame, target_agent_id) do
+  def check_gate_target(frame, target_agent_id),
+    do: check_delegated_target(frame, target_agent_id, :manage)
+
+  @doc """
+  Authorize a delegated-agent target. Operators may override. A routine may
+  create a new temporary identity and may manage only a durable spawn record
+  whose parent is that routine. Temporary agents may not delegate.
+  """
+  def check_delegated_target(frame, target_agent_id, action) when action in [:start, :manage] do
     case Custode.MCP.caller(frame) do
-      %{kind: :routine, id: caller_id} ->
-        target_is_routine? = Custode.Routine.get(target_agent_id) != nil
-
-        if target_is_routine? do
-          {:error,
-           "identity: routine #{caller_id} may not decide routine #{target_agent_id}'s " <>
-             "gate -- agents operate the machine; humans judge the work"}
-        else
-          :ok
-        end
-
-      _operator_or_sub ->
+      %{kind: :operator} ->
         :ok
+
+      %{kind: :sub_agent, id: caller_id} ->
+        {:error, "identity: temporary agent #{caller_id} may not delegate or control agents"}
+
+      %{kind: :routine, id: caller_id} ->
+        check_routine_child(caller_id, target_agent_id, action)
+    end
+  end
+
+  defp check_routine_child(caller_id, target_agent_id, action) do
+    cond do
+      Custode.Routine.get(target_agent_id) ->
+        {:error,
+         "identity: routine #{caller_id} may not control routine #{target_agent_id} -- " <>
+           "agents operate the machine; humans judge the work"}
+
+      child = Custode.SubAgents.get(target_agent_id) ->
+        if child.parent == caller_id,
+          do: :ok,
+          else: {:error, "identity: #{target_agent_id} belongs to parent #{child.parent}"}
+
+      action == :start ->
+        :ok
+
+      true ->
+        {:error, "identity: #{target_agent_id} is not a recorded child of routine #{caller_id}"}
     end
   end
 
@@ -233,6 +255,13 @@ defmodule Custode.MCP.Tools.AgentStatus do
 
   @impl true
   def execute(%{agent_id: agent_id}, frame) do
+    case check_delegated_target(frame, agent_id, :manage) do
+      :ok -> status(agent_id, frame)
+      {:error, message} -> fail(frame, message)
+    end
+  end
+
+  defp status(agent_id, frame) do
     case Custode.Agents.status(agent_id) do
       {:ok, :offline} ->
         reply(frame, %{agent_id: agent_id, state: "offline"})
@@ -278,7 +307,8 @@ defmodule Custode.MCP.Tools.StartAgent do
   def execute(%{agent_id: agent_id, workspace: workspace} = params, frame) do
     workspace = Path.expand(workspace)
 
-    if File.dir?(workspace) do
+    with :ok <- check_delegated_target(frame, agent_id, :start),
+         true <- File.dir?(workspace) do
       mcp_config_path = Custode.MCP.write_sub_agent_config!(agent_id)
 
       config = [
@@ -307,7 +337,8 @@ defmodule Custode.MCP.Tools.StartAgent do
           fail(frame, "start failed: #{inspect(reason)}")
       end
     else
-      fail(frame, "workspace is not an existing directory: #{workspace}")
+      {:error, message} -> fail(frame, message)
+      false -> fail(frame, "workspace is not an existing directory: #{workspace}")
     end
   end
 end
@@ -331,9 +362,16 @@ defmodule Custode.MCP.Tools.PromptAgent do
 
   @impl true
   def execute(%{agent_id: agent_id, prompt: prompt}, frame) do
+    case check_delegated_target(frame, agent_id, :manage) do
+      :ok -> prompt(agent_id, prompt, frame)
+      {:error, message} -> fail(frame, message)
+    end
+  end
+
+  defp prompt(agent_id, prompt, frame) do
     case Custode.MCP.caller(frame) do
       %{kind: :operator} -> operator_prompt(agent_id, prompt, frame)
-      _agent -> delegated_prompt(agent_id, prompt, frame)
+      _routine -> delegated_prompt(agent_id, prompt, frame)
     end
   end
 
@@ -378,6 +416,13 @@ defmodule Custode.MCP.Tools.AwaitAgent do
 
   @impl true
   def execute(%{agent_id: agent_id} = params, frame) do
+    case check_delegated_target(frame, agent_id, :manage) do
+      :ok -> await(agent_id, params, frame)
+      {:error, message} -> fail(frame, message)
+    end
+  end
+
+  defp await(agent_id, params, frame) do
     timeout = params |> Map.get(:timeout_ms, 60_000) |> min(180_000)
 
     {timed_out, status} =
@@ -418,6 +463,13 @@ defmodule Custode.MCP.Tools.AgentHistory do
 
   @impl true
   def execute(%{agent_id: agent_id} = params, frame) do
+    case check_delegated_target(frame, agent_id, :manage) do
+      :ok -> history(agent_id, params, frame)
+      {:error, message} -> fail(frame, message)
+    end
+  end
+
+  defp history(agent_id, params, frame) do
     case Custode.Agents.history(agent_id) do
       {:ok, history} ->
         n = Map.get(params, :last, 20)

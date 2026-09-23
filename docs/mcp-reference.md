@@ -237,7 +237,7 @@ Read the recent tail of an agent event history.
 
 **Side effects:** None.
 
-**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. The handler has no narrower caller-identity check.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may read history only for a temporary agent whose durable spawn record names it as parent; the operator may read any target. Missing or reconciled records do not widen access.
 
 **Behavior, defaults and errors:** last defaults to 20. The tool takes the final N history entries and renders each as printable diagnostic text with a 200-character printable-value limit. Entries are not a stable typed event protocol; no positive bound on last is declared here.
 
@@ -255,7 +255,7 @@ Inspect one agent and its current session.
 
 **Side effects:** None; reads agent lifecycle and session information.
 
-**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. The handler has no narrower caller-identity check.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may inspect only a temporary agent whose durable spawn record names it as parent; the operator may inspect any target. Missing or reconciled records do not widen access.
 
 **Behavior, defaults and errors:** agent_id is required. detail is diagnostic text and can carry pending gate information; no structured action object is guaranteed.
 
@@ -293,7 +293,7 @@ Approve an agent action awaiting a decision.
 
 **Side effects:** Resolves an approval gate and starts its approved continuation; records decision actor and transport.
 
-**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. A routine caller is refused when the target is another configured routine, including itself. Operators pass. The guard does not verify parent ownership for non-routine targets.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may approve only a temporary agent whose durable spawn record names it as parent and may never decide a configured routine's gate. The operator may override target scope. Missing or reconciled records do not widen access.
 
 **Behavior, defaults and errors:** agent_id and action_id are required. Obtain the current action ID from status/await/gates. Success means the continuation is processing, not that work completed. Failed/stale decisions return 'approve failed'. Retrying must account for changed gate state.
 
@@ -334,7 +334,7 @@ Wait for an agent to become idle, blocked, paused or offline.
 
 **Side effects:** None; blocks the request while waiting.
 
-**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. The handler has no narrower caller-identity check.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may await only a temporary agent whose durable spawn record names it as parent; the operator may await any target. Missing or reconciled records do not widen access.
 
 **Behavior, defaults and errors:** timeout_ms defaults to 60000 and is capped at 180000; no lower bound is enforced here. Settled states include idle, awaiting_permission, waiting_for_user, paused and offline. A timeout returns current state with timed_out=true rather than a tool error. last_result can belong to an earlier turn; neither settled state nor this result is a per-request completion guarantee.
 
@@ -1057,7 +1057,7 @@ Send work or an answer to an agent.
 
 **Side effects:** Sends or queues work. For an operator, can resume a paused agent or start an offline configured routine and records activity.
 
-**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Operators use the shared operator-message action. Agent callers use direct delegation; this tool does not check parent ownership of the target.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may prompt only a temporary agent whose durable spawn record names it as parent; the operator may message any target through the shared operator action. Missing or reconciled records do not widen access.
 
 **Behavior, defaults and errors:** agent_id and prompt are required. Waiting-for-user input answers the question; busy input queues. Operator how='started' means a startup tick was queued, not that execution began. The agent path reports how='delivered' after a cast is accepted; this is not a delivery receipt and paused delegation can be dropped. No idempotency key; retry can submit duplicate input.
 
@@ -1139,7 +1139,7 @@ Reject an agent action and optionally give feedback.
 
 **Side effects:** Rejects the pending action, returns the target to idle, and records rejection feedback; feedback is standing by default.
 
-**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Same target guard as approve_action: routine callers cannot decide configured-routine gates; non-routine target ownership is not checked here.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may reject only a temporary agent whose durable spawn record names it as parent and may never decide a configured routine's gate. The operator may override target scope. Missing or reconciled records do not widen access.
 
 **Behavior, defaults and errors:** agent_id and action_id are required. reason is optional. one_off=true makes feedback proposal-specific; omission or false makes it standing. A stale or failed decision returns 'reject failed'.
 
@@ -1690,7 +1690,7 @@ Start a persistent helper agent in an existing directory.
 
 **Side effects:** Mints sub-agent credentials and writes its MCP config, starts a persistent agent process, and records parent/spawn metadata. Does not submit a prompt.
 
-**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. No target-ownership check in the tool. Spawned agents are configured with the memory endpoint, not delegation tools.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may start a new temporary identity or restart its recorded child, but cannot use a configured routine ID or take over another parent's child. The operator may override target scope. Temporary agents are refused at the endpoint and by the shared delegation check.
 
 **Behavior, defaults and errors:** agent_id and workspace are required. workspace must exist and is expanded to an absolute path. model defaults to configuration. The child has a 240000 ms turn timeout and elevated approved continuations. Retry is not idempotent: credentials/config are written before the start result. Errors include a nonexistent workspace and 'start failed'.
 

@@ -4,6 +4,7 @@ defmodule Custode.MCPCapabilitiesTest do
   import Custode.TestHelpers
 
   alias Custode.MCP.Identity
+  alias Custode.MCP.Tools
 
   setup do
     workspace = tmp_workspace!()
@@ -29,7 +30,9 @@ defmodule Custode.MCPCapabilitiesTest do
 
     %{
       operator_token: operator_token,
+      worker_id: worker_id,
       worker_token: Identity.mint(:routine, worker_id),
+      caretaker_id: caretaker_id,
       caretaker_token: Identity.mint(:routine, caretaker_id),
       sub_token: Identity.mint(:sub_agent, uid("sub"))
     }
@@ -102,9 +105,52 @@ defmodule Custode.MCPCapabilitiesTest do
     end
   end
 
+  test "delegation calls are scoped to the recorded parent", ctx do
+    child = uid("child")
+    :ok = Custode.SubAgents.record_spawn!(child, ctx.worker_id, %{workspace: "/tmp"})
+    on_exit(fn -> Custode.SubAgents.forget(child) end)
+
+    parent = session(ctx.worker_token, "/mcp")
+    sibling = session(ctx.caretaker_token, "/mcp")
+    operator = session(ctx.operator_token, "/mcp")
+
+    assert %{"agent_id" => ^child, "state" => "offline"} =
+             call(parent, "agent_status", %{agent_id: child})
+
+    assert %{"agent_id" => ^child, "state" => "offline"} =
+             call(operator, "agent_status", %{agent_id: child})
+
+    assert tool_error(sibling, "agent_status", %{agent_id: child}) =~ "belongs to parent"
+
+    Custode.SubAgents.forget(child)
+    assert tool_error(parent, "agent_status", %{agent_id: child}) =~ "not a recorded child"
+
+    frame = %Anubis.Server.Frame{
+      assigns: %{custode_identity: %{kind: :sub_agent, id: uid("grandchild")}}
+    }
+
+    assert Custode.TestHelpers.tool_error(
+             Tools.StartAgent.execute(%{agent_id: uid("nested"), workspace: "/tmp"}, frame)
+           ) =~ "may not delegate"
+  end
+
   defp tool_names(client) do
     %{"result" => %{"tools" => tools}} = rpc(client, "tools/list", %{})
     Enum.map(tools, & &1["name"])
+  end
+
+  defp call(client, tool, arguments) do
+    %{"result" => %{"isError" => false, "content" => [%{"text" => text} | _rest]}} =
+      rpc(client, "tools/call", %{name: tool, arguments: arguments})
+
+    Jason.decode!(text)
+  end
+
+  defp tool_error(client, tool, arguments) do
+    %{"result" => %{"isError" => true, "content" => [%{"text" => text} | _rest]}} =
+      rpc(client, "tools/call", %{name: tool, arguments: arguments})
+
+    text
   end
 
   defp session(token, path) do
