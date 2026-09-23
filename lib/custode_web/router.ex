@@ -35,19 +35,20 @@ defmodule CustodeWeb.Router do
   scope "/" do
     pipe_through(:browser)
 
+    get("/fleet", CustodeWeb.LegacyRedirectController, :fleet)
+    get("/agents/:id", CustodeWeb.LegacyRedirectController, :agent)
+
     # The live layout is set here rather than per-page so a page added later
     # cannot forget it and silently lose its flash messages (#337).
     live_session :dashboard, layout: {CustodeWeb.Layouts, :app} do
-      # the console is home (#450); the fleet page it replaces keeps a route
+      # the console is home (#450); legacy page URLs redirect above
       live("/", CustodeWeb.ConsoleLive)
-      live("/fleet", CustodeWeb.FleetLive)
       live("/console", CustodeWeb.ConsoleLive)
       live("/console/:id", CustodeWeb.ConsoleLive)
       live("/custode", CustodeWeb.RootLive)
       live("/repos", CustodeWeb.ReposLive)
       live("/suggestions", CustodeWeb.SuggestionsLive)
       live("/workflows", CustodeWeb.WorkflowsLive)
-      live("/agents/:id", CustodeWeb.AgentLive)
       live("/feed", CustodeWeb.FeedLive)
       live("/inbox", CustodeWeb.InboxLive)
       live("/metrics", CustodeWeb.MetricsLive)

@@ -130,6 +130,59 @@ defmodule CustodeWeb.Layouts do
                     this.loadDraft();
                   }
                 }
+              },
+
+              CommandPalette: {
+                mounted() {
+                  this.input = this.el.querySelector("[data-command-input]");
+                  this.index = 0;
+
+                  this.options = () => Array.from(
+                    this.el.querySelectorAll("[data-command-option]")
+                  );
+
+                  this.select = index => {
+                    const options = this.options();
+                    if (options.length === 0) return;
+                    this.index = (index + options.length) % options.length;
+                    options.forEach((option, position) => {
+                      option.setAttribute("aria-selected", position === this.index ? "true" : "false");
+                    });
+                    options[this.index].scrollIntoView({block: "nearest"});
+                  };
+
+                  this.onKeydown = event => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      this.pushEvent("command_close", {});
+                    } else if (event.key === "ArrowDown") {
+                      event.preventDefault();
+                      this.select(this.index + 1);
+                    } else if (event.key === "ArrowUp") {
+                      event.preventDefault();
+                      this.select(this.index - 1);
+                    } else if (event.key === "Enter" && event.target === this.input) {
+                      const option = this.options()[this.index];
+                      if (option) {
+                        event.preventDefault();
+                        option.click();
+                      }
+                    }
+                  };
+
+                  this.el.addEventListener("keydown", this.onKeydown);
+                  requestAnimationFrame(() => this.input.focus());
+                },
+
+                updated() {
+                  this.index = 0;
+                  this.select(0);
+                  if (document.activeElement !== this.input) this.input.focus();
+                },
+
+                destroyed() {
+                  this.el.removeEventListener("keydown", this.onKeydown);
+                }
               }
             };
 
@@ -159,14 +212,19 @@ defmodule CustodeWeb.Layouts do
             window.liveSocket = liveSocket;
           });
 
-          // Cmd/Ctrl+K talks to custode from any page (#451); Escape there
-          // goes back. A full navigation on purpose: it works from pages in
-          // another live session, and it is rare.
+          // Cmd/Ctrl+K opens searchable commands. Shift keeps the established
+          // direct route to the caretaker visible and available from any page.
           window.addEventListener("keydown", (event) => {
             const onRoot = window.location.pathname === "/custode";
             if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
               event.preventDefault();
-              if (!onRoot) window.location.assign("/custode");
+              if (event.shiftKey) {
+                if (!onRoot) window.location.assign("/custode");
+              } else {
+                const trigger = document.querySelector("[data-command-trigger]");
+                if (trigger) trigger.click();
+                else window.location.assign("/?commands=open");
+              }
             } else if (event.key === "Escape" && onRoot) {
               if (window.history.length > 1) window.history.back();
               else window.location.assign("/");

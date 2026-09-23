@@ -168,7 +168,7 @@ defmodule CustodeWeb.InboxLive do
         <p class="font-medium">Nothing needs you.</p>
         <p class="mt-1 text-sm text-base-content/50">
           The fleet is working or resting. Its state is on the
-          <.link navigate="/fleet" class="link">fleet page</.link>.
+          <.link navigate="/" class="link">console</.link>.
         </p>
       </div>
 
@@ -356,7 +356,7 @@ defmodule CustodeWeb.InboxLive do
   # operator where it can be dealt with rather than pretending to act.
   defp action(assigns) do
     ~H"""
-    <.link navigate={"/agents/#{@subject}"} class="btn btn-outline btn-xs">
+    <.link navigate={"/console/#{@subject}"} class="btn btn-outline btn-xs">
       {@action.label}
     </.link>
     """
@@ -370,7 +370,7 @@ defmodule CustodeWeb.InboxLive do
   defp subject_path(%{kind: kind}) when kind in [:workflow_launch, :workflow_rail],
     do: "/workflows"
 
-  defp subject_path(%{subject: subject}), do: "/agents/#{subject}"
+  defp subject_path(%{subject: subject}), do: "/console/#{subject}"
 
   defp replying?(replying_to, item), do: replying_to != nil and replying_to == ask_id(item)
 

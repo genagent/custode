@@ -30,6 +30,7 @@ defmodule Custode.DraftsTest do
     def list_prs(_owner, _repo, _opts), do: {:ok, []}
     def view_pr(_owner, _repo, number), do: {:ok, %{number: number}}
     def pr_checks(_owner, _repo, number), do: {:ok, %{sha: "abc", checks: [], number: number}}
+    def job_log_tail(_owner, _repo, _job_id), do: {:error, :unused}
     def pr_diff(_owner, _repo, _number), do: {:ok, %{files: []}}
     def review_snapshot(_owner, _repo, _number), do: {:error, :unused}
 

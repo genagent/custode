@@ -114,6 +114,8 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.OperatorTools.SetPresence, name: "set_presence")
   component(Custode.MCP.OperatorTools.ResumeAgent, name: "resume_agent")
   component(Custode.MCP.OperatorTools.SpendToday, name: "spend_today")
+  component(Custode.MCP.OwnedCheckoutTools.Provision, name: "provision_owned_checkout")
+  component(Custode.MCP.OwnedCheckoutTools.Refresh, name: "refresh_owned_checkout")
 
   component(Custode.MCP.NotebookTools.JournalAppend, name: "journal_append")
   component(Custode.MCP.NotebookTools.JournalRead, name: "journal_read")

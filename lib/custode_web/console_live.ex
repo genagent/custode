@@ -28,15 +28,18 @@ defmodule CustodeWeb.ConsoleLive do
   import CustodeWeb.Console.Header
   import CustodeWeb.Console.Item
   import CustodeWeb.Console.NewAgent
+  import CustodeWeb.Console.CommandPalette
   import CustodeWeb.Console.Rail, only: [rail: 1]
   import CustodeWeb.Console.Subject, only: [subject: 1]
 
   alias Custode.Attention
   alias Custode.Operator.Actions
   alias Custode.Operator.Attachments
+  alias Custode.Operator.DirectoryBrowser
   alias Custode.Operator.RoutineEdit
   alias Custode.Operator.RoutineNew
   alias Custode.Signal
+  alias CustodeWeb.Console.Commands
   alias CustodeWeb.Console.Rail
   alias CustodeWeb.Console.Subject
   alias CustodeWeb.WorkflowLaunch
@@ -79,9 +82,15 @@ defmodule CustodeWeb.ConsoleLive do
        fleet_notice: nil,
        edit: nil,
        new_agent: nil,
+       setup_skipped: false,
+       command_open: false,
+       command_query: "",
+       command_all: [],
+       command_matches: [],
        feed_limit: @feed_page,
        journal_limit: @journal_page,
-       checks: %{}
+       checks: %{},
+       check_logs: %{}
      )}
   end
 
@@ -91,13 +100,16 @@ defmodule CustodeWeb.ConsoleLive do
      socket
      |> assign(
        selected: params["id"],
+       tab: if(params["tab"] in @tabs, do: params["tab"], else: socket.assigns.tab),
        notice: nil,
        edit: nil,
        feed_limit: @feed_page,
        journal_limit: @journal_page,
-       checks: %{}
+       checks: %{},
+       check_logs: %{}
      )
      |> refresh()
+     |> maybe_open_commands(params)
      |> read_checks()}
   end
 
@@ -120,18 +132,68 @@ defmodule CustodeWeb.ConsoleLive do
 
   @impl Phoenix.LiveView
   def handle_async({:checks, repo, number}, {:ok, result}, socket) do
-    rows =
+    if selected_pr?(socket, repo, number) do
       case result do
-        {:ok, %{checks: checks}} -> {:ok, Enum.sort_by(checks, &check_rank/1)}
-        {:error, reason} -> {:error, to_string(reason)}
-      end
+        {:ok, %{checks: checks}} ->
+          rows = Enum.sort_by(checks, &check_rank/1)
 
-    {:noreply, update(socket, :checks, &Map.put(&1, {repo, number}, rows))}
+          socket =
+            update(socket, :checks, &Map.put(&1, {repo, number}, {:ok, rows}))
+
+          {:noreply, read_failed_check_logs(socket, repo, number, rows)}
+
+        {:error, reason} ->
+          {:noreply,
+           update(socket, :checks, &Map.put(&1, {repo, number}, {:error, to_string(reason)}))}
+      end
+    else
+      {:noreply, socket}
+    end
   end
 
-  def handle_async({:checks, repo, number}, {:exit, reason}, socket),
-    do:
+  def handle_async({:checks, repo, number}, {:exit, reason}, socket) do
+    if selected_pr?(socket, repo, number) do
       {:noreply, update(socket, :checks, &Map.put(&1, {repo, number}, {:error, inspect(reason)}))}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:check_log, repo, number, check_id}, {:ok, result}, socket) do
+    if selected_pr?(socket, repo, number) do
+      log = if match?({:ok, _text}, result), do: result, else: :unavailable
+
+      {:noreply, update(socket, :check_logs, &Map.put(&1, {repo, check_id}, log))}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:check_log, _repo, _number, _check_id}, {:exit, _reason}, socket),
+    do: {:noreply, socket}
+
+  defp read_failed_check_logs(socket, repo, number, rows) do
+    rows
+    |> Enum.filter(&failed_check?/1)
+    |> Enum.reduce(socket, fn
+      %{id: id}, socket when is_integer(id) ->
+        start_async(socket, {:check_log, repo, number, id}, fn ->
+          Custode.Repository.job_log_tail(repo, id)
+        end)
+
+      _row, socket ->
+        socket
+    end)
+  end
+
+  defp selected_pr?(
+         %{assigns: %{signal: %Signal{item: {:prs, numbers}}, subject: %{repo: repo}}},
+         repo,
+         number
+       ),
+       do: number in numbers
+
+  defp selected_pr?(_socket, _repo, _number), do: false
 
   # failed first, then still running, then the rest, each by name
   defp check_rank(%{conclusion: conclusion, name: name})
@@ -140,6 +202,9 @@ defmodule CustodeWeb.ConsoleLive do
 
   defp check_rank(%{conclusion: nil, name: name}), do: {1, name}
   defp check_rank(%{name: name}), do: {2, name}
+
+  defp failed_check?(%{conclusion: conclusion}),
+    do: conclusion in ~w(failure timed_out cancelled)
 
   @impl Phoenix.LiveView
   def handle_info({:status_changed, _agent_id}, socket), do: {:noreply, refresh(socket)}
@@ -156,6 +221,33 @@ defmodule CustodeWeb.ConsoleLive do
   @impl Phoenix.LiveView
   def handle_event("filter", %{"q" => q}, socket),
     do: {:noreply, socket |> assign(filter: q) |> refresh()}
+
+  def handle_event("command_open", _params, socket),
+    do: {:noreply, open_commands(socket)}
+
+  def handle_event("command_close", _params, socket),
+    do: {:noreply, close_commands(socket)}
+
+  def handle_event("command_search", %{"q" => query}, socket) do
+    {:noreply,
+     assign(socket,
+       command_query: query,
+       command_matches: Commands.search(socket.assigns.command_all, query)
+     )}
+  end
+
+  def handle_event("command_select", %{"id" => id}, socket) do
+    case Enum.find(socket.assigns.command_all, &(&1.id == id)) do
+      %{path: path} when is_binary(path) ->
+        {:noreply, socket |> close_commands() |> push_navigate(to: path)}
+
+      %{action: action} when is_atom(action) ->
+        run_command(action, close_commands(socket))
+
+      _stale ->
+        {:noreply, open_commands(socket)}
+    end
+  end
 
   def handle_event("toggle_quiet", _params, socket),
     do: {:noreply, assign(socket, quiet_open: !socket.assigns.quiet_open)}
@@ -298,19 +390,59 @@ defmodule CustodeWeb.ConsoleLive do
   # Adding a routine (#450). The form's conversions and the TOML preview are
   # RoutineNew's; what is previewed is the literal text a create appends.
   def handle_event("new_open", _params, socket),
-    do: {:noreply, assign(socket, new_agent: %{params: %{}, preview: nil, error: nil})}
+    do: {:noreply, assign(socket, new_agent: plan_new_agent(RoutineNew.defaults("bespoke")))}
+
+  def handle_event("new_choose", _params, socket),
+    do: {:noreply, assign(socket, new_agent: new_agent_state(%{}, choosing: true))}
+
+  def handle_event("new_kind", %{"kind" => kind}, socket),
+    do: {:noreply, assign(socket, new_agent: plan_new_agent(RoutineNew.defaults(kind)))}
+
+  def handle_event("new_skip", _params, socket),
+    do: {:noreply, assign(socket, new_agent: nil, setup_skipped: true)}
 
   def handle_event("new_close", _params, socket), do: {:noreply, assign(socket, new_agent: nil)}
 
   def handle_event("new_change", %{"routine" => params}, socket) do
-    new_agent =
-      case RoutineNew.preview(params) do
-        {:ok, toml} -> %{params: params, preview: toml, error: nil}
-        {:error, message} -> %{params: params, preview: nil, error: message}
-      end
-
-    {:noreply, assign(socket, new_agent: new_agent)}
+    {:noreply, assign(socket, new_agent: plan_new_agent(params))}
   end
+
+  def handle_event("new_browse", _params, socket) do
+    start = socket.assigns.new_agent.params["working_dir"]
+    start = if is_binary(start) and File.dir?(start), do: start
+
+    case DirectoryBrowser.list(start) do
+      {:ok, browser} ->
+        {:noreply, update(socket, :new_agent, &%{&1 | browser: browser})}
+
+      {:error, reason} ->
+        {:noreply,
+         update(socket, :new_agent, &%{&1 | error: "cannot browse host: #{inspect(reason)}"})}
+    end
+  end
+
+  def handle_event("new_browse_dir", %{"path" => path}, socket) do
+    case DirectoryBrowser.list(path) do
+      {:ok, browser} ->
+        {:noreply, update(socket, :new_agent, &%{&1 | browser: browser})}
+
+      {:error, reason} ->
+        {:noreply,
+         update(socket, :new_agent, &%{&1 | error: "cannot browse host: #{inspect(reason)}"})}
+    end
+  end
+
+  def handle_event("new_browse_choose", %{"path" => path}, socket) do
+    params =
+      socket.assigns.new_agent.params
+      |> Map.put("working_dir", path)
+      |> Map.put("checkout_mode", "existing")
+
+    {:noreply, assign(socket, new_agent: plan_new_agent(params))}
+  end
+
+  def handle_event("new_browse_close", _params, socket),
+    do: {:noreply, update(socket, :new_agent, &%{&1 | browser: nil})}
 
   def handle_event("new_create", %{"routine" => params}, socket) do
     case RoutineNew.create(params, surface: "console") do
@@ -477,6 +609,12 @@ defmodule CustodeWeb.ConsoleLive do
         signal={@signal}
       />
 
+      <.command_palette
+        open={@command_open}
+        query={@command_query}
+        commands={@command_matches}
+      />
+
       <div class="px-5 pt-4 empty:hidden"><.host_banner /></div>
 
       <div class="grid flex-1 grid-cols-1 md:grid-cols-[17rem_1fr] xl:grid-cols-[17rem_1fr_24rem]">
@@ -514,7 +652,7 @@ defmodule CustodeWeb.ConsoleLive do
                 (a sub-agent, a one-shot) can be in the rail of a machine that
                 still has nothing configured. --%>
           <div
-            :if={@roster_empty and @new_agent == nil}
+            :if={@roster_empty and @new_agent == nil and @setup_skipped}
             id="empty-fleet"
             class="mb-6 max-w-prose text-sm text-base-content/70"
           >
@@ -526,6 +664,23 @@ defmodule CustodeWeb.ConsoleLive do
               to <span class="font-mono">routines.toml</span>
               and restart.
             </p>
+          </div>
+          <.new_agent_form
+            :if={@roster_empty and @new_agent == nil and not @setup_skipped}
+            new_agent={new_agent_state(%{}, choosing: true)}
+          />
+          <div
+            :if={not @roster_empty and @caretaker_missing and @new_agent == nil}
+            id="caretaker-setup"
+            class="mb-6 rounded-lg border border-warning/30 bg-warning/5 p-4"
+          >
+            <p class="font-semibold">This fleet has no valid caretaker.</p>
+            <p class="mt-1 text-sm text-base-content/60">
+              Add the fixed caretaker role to make the Custode surface available.
+            </p>
+            <button class="btn btn-primary btn-sm mt-3" phx-click="new_kind" phx-value-kind="caretaker">
+              set up caretaker
+            </button>
           </div>
           <.subject
             :if={@subject && @new_agent == nil}
@@ -549,6 +704,7 @@ defmodule CustodeWeb.ConsoleLive do
             message_gen={@message_gen}
             next_up={@next_up}
             checks={@checks}
+            check_logs={@check_logs}
           />
           <section :if={@suggestions != []} id="advisor-suggestions" class="mt-6 flex flex-col gap-2">
             <div class="flex items-baseline gap-2">
@@ -595,19 +751,22 @@ defmodule CustodeWeb.ConsoleLive do
       |> Attention.by_group()
 
     selected = socket.assigns.selected || default_selection(signals)
-    signal = Enum.find(signals, &(&1.subject == selected))
+    signal = Enum.find(signals, &(&1.subject == selected)) || fallback_signal(selected)
 
     standing_suggestions = Custode.Suggestions.standing()
 
     assign(socket,
       groups: groups,
+      signals: signals,
       selected: selected,
       signal: signal,
       subject:
-        signal && load_subject(selected, socket.assigns.feed_limit, socket.assigns.journal_limit),
+        signal &&
+          load_subject(selected, signal, socket.assigns.feed_limit, socket.assigns.journal_limit),
       in_flight: Custode.RunClock.running(),
       needs_you: Enum.count(signals, &Signal.needs_you?/1),
       roster_empty: Custode.Routine.all() == [],
+      caretaker_missing: not Enum.any?(Custode.Routine.all(), &(&1.role == :caretaker)),
       # already ranked by the resolver, so the first one that is not on screen
       # is the next one
       next_up: Enum.find(signals, &(Signal.needs_you?(&1) and &1.subject != selected)),
@@ -619,6 +778,59 @@ defmodule CustodeWeb.ConsoleLive do
       suggestions: Enum.take(standing_suggestions, @suggestion_limit),
       suggestion_count: length(standing_suggestions)
     )
+  end
+
+  defp maybe_open_commands(socket, %{"commands" => "open"}), do: open_commands(socket)
+  defp maybe_open_commands(socket, _params), do: socket
+
+  defp open_commands(socket) do
+    commands = Commands.all(socket.assigns.signals, socket.assigns.selected)
+
+    assign(socket,
+      command_open: true,
+      command_query: "",
+      command_all: commands,
+      command_matches: Commands.search(commands, "")
+    )
+  end
+
+  defp close_commands(socket) do
+    assign(socket,
+      command_open: false,
+      command_query: "",
+      command_all: [],
+      command_matches: []
+    )
+  end
+
+  defp run_command(:new_agent, socket),
+    do: {:noreply, assign(socket, new_agent: plan_new_agent(RoutineNew.defaults("bespoke")))}
+
+  defp run_command(:beat, socket),
+    do: socket.assigns.selected |> Actions.beat(@opts) |> after_action(socket, "beat queued")
+
+  defp run_command(:pause, socket),
+    do: socket.assigns.selected |> Actions.pause(@opts) |> after_action(socket, "paused")
+
+  defp run_command(:resume, socket),
+    do: socket.assigns.selected |> Actions.resume(@opts) |> after_action(socket, "resumed")
+
+  defp plan_new_agent(params) do
+    case RoutineNew.plan(params) do
+      {:ok, plan} -> new_agent_state(params, plan: plan)
+      {:error, message} -> new_agent_state(params, error: message)
+    end
+  end
+
+  defp new_agent_state(params, opts) do
+    %{
+      params: params,
+      plan: Keyword.get(opts, :plan),
+      preview: Keyword.get(opts, :plan) && Keyword.fetch!(opts, :plan).toml,
+      error: Keyword.get(opts, :error),
+      browser: Keyword.get(opts, :browser),
+      choosing: Keyword.get(opts, :choosing, false)
+    }
   end
 
   # What the rail filter matches: the subject's id, and for a routine its
@@ -639,17 +851,20 @@ defmodule CustodeWeb.ConsoleLive do
   defp default_selection([first | _rest]), do: first.subject
   defp default_selection([]), do: nil
 
-  defp load_subject(id, feed_limit, journal_limit) do
+  defp load_subject(id, signal, feed_limit, journal_limit) do
     routine = Custode.Routine.get(id)
     {:ok, status} = Custode.Agents.status(id)
+    state = status |> Custode.state_of() |> resolve_subject_state(routine, id)
+    status = if state == Custode.state_of(status), do: status, else: state
     repo = routine && routine.repo
 
     %{
       id: id,
       routine: routine,
-      kind: subject_kind(routine, Custode.state_of(status)),
+      kind: subject_kind(routine, state),
       status: status,
-      state: Custode.state_of(status),
+      state: state,
+      attention_item: Map.get(signal, :item),
       repo: repo,
       overview: repo && overview(repo),
       workflow_gates: (repo && WorkflowLaunch.standing_for(repo)) || %{},
@@ -699,6 +914,25 @@ defmodule CustodeWeb.ConsoleLive do
   defp subject_kind(%{} = _routine, _state), do: :routine
   defp subject_kind(nil, state) when state in [:offline, :ended], do: :other
   defp subject_kind(nil, _state), do: :agent
+
+  defp resolve_subject_state(:offline, nil, id) do
+    if Custode.Feed.last_activity_at(id), do: :ended, else: :offline
+  end
+
+  defp resolve_subject_state(state, _routine, _id), do: state
+
+  defp fallback_signal(nil), do: nil
+
+  defp fallback_signal(id) do
+    %Signal{
+      subject: id,
+      kind: :quiet,
+      group: :quiet,
+      urgency: :low,
+      headline: "No current attention item",
+      detail: "This bookmarked subject is not in the active rail."
+    }
+  end
 
   # `{:error, reason}` passes through as it is (#485): the work tab's panel
   # draws the reason where the overview would be.

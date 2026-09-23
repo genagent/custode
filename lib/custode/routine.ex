@@ -29,8 +29,24 @@ defmodule Custode.Routine do
   """
   def profiles, do: Application.get_env(:custode, :profiles, %{})
 
+  @doc "Provider-specific overrides for one profile, used by setup and MCP projections."
+  def profile_provider_defaults(profile) do
+    Application.get_env(:custode, :profile_provider_defaults, %{})
+    |> Map.get(profile, %{})
+  end
+
   defp apply_profile(routine) do
     profile = Map.get(profiles(), routine[:profile], %{})
+
+    provider =
+      normalize_provider!(Map.get(routine, :provider, Map.get(profile, :provider, :claude)))
+
+    provider_defaults = routine[:profile] |> profile_provider_defaults() |> Map.get(provider, %{})
+
+    profile =
+      profile
+      |> merge_provider_defaults(provider_defaults)
+
     tags = Enum.uniq(Map.get(profile, :tags, []) ++ Map.get(routine, :tags, []))
 
     profile
@@ -38,6 +54,13 @@ defmodule Custode.Routine do
     |> Map.put(:tags, tags)
     |> Map.delete(:profile)
     |> template_approved_args()
+  end
+
+  defp merge_provider_defaults(profile, defaults) do
+    Enum.reduce(defaults, profile, fn
+      {key, nil}, acc -> Map.delete(acc, key)
+      {key, value}, acc -> Map.put(acc, key, value)
+    end)
   end
 
   # "custode-{id}" in a profile's approved_args becomes "custode-<routine id>"
@@ -481,6 +504,8 @@ defmodule Custode.Routine do
     routine = apply_profile(routine)
     id = Map.fetch!(routine, :id)
     provider = normalize_provider!(Map.get(routine, :provider, :claude))
+    model = Map.get(routine, :model, default_model(provider))
+    validate_model_provider!(profile, provider, model)
     workspace = Map.get(routine, :workspace, "workspaces/" <> id)
     # Least privilege by default (#161): a roster entry that FORGETS role
     # gets the powerless :assistant, never the caretaker's operator verbs.
@@ -507,7 +532,7 @@ defmodule Custode.Routine do
       profile: profile,
       role: role,
       provider: provider,
-      model: Map.get(routine, :model, default_model(provider)),
+      model: model,
       max_budget_usd:
         Map.get(routine, :max_budget_usd, Application.fetch_env!(:custode, :max_budget_usd)),
       daily_budget_usd:
@@ -567,6 +592,17 @@ defmodule Custode.Routine do
 
   defp default_model(:claude), do: Application.fetch_env!(:custode, :model)
   defp default_model(:codex), do: Application.get_env(:custode, :codex_model)
+
+  defp validate_model_provider!(:specialist, :codex, model)
+       when model in ["opus", "sonnet", "haiku"] do
+    raise ArgumentError, "Claude model #{model} cannot be used by a Codex routine"
+  end
+
+  defp validate_model_provider!(:specialist, :claude, "gpt-" <> _rest = model) do
+    raise ArgumentError, "Codex model #{model} cannot be used by a Claude routine"
+  end
+
+  defp validate_model_provider!(_profile, _provider, _model), do: :ok
 
   defp default_approved_args(:claude), do: %{"permission_mode" => "bypass_permissions"}
 

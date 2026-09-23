@@ -37,4 +37,4 @@ for table <- [
   Custode.Repo.query!("DELETE FROM #{table}")
 end
 
-ExUnit.start()
+ExUnit.start(exclude: [preview: true])

@@ -16,6 +16,19 @@ config :custode,
   # approved_args templates to the routine id). sensors: [:ci] derives a
   # 15-minute CiStatus poll per repo-tied wearer.
   profiles: %{
+    caretaker: %{
+      cron: "@daily",
+      prompt: "Do your fleet caretaker sweep now.",
+      role: :caretaker,
+      mcp: true,
+      model: "sonnet",
+      effort: "low",
+      max_budget_usd: 5.0,
+      daily_budget_usd: 25.0,
+      timeout_ms: 600_000,
+      max_turns: 40,
+      tags: [:meta]
+    },
     backlog_worker: %{
       cron: "@daily",
       prompt: "Do your backlog sweep now.",
@@ -52,6 +65,27 @@ config :custode,
         "model" => "opus",
         "effort" => "high"
       }
+    },
+    specialist: %{
+      cron: "@daily",
+      prompt: "Do your specialist sweep now.",
+      role: :specialist,
+      mcp: true,
+      effort: "high",
+      max_budget_usd: 25.0,
+      daily_budget_usd: 100.0,
+      daily_budget_tokens: 2_000_000,
+      timeout_ms: 1_800_000,
+      max_turns: 120,
+      tags: [:specialist],
+      sensors: [:ci],
+      extra_allowed_tools: [
+        "Bash(git log:*)",
+        "Bash(git status:*)",
+        "Bash(git diff:*)",
+        "Bash(git show:*)"
+      ],
+      approved_args: %{"worktree" => "custode-{id}"}
     },
     # The personal-learning tile (#119): an anki-esque tutor whose crontab
     # entry IS the spaced repetition. The notebook holds the deck; each run
@@ -96,6 +130,15 @@ config :custode,
       sensors: [:ci]
     }
   },
+  # Provider-specific profile values live outside the roster-serializable
+  # envelope. This keeps one profile valid across Claude and Codex while the
+  # profile tools continue to read and write their flat TOML contract.
+  profile_provider_defaults: %{
+    specialist: %{
+      claude: %{model: "opus"},
+      codex: %{model: "gpt-6-sol", approved_args: nil}
+    }
+  },
   # P1 intake pilot (#366). This allowlist IS the operator approval design/008
   # asks for: a routine with an entry here has its beats drive the work
   # kernel's GitHub issue intake as well as its legacy tick.
@@ -134,6 +177,10 @@ config :custode,
   # A Codex routine with no model override follows the installed CLI's
   # configured default. Set this to pin one fleet-wide Codex model instead.
   codex_model: nil,
+  # The setup form's host directory browser never walks outside these roots.
+  # It also includes parents of current repository checkouts and the parent of
+  # Custode's home, so a source checkout works without configuration.
+  checkout_roots: [],
   # The budget rails guard against runaway loops, NOT dollar cost: on a
   # subscription (claude Max) the CLI-reported cost_usd is notional, so
   # every cap here is sized as an "obviously wrong" threshold rather than
@@ -182,71 +229,9 @@ config :custode, Custode.Repo,
 # The MCP endpoint (localhost only) agents use to drive sibling agents/jobs.
 config :custode, mcp_port: 6161
 
-# One-way Mission mapping declarations for legacy routines without a single
-# repository target. Repository routines resolve through GitHub's stable
-# repository ID instead. These declarations describe scope only; routines.toml
-# remains authoritative for schedule and executor fields.
-config :custode,
-  legacy_mission_mappings: %{
-    "custode" => %{
-      strategy: "fixed_mission",
-      mission: %{
-        key: "system:custode",
-        purpose: "Operate Custode",
-        lifecycle: "persistent",
-        targets: [
-          %{kind: "system", external_id: "custode", display_name: "Custode"}
-        ]
-      }
-    },
-    "quakes" => %{
-      strategy: "fixed_mission",
-      mission: %{
-        key: "watch:usgs-earthquakes",
-        purpose: "Monitor significant USGS earthquakes",
-        lifecycle: "persistent",
-        targets: [
-          %{
-            kind: "usgs_feed",
-            external_id: "earthquakes-m4.5-day",
-            display_name: "USGS M4.5+ earthquakes"
-          }
-        ]
-      }
-    },
-    "stars" => %{
-      strategy: "fixed_mission",
-      mission: %{
-        key: "observation:github-stars",
-        purpose: "Observe GitHub star changes",
-        lifecycle: "persistent",
-        targets: [
-          %{
-            kind: "github_owner_set",
-            external_id: "genagent+joshrotenberg",
-            display_name: "genagent and joshrotenberg stars"
-          }
-        ]
-      }
-    },
-    "contributors" => %{
-      strategy: "fixed_mission",
-      mission: %{
-        key: "observation:github-contributors",
-        purpose: "Observe GitHub contributor activity",
-        lifecycle: "persistent",
-        targets: [
-          %{
-            kind: "github_owner_set",
-            external_id: "genagent+joshrotenberg",
-            display_name: "genagent and joshrotenberg contributors"
-          }
-        ]
-      }
-    },
-    "reviewer" => %{strategy: "repository_attempts"},
-    "consistency" => %{strategy: "ephemeral_per_investigation"}
-  }
+# Legacy Mission mappings belong to an operator's roster. The work kernel is
+# frozen and a fresh checkout must not inherit one maintainer's subjects.
+config :custode, legacy_mission_mappings: %{}
 
 # The fleet-tuning advisors (#125/#260): a name -> cron map naming which run
 # and how often. `false` (or omitting a name) disables one. Toggleable via
@@ -266,11 +251,11 @@ config :custode,
 
 # Repo-owned ambient orders (#19): which routines may compose their
 # working_dir's .custode/orders.md into the prompt. Scoped with the same
-# selector language as the policies below. A file in a repo is prompt
-# content, so this is opt-in by repo: genagent/custode is the fleet's own
-# repository, where the operator owns every file that lands. Routines tagged
-# :external never pick up orders regardless of what is listed here.
-config :custode, ambient_orders: [repo: "genagent/custode"]
+# selector language as the policies below. A file in a repo is prompt content,
+# so a fresh checkout opts in to nothing. The operator selects trusted repos
+# in custode.toml. Routines tagged :external never pick up orders regardless
+# of what is listed there.
+config :custode, ambient_orders: []
 
 # The policy layer (#50): fleet rules declared once, rendered into every
 # binding agent's prompt AND shown on gate cards at review time. When verb

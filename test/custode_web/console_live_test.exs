@@ -110,24 +110,26 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ ~s(<nav aria-label="breadcrumb")
     # and the way to add one is on the page
     assert has_element?(view, "button[phx-click=new_open]")
+    assert has_element?(view, "#first-agent-setup", "Fleet caretaker")
+    assert has_element?(view, "button[phx-click=new_skip]", "skip for now")
   end
 
-  # the operator's decision, 2026-09-21: the console replaces the fleet page
-  # as the place the dashboard opens on
-  test "the console is the home page, and the fleet page is still there", %{
+  test "the console is home and legacy dashboard URLs redirect into it", %{
     conn: conn,
     sleeper: sleeper
   } do
     {:ok, view, html} = live(conn, "/")
     assert html =~ ~s(id="rail-filter")
-    assert has_element?(view, ~s(header a[href="/fleet"]), "fleet")
+    refute has_element?(view, ~s(header a[href="/fleet"]), "fleet")
 
     # the rail's links leave home for the subject's own address
     view |> element(~s(a[href="/console/#{sleeper.id}"])) |> render_click()
     assert_patched(view, "/console/#{sleeper.id}")
 
-    {:ok, _view, html} = live(conn, "/fleet")
-    assert html =~ sleeper.id
+    assert conn |> get("/fleet") |> redirected_to() == "/"
+
+    assert conn |> get("/agents/#{sleeper.id}") |> redirected_to() ==
+             "/console/#{sleeper.id}"
   end
 
   test "the return digest stays dismissed through console refreshes", %{conn: conn} do
@@ -245,6 +247,63 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ ~S|next.scrollIntoView({block: "nearest"})|
     assert html =~ ~S|input, textarea, select, button, [contenteditable='true'], [role='textbox']|
     assert html =~ ~S|window.removeEventListener("keydown", this.onKeydown)|
+  end
+
+  test "the command menu searches subjects, attention, results and labeled actions", %{
+    conn: conn,
+    asker: asker,
+    sleeper: sleeper
+  } do
+    {:ok, _ask} = Asks.ask(asker.id, "which environment should I use?")
+    Custode.Feed.record(%{event: "turn", agent: sleeper.id, summary: "compared the options"})
+
+    {:ok, view, html} = live(conn, "/console/#{sleeper.id}")
+    assert html =~ ~s(data-command-trigger)
+    assert html =~ "Search commands (Cmd/Ctrl+K)"
+    assert html =~ "Shift+Cmd/Ctrl+K"
+
+    view |> element("[data-command-trigger]") |> render_click()
+    assert has_element?(view, "#command-palette[role=dialog]")
+    assert has_element?(view, "[data-command-option]", "compared the options")
+    assert has_element?(view, "[data-command-option]", "which environment")
+    assert has_element?(view, "[data-command-option]", "Pause #{sleeper.id}")
+    refute has_element?(view, "[data-command-option]", "Approve")
+
+    view |> form("#command-search", %{"q" => "compared options"}) |> render_change()
+    assert has_element?(view, "[data-command-option]", "compared the options")
+    refute has_element?(view, "[data-command-option]", "which environment")
+
+    view |> element("button[phx-click=command_close]") |> render_click()
+    refute has_element?(view, "#command-palette")
+  end
+
+  test "opening a result navigates to activity without starting work", %{
+    conn: conn,
+    sleeper: sleeper
+  } do
+    Custode.Feed.record(%{event: "turn", agent: sleeper.id, summary: "saved the report"})
+    {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+
+    view |> element("[data-command-trigger]") |> render_click()
+
+    view
+    |> element("[data-command-option]", "saved the report")
+    |> render_click()
+
+    assert_redirected(view, "/console/#{sleeper.id}?tab=activity")
+    refute_receive {:enqueued, _args, _meta}, 100
+  end
+
+  test "the command shortcut hook handles only modified k and palette navigation", %{conn: conn} do
+    html = conn |> get("/console") |> html_response(200)
+
+    assert html =~ ~S(event.metaKey || event.ctrlKey)
+    assert html =~ ~S(event.shiftKey)
+    assert html =~ ~s|document.querySelector("[data-command-trigger]")|
+    assert html =~ ~s|event.key === "ArrowDown"|
+    assert html =~ ~s|event.key === "ArrowUp"|
+    assert html =~ ~s|event.key === "Enter" && event.target === this.input|
+    assert html =~ ~s|window.location.assign("/?commands=open")|
   end
 
   test "quiet subjects collapse to one line and open when one is selected", %{conn: conn} do
@@ -857,7 +916,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ "bench the pooled path"
     assert html =~ "pool flakes on macOS CI"
 
-    html = view |> element("button[phx-click=todo_done]") |> render_click()
+    view |> element("button[phx-click=todo_done]") |> render_click()
     # off the open list, and onto the done one
     refute view |> element("#open-todos") |> render() =~ "bench the pooled path"
     assert view |> element("#done-todos") |> render() =~ "bench the pooled path"
@@ -1038,19 +1097,43 @@ defmodule CustodeWeb.ConsoleLiveTest do
          %{
            sha: "abc",
            checks: [
-             %{name: "fmt", status: "completed", conclusion: "success", url: "https://x/fmt"},
              %{
+               id: 638,
+               name: "fmt",
+               status: "completed",
+               conclusion: "success",
+               url: "https://x/fmt"
+             },
+             %{
+               id: 637,
                name: "test (ubuntu)",
                status: "completed",
                conclusion: "failure",
                url: "https://x/t"
              },
-             %{name: "docs", status: "in_progress", conclusion: nil, url: nil}
+             %{
+               id: 636,
+               name: "lint",
+               status: "completed",
+               conclusion: "failure",
+               url: "https://x/lint"
+             },
+             %{id: 639, name: "docs", status: "in_progress", conclusion: nil, url: nil}
            ]
          }}
       end
 
       def pr_checks(_owner, _repo, _number), do: {:error, "github: 502"}
+
+      def job_log_tail(_owner, _repo, 636) do
+        send(Application.fetch_env!(:custode, :checks_test_pid), {:job_log_tail, 636})
+        {:error, "GitHub Actions logs unavailable"}
+      end
+
+      def job_log_tail(_owner, _repo, job_id) do
+        send(Application.fetch_env!(:custode, :checks_test_pid), {:job_log_tail, job_id})
+        {:ok, "Compiling 42 files\n** (RuntimeError) expected true, got false"}
+      end
     end
 
     setup %{conn: conn} do
@@ -1071,6 +1154,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
       overviews = Application.get_env(:custode, :fake_repo_overviews, %{})
       put_env!(:fake_repo_overviews, Map.put(overviews, repo, {:ok, overview}))
       put_env!(:repo_ops, ChecksOps)
+      put_env!(:checks_test_pid, self())
 
       routine = routine_fixture!(tmp_workspace!(), %{repo: repo})
       :ok = Custode.Repository.ensure_served(repo, routine.id)
@@ -1091,8 +1175,15 @@ defmodule CustodeWeb.ConsoleLiveTest do
           html
         end)
 
-      assert html =~ ~r/test \(ubuntu\).*failure.*docs.*in_progress.*fmt.*success/s
+      assert html =~ ~r/lint.*failure.*test \(ubuntu\).*failure.*docs.*in_progress.*fmt.*success/s
       assert html =~ ~s(href="https://x/t")
+      assert html =~ ~s(id="check-log-637")
+      assert html =~ "expected true, got false"
+      assert_receive {:job_log_tail, 637}
+      assert_receive {:job_log_tail, 636}
+      refute html =~ ~s(id="check-log-636")
+      refute_receive {:job_log_tail, 638}
+      refute_receive {:job_log_tail, 639}
       # one PR's read failing does not take the other's rows with it
       assert html =~ ~r/checks unavailable: [^<]*502/
     end
@@ -1255,7 +1346,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
       html =
         view
         |> form("#new-routine", %{
-          "routine" => %{"id" => id, "cron" => "@daily", "prompt" => "sweep"}
+          "routine" => %{"id" => id, "cadence" => "daily", "prompt" => "sweep"}
         })
         |> render_change()
 
@@ -1264,7 +1355,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
 
       view
       |> form("#new-routine", %{
-        "routine" => %{"id" => id, "cron" => "@daily", "prompt" => "sweep"}
+        "routine" => %{"id" => id, "cadence" => "daily", "prompt" => "sweep"}
       })
       |> render_submit()
 
@@ -1280,11 +1371,42 @@ defmodule CustodeWeb.ConsoleLiveTest do
 
       html =
         view
-        |> form("#new-routine", %{"routine" => %{"id" => "", "cron" => "@daily"}})
+        |> form("#new-routine", %{"routine" => %{"id" => "", "cadence" => "daily"}})
         |> render_change()
 
       assert html =~ "id is required"
       refute File.exists?(roster)
+    end
+
+    test "an empty fleet creates a real caretaker from the recommended choice",
+         %{conn: conn} do
+      put_env!(:routines, [])
+      {:ok, view, _html} = live(conn, "/console")
+
+      view
+      |> element(~s(button[phx-click=new_kind][phx-value-kind="caretaker"]))
+      |> render_click()
+
+      assert has_element?(view, ~s(#new-routine option[value="caretaker"][selected]))
+      view |> form("#new-routine") |> render_submit()
+
+      assert %{role: :caretaker, mcp: true, tags: tags} = Custode.Routine.get("custode")
+      assert :meta in tags
+      assert_patch(view, "/console/custode")
+    end
+
+    test "the normal setup flow offers a provider-aware specialist", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/console")
+      view |> element("button[phx-click=new_open]") |> render_click()
+      view |> element("button[phx-click=new_choose]") |> render_click()
+
+      html =
+        view
+        |> element(~s(button[phx-click=new_kind][phx-value-kind="specialist"]))
+        |> render_click()
+
+      assert html =~ "resolved agent"
+      assert has_element?(view, ~s(#new-routine option[value="specialist"][selected]))
     end
   end
 

@@ -26,7 +26,7 @@ defmodule Custode.NtfyTest do
     assert urgent.title == "rt needs_approval"
     assert urgent.body == "fix #9"
     assert urgent.url == "https://ntfy.sh/custode-test"
-    assert urgent.click =~ "/agents/rt"
+    assert urgent.click =~ "/console/rt"
 
     :ok = Custode.Ntfy.publish(%{"event" => "turn", "agent" => "rt", "summary" => "swept"})
     assert_receive {:ntfy, quiet}, 500

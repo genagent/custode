@@ -29,10 +29,18 @@ defmodule CustodeWeb.Console.Header do
       <.breadcrumb selected={@selected} signal={@signal} />
       <nav class="flex gap-3 text-sm text-base-content/60">
         <span class="font-semibold text-base-content underline underline-offset-4">console</span>
-        <.link navigate="/custode" class="hover:text-base-content" title="Cmd/Ctrl+K">
+        <button
+          type="button"
+          phx-click="command_open"
+          data-command-trigger
+          class="hover:text-base-content"
+          title="Search commands (Cmd/Ctrl+K)"
+        >
+          commands <kbd class="kbd kbd-xs">⌘K</kbd>
+        </button>
+        <.link navigate="/custode" class="hover:text-base-content" title="Shift+Cmd/Ctrl+K">
           custode
         </.link>
-        <.link navigate="/fleet" class="hover:text-base-content">fleet</.link>
         <.link navigate="/inbox" class="hover:text-base-content">inbox</.link>
         <.link navigate="/repos" class="hover:text-base-content">repos</.link>
         <.link navigate="/workflows" class="hover:text-base-content">workflows</.link>

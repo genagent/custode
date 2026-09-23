@@ -172,7 +172,7 @@ defmodule CustodeWeb.Components do
             <.ago at={@entry["at"]} />
             <.link
               :if={@show_agent && agent_linkable?(@entry["agent"])}
-              navigate={"/agents/#{@entry["agent"]}"}
+              navigate={"/console/#{@entry["agent"]}"}
               class="link-hover hover:text-base-content"
             >
               {@entry["agent"]}
@@ -230,7 +230,7 @@ defmodule CustodeWeb.Components do
       <header class="mb-6 flex items-baseline gap-4">
         <.link navigate="/" class="text-3xl font-bold hover:opacity-70">custode</.link>
         <nav class="flex gap-3 text-sm">
-          <.link navigate="/fleet" class={nav_class(@active == :fleet)}>fleet</.link>
+          <.link navigate="/" class={nav_class(@active == :fleet)}>console</.link>
           <.link navigate="/console" class={nav_class(false)}>console</.link>
           <.link navigate="/custode" class={nav_class(false)} title="Cmd/Ctrl+K">custode</.link>
           <.link navigate="/inbox" class={nav_class(@active == :inbox)}>
@@ -509,7 +509,7 @@ defmodule CustodeWeb.Components do
         <div>
           <.link
             :if={agent_linkable?(@entry["agent"])}
-            navigate={"/agents/#{@entry["agent"]}"}
+            navigate={"/console/#{@entry["agent"]}"}
             class="link-hover"
           >
             {@entry["agent"]}
@@ -779,7 +779,7 @@ defmodule CustodeWeb.Components do
   def ago_text(_other), do: "?"
 
   attr(:suggestion, :map, required: true)
-  attr(:agent_base, :string, default: "/agents/")
+  attr(:agent_base, :string, default: "/console/")
 
   @doc "A compact standing advisor suggestion with its operator actions."
   def suggestion_card(assigns) do

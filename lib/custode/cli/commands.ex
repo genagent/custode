@@ -496,6 +496,72 @@ defmodule Custode.CLI.Resume do
   end
 end
 
+defmodule Custode.CLI.ProvisionCheckout do
+  @moduledoc false
+  use Cheer.Command
+
+  command "provision-checkout" do
+    about("Provision a routine-owned clone.")
+    argument(:routine_id, required: true, help: "Future or existing routine id.")
+    argument(:repository, required: true, help: "GitHub owner/name.")
+    option(:dry_run, type: :boolean, help: "Preview without cloning.")
+    option(:json, type: :boolean, help: "Raw JSON.")
+  end
+
+  @impl Cheer.Command
+  def run(args, _raw) do
+    Custode.CLI.emit(
+      "provision_owned_checkout",
+      %{
+        routine_id: args[:routine_id],
+        repository: args[:repository],
+        idempotency_key: Ecto.UUID.generate(),
+        dry_run: args[:dry_run] == true
+      },
+      args[:json] == true,
+      &render/1
+    )
+  end
+
+  defp render(%{"effect_preview" => preview}),
+    do: "would provision #{preview["repository"]} at #{preview["path"]}"
+
+  defp render(reply), do: "#{reply["routine_id"]}: #{reply["status"]} at #{reply["path"]}"
+end
+
+defmodule Custode.CLI.RefreshCheckout do
+  @moduledoc false
+  use Cheer.Command
+
+  command "refresh-checkout" do
+    about("Safely refresh a routine-owned clone.")
+    argument(:routine_id, required: true, help: "Configured routine id.")
+    option(:dry_run, type: :boolean, help: "Preview without fetching.")
+    option(:json, type: :boolean, help: "Raw JSON.")
+  end
+
+  @impl Cheer.Command
+  def run(args, _raw) do
+    Custode.CLI.emit(
+      "refresh_owned_checkout",
+      %{
+        routine_id: args[:routine_id],
+        idempotency_key: Ecto.UUID.generate(),
+        dry_run: args[:dry_run] == true
+      },
+      args[:json] == true,
+      &render/1
+    )
+  end
+
+  defp render(%{"effect_preview" => preview}),
+    do: "would refresh #{preview["repository"]} at #{preview["path"]}"
+
+  defp render(reply),
+    do:
+      "#{reply["routine_id"]}: #{reply["status"]} on #{reply["branch"]} (#{reply["commits"]} commit(s))"
+end
+
 defmodule Custode.CLI.Drain do
   @moduledoc false
   use Cheer.Command

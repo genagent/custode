@@ -31,14 +31,14 @@ nothing until you add a routine.
 - sibling checkouts of [oban_claude](https://github.com/genagent/oban_claude)
   at `../oban_claude` and oban_codex at `../oban_codex` (path deps;
   `OBAN_CLAUDE_PATH` and `OBAN_CODEX_PATH` override)
-- local checkouts of the repositories the agents will work
+- local checkouts for agents configured to use an existing checkout; the
+  dashboard can provision routine-owned clones instead
 
 ## Run it
 
 ```sh
 mix deps.get
 mix ecto.migrate
-cp routines.example.toml routines.toml   # then edit: the fleet is local
 mix custode doctor                        # preflight: claude, gh, migrations, checkout
 mix phx.server                            # dashboard :4646, MCP 127.0.0.1:6161
 ```
@@ -49,12 +49,83 @@ the node boots an empty fleet and says so. A routine can also be added from
 the dashboard ("new agent") or by asking custode; both write the same file.
 `config/config.exs` holds defaults and role profiles only.
 
+On an empty fleet, open the dashboard and choose the first agent. The fleet
+caretaker is recommended because it enables the Custode conversation surface,
+but backlog workers, stewards, specialists, tutors and bespoke agents are also
+available. Setup shows provider, cadence, resolved model and rails before it
+writes anything. Repository agents can use a Custode-managed clone under the
+data directory or an existing host checkout selected with the directory
+browser. Configure additional browser roots with `config :custode,
+checkout_roots: ["/path/to/code"]`.
+
 For a second machine, a separate state directory (`CUSTODE_HOME`) and phone
 access, see [guides/install.md](guides/install.md).
 
 Stop it with `mix custode drain`: queues pause, executing turns finish, the
 node exits. A second boot against the same database refuses while the first
 is alive.
+
+## Setup and troubleshooting
+
+The complete fresh-machine sequence is in
+[guides/install.md](guides/install.md). Start diagnosis with the two checks
+that know their respective layers:
+
+```sh
+mix custode doctor   # Custode, provider login, GitHub, home and roster
+claude doctor        # Claude Code settings and rejected configuration
+```
+
+Do not paste `tmp/operator.token`, an agent MCP config or credentials into an
+issue or log. The exact tool error, the agent's turn details and the doctor
+output are enough to distinguish the common failures.
+
+### A Claude worker says its Custode MCP tools are denied
+
+An MCP-enabled routine starts Claude with its per-routine MCP config and an
+exact `--allowed-tools` entry for every tool its role may use. An approved
+continuation merges its worktree and elevated permission options over those
+base arguments; moving into a worktree should not remove MCP access.
+
+Claude Code evaluates deny rules before allow rules. A matching deny in host
+settings blocks a tool even when Custode supplied it through
+`--allowed-tools`, and a blocking `PreToolUse` hook also wins. Organization
+managed settings outrank command-line, project and user settings and cannot
+be relaxed in a lower-precedence file. In an interactive Claude session, use
+`/permissions` to see the active rules and their source and `/status` to see
+which settings sources loaded. Also inspect, as applicable:
+
+- `~/.claude/settings.json` for user settings;
+- `.claude/settings.json` in the repository for shared project settings;
+- `.claude/settings.local.json` for machine-local project settings;
+- the managed source named by `/status`, which may come from an organization,
+  MDM or a system `managed-settings.json`.
+
+Current Claude Code accepts `mcp__custode__*` as an allow rule for every tool
+on the named Custode server. An unscoped `mcp__*` allow glob is skipped with a
+warning. Adding an allow rule cannot override a matching deny. Change an
+organization rule through its administrator rather than trying to bypass it
+locally. See Claude Code's
+[permission rules](https://code.claude.com/docs/en/permissions) and
+[settings precedence](https://code.claude.com/docs/en/settings) for the
+current behavior.
+
+### `Invalid params` is not a permission denial
+
+`Invalid params` means the MCP call reached argument validation. Record the
+exact call before changing permissions. Self-scoped notebook calls accept the
+authenticated identity by default; when diagnosing, make it explicit:
+
+- `recall` with `agent_id: "<routine-id>"`;
+- `inbox_list` or `todo_list` with `routine_id: "<routine-id>"`;
+- repository reads with the routine's configured `repo`, for example
+  `repo_list_prs` with `repo: "owner/name"`.
+
+If the explicit call works, the connection and permission are sound; inspect
+the tool schema and the original arguments. If it is still denied, preserve
+the denial text and inspect Claude's effective permission sources above. If
+it cannot connect or authenticate, run `mix custode doctor` and inspect the
+turn's MCP startup error.
 
 ## The dashboard
 
@@ -69,7 +140,7 @@ toggles them ([guides/ui-hierarchy.md](guides/ui-hierarchy.md)).
 | `/custode` | **Talking to custode**, `Cmd/Ctrl+K` from anywhere. A sentence box, custode's pending proposal as a plan with `do it` and `cancel`, its answers, and what it did while you were away. |
 | `/metrics` | Spend, approval rates by agent, by gate class and risk, and writes observed outside an approval. |
 | `/inbox`, `/repos`, `/workflows`, `/suggestions` | The needs-you queue, repository overviews, workflow runs, advisor suggestions. |
-| `/fleet`, `/agents/:id` | The earlier tile page and agent page. The console replaces them; they still work. |
+| `/fleet`, `/agents/:id` | Legacy bookmarks; redirect to the console and selected subject. |
 
 Ranking is never done in a page. `Custode.Attention` is a pure resolver
 ([design/007-attention.md](design/007-attention.md)) and every surface draws
@@ -159,6 +230,23 @@ mix credo --strict
 mix test
 mix dialyzer
 ```
+
+Render a fixture-backed dashboard to a standalone HTML file without booting a
+fleet. The console fixture opens the command menu so keyboard and search work
+can be reviewed in either maintained theme:
+
+```sh
+MIX_ENV=test PREVIEW_PAGE=console PREVIEW_THEME=paper \
+  PREVIEW_OUT=tmp/console-preview.html \
+  mix test --include preview test/support/preview/dashboard_preview_test.exs
+
+MIX_ENV=test PREVIEW_PAGE=custode PREVIEW_THEME=ink \
+  PREVIEW_OUT=tmp/custode-preview.html \
+  mix test --include preview test/support/preview/dashboard_preview_test.exs
+```
+
+Preview tests carry the `preview` tag and are excluded from the ordinary test
+suite. Open the generated file in a browser; no server remains running.
 
 Things that bite:
 

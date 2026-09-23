@@ -1,0 +1,626 @@
+defmodule Custode.OwnedCheckout do
+  @moduledoc """
+  Lifecycle operations for routine-owned repository clones.
+
+  An owned checkout has one deterministic location below Custode's data
+  directory: `checkouts/<routine-id>`. Provisioning is idempotent for a
+  matching destination. Refresh preserves a dirty, diverged, detached or
+  non-default checkout and only fast-forwards a clean default branch.
+
+  Repository inspection uses `git` with an argument vector. It accepts the
+  common GitHub HTTPS and SSH origin forms, compares repository names without
+  case sensitivity, and never returns the raw origin URL, which may contain a
+  credential.
+  """
+
+  alias Custode.{Home, Repository}
+
+  @routine_id ~r/\A[A-Za-z0-9][A-Za-z0-9._-]*\z/
+  @safe_failure_reasons [
+    :authentication_failed,
+    :command_unavailable,
+    :runner_failed,
+    :invalid_repository,
+    :eacces,
+    :enoent,
+    :enotdir,
+    :eloop
+  ]
+
+  defmodule GitHubCloneRunner do
+    @moduledoc """
+    Clones a GitHub repository through the authenticated `gh` CLI.
+
+    The command is always invoked as an executable plus argument vector. Its
+    output is inspected only to classify authentication failures and is never
+    returned, logged or placed in a job argument.
+    """
+
+    @type failure_reason ::
+            :authentication_failed | :command_unavailable | {:exit_status, non_neg_integer()}
+
+    @doc "Clone `owner/name` to an absolute destination with host GitHub credentials."
+    @spec clone(String.t(), String.t(), keyword()) :: :ok | {:error, failure_reason()}
+    def clone(repository, destination, opts \\ []) do
+      command = Keyword.get(opts, :command, &System.cmd/3)
+
+      case command.(
+             "gh",
+             ["repo", "clone", repository, destination],
+             stderr_to_stdout: true
+           ) do
+        {_output, 0} -> :ok
+        {output, status} -> {:error, classify_failure(output, status)}
+      end
+    rescue
+      _error -> {:error, :command_unavailable}
+    end
+
+    defp classify_failure(output, status) do
+      normalized = output |> to_string() |> String.downcase()
+
+      if Enum.any?(
+           [
+             "authentication failed",
+             "could not read username",
+             "gh auth login",
+             "not logged into",
+             "permission denied (publickey)"
+           ],
+           &String.contains?(normalized, &1)
+         ) do
+        :authentication_failed
+      else
+        {:exit_status, status}
+      end
+    end
+  end
+
+  defmodule GitRefreshRunner do
+    @moduledoc false
+
+    @spec run(String.t(), [String.t()]) ::
+            {:ok, String.t()}
+            | {:error, :authentication_failed | :command_unavailable | {:exit_status, integer()}}
+    def run(path, args) do
+      case System.cmd("git", ["-C", path | args], stderr_to_stdout: true) do
+        {output, 0} -> {:ok, String.trim(output)}
+        {output, status} -> {:error, classify_failure(output, status)}
+      end
+    rescue
+      _error -> {:error, :command_unavailable}
+    end
+
+    defp classify_failure(output, status) do
+      normalized = output |> to_string() |> String.downcase()
+
+      if Enum.any?(
+           [
+             "authentication failed",
+             "could not read username",
+             "gh auth login",
+             "not logged into",
+             "permission denied (publickey)"
+           ],
+           &String.contains?(normalized, &1)
+         ) do
+        :authentication_failed
+      else
+        {:exit_status, status}
+      end
+    end
+  end
+
+  @typedoc "Why a destination cannot be used as the expected repository."
+  @type mismatch_reason :: :origin_missing | :origin_unrecognized | :repository_mismatch
+
+  @typedoc "The observed state of an owned checkout destination."
+  @type inspection ::
+          %{
+            state: :missing | :empty | :occupied | :matching | :mismatched,
+            path: String.t(),
+            expected_repo: String.t(),
+            observed_repo: String.t() | nil,
+            reason: atom() | nil
+          }
+
+  @doc """
+  Return the deterministic owned-checkout path for a routine.
+
+  The routine id must be one safe path segment. Refusing unsafe ids instead of
+  rewriting them prevents two distinct ids from collapsing onto one checkout.
+  Pass `:root` to inspect a prospective data root without changing process
+  environment.
+  """
+  @spec path(String.t(), keyword()) :: {:ok, String.t()} | {:error, :invalid_routine_id}
+  def path(routine_id, opts \\ []) do
+    if valid_routine_id?(routine_id) do
+      root = opts |> Keyword.get(:root, Home.data_dir()) |> Path.expand()
+      {:ok, Path.join([root, "checkouts", routine_id])}
+    else
+      {:error, :invalid_routine_id}
+    end
+  end
+
+  @doc """
+  Provision a routine-owned clone at its deterministic destination.
+
+  Calls for the same destination are serialized. A matching clone is an
+  idempotent success; occupied or mismatched destinations are never mutated.
+  The default runner uses `gh repo clone` and the host's existing
+  authentication. `:clone` may supply a two-argument function for a local
+  fixture or another host adapter.
+  """
+  @spec provision(String.t(), String.t(), keyword()) ::
+          {:ok,
+           %{status: :provisioned | :already_provisioned, path: String.t(), repo: String.t()}}
+          | {:error, map() | :invalid_routine_id}
+  def provision(routine_id, repository, opts \\ []) do
+    with {:ok, destination} <- path(routine_id, opts) do
+      clone = Keyword.get(opts, :clone, &GitHubCloneRunner.clone/2)
+      synchronize(destination, fn -> provision_locked(destination, repository, clone) end)
+    end
+  end
+
+  @doc "Run a function while holding the shared lock for an owned checkout."
+  @spec synchronize(String.t(), (-> result)) :: result when result: var
+  def synchronize(destination, function)
+      when is_binary(destination) and is_function(function, 0) do
+    :global.trans({{__MODULE__, Path.expand(destination)}, self()}, function)
+  end
+
+  @doc """
+  Refresh a clean routine-owned clone without changing branches or local work.
+
+  The clone must match `repository`, the routine must be offline or idle, and
+  the checked-out branch must be origin's configured default. Refresh fetches
+  origin and performs only a fast-forward. The shared checkout lock composes
+  with `Custode.OwnedCheckout.Barrier` so an agent transition cannot race it.
+  """
+  @spec refresh(String.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, map() | :invalid_routine_id}
+  def refresh(routine_id, repository, opts \\ []) do
+    with {:ok, destination} <- path(routine_id, opts) do
+      runner = Keyword.get(opts, :runner, &GitRefreshRunner.run/2)
+      status = Keyword.get(opts, :status, &Custode.Agents.status/1)
+
+      synchronize(destination, fn ->
+        refresh_locked(routine_id, destination, repository, runner, status)
+      end)
+    end
+  end
+
+  @doc """
+  Classify `destination` for the expected GitHub `owner/name` repository.
+
+  Missing and empty destinations are available to a later provision step.
+  Nonempty paths that are not repository roots are occupied. Repository roots
+  are matching or mismatched according to their `origin` remote.
+  """
+  @spec inspect_destination(String.t(), String.t()) ::
+          {:ok, inspection()} | {:error, :invalid_repository | {:inspection_failed, term()}}
+  def inspect_destination(destination, expected_repo)
+      when is_binary(destination) and is_binary(expected_repo) do
+    case Repository.well_formed(expected_repo) do
+      expected when is_binary(expected) ->
+        destination
+        |> Path.expand()
+        |> inspect_path(expected)
+
+      _invalid ->
+        {:error, :invalid_repository}
+    end
+  end
+
+  def inspect_destination(_destination, _expected_repo), do: {:error, :invalid_repository}
+
+  @doc "Normalize a supported GitHub origin URL to its `owner/name`, without fetching."
+  @spec repository_from_origin(String.t()) :: {:ok, String.t()} | {:error, :unrecognized_origin}
+  def repository_from_origin(origin) when is_binary(origin) do
+    origin
+    |> String.trim()
+    |> github_path()
+    |> case do
+      {:ok, path} -> normalize_repository_path(path)
+      :error -> {:error, :unrecognized_origin}
+    end
+  end
+
+  def repository_from_origin(_origin), do: {:error, :unrecognized_origin}
+
+  defp valid_routine_id?(routine_id) when is_binary(routine_id) do
+    routine_id not in [".", ".."] and Regex.match?(@routine_id, routine_id)
+  end
+
+  defp valid_routine_id?(_routine_id), do: false
+
+  defp refresh_locked(routine_id, destination, repository, runner, status) do
+    with :ok <- matching_destination(destination, repository),
+         :ok <- refreshable_status(routine_id, destination, repository, status),
+         :ok <- clean_checkout(destination, repository, runner),
+         {:ok, branch} <- current_branch(destination, repository, runner),
+         :ok <- require_default_branch(destination, repository, branch, runner),
+         :ok <- fetch_origin(destination, repository, runner),
+         {:ok, counts} <- revision_counts(destination, repository, branch, runner),
+         {:ok, outcome} <- fast_forward(destination, repository, branch, counts, runner),
+         :ok <- refresh_postcondition(destination, repository, branch, runner) do
+      {:ok,
+       %{
+         status: outcome,
+         path: destination,
+         repo: repository,
+         branch: branch,
+         commits: counts.behind
+       }}
+    else
+      {:error, %{kind: _kind}} = error ->
+        error
+    end
+  end
+
+  defp matching_destination(destination, repository) do
+    case inspect_destination(destination, repository) do
+      {:ok, %{state: :matching}} ->
+        :ok
+
+      {:ok, inspection} ->
+        failure(:destination_refused, destination, repository, inspection: inspection)
+
+      {:error, reason} ->
+        failure(:inspection_failed, destination, repository, reason: safe_reason(reason))
+    end
+  end
+
+  defp refreshable_status(routine_id, destination, repository, status) do
+    case status.(routine_id) do
+      {:ok, state} when state in [:offline, :idle] ->
+        :ok
+
+      {:ok, state} ->
+        failure(:routine_busy, destination, repository, state: Custode.state_of(state))
+
+      _other ->
+        failure(:routine_state_unavailable, destination, repository)
+    end
+  rescue
+    _error -> failure(:routine_state_unavailable, destination, repository)
+  end
+
+  defp clean_checkout(destination, repository, runner) do
+    case runner.(destination, ["status", "--porcelain=v1", "-z"]) do
+      {:ok, ""} -> :ok
+      {:ok, _changes} -> failure(:dirty_checkout, destination, repository)
+      {:error, reason} -> git_failure(:status_failed, destination, repository, reason)
+    end
+  end
+
+  defp current_branch(destination, repository, runner) do
+    case runner.(destination, ["symbolic-ref", "--quiet", "--short", "HEAD"]) do
+      {:ok, branch} when branch != "" -> {:ok, branch}
+      {:ok, _empty} -> failure(:detached_head, destination, repository)
+      {:error, {:exit_status, 1}} -> failure(:detached_head, destination, repository)
+      {:error, reason} -> git_failure(:branch_inspection_failed, destination, repository, reason)
+    end
+  end
+
+  defp default_branch(destination, repository, runner) do
+    case runner.(destination, [
+           "symbolic-ref",
+           "--quiet",
+           "--short",
+           "refs/remotes/origin/HEAD"
+         ]) do
+      {:ok, "origin/" <> branch} when branch != "" -> {:ok, branch}
+      {:ok, _other} -> failure(:default_branch_unknown, destination, repository)
+      {:error, reason} -> git_failure(:default_branch_unknown, destination, repository, reason)
+    end
+  end
+
+  defp require_default_branch(destination, repository, current, runner) do
+    case default_branch(destination, repository, runner) do
+      {:ok, ^current} ->
+        :ok
+
+      {:ok, expected} ->
+        failure(:branch_refused, destination, repository,
+          current_branch: current,
+          default_branch: expected
+        )
+
+      {:error, %{kind: _kind}} = error ->
+        error
+    end
+  end
+
+  defp fetch_origin(destination, repository, runner) do
+    case runner.(destination, ["fetch", "origin"]) do
+      {:ok, _output} -> :ok
+      {:error, reason} -> git_failure(:fetch_failed, destination, repository, reason)
+    end
+  end
+
+  defp revision_counts(destination, repository, branch, runner) do
+    case runner.(destination, [
+           "rev-list",
+           "--left-right",
+           "--count",
+           "HEAD...origin/#{branch}"
+         ]) do
+      {:ok, output} -> parse_revision_counts(output, destination, repository)
+      {:error, reason} -> git_failure(:history_inspection_failed, destination, repository, reason)
+    end
+  end
+
+  defp parse_revision_counts(output, destination, repository) do
+    case String.split(output) do
+      [ahead, behind] ->
+        with {ahead, ""} <- Integer.parse(ahead),
+             {behind, ""} <- Integer.parse(behind) do
+          {:ok, %{ahead: ahead, behind: behind}}
+        else
+          _invalid -> failure(:history_inspection_failed, destination, repository)
+        end
+
+      _invalid ->
+        failure(:history_inspection_failed, destination, repository)
+    end
+  end
+
+  defp fast_forward(_destination, _repository, _branch, %{ahead: 0, behind: 0}, _runner),
+    do: {:ok, :up_to_date}
+
+  defp fast_forward(destination, repository, branch, %{ahead: 0}, runner) do
+    case runner.(destination, ["merge", "--ff-only", "--no-edit", "origin/#{branch}"]) do
+      {:ok, _output} -> {:ok, :fast_forwarded}
+      {:error, reason} -> git_failure(:fast_forward_failed, destination, repository, reason)
+    end
+  end
+
+  defp fast_forward(destination, repository, _branch, counts, _runner) do
+    failure(:history_refused, destination, repository,
+      ahead: counts.ahead,
+      behind: counts.behind
+    )
+  end
+
+  defp refresh_postcondition(destination, repository, branch, runner) do
+    with :ok <- clean_checkout(destination, repository, runner),
+         {:ok, ^branch} <- current_branch(destination, repository, runner),
+         {:ok, %{ahead: 0, behind: 0}} <- revision_counts(destination, repository, branch, runner) do
+      :ok
+    else
+      {:error, %{kind: _kind}} = error -> error
+      _other -> failure(:postcondition_failed, destination, repository)
+    end
+  end
+
+  defp git_failure(kind, destination, repository, reason) do
+    failure(kind, destination, repository, reason: safe_reason(reason))
+  end
+
+  defp failure(kind, destination, repository, attrs \\ []) do
+    {:error, attrs |> Map.new() |> Map.merge(%{kind: kind, path: destination, repo: repository})}
+  end
+
+  defp provision_locked(destination, repository, clone) do
+    case inspect_destination(destination, repository) do
+      {:ok, %{state: :matching}} ->
+        provisioned(:already_provisioned, destination, repository)
+
+      {:ok, %{state: state}} when state in [:missing, :empty] ->
+        clone_destination(destination, repository, clone)
+
+      {:ok, inspection} ->
+        {:error,
+         %{
+           kind: :destination_refused,
+           path: destination,
+           repo: repository,
+           inspection: inspection
+         }}
+
+      {:error, reason} ->
+        {:error, %{kind: :inspection_failed, path: destination, repo: repository, reason: reason}}
+    end
+  end
+
+  defp clone_destination(destination, repository, clone) do
+    with :ok <- mkdir_parent(destination, repository),
+         :ok <- run_clone(clone, repository, destination),
+         {:ok, %{state: :matching}} <- inspect_destination(destination, repository) do
+      provisioned(:provisioned, destination, repository)
+    else
+      {:error, %{kind: _kind}} = error ->
+        error
+
+      {:error, reason} ->
+        {:error,
+         %{
+           kind: :postcondition_failed,
+           path: destination,
+           repo: repository,
+           reason: safe_reason(reason)
+         }}
+
+      {:ok, inspection} ->
+        {:error,
+         %{
+           kind: :postcondition_failed,
+           path: destination,
+           repo: repository,
+           inspection: inspection
+         }}
+    end
+  end
+
+  defp mkdir_parent(destination, repository) do
+    case File.mkdir_p(Path.dirname(destination)) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        {:error,
+         %{
+           kind: :filesystem_failed,
+           path: destination,
+           repo: repository,
+           reason: safe_reason(reason)
+         }}
+    end
+  end
+
+  defp run_clone(clone, repository, destination) do
+    case clone.(repository, destination) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        {:error,
+         %{
+           kind: :clone_failed,
+           path: destination,
+           repo: repository,
+           reason: safe_reason(reason)
+         }}
+
+      _invalid ->
+        {:error,
+         %{
+           kind: :clone_failed,
+           path: destination,
+           repo: repository,
+           reason: :runner_failed
+         }}
+    end
+  rescue
+    _error ->
+      {:error,
+       %{
+         kind: :clone_failed,
+         path: destination,
+         repo: repository,
+         reason: :runner_failed
+       }}
+  end
+
+  defp safe_reason(reason) when reason in @safe_failure_reasons, do: reason
+  defp safe_reason({:exit_status, status}) when is_integer(status), do: {:exit_status, status}
+  defp safe_reason(_reason), do: :unknown
+
+  defp provisioned(status, path, repo), do: {:ok, %{status: status, path: path, repo: repo}}
+
+  defp inspect_path(path, expected_repo) do
+    case File.lstat(path) do
+      {:error, :enoent} ->
+        result(:missing, path, expected_repo)
+
+      {:ok, %File.Stat{type: :directory}} ->
+        inspect_directory(path, expected_repo)
+
+      {:ok, _other} ->
+        result(:occupied, path, expected_repo, reason: :not_a_directory)
+
+      {:error, reason} ->
+        {:error, {:inspection_failed, reason}}
+    end
+  end
+
+  defp inspect_directory(path, expected_repo) do
+    case File.ls(path) do
+      {:ok, []} -> result(:empty, path, expected_repo)
+      {:ok, _entries} -> inspect_repository(path, expected_repo)
+      {:error, reason} -> {:error, {:inspection_failed, reason}}
+    end
+  end
+
+  defp inspect_repository(path, expected_repo) do
+    with {:ok, top_level} <- git(path, ["rev-parse", "--show-toplevel"]),
+         true <- same_path?(path, top_level) do
+      inspect_origin(path, expected_repo)
+    else
+      false -> result(:occupied, path, expected_repo, reason: :not_repository_root)
+      {:error, _git_failure} -> result(:occupied, path, expected_repo, reason: :not_a_repository)
+    end
+  end
+
+  defp inspect_origin(path, expected_repo) do
+    with {:ok, origin} <- git(path, ["config", "--get", "remote.origin.url"]),
+         {:ok, observed_repo} <- repository_from_origin(origin) do
+      if same_repository?(observed_repo, expected_repo) do
+        result(:matching, path, expected_repo, observed_repo: observed_repo)
+      else
+        result(:mismatched, path, expected_repo,
+          observed_repo: observed_repo,
+          reason: :repository_mismatch
+        )
+      end
+    else
+      {:error, {:git_failed, 1}} ->
+        result(:mismatched, path, expected_repo, reason: :origin_missing)
+
+      {:error, :unrecognized_origin} ->
+        result(:mismatched, path, expected_repo, reason: :origin_unrecognized)
+
+      {:error, reason} ->
+        {:error, {:inspection_failed, reason}}
+    end
+  end
+
+  defp result(state, path, expected_repo, opts \\ []) do
+    {:ok,
+     %{
+       state: state,
+       path: path,
+       expected_repo: expected_repo,
+       observed_repo: Keyword.get(opts, :observed_repo),
+       reason: Keyword.get(opts, :reason)
+     }}
+  end
+
+  defp same_repository?(left, right), do: String.downcase(left) == String.downcase(right)
+
+  defp same_path?(left, right) do
+    with {:ok, left_stat} <- File.stat(left),
+         {:ok, right_stat} <- File.stat(right) do
+      left_stat.inode == right_stat.inode and left_stat.major_device == right_stat.major_device
+    else
+      _error -> false
+    end
+  end
+
+  defp github_path("git@github.com:" <> path), do: {:ok, path}
+
+  defp github_path(origin) do
+    case URI.parse(origin) do
+      %URI{scheme: scheme, host: "github.com", path: path}
+      when scheme in ["https", "ssh", "git"] and is_binary(path) ->
+        {:ok, path}
+
+      _other ->
+        :error
+    end
+  end
+
+  defp normalize_repository_path(path) do
+    repository =
+      path
+      |> String.trim_leading("/")
+      |> String.trim_trailing("/")
+      |> String.trim_trailing(".git")
+
+    if Repository.well_formed(repository) do
+      {:ok, repository}
+    else
+      {:error, :unrecognized_origin}
+    end
+  end
+
+  defp git(path, args) do
+    case System.cmd("git", ["-C", path | args], stderr_to_stdout: true) do
+      {output, 0} -> {:ok, String.trim(output)}
+      {_output, status} -> {:error, {:git_failed, status}}
+    end
+  rescue
+    error -> {:error, {:command_failed, Exception.message(error)}}
+  end
+end

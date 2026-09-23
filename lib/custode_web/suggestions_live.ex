@@ -82,7 +82,7 @@ defmodule CustodeWeb.SuggestionsLive do
             <span class="ml-auto">{s["confidence"]}</span>
           </div>
           <p class="text-sm">
-            <.link navigate={"/agents/#{s["agent"]}"} class="font-mono font-semibold hover:underline">
+            <.link navigate={"/console/#{s["agent"]}"} class="font-mono font-semibold hover:underline">
               {s["agent"]}
             </.link>
             <span class="font-mono text-base-content/70">{s["field"]}</span>
@@ -155,7 +155,7 @@ defmodule CustodeWeb.SuggestionsLive do
       <ul :if={@decisions != []} class="flex flex-col divide-y divide-base-300/60 text-sm">
         <li :for={d <- @decisions} class="flex flex-wrap items-baseline gap-x-2 py-2">
           <span class={["badge badge-xs", decision_class(d)]}>{d.status}</span>
-          <.link navigate={"/agents/#{d.agent}"} class="font-mono hover:underline">{d.agent}</.link>
+          <.link navigate={"/console/#{d.agent}"} class="font-mono hover:underline">{d.agent}</.link>
           <span class="font-mono text-base-content/60">{d.field}</span>
           <span class="text-base-content/70">&rarr; {d.proposed}</span>
           <span class="ml-auto text-xs text-base-content/50">

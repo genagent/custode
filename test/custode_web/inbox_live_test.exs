@@ -49,7 +49,7 @@ defmodule CustodeWeb.InboxLiveTest do
 
     assert html =~ "Nothing needs you"
     # and it points at where the fleet's state actually is
-    assert html =~ "fleet page"
+    assert html =~ "console"
   end
 
   test "a question renders with its text and a reply affordance",
@@ -195,7 +195,7 @@ defmodule CustodeWeb.InboxLiveTest do
       # the subject and the navigation op lead to the workflows page: there is
       # no agent called "<workflow> on <repo>"
       assert has_element?(view, ~s(a[href="/workflows"]), "Open workflows")
-      refute html =~ ~s(href="/agents/#{workflow.name})
+      refute html =~ ~s(href="/console/#{workflow.name})
     end
 
     test "approving from the inbox launches the run and clears the row", %{conn: conn} do
