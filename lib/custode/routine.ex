@@ -11,7 +11,7 @@ defmodule Custode.Routine do
   """
 
   alias Custode.Gates.Class
-  alias Custode.MCP.Identity
+  alias Custode.MCP.{Capabilities, Identity}
   alias Custode.Routine.{Effort, Prompts}
 
   @doc "All configured routines, with profile and defaults applied."
@@ -108,10 +108,10 @@ defmodule Custode.Routine do
       lease_reconcile_entries() ++ aging_entries() ++ usage_probe_entries() ++ advisor_entries()
   end
 
-  # How much of the plan is used (#458). Every ten minutes keeps the snapshot
-  # inside `Custode.Availability`'s fifteen-minute freshness window; the probe
-  # skips itself when something else already refreshed it. `false` disables
-  # the line (advisor semantics).
+  # How much of the plan is used (#458, #524). Every ten minutes keeps the
+  # snapshot inside `Custode.Availability`'s fifteen-minute freshness window;
+  # the OAuth read falls back to a sealed probe and skips itself when something
+  # else already refreshed it. `false` disables the line (advisor semantics).
   defp usage_probe_entries do
     case Application.get_env(:custode, :usage_probe_cron, "*/10 * * * *") do
       false -> []
@@ -434,42 +434,6 @@ defmodule Custode.Routine do
       Custode.Presence.render() <> Custode.Ambient.render(routine)
   end
 
-  # Tool tiers (issue #40): the operator verbs (pause a sibling, beat a
-  # routine, read the fleet) belong to the meta-agent only. Every other
-  # mcp: true routine gets delegation over its OWN sub-agents plus its
-  # notebook and memory. Allowlist-deep, not identity-deep (that is #2) --
-  # but it removes the casual path to a backlog worker pausing the fleet.
-  # ask_operator is worker-tier on purpose (#299): every specialist may raise
-  # a question, because the alternative is an agent that either stays silent
-  # or blocks itself to speak. answer_ask is NOT here -- an agent answering
-  # the operator's questions would be answering on the operator's behalf.
-  @worker_mcp_tools ~w(
-    ask_operator
-    list_routines agent_status start_agent prompt_agent await_agent
-    agent_history approve_action reject_action run_job
-    journal_append journal_read compact_journal
-    todo_add todo_list todo_complete inbox_list inbox_mark_filed
-    set_next_beat
-    remember recall forget
-    repo_open_pr repo_open_issue repo_draft_issues repo_file_drafts
-    repo_comment repo_ready_pr repo_merge_pr
-    repo_mark_issue_ready repo_mark_issue_blocked repo_review_pr
-    repo_list_issues repo_view_issue repo_list_prs repo_view_pr
-    repo_pr_checks repo_pr_diff
-    repo_disown_pr repo_reclaim_pr
-  )
-
-  # set_presence is deliberately absent: whether a human is around is the
-  # human's own claim (or inference from their actions), never an agent's
-  @operator_mcp_tools ~w(
-    list_asks answer_ask dismiss_ask list_disowned
-    beat drop_note list_gates feed_tail pause_agent resume_agent spend_today
-    preview_routine add_routine preview_routine_edit update_routine
-    remove_routine
-    preview_profile define_profile preview_profile_edit update_profile
-    remove_profile
-  )
-
   # The tool bundle follows the role's tier in the hierarchy (Custode.Roles):
   # the :custode tier (the fleet agent) also gets the operator tools; every
   # specialist gets the worker set. The permission model IS the hierarchy.
@@ -480,17 +444,12 @@ defmodule Custode.Routine do
   cannot silently broaden the hierarchy-backed runtime permissions.
   """
   def mcp_tools(role) do
-    operator = if Custode.Roles.grants(role) == :operator, do: @operator_mcp_tools, else: []
-    prefix(@worker_mcp_tools ++ operator ++ optional_tools())
+    role
+    |> Capabilities.exposed_tool_names()
+    |> prefix()
   end
 
   defp prefix(tools), do: Enum.map(tools, &("mcp__custode__" <> &1))
-
-  # set_panel is verb-gated on the panels mode (#100): :off removes it from
-  # every allowlist entirely, so an agent cannot even propose a panel.
-  defp optional_tools do
-    if Custode.Panels.mode() == :off, do: [], else: ["set_panel"]
-  end
 
   @doc """
   Normalize a single raw entry outside the roster -- the validation seam for

@@ -1,7 +1,7 @@
 # mcp_ex transport rollout
 
 Custode pins the private `mcp_ex_plug` package at commit
-`bb433998ddaccb9ff0159b6ef149a994b6674e1b`. The migration replaces the two
+`6e357655210f7f146c967f702e46be7f724866d5`. The migration replaces the two
 Anubis HTTP server processes and their session transport. Existing Anubis tool
 components, Peri validation, Frames, Responses, and work-resource reads remain
 the callback layer for this slice.
@@ -13,6 +13,14 @@ first protocol in discovery. Cross-request cancellation is disabled because
 Custode does not yet issue a signed client-instance identity separate from its
 bearer identity. Request execution is bounded at 16 concurrent requests, 64
 queued requests, and 16 minutes per admitted request.
+
+`Custode.MCP.Capabilities` is installed as the mcp_ex runtime authorization
+policy. It filters discovery and refuses a blind call before argument
+validation or a tool/resource callback. The same module continues to project
+provider allowlists and to enforce the legacy callback path while that adapter
+remains. Endpoint admission is checked before MCP dispatch, so a valid identity
+on the wrong endpoint receives HTTP 403; component refusals inside an admitted
+endpoint are JSON-RPC errors with HTTP 200.
 
 ## CI dependency access
 
@@ -48,7 +56,8 @@ test state.
 ## Failure checks
 
 - A request without a bearer token returns HTTP 401 on both endpoints.
-- `/mcp` lists the full tool catalog. `/mcp/memory` lists only `journal_read`,
+- An operator on `/mcp` lists the full tool catalog; routine discovery is
+  filtered by its role. A sub-agent on `/mcp/memory` lists only `journal_read`,
   `remember`, `recall`, and `forget`.
 - Work resources are listed for the operator catalog and remain absent from a
   routine catalog.

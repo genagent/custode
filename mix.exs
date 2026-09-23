@@ -83,7 +83,7 @@ defmodule Custode.MixProject do
       _unset ->
         {:mcp_ex_plug,
          git: "git@github.com:joshrotenberg/mcp_ex.git",
-         ref: "bb433998ddaccb9ff0159b6ef149a994b6674e1b",
+         ref: "6e357655210f7f146c967f702e46be7f724866d5",
          subdir: "integrations/plug"}
     end
   end

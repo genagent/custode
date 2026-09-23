@@ -24,6 +24,8 @@ defmodule Custode.MCP.RosterTools do
   at the next minute), and the caretaker beats the newcomer.
   """
 
+  alias Custode.Operator.Authority
+
   @doc false
   # The attrs shape shared by both tools: assignment fields plus the
   # common overrides. Tags arrive as strings and convert exactly like the
@@ -109,18 +111,7 @@ defmodule Custode.MCP.RosterTools do
   # single-writer call is deliberate (operator conversation, 2026-07-22):
   # any agent may ASK for a roster change; exactly one agent writes.
   def check_roster_writer(frame) do
-    case Custode.MCP.caller(frame) do
-      %{kind: :operator} -> :ok
-      %{kind: :routine, id: id} -> check_caretaker(id)
-      _sub_agent -> {:error, "identity: sub-agents do not touch the roster"}
-    end
-  end
-
-  defp check_caretaker(id) do
-    case Custode.Routine.get(id) do
-      %{role: :caretaker} -> :ok
-      _other -> {:error, "identity: only the caretaker writes the roster; drop it a note"}
-    end
+    frame |> Custode.MCP.caller() |> Authority.roster_write()
   end
 end
 

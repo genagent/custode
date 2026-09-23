@@ -9,6 +9,8 @@ defmodule Custode.ProfileToolsTest do
   import Custode.TestHelpers
 
   alias Custode.Config.WriteBack
+  alias Custode.Gates.Gate
+  alias Custode.Repo
 
   alias Custode.MCP.ProfileTools.{
     DefineProfile,
@@ -25,6 +27,21 @@ defmodule Custode.ProfileToolsTest do
 
   defp sub_frame(id),
     do: %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :sub_agent, id: id}}}
+
+  defp grant_roster!(id) do
+    gate =
+      Repo.insert!(%Gate{
+        agent_id: id,
+        kind: "approval",
+        action_id: uid("roster-action"),
+        class: "roster",
+        status: "resolved",
+        outcome: "approved"
+      })
+
+    on_exit(fn -> Repo.delete(gate) end)
+    gate
+  end
 
   setup do
     path = Path.join(System.tmp_dir!(), uid("roster") <> ".toml")
@@ -112,15 +129,20 @@ defmodule Custode.ProfileToolsTest do
   end
 
   test "the caretaker's continuation may define; other routines and sub-agents may not" do
+    refused = tool_error(DefineProfile.execute(define_params("ungated"), routine_frame("keeper")))
+    assert refused =~ "active human-approved roster continuation"
+    refute Map.has_key?(Application.get_env(:custode, :profiles), :ungated)
+
+    grant_roster!("keeper")
     json = tool_json(DefineProfile.execute(define_params("cared"), routine_frame("keeper")))
     assert json["live"] == true
 
     refused = tool_error(DefineProfile.execute(define_params("worked"), routine_frame("worker")))
-    assert refused =~ "only the caretaker writes the roster"
+    assert refused =~ "human operator or caretaker role"
     refute Map.has_key?(Application.get_env(:custode, :profiles), :worked)
 
     refused = tool_error(DefineProfile.execute(define_params("subbed"), sub_frame("helper")))
-    assert refused =~ "sub-agents do not touch the roster"
+    assert refused =~ "temporary agents may not write"
   end
 
   test "define refuses a duplicate name", %{path: _path} do
@@ -146,6 +168,7 @@ defmodule Custode.ProfileToolsTest do
 
   test "the caretaker updates a profile; a worker is refused", %{path: path} do
     tool_json(DefineProfile.execute(define_params("reviewer"), @operator))
+    grant_roster!("keeper")
 
     json =
       tool_json(
@@ -160,7 +183,7 @@ defmodule Custode.ProfileToolsTest do
         UpdateProfile.execute(%{name: "reviewer", model: "haiku"}, routine_frame("worker"))
       )
 
-    assert refused =~ "only the caretaker writes the roster"
+    assert refused =~ "human operator or caretaker role"
   end
 
   test "drop removes an envelope key so nothing overrides it", %{path: _path} do
@@ -190,7 +213,8 @@ defmodule Custode.ProfileToolsTest do
     assert refused =~ "profile_in_use"
 
     {:ok, _} = WriteBack.remove_routine("wearer")
-    json = tool_json(RemoveProfile.execute(%{name: "reviewer"}, @operator))
+    grant_roster!("keeper")
+    json = tool_json(RemoveProfile.execute(%{name: "reviewer"}, routine_frame("keeper")))
     assert json["live"] == true
     refute Map.has_key?(Application.get_env(:custode, :profiles), :reviewer)
   end

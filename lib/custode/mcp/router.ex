@@ -3,7 +3,7 @@ defmodule Custode.MCP.Router do
 
   @behaviour Plug
 
-  alias Custode.MCP.{Identity, MCPEx}
+  alias Custode.MCP.{Capabilities, Identity, MCPEx}
   alias MCP.Transport.Plug, as: MCPPlug
 
   @impl Plug
@@ -50,9 +50,17 @@ defmodule Custode.MCP.Router do
 
   defp dispatch(%Plug.Conn{request_path: path} = conn, catalogs)
        when path in ["/mcp", "/mcp/memory"] do
-    identity = conn.assigns.custode_identity
-    opts = Map.fetch!(catalogs, {path, identity.kind})
-    MCPPlug.call(conn, opts)
+    endpoint = if path == "/mcp", do: :main, else: :memory
+
+    case Capabilities.authorize_endpoint(endpoint, conn.assigns.custode_identity) do
+      :ok ->
+        MCPPlug.call(conn, Map.fetch!(catalogs, path))
+
+      {:error, reason} ->
+        conn
+        |> Plug.Conn.send_resp(403, reason)
+        |> Plug.Conn.halt()
+    end
   end
 
   defp dispatch(conn, _catalogs), do: Plug.Conn.send_resp(conn, 404, "not found")

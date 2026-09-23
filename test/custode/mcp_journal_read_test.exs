@@ -81,9 +81,22 @@ defmodule Custode.MCPJournalReadTest do
 
   test "routines, the caretaker and subagents cannot select a sibling or parent", ctx do
     {:ok, _entry} = Notebook.journal_append(ctx.routine.id, "private journal")
+    sibling_id = uid("sibling")
+
+    put_env!(:routines, [
+      %{
+        id: ctx.routine.id,
+        role: :backlog_worker,
+        cron: :manual,
+        workspace: ctx.workspace,
+        prompt: "x"
+      },
+      %{id: sibling_id, role: :assistant, cron: :manual, workspace: ctx.workspace, prompt: "x"},
+      %{id: "custode", role: :caretaker, cron: :manual, workspace: ctx.workspace, prompt: "x"}
+    ])
 
     clients = [
-      session(Identity.mint(:routine, uid("sibling"))),
+      session(Identity.mint(:routine, sibling_id)),
       session(Identity.mint(:routine, "custode")),
       session(Identity.mint(:sub_agent, uid("sub")), "/mcp/memory")
     ]

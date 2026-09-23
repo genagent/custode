@@ -23,6 +23,7 @@ defmodule Custode.Operator.Actions do
 
   alias Custode.Agents
   alias Custode.Operations.Fleet.PauseAgent
+  alias Custode.Operator.Authority
   alias Custode.Suggestions
   alias Custode.Workflow.Launch
 
@@ -145,18 +146,36 @@ defmodule Custode.Operator.Actions do
 
   @doc "Start a sweep now instead of at the next cron match."
   @spec beat(String.t(), keyword()) :: result()
-  def beat(agent_id, _opts \\ []) do
+  def beat(agent_id, opts \\ []) do
+    case beat_with_job(agent_id, opts) do
+      {:ok, _job_id} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc false
+  @spec beat_with_job(String.t(), keyword()) :: {:ok, integer()} | {:error, term()}
+  def beat_with_job(agent_id, opts \\ []) do
     # `Custode.beat/1` raises for an id with no routine. A subject is not
     # always an agent (a workflow signal, a ghost), and a surface that offers
     # the button anyway must get an error back and not a crash.
-    case Custode.Routine.get(agent_id) do
-      nil ->
-        {:error, :no_routine}
+    with :ok <- Authority.fleet_control(actor(opts)) do
+      case Custode.Routine.get(agent_id) do
+        nil ->
+          {:error, :no_routine}
 
-      _routine ->
-        {:ok, _job_id} = Custode.beat(agent_id)
-        :ok
+        _routine ->
+          Custode.beat(agent_id)
+      end
     end
+  end
+
+  @doc "Drop an inbox note and trigger the recipient's event kickoff."
+  @spec drop_note(String.t(), String.t(), String.t(), keyword()) ::
+          {:ok, String.t()} | {:error, term()}
+  def drop_note(agent_id, name, content, opts \\ []) do
+    with :ok <- Authority.fleet_control(actor(opts)),
+         do: Custode.Inbox.drop(agent_id, name, content)
   end
 
   @doc "Pause one agent, through the operation spine so it is logged (#382)."
@@ -165,7 +184,7 @@ defmodule Custode.Operator.Actions do
     key = Keyword.get_lazy(opts, :idempotency_key, &Ecto.UUID.generate/0)
 
     case PauseAgent.dispatch(agent_id,
-           actor: %{kind: :operator, id: opts |> Keyword.get(:by, "operator") |> to_string()},
+           actor: actor(opts),
            transport: Keyword.get(opts, :via, :liveview),
            idempotency_key: key,
            correlation_id: key
@@ -177,10 +196,12 @@ defmodule Custode.Operator.Actions do
 
   @doc "Resume a paused agent."
   @spec resume(String.t(), keyword()) :: result()
-  def resume(agent_id, _opts \\ []) do
-    case Agents.resume_agent(agent_id) do
-      {:error, reason} -> {:error, reason}
-      _resumed -> :ok
+  def resume(agent_id, opts \\ []) do
+    with :ok <- Authority.fleet_control(actor(opts)) do
+      case Agents.resume_agent(agent_id) do
+        {:error, reason} -> {:error, reason}
+        _resumed -> :ok
+      end
     end
   end
 
@@ -229,9 +250,11 @@ defmodule Custode.Operator.Actions do
   """
   @spec drain(keyword()) :: {:ok, non_neg_integer()} | {:error, String.t()}
   def drain(opts \\ []) do
-    case Custode.start_drain(opts[:timeout_ms], Keyword.delete(opts, :timeout_ms)) do
-      count when is_integer(count) -> {:ok, count}
-      {:error, _reason} = error -> error
+    with :ok <- Authority.human(actor(opts)) do
+      case Custode.start_drain(opts[:timeout_ms], Keyword.delete(opts, :timeout_ms)) do
+        count when is_integer(count) -> {:ok, count}
+        {:error, _reason} = error -> error
+      end
     end
   end
 
@@ -333,10 +356,12 @@ defmodule Custode.Operator.Actions do
   on the way back: the toggle itself counts as an operator action, so the
   reading flips to present and then lapses with the window (#328).
   """
-  @spec set_presence(:away | :auto, keyword()) :: :ok
-  def set_presence(mode, _opts \\ []) when mode in [:away, :auto] do
-    Custode.Presence.set(mode)
-    :ok
+  @spec set_presence(:present | :away | :auto, keyword()) :: :ok | {:error, String.t()}
+  def set_presence(mode, opts \\ []) when mode in [:present, :away, :auto] do
+    with :ok <- Authority.human(actor(opts)) do
+      Custode.Presence.set(mode)
+      :ok
+    end
   end
 
   @doc "Apply a standing advisor suggestion through the roster write-back."
@@ -443,5 +468,11 @@ defmodule Custode.Operator.Actions do
       :reject_launch,
       :resume_run
     ]
+  end
+
+  defp actor(opts) do
+    Keyword.get_lazy(opts, :actor, fn ->
+      %{kind: :operator, id: opts |> Keyword.get(:by, "operator") |> to_string()}
+    end)
   end
 end

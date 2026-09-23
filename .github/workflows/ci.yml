@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: joshrotenberg/mcp_ex
-          ref: bb433998ddaccb9ff0159b6ef149a994b6674e1b
+          ref: 6e357655210f7f146c967f702e46be7f724866d5
           path: .mcp_ex
           ssh-key: ${{ secrets.MCP_EX_DEPLOY_KEY }}
       - name: Point the path deps at the CI checkouts
@@ -76,7 +76,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: joshrotenberg/mcp_ex
-          ref: bb433998ddaccb9ff0159b6ef149a994b6674e1b
+          ref: 6e357655210f7f146c967f702e46be7f724866d5
           path: .mcp_ex
           ssh-key: ${{ secrets.MCP_EX_DEPLOY_KEY }}
       - name: Point the path deps at the CI checkouts

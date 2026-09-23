@@ -16,7 +16,7 @@ The resources describe the work-kernel data model, whose workflow intake is curr
 
 ## Authentication and session setup
 
-Every HTTP request requires `Authorization: Bearer <token>`. The token identifies an operator, routine, or sub-agent. Missing or invalid tokens receive HTTP 401. Tokens expire across a server restart, and issuing a new token for an identity revokes its previous token. Operator clients can use the local operator token file or the `CUSTODE_OPERATOR_TOKEN` environment override; do not put a real token in shared examples or saved discovery output.
+Every HTTP request requires `Authorization: Bearer <token>`. The token identifies an operator, routine, or sub-agent. Missing or invalid tokens receive HTTP 401. The main endpoint admits operator and routine identities; the memory endpoint admits only sub-agents. A valid identity at the wrong endpoint receives HTTP 403. Tokens expire across a server restart, and issuing a new token for an identity revokes its previous token. Operator clients can use the local operator token file or the `CUSTODE_OPERATOR_TOKEN` environment override; do not put a real token in shared examples or saved discovery output.
 
 Start with an `initialize` request, inspect the returned protocol version and capabilities, then send `notifications/initialized`. Retain the returned `mcp-session-id` header for subsequent requests. Clients should accept both `application/json` and `text/event-stream` responses.
 
@@ -39,7 +39,7 @@ Authenticated operator requests may include `x-custode-origin: cli` for audit at
 
 ## Discovery and result envelopes
 
-Discover tools with `tools/list`, fixed resources with `resources/list`, and URI templates with `resources/templates/list`. Follow `nextCursor` when discovery responses include it. Resource discovery returns no resources or templates to routine and sub-agent identities. Main-endpoint tool discovery is not filtered by an agent's configured client allowlist, so discovery alone does not establish permission to execute a tool.
+Discover tools with `tools/list`, fixed resources with `resources/list`, and URI templates with `resources/templates/list`. Follow `nextCursor` when discovery responses include it. Tool discovery is filtered by the authenticated identity's endpoint and current routine role. The generated provider allowlist is a compact projection and can omit low-frequency capabilities that the server authorizes, so clients should still discover before calling. Resource discovery returns no resources or templates to routine identities.
 
 Invoke a tool with its public name and JSON arguments:
 
@@ -75,7 +75,11 @@ The schema is the wire-level argument contract. Some arguments marked optional t
 
 Several notebook and memory tools accept either `routine_id` or `agent_id`. A nonblank `routine_id` takes precedence, followed by `agent_id`, then the authenticated agent's own ID. An operator must provide a target because the operator has no personal agent records. Notebook/memory writes and journal reads enforce self-scope for agents; the operator can target other identities. Other reads such as `recall`, `todo_list`, and `inbox_list` deliberately allow reading another agent's records.
 
-Each entry distinguishes intended usage from implemented access checks. A tool's category, presence in discovery, or absence from a client-side allowlist is not a substitute for a server-side authorization check. Some tools enforce operator identity, caretaker role, target ownership, repository policy, or approved action grants; these are documented individually. Do not assume one blanket access rule covers all write tools.
+Each entry distinguishes endpoint and role capability checks from narrower operation checks. The server filters discovery and refuses blind calls outside the caller's capability set. Tool handlers and shared operations separately enforce target ownership, repository policy, approved grants, and human-only decisions; these are documented individually. A descriptive category or client-side allowlist is not a substitute for either server-side layer.
+
+The maintained [authorization matrix](authorization.md) maps identities and
+endpoints to intended authority, records current enforcement gaps, and defines
+the target server-side boundary.
 
 Resource URI variables are required opaque strings. Percent-encode each path segment and do not infer an ID format or construct cursors. Resource reads do not accept query parameters. List pages contain up to 25 items, a versioned `contract`, pagination metadata, and navigation links. Follow `page.next_uri` until null. Cursors are scoped to their collection; they are continuation handles, not a stable snapshot of changing data.
 
@@ -214,7 +218,7 @@ Add a routine to the configuration and live roster.
 
 **Side effects:** Appends configuration, reloads the live roster and records a feed entry. The routine becomes beatable immediately and eligible for scheduling. Also mints credentials, writes the routine MCP config, initializes its workspace and starts repository service when configured.
 
-**Access:** Authenticated operator or a configured routine whose role is caretaker. Other routines and sub-agents are refused. The tool does not independently verify an approval grant.
+**Access:** Main endpoint capability: operator or caretaker routine. A human operator may write directly; a caretaker must also have a live human-approved continuation whose action class is roster. Specialists and temporary agents are refused before configuration changes.
 
 **Behavior, defaults and errors:** id is required. provider is claude or codex and defaults to claude. Intended flow is preview, human approval, then add. The tool's current external-tag policy check allows the write; it does not impose a separate human-only restriction. No idempotency key; duplicate IDs are validated by the configuration writer.
 
@@ -233,7 +237,7 @@ Read the recent tail of an agent event history.
 
 **Side effects:** None.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may read history only for a temporary agent whose durable spawn record names it as parent; the operator may read any target. Missing or reconciled records do not widen access.
 
 **Behavior, defaults and errors:** last defaults to 20. The tool takes the final N history entries and renders each as printable diagnostic text with a 200-character printable-value limit. Entries are not a stable typed event protocol; no positive bound on last is declared here.
 
@@ -251,7 +255,7 @@ Inspect one agent and its current session.
 
 **Side effects:** None; reads agent lifecycle and session information.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may inspect only a temporary agent whose durable spawn record names it as parent; the operator may inspect any target. Missing or reconciled records do not widen access.
 
 **Behavior, defaults and errors:** agent_id is required. detail is diagnostic text and can carry pending gate information; no structured action object is guaranteed.
 
@@ -270,7 +274,7 @@ Answer a non-blocking question and notify its agent.
 
 **Side effects:** Closes an open ask, records the answer and feed event, and attempts best-effort delivery as a routine inbox note.
 
-**Access:** Authenticated operator only; agent callers are refused at the tool.
+**Access:** Main endpoint capability: human operator only. Routines and temporary agents are refused. The handler repeats the human-operator check.
 
 **Behavior, defaults and errors:** ask_id and a nonblank answer are required. Missing or already-resolved asks produce a tool error. An identity without a configured routine still has its ask closed even though no inbox delivery is possible; success is not a recipient-processing receipt.
 
@@ -289,7 +293,7 @@ Approve an agent action awaiting a decision.
 
 **Side effects:** Resolves an approval gate and starts its approved continuation; records decision actor and transport.
 
-**Access:** A routine caller is refused when the target is another configured routine, including itself. Operators pass. The guard does not verify parent ownership for non-routine targets.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may approve only a temporary agent whose durable spawn record names it as parent and may never decide a configured routine's gate. The operator may override target scope. Missing or reconciled records do not widen access.
 
 **Behavior, defaults and errors:** agent_id and action_id are required. Obtain the current action ID from status/await/gates. Success means the continuation is processing, not that work completed. Failed/stale decisions return 'approve failed'. Retrying must account for changed gate state.
 
@@ -311,7 +315,7 @@ Ask a non-blocking question whose answer will arrive later.
 
 **Side effects:** Stores an open question for the operator without pausing the current turn. A future answer arrives as an inbox note.
 
-**Access:** Authenticated agents may write only their own records; the operator may name any identity.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Authenticated agents may write only their own records; the operator may name any identity.
 
 **Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. question is runtime-required despite not being schema-required. detail is optional. Suggested replies are trimmed, deduplicated, limited to 3, and blank or over-120-character replies are discarded. The configured open-ask cap defaults to 2 per identity. This is not permission approval. Retrying can create another ask until the cap is reached.
 
@@ -330,7 +334,7 @@ Wait for an agent to become idle, blocked, paused or offline.
 
 **Side effects:** None; blocks the request while waiting.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may await only a temporary agent whose durable spawn record names it as parent; the operator may await any target. Missing or reconciled records do not widen access.
 
 **Behavior, defaults and errors:** timeout_ms defaults to 60000 and is capped at 180000; no lower bound is enforced here. Settled states include idle, awaiting_permission, waiting_for_user, paused and offline. A timeout returns current state with timed_out=true rather than a tool error. last_result can belong to an earlier turn; neither settled state nor this result is a per-request completion guarantee.
 
@@ -348,7 +352,7 @@ Schedule an immediate sweep of a configured routine.
 
 **Side effects:** Queues an out-of-schedule routine sweep through the usual lifecycle policy, potentially starting an offline agent.
 
-**Access:** Intended operator tool; routine exposure is restricted, but this tool does not itself enforce operator identity.
+**Access:** Main endpoint capability: operator or caretaker routine. The shared operator action repeats that boundary, so specialists, temporary agents and alternate clients are refused before a tick is queued.
 
 **Behavior, defaults and errors:** agent_id is required and must be a known routine. Success reports scheduling, not run admission or completion. Busy/paused/lifecycle policy can still affect execution. No idempotency key is exposed.
 
@@ -368,7 +372,7 @@ Replace the live journal view with an authored summary.
 
 **Side effects:** Marks all currently live entries compacted and inserts a new summary in one transaction; regenerates views and notifies. Originals remain temporarily readable until retirement.
 
-**Access:** Authenticated agents may write only their own records; the operator may name any identity.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Authenticated agents may write only their own records; the operator may name any identity.
 
 **Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. summary is runtime-required despite optional discovery schema. This is an authored distillation, not automatic summarization. Repeating it creates another summary and compacts the previous summary too.
 
@@ -410,7 +414,7 @@ Create a reusable routine profile.
 
 **Side effects:** Writes a profile, reloads the roster and records a feed entry. Routines can inherit it immediately.
 
-**Access:** Authenticated operator or a configured routine whose role is caretaker. Other routines and sub-agents are refused. The tool does not independently verify an approval grant.
+**Access:** Main endpoint capability: operator or caretaker routine. A human operator may write directly; a caretaker must also have a live human-approved continuation whose action class is roster. Specialists and temporary agents are refused before configuration changes.
 
 **Behavior, defaults and errors:** name is required. provider is claude or codex and becomes the default provider for wearers. Intended flow requires preview and human approval of dangerous grants. approve_bypass_permissions=false is omitted. No restart is required for configuration reload; this is not a runtime permission revocation protocol for an in-flight turn.
 
@@ -429,7 +433,7 @@ Summarize fleet activity over a recent window.
 
 **Side effects:** None.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** days defaults to 1 at the MCP boundary and must be a positive integer for the underlying builder, despite no schema range. The window is based on UTC days. markdown defaults false. Summary includes observed records, not a guarantee of exhaustive external activity.
 
@@ -448,7 +452,7 @@ Close a non-blocking question without sending an answer.
 
 **Side effects:** Closes an open ask and records an optional reason without answering it or sending an inbox note.
 
-**Access:** Authenticated operator only; agent callers are refused at the tool.
+**Access:** Main endpoint capability: human operator only. Routines and temporary agents are refused. The handler repeats the human-operator check.
 
 **Behavior, defaults and errors:** ask_id is required. reason is optional. Missing or already-resolved asks produce a tool error. This is not the rejection of an approval gate.
 
@@ -466,7 +470,7 @@ Stop admitting work and shut down after executing jobs finish.
 
 **Side effects:** Closes work admission, pauses execution queues and begins a background wait. Stops the server after executing jobs finish; a timeout leaves queues paused and emits a feed event.
 
-**Access:** Authenticated operator only; routine and sub-agent callers are refused at the tool.
+**Access:** Main endpoint capability: human operator only. The shared operator action repeats the human-only boundary and refuses every routine and temporary agent before pausing queues.
 
 **Behavior, defaults and errors:** timeout_ms is optional; omission means unbounded waiting. The response confirms drain admission, not server shutdown. Existing executing jobs may continue. Observe feed/executing_turns for progress. On timeout, queue resumption is a separate recovery action, not automatic.
 
@@ -486,7 +490,7 @@ Write a routine inbox note and trigger its note-arrival policy.
 
 **Side effects:** Writes a routine inbox note and triggers its debounced on_note event policy, which can cause a sweep. Records an inbox feed event.
 
-**Access:** Intended operator tool; routine exposure is restricted, but this tool does not itself enforce operator identity.
+**Access:** Main endpoint capability: operator or caretaker routine. The shared operator action repeats that boundary, so specialists, temporary agents and alternate clients are refused before a note is written.
 
 **Behavior, defaults and errors:** agent_id and content are required. name defaults to note-&lt;UTC timestamp to seconds&gt;.md. File writing and kickoff are part of this operation; a raw file write is not equivalent. Reusing a name can overwrite the same path; there is no dedicated idempotency key. The current name input is joined to the inbox path without a basename check; callers should pass a simple filename. Kickoff failure is logged and does not turn a successful file write into a tool error.
 
@@ -502,7 +506,7 @@ Read the currently executing job inventory used by drain.
 
 **Side effects:** None.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** No arguments. The current query returns all jobs whose state is executing, not only jobs positively identified as agent turns. It is the drain's current job inventory, not an agent-to-turn correlation API.
 
@@ -521,7 +525,7 @@ Read recent fleet activity feed entries.
 
 **Side effects:** None.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** agent_id optionally filters; n defaults to 20 with no declared positive range. Feed records are event-specific and can carry different fields.
 
@@ -541,7 +545,7 @@ Delete a persistent fact by key.
 
 **Side effects:** Deletes persistent memory for the identity/key.
 
-**Access:** Authenticated agents may write only their own records; the operator may name any identity. Also on the memory endpoint.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine; memory endpoint capability: temporary agent. Authenticated agents may write only their own records; the operator may name any identity.
 
 **Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. key is runtime-required despite optional discovery schema. Deleting an absent key is successful. There is no undo or returned previous value.
 
@@ -560,7 +564,7 @@ Read unfiled notes in a configured routine inbox.
 
 **Side effects:** None; reads file-based inbox notes.
 
-**Access:** Any authenticated caller reaching this tool may read another configured routine's notes by ID; no self-only read guard.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Any authenticated caller reaching this tool may read another configured routine's notes by ID; no self-only read guard.
 
 **Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. Target must be a configured routine. Only inbox/*.md notes whose content does not begin FILED are returned. Distinct from list_inbox, which is the operator attention inbox.
 
@@ -580,7 +584,7 @@ Mark an inbox note as already incorporated.
 
 **Side effects:** Prepends a FILED date marker to an existing inbox note. Does not append journal content automatically.
 
-**Access:** Authenticated agents may write only their own records; the operator may name any identity.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Authenticated agents may write only their own records; the operator may name any identity.
 
 **Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. name is runtime-required, must be a filename rather than a path, and must exist in the routine inbox. Caller is expected to journal relevant content first. An existing FILED prefix makes retry a no-op. Unknown routine, invalid name and file errors become tool errors.
 
@@ -601,7 +605,7 @@ Append a persistent journal entry.
 
 **Side effects:** Inserts a journal entry, regenerates journal.md/TODO.md views for a configured routine and notifies the dashboard. Database is the source of truth.
 
-**Access:** Authenticated agents may write only their own records; the operator may name any identity.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Authenticated agents may write only their own records; the operator may name any identity.
 
 **Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. body is runtime-required despite optional discovery schema; title is optional. Entries use source='sweep'. Retrying appends another entry, so this is not idempotent.
 
@@ -623,7 +627,7 @@ Read recent entries from the caller journal.
 
 **Side effects:** None.
 
-**Access:** Authenticated agents may read only their own journal; the operator may name another identity. Also on the memory endpoint.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine; memory endpoint capability: temporary agent. Authenticated agents may read only their own journal; the operator may name another identity.
 
 **Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. limit defaults to 20 and must be an integer from 1 through 100. search is case-insensitive in title/body. live_only defaults true; false includes compacted entries until retired. Newest first, tie-broken by ID. Empty results are successful.
 
@@ -641,7 +645,7 @@ Compare advisor activity, recorded outcomes and cost.
 
 **Side effects:** None.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** days defaults to 30 through the advisor reader. No positive range is declared. grade distinguishes deterministic, judgment and unknown; records summarize proposal outcomes and cost.
 
@@ -659,7 +663,7 @@ List open non-blocking questions for the operator.
 
 **Side effects:** None.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** agent_id optionally filters. Only open questions, oldest first. The response currently omits suggested replies even though ask_operator accepts them. Distinct from blocking approval/question gates.
 
@@ -677,7 +681,7 @@ Read the fleet attention ranking grouped by need.
 
 **Side effects:** None.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** group optionally filters needs_you, watching, working, scheduled or quiet. Unknown group values return no matching groups rather than a validation error. Signal order is the fleet's current attention ranking.
 
@@ -695,7 +699,7 @@ List pull requests the fleet has disowned.
 
 **Side effects:** None.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** repo optionally filters records. Newest first. No limit or pagination input.
 
@@ -714,7 +718,7 @@ Read recent blocking questions and approval gates.
 
 **Side effects:** None.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** status optionally filters open, resolved, requeued or orphaned; omission includes recent gates generally. limit defaults to 20 without a schema bound. Newest first. Use action_id, not the database row ID, for approve_action/reject_action. Eligible ready_pr and merge gates enqueue a sealed review by the other provider family. Reviews are reused for an unchanged PR head and capped at three rounds per PR by default.
 
@@ -732,7 +736,7 @@ Read what the fleet has raised to the operator.
 
 **Side effects:** None; this read does not advance the operator's last-read timestamp.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** unread_only defaults false. This is the operator attention inbox, distinct from inbox_list, which reads a routine's file-based notes. Action descriptors are not a promise that each action already has a same-named MCP tool.
 
@@ -750,7 +754,7 @@ Read declared policies for the fleet or a routine.
 
 **Side effects:** None.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** agent_id optionally selects policies binding a known routine. A missing or unknown ID currently returns all policies rather than an unknown-routine error.
 
@@ -766,7 +770,7 @@ Read role definitions, hierarchy and default grants.
 
 **Side effects:** None.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** No arguments. The role registry describes purpose, hierarchy, watch/write scope and default tool bundle. Tool exposure is separate from tool-specific runtime authorization.
 
@@ -782,7 +786,7 @@ List configured routines and their current status.
 
 **Side effects:** None; reads configured routines and live lifecycle status.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** No arguments. Paths are expanded absolute paths. status is diagnostic text, not a portable structured lifecycle enum.
 
@@ -800,7 +804,7 @@ Read what became of decisions about advisor proposals.
 
 **Side effects:** None.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** days defaults to 30 through the outcome reader. It is a trailing seconds-based window when supplied. No positive range is declared. Status describes recorded outcomes rather than proving that a proposal improved results.
 
@@ -816,7 +820,7 @@ Read standing proposals from fleet advisors.
 
 **Side effects:** None.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** No arguments. Reports unresolved proposals, not an apply/dismiss API. Proposal records can include advisor-specific fields.
 
@@ -832,7 +836,7 @@ Read the workflow catalog without launching work.
 
 **Side effects:** None; reads the catalog only.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** No arguments. Does not launch workflows. Catalog availability must not be interpreted as an exposed MCP launch operation or as reactivating the frozen work kernel.
 
@@ -851,7 +855,7 @@ Read one category of fleet measurements.
 
 **Side effects:** None.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** kind is required and runtime-validated against spend, turns, gate_latency, by_model, gate_outcomes and prs_opened. days defaults to 7. gate_latency always reads the 15 most recent non-open gates and does not apply days; its empty result is gates=[] and median_minutes=0. Positive day bounds are not declared.
 
@@ -870,7 +874,7 @@ Emergency-pause an agent until it is resumed.
 
 **Side effects:** Requests an emergency pause, records the operation and its audit event. Resume is a separate operation.
 
-**Access:** Authenticated operator only, enforced by the shared operation authorization.
+**Access:** Main endpoint capability: operator or caretaker routine. The registered shared operation repeats that boundary and refuses specialists and temporary agents.
 
 **Behavior, defaults and errors:** agent_id is required. idempotency_key is optional at the MCP boundary; omission generates a new key. Reuse one key when retrying the same logical pause. Do not assume the response reverses already completed file or remote effects.
 
@@ -912,7 +916,7 @@ Preview a reusable routine profile and its permissions.
 
 **Side effects:** None; validates and renders a profile preview.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** name is required. provider is claude or codex. The four approve_* inputs are a deliberately narrow Claude permission/model/worktree override surface; Codex profiles use the provider's default approved continuation arguments unless approved_args are authored in configuration. approve_bypass_permissions=false is omitted, not an explicit removal operation.
 
@@ -955,7 +959,7 @@ Preview edits to a reusable routine profile.
 
 **Side effects:** None; validates and previews the existing profile change.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** name is required. provider is claude or codex. Omitted envelope fields remain unchanged; lists replace; drop removes named envelope keys and wins over supplied values. approve_* inputs build the Claude approved_args envelope; false bypass does not remove an existing grant. Inspect the preview when altering these grants. Supplying any approve_* values replaces the approved_args envelope rather than merging individual nested keys.
 
@@ -994,7 +998,7 @@ Preview the configuration for a new routine.
 
 **Side effects:** None; renders a preview without creating or scheduling a routine.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** id is required. provider is claude or codex and defaults to claude. This creation preview checks effort but is not the complete write-time validation. Unknown profile/role values can be reported as 'unknown profile'. The workspace default is workspaces/&lt;id&gt;; profile and fleet defaults supply omitted settings.
 
@@ -1034,7 +1038,7 @@ Preview a change to an existing routine.
 
 **Side effects:** None; validates and previews an existing routine edit.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** id is required. provider is claude or codex. Omitted fields are unchanged; drop removes named overrides so inherited values can apply. Lists replace existing lists. Conflicting drop and supplied values resolve to removal. The routine ID is immutable.
 
@@ -1053,7 +1057,7 @@ Send work or an answer to an agent.
 
 **Side effects:** Sends or queues work. For an operator, can resume a paused agent or start an offline configured routine and records activity.
 
-**Access:** Operators use the shared operator-message action. Agent callers use direct delegation; this tool does not check parent ownership of the target.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may prompt only a temporary agent whose durable spawn record names it as parent; the operator may message any target through the shared operator action. Missing or reconciled records do not widen access.
 
 **Behavior, defaults and errors:** agent_id and prompt are required. Waiting-for-user input answers the question; busy input queues. Operator how='started' means a startup tick was queued, not that execution began. The agent path reports how='delivered' after a cast is accepted; this is not a delivery receipt and paused delegation can be dropped. No idempotency key; retry can submit duplicate input.
 
@@ -1074,7 +1078,7 @@ Provision a routine-owned clone at its deterministic Custode path.
 
 **Side effects:** May create the checkouts parent directory and clone the named GitHub repository through host gh authentication into the deterministic checkouts/&lt;routine_id&gt; path. Records one OperationCall and a typed filesystem effect. Dry run records an OperationCall but changes no files.
 
-**Access:** Authenticated operator or a configured caretaker routine with the operator grant. Other routines and sub-agents are refused by shared operation authorization.
+**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The shared operation repeats this role check.
 
 **Behavior, defaults and errors:** routine_id and repository owner/name are required; provisioning may run before the roster entry exists. Existing matching clones are idempotent success. Occupied, mismatched, unsafe, or unsuccessfully cloned destinations are preserved and return structured errors. Supply a stable idempotency_key when retrying one logical request.
 
@@ -1094,7 +1098,7 @@ Read one or all persistent facts for an identity.
 
 **Side effects:** None.
 
-**Access:** Any authenticated caller reaching this tool may read another identity's memories by ID. Also on the memory endpoint; no self-only read guard.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine; memory endpoint capability: temporary agent. Any authenticated caller reaching this tool may read another identity's memories by ID. No self-only read guard.
 
 **Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. key is optional; omission returns all memory. A missing requested key is a tool error ('nothing remembered under ...'), not a null result. The endpoint's small tool set does not imply memory reads are self-only. Full-memory results are sorted by key.
 
@@ -1114,7 +1118,7 @@ Safely refresh a configured routine-owned checkout.
 
 **Side effects:** For a configured routine using its deterministic owned checkout, may fetch origin and fast-forward the clean checked-out default branch. Records one OperationCall and a typed filesystem effect. Dry run records an OperationCall but performs no Git command.
 
-**Access:** Authenticated operator or a configured caretaker routine with the operator grant. Other routines and sub-agents are refused by shared operation authorization.
+**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The shared operation repeats this role check.
 
 **Behavior, defaults and errors:** routine_id is required. Existing-checkout routines are refused. The routine must be offline or idle; dirty, detached, non-default, ahead, divergent, mismatched, or unavailable checkouts are preserved and return structured errors. Command output and origin credentials are never returned. Supply a stable idempotency_key when retrying.
 
@@ -1135,7 +1139,7 @@ Reject an agent action and optionally give feedback.
 
 **Side effects:** Rejects the pending action, returns the target to idle, and records rejection feedback; feedback is standing by default.
 
-**Access:** Same target guard as approve_action: routine callers cannot decide configured-routine gates; non-routine target ownership is not checked here.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may reject only a temporary agent whose durable spawn record names it as parent and may never decide a configured routine's gate. The operator may override target scope. Missing or reconciled records do not widen access.
 
 **Behavior, defaults and errors:** agent_id and action_id are required. reason is optional. one_off=true makes feedback proposal-specific; omission or false makes it standing. A stale or failed decision returns 'reject failed'.
 
@@ -1156,7 +1160,7 @@ Save or replace a persistent fact by key.
 
 **Side effects:** Upserts persistent memory by identity plus key, replacing any old value.
 
-**Access:** Authenticated agents may write only their own records; the operator may name any identity. Also on the memory endpoint.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine; memory endpoint capability: temporary agent. Authenticated agents may write only their own records; the operator may name any identity.
 
 **Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. key and value are runtime-required despite optional discovery schema. Kebab-case is descriptive guidance, not a schema pattern. Repeating the same key/value is logically idempotent; another value replaces the previous fact.
 
@@ -1174,7 +1178,7 @@ Remove a profile that no routine currently uses.
 
 **Side effects:** Removes a profile, reloads the roster and records a feed entry.
 
-**Access:** Authenticated operator or a configured routine whose role is caretaker. Other routines and sub-agents are refused. The tool does not independently verify an approval grant.
+**Access:** Main endpoint capability: operator or caretaker routine. A human operator may write directly; a caretaker must also have a live human-approved continuation whose action class is roster. Specialists and temporary agents are refused before configuration changes.
 
 **Behavior, defaults and errors:** name is required. Refused while any configured routine still uses the profile; reassign those routines first. Does not remove routine notebooks or workspaces.
 
@@ -1192,7 +1196,7 @@ Remove a routine and stop its live agent.
 
 **Side effects:** Removes the routine configuration, reloads the roster, stops its live agent and records a feed entry. Notebook and workspace records remain.
 
-**Access:** Authenticated operator or a configured routine whose role is caretaker. Other routines and sub-agents are refused. The tool does not independently verify an approval grant.
+**Access:** Main endpoint capability: operator or caretaker routine. A human operator may write directly; a caretaker must also have a live human-approved continuation whose action class is roster. Specialists and temporary agents are refused before configuration changes.
 
 **Behavior, defaults and errors:** id is required. Removal also applies to external-tagged routines. It is not deletion of the routine's history or files; a later repeated removal may be refused as unknown. Sensors that target the removed ID remain configured for later cleanup.
 
@@ -1212,7 +1216,7 @@ Post a comment on an issue or pull request.
 
 **Side effects:** Posts a GitHub issue/PR comment and records repository-write activity.
 
-**Access:** Full endpoint, served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
 
 **Behavior, defaults and errors:** repo, number and body are required. Each successful repeat can create another comment; there is no deduplication key.
 
@@ -1232,7 +1236,7 @@ Record that a pull request is outside the fleet work being handled.
 
 **Side effects:** Creates a local disownment record, changing how failing PR checks reach the operator. No GitHub write.
 
-**Access:** Uses the authenticated caller ID as author. The tool does not verify that the caller owns or serves the repository.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Uses the authenticated caller ID as author. The tool does not verify that the caller owns or serves the repository.
 
 **Behavior, defaults and errors:** repo and number are required; reason is optional. Idempotent by repo+number: an existing record preserves its original author and reason. A repeated call cannot revise those fields.
 
@@ -1253,7 +1257,7 @@ Prepare a local batch of issues for operator review.
 
 **Side effects:** Stores a local batch of proposed issues. Does not write GitHub and does not itself create an approval gate.
 
-**Access:** Authenticated agents may write only their own records; the operator may name any identity.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Authenticated agents may write only their own records; the operator may name any identity.
 
 **Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. repo and issues are schema-required. Batch size is 1 through 25; every title must be nonblank, and each body is at most 20000 bytes. A retry creates another batch. Raise one permission gate naming the returned batch before filing it.
 
@@ -1273,7 +1277,7 @@ File the kept issues from a reviewed local batch.
 
 **Side effects:** Creates GitHub issues for still-drafted entries, updates each local entry status and records a feed summary. Individual failure does not stop the remainder.
 
-**Access:** Authenticated agents may write only their own records; the operator may name any identity. The file_drafts grant check also applies, and each remote issue creation uses served-repository policy.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Authenticated agents may write only their own records; the operator may name any identity. The file_drafts grant check also applies, and each remote issue creation uses served-repository policy.
 
 **Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. batch_id is required. Unknown or foreign batches fail. Already-filed and already-failed entries are skipped on subsequent calls; results describe newly filed/failed entries plus dropped entries, not the full batch history. This is retry-safe for recorded completion, not a guarantee against an uncertain remote write before local persistence.
 
@@ -1292,7 +1296,7 @@ List issues the fleet should consider in a served repository.
 
 **Side effects:** None; fetches GitHub issue data.
 
-**Access:** Full endpoint; repository must be served by a configured routine. No caller ownership check or write-grant check. Reads do not emit repository-write feed entries.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Repository must be served by a configured routine. No caller ownership check or write-grant check. Reads do not emit repository-write feed entries.
 
 **Behavior, defaults and errors:** repo is required. state defaults to open; documented values are open, closed and all but are not schema enums. Issues are oldest-created first; PRs and ignore-labeled issues are removed. Ignore label defaults to custode:ignore. No pagination controls are exposed, so do not infer exhaustive results beyond upstream page behavior.
 
@@ -1311,7 +1315,7 @@ List pull requests in a served repository.
 
 **Side effects:** None; fetches GitHub pull-request data.
 
-**Access:** Full endpoint; repository must be served by a configured routine. No caller ownership check or write-grant check. Reads do not emit repository-write feed entries.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Repository must be served by a configured routine. No caller ownership check or write-grant check. Reads do not emit repository-write feed entries.
 
 **Behavior, defaults and errors:** repo is required. state defaults to open; documented values are open, closed and all without a schema enum. Oldest-created first. No pagination controls are exposed. GitHub mergeability fields may be null while computed.
 
@@ -1331,7 +1335,7 @@ Post an issue blockage marker with its reason.
 
 **Side effects:** Posts 'blocked: &lt;reason&gt;' to the GitHub issue and records repository-write activity. Does not set an issue label.
 
-**Access:** Full endpoint, served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
 
 **Behavior, defaults and errors:** repo, number and reason are required. Uses mark_issue, outside every bounded approval class; enforce mode therefore requires an unbounded grant. Repeats create additional comments.
 
@@ -1351,7 +1355,7 @@ Post an issue readiness marker with its plan.
 
 **Side effects:** Posts 'ready: &lt;plan&gt;' to the GitHub issue and records repository-write activity. Does not set an issue label.
 
-**Access:** Full endpoint, served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
 
 **Behavior, defaults and errors:** repo, number and plan are required. Uses the mark_issue grant verb, which belongs to no bounded approval class; enforce mode therefore requires an unbounded grant. Repeats create additional comments.
 
@@ -1370,7 +1374,7 @@ Request a pull-request merge subject to repository policy.
 
 **Side effects:** Requests a GitHub merge and records repository-write activity if repository policy and the review floor permit it.
 
-**Access:** Full endpoint, served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
 
 **Behavior, defaults and errors:** repo and number are required. Shipped manual merge policy normally refuses this tool. Review evidence is also required, and a latest needs-human marker blocks it. This tool does not accept an expected head SHA or expose the separate head-checked merge-gate path.
 
@@ -1391,7 +1395,7 @@ Create an issue in a served repository.
 
 **Side effects:** Creates a GitHub issue with optional labels and records repository-write activity.
 
-**Access:** Full endpoint, served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
 
 **Behavior, defaults and errors:** repo and title are required. body defaults to empty; labels pass through. Conventional title policy is checked. No idempotency key; an uncertain response can require checking GitHub before retry.
 
@@ -1413,7 +1417,7 @@ Create a draft pull request in a served repository.
 
 **Side effects:** Creates a GitHub pull request, always as a draft, and records repository-write activity.
 
-**Access:** Full endpoint, served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
 
 **Behavior, defaults and errors:** repo, title and head are required. base defaults to main; body defaults to empty. Conventional title policy is checked. Does not create or push the head branch. No idempotency key; do not blindly retry after an uncertain remote result.
 
@@ -1432,7 +1436,7 @@ Read check runs for the current pull-request head.
 
 **Side effects:** None; fetches the current PR head and its GitHub check runs.
 
-**Access:** Full endpoint; repository must be served by a configured routine. No caller ownership check or write-grant check. Reads do not emit repository-write feed entries.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Repository must be served by a configured routine. No caller ownership check or write-grant check. Reads do not emit repository-write feed entries.
 
 **Behavior, defaults and errors:** repo and number are required. sha identifies the head observed by this call. This is check-run data, not a promise to aggregate every GitHub status-context mechanism; pagination controls are not exposed.
 
@@ -1451,7 +1455,7 @@ Read changed-file metadata and patches for a pull request.
 
 **Side effects:** None; fetches changed-file metadata and patches from GitHub.
 
-**Access:** Full endpoint; repository must be served by a configured routine. No caller ownership check or write-grant check. Reads do not emit repository-write feed entries.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Repository must be served by a configured routine. No caller ownership check or write-grant check. Reads do not emit repository-write feed entries.
 
 **Behavior, defaults and errors:** repo and number are required. previous_filename and patch may be null or absent upstream, including binary/large changes. No pagination controls are exposed; it is not a guaranteed complete local diff.
 
@@ -1470,7 +1474,7 @@ Mark a draft pull request ready for review.
 
 **Side effects:** Changes a GitHub draft PR to ready for review and records repository-write activity.
 
-**Access:** Full endpoint, served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
 
 **Behavior, defaults and errors:** repo and number are required. Uses GitHub's ready-for-review operation; this is not a merge or an approval review. Remote refusal is a tool error.
 
@@ -1489,7 +1493,7 @@ Remove a pull-request disownment.
 
 **Side effects:** Deletes the local disownment record so future failing-check attention returns to normal fleet handling. No GitHub write.
 
-**Access:** No caller/owner check in the current tool: reclaim is keyed globally by repo+number, despite the self-write policy classification.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. No caller/owner check in the current tool: reclaim is keyed globally by repo+number, despite the self-write policy classification.
 
 **Behavior, defaults and errors:** repo and number are required. Missing disownment is an error ('was not disowned'), so a completed repeat is not a successful no-op.
 
@@ -1510,7 +1514,7 @@ Record a review marker used by the merge policy.
 
 **Side effects:** Posts a 'review: &lt;verdict&gt; -- &lt;body&gt;' GitHub comment used by Custode's merge review floor. Does not submit a formal GitHub review.
 
-**Access:** Full endpoint, served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
 
 **Behavior, defaults and errors:** repo, number, verdict and body are required. Schema prose suggests lgtm or needs-human, but the implementation accepts other verdict strings. Exact needs-human blocks merging until superseded by later qualifying review evidence; other marker text counts as reviewed. Repeats create comments.
 
@@ -1529,7 +1533,7 @@ Read one issue and its comments.
 
 **Side effects:** None; fetches GitHub issue and comments.
 
-**Access:** Full endpoint; repository must be served by a configured routine. No caller ownership check or write-grant check. Reads do not emit repository-write feed entries.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Repository must be served by a configured routine. No caller ownership check or write-grant check. Reads do not emit repository-write feed entries.
 
 **Behavior, defaults and errors:** repo and number are required. Ignore-label filtering does not apply to an explicit issue read. Comment pagination is not exposed.
 
@@ -1548,7 +1552,7 @@ Read one pull request and its current branch information.
 
 **Side effects:** None; fetches a GitHub pull request.
 
-**Access:** Full endpoint; repository must be served by a configured routine. No caller ownership check or write-grant check. Reads do not emit repository-write feed entries.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Repository must be served by a configured routine. No caller ownership check or write-grant check. Reads do not emit repository-write feed entries.
 
 **Behavior, defaults and errors:** repo and number are required. This result does not include reviews, comments or checks; obtain checks/diff separately. Mergeability fields may be null.
 
@@ -1566,7 +1570,7 @@ Resume a paused agent.
 
 **Side effects:** Resumes a paused agent, including an operator override of a budget pause.
 
-**Access:** Intended operator tool; routine exposure is restricted, but this tool does not itself enforce operator identity.
+**Access:** Main endpoint capability: operator or caretaker routine. The shared operator action repeats that boundary, so specialists, temporary agents and alternate clients are refused before agent state changes.
 
 **Behavior, defaults and errors:** agent_id is required. Failed transitions return 'resume failed'. It does not increase budget settings or undo effects from before the pause.
 
@@ -1590,7 +1594,7 @@ Queue a bounded one-shot task with an inbox completion report.
 
 **Side effects:** Enqueues a one-shot Claude run that can edit files, spend model budget, and write a completion note. Elevated jobs have full shell/Git/GitHub permissions.
 
-**Access:** Full endpoint; no operator, ownership or approval-grant check inside this tool. elevated is documented for already approved work, but that precondition is not checked here.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. No ownership or approval-grant check inside this tool. elevated is documented for already approved work, but that precondition is not checked here.
 
 **Behavior, defaults and errors:** prompt and report_inbox are required; report_inbox and any workspace must already be directories. model and max_budget_usd default to configuration; tag defaults to 'job'. Runs have 15 agentic turns and a 200000 ms timeout, or 900000 ms when elevated. Acceptance is asynchronous and not idempotent. Final report requires status and summary, with optional artifacts array and cost_note.
 
@@ -1611,7 +1615,7 @@ Request a bounded one-shot change to the next scheduled sweep.
 
 **Side effects:** Upserts a one-shot scheduling request and records a feed entry. Cron beats are skipped until the requested due time; a started turn clears it.
 
-**Access:** Authenticated agents may write only their own records; the operator may name any identity.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Authenticated agents may write only their own records; the operator may name any identity.
 
 **Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. minutes and reason are runtime-required. minutes must be an integer and is clamped to configured bounds, default 5 through 1440. The reply reports the granted time. Operator messages, sensors, inbox events, immediate beats or approvals can start work sooner and clear it. Scheduler availability and other lifecycle rules still apply; this is not an unconditional delivery guarantee. Retrying computes a new deadline relative to the retry time and replaces the previous request.
 
@@ -1631,7 +1635,7 @@ Propose a dashboard panel for a routine.
 
 **Side effects:** Appends a panel version and records a feed event. Approved HTML renders in the dashboard's sandboxed frame.
 
-**Access:** Authenticated agents may write only their own records; the operator may name any identity. Refused when panels are off.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Authenticated agents may write only their own records; the operator may name any identity. Refused when panels are off.
 
 **Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. html is runtime-required. Maximum is 20000 bytes. Gated mode is the default; auto mode approves immediately, so approval is not unconditional. Inline SVG/CSS can render; scripts do not run in the frame. Retrying creates another version.
 
@@ -1649,7 +1653,7 @@ Set or release an operator-presence override.
 
 **Side effects:** Pins operator presence to present/away, or restores automatic inference and records a fresh operator action.
 
-**Access:** Not on routine default allowlists; the tool itself does not enforce operator identity.
+**Access:** Main endpoint capability: human operator only. The shared operator action repeats the human-only boundary and refuses every routine and temporary agent before changing presence.
 
 **Behavior, defaults and errors:** mode is required and runtime-validated as present, away or auto. It influences instructions agents read; it does not itself pause the scheduler or approve work.
 
@@ -1665,7 +1669,7 @@ Read fleet and per-routine spend for the current local day.
 
 **Side effects:** None.
 
-**Access:** Full endpoint; no additional caller-identity check in this tool. Registration and routine tool exposure are separate.
+**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** No arguments. Today starts at midnight in configured fleet timezone, not necessarily UTC. since identifies the counted boundary. Missing cost telemetry must not be inferred from a zero total alone.
 
@@ -1686,7 +1690,7 @@ Start a persistent helper agent in an existing directory.
 
 **Side effects:** Mints sub-agent credentials and writes its MCP config, starts a persistent agent process, and records parent/spawn metadata. Does not submit a prompt.
 
-**Access:** Full endpoint; no target-ownership or operator check in the tool. Spawned agents are configured with the memory endpoint, not delegation tools.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may start a new temporary identity or restart its recorded child, but cannot use a configured routine ID or take over another parent's child. The operator may override target scope. Temporary agents are refused at the endpoint and by the shared delegation check.
 
 **Behavior, defaults and errors:** agent_id and workspace are required. workspace must exist and is expanded to an absolute path. model defaults to configuration. The child has a 240000 ms turn timeout and elevated approved continuations. Retry is not idempotent: credentials/config are written before the start result. Errors include a nonexistent workspace and 'start failed'.
 
@@ -1706,7 +1710,7 @@ Add a persistent todo.
 
 **Side effects:** Inserts an open todo, regenerates notebook views and notifies the dashboard.
 
-**Access:** Authenticated agents may write only their own records; the operator may name any identity.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Authenticated agents may write only their own records; the operator may name any identity.
 
 **Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. text is runtime-required despite optional discovery schema. Retrying adds another todo.
 
@@ -1724,7 +1728,7 @@ Mark an owned todo complete.
 
 **Side effects:** Marks an existing todo done, regenerates notebook views and notifies the dashboard.
 
-**Access:** Looks up the todo owner; agents may complete only their own, while the operator may complete any.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Looks up the todo owner; agents may complete only their own, while the operator may complete any.
 
 **Behavior, defaults and errors:** todo_id is required. Unknown IDs fail with 'no todo #&lt;id&gt;'. Completing an already done todo keeps it done but still performs bookkeeping.
 
@@ -1744,7 +1748,7 @@ Read open, completed or all todos for an identity.
 
 **Side effects:** None.
 
-**Access:** Any authenticated caller reaching this tool may read another identity's todos by ID; no self-only read guard.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Any authenticated caller reaching this tool may read another identity's todos by ID; no self-only read guard.
 
 **Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. status defaults open and is runtime-validated as open, done or all. Oldest todo ID first. No limit input.
 
@@ -1787,7 +1791,7 @@ Change a reusable routine profile.
 
 **Side effects:** Rewrites the profile, reloads the roster and records a feed entry. Routines inheriting it receive the change on their next run. If the effective provider changes, live wearers are stopped on the old provider and restart on their next beat.
 
-**Access:** Authenticated operator or a configured routine whose role is caretaker. Other routines and sub-agents are refused. The tool does not independently verify an approval grant.
+**Access:** Main endpoint capability: operator or caretaker routine. A human operator may write directly; a caretaker must also have a live human-approved continuation whose action class is roster. Specialists and temporary agents are refused before configuration changes.
 
 **Behavior, defaults and errors:** name is required. provider is claude or codex. Omitted fields remain unchanged; drop removes envelope keys, lists replace, and false bypass does not explicitly revoke an existing grant. Preview the resulting approved_args before writing. Supplying any approve_* values replaces the approved_args envelope rather than merging nested keys. Rewriting removes comments inside the edited section.
 
@@ -1827,7 +1831,7 @@ Update an existing routine configuration.
 
 **Side effects:** Rewrites configuration, reloads the live roster and records changed field names in the feed. Updated schedule is used by subsequent scheduler checks. A provider change stops the live agent on the old provider; the next beat starts it on the new provider. A repository change starts service for the new repository and can retire the old service if no longer needed.
 
-**Access:** Authenticated operator or a configured routine whose role is caretaker. Other routines and sub-agents are refused. The tool does not independently verify an approval grant.
+**Access:** Main endpoint capability: operator or caretaker routine. A human operator may write directly; a caretaker must also have a live human-approved continuation whose action class is roster. Specialists and temporary agents are refused before configuration changes.
 
 **Behavior, defaults and errors:** id is required and immutable. provider is claude or codex. Omitted fields stay unchanged; lists replace; drop removes overrides and wins over a supplied value. Preview before applying. This response does not promise changes to an already executing turn. Rewriting removes comments inside the edited configuration section; comments in other sections are preserved.
 

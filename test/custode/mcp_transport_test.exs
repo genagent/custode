@@ -1,11 +1,27 @@
 defmodule Custode.MCPTransportTest do
   use ExUnit.Case, async: false
 
-  import Custode.TestHelpers, only: [uid: 1]
+  import Custode.TestHelpers, only: [put_env!: 2, tmp_workspace!: 0, uid: 1]
 
   alias Custode.MCP.{Identity, MemoryServer, Server, WorkResources}
 
   @versions ["2025-06-18", "2025-11-25"]
+
+  setup do
+    routine_id = uid("mcp-routine")
+
+    put_env!(:routines, [
+      %{
+        id: routine_id,
+        role: :backlog_worker,
+        cron: :manual,
+        workspace: tmp_workspace!(),
+        prompt: "x"
+      }
+    ])
+
+    %{routine_id: routine_id}
+  end
 
   test "initialize-era clients negotiate stateless HTTP without session ids" do
     {:ok, token} = Identity.operator_token()
@@ -20,9 +36,9 @@ defmodule Custode.MCPTransportTest do
     end
   end
 
-  test "identity catalogs preserve full, operator-resource, and memory endpoint isolation" do
+  test "authorization filters operator, routine, and memory catalogs", ctx do
     {:ok, operator} = Identity.operator_token()
-    routine = Identity.mint(:routine, uid("mcp-routine"))
+    routine = Identity.mint(:routine, ctx.routine_id)
     sub_agent = Identity.mint(:sub_agent, uid("mcp-sub"))
     version = "2025-06-18"
 

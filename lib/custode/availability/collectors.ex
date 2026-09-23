@@ -138,7 +138,8 @@ end
 
 defmodule Custode.Availability.Collectors.Claude do
   @moduledoc """
-  Claude availability from Agent SDK rate-limit events (#393).
+  Claude availability from Agent SDK rate-limit events and OAuth usage (#393,
+  #524).
 
   Claude publishes rate-limit state DURING a run rather than through a
   standalone preflight query, so this caches what running Attempts already
@@ -181,6 +182,33 @@ defmodule Custode.Availability.Collectors.Claude do
 
   def observe(_event, _options), do: {:error, :invalid_rate_limit_event}
 
+  @doc "Record one response from Claude's OAuth usage endpoint."
+  @spec observe_oauth_usage(map(), keyword()) :: {:ok, Snapshot.t()} | {:error, term()}
+  def observe_oauth_usage(payload, options \\ [])
+
+  def observe_oauth_usage(payload, options) when is_map(payload) do
+    now = Keyword.get(options, :now, DateTime.utc_now())
+    buckets = oauth_buckets(payload, now)
+
+    if buckets == [] do
+      {:error, :unexpected_oauth_usage_payload}
+    else
+      snapshot = %Snapshot{
+        provider: @provider,
+        source: "oauth_usage_endpoint",
+        account_scope: Keyword.get(options, :account_scope),
+        observed_at: now,
+        buckets: buckets,
+        extra: Parse.unknown(payload)
+      }
+
+      if Keyword.get(options, :cache, true), do: Availability.put(snapshot)
+      {:ok, snapshot}
+    end
+  end
+
+  def observe_oauth_usage(_payload, _options), do: {:error, :unexpected_oauth_usage_payload}
+
   # An event may carry named windows or describe a single unified limit.
   # `unifiedWindows` is what a Max plan sends: one entry per window
   # (`five_hour`, `seven_day`), each with a utilization and a reset, and ONE
@@ -221,6 +249,35 @@ defmodule Custode.Availability.Collectors.Claude do
       "utilization" => Parse.value(event, ["utilization", "used_percent"])
     }
   end
+
+  defp oauth_buckets(payload, now) do
+    payload
+    |> Enum.filter(fn {id, value} -> oauth_window?(to_string(id), value) end)
+    |> Enum.sort_by(fn {id, _value} -> to_string(id) end)
+    |> Enum.map(fn {id, value} -> oauth_bucket(to_string(id), value, now) end)
+  end
+
+  defp oauth_window?(id, value) when is_map(value) do
+    (id == "five_hour" or String.starts_with?(id, "seven_day")) and
+      is_number(Parse.value(value, ["utilization"]))
+  end
+
+  defp oauth_window?(_id, _value), do: false
+
+  # The OAuth endpoint documents utilization as a percentage. Normalize it
+  # before the generic parser, where exactly `1` is otherwise ambiguous.
+  defp oauth_bucket(id, value, now) do
+    utilization = Parse.value(value, ["utilization"]) / 100
+
+    value
+    |> Map.put("utilization", utilization |> max(0.0) |> min(1.0))
+    |> Map.put("status", "ok")
+    |> Map.put("window_seconds", oauth_window_seconds(id))
+    |> then(&Parse.bucket(id, &1, now))
+  end
+
+  defp oauth_window_seconds("five_hour"), do: 5 * 60 * 60
+  defp oauth_window_seconds("seven_day" <> _scope), do: 7 * 24 * 60 * 60
 end
 
 defmodule Custode.Availability.Collectors.Codex do

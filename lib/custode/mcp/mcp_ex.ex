@@ -1,7 +1,7 @@
 defmodule Custode.MCP.MCPEx do
   @moduledoc false
 
-  alias Custode.MCP.{MCPEx.Resources, MCPEx.Tools, MemoryServer, Server}
+  alias Custode.MCP.{Capabilities, MCPEx.Resources, MCPEx.Tools, MemoryServer, Server}
   alias MCP.{Router, Server.Runtime}
   alias MCP.Transport.Plug, as: MCPPlug
 
@@ -25,26 +25,18 @@ defmodule Custode.MCP.MCPEx do
      name: @executor, max_concurrency: 16, max_queue: 64, default_timeout: @request_timeout}
   end
 
-  @spec plug_options() :: %{{String.t(), atom()} => map()}
+  @spec plug_options() :: %{String.t() => map()}
   def plug_options do
     full = tool_router(Server)
     memory = tool_router(MemoryServer)
     operator = Enum.reduce(Resources.modules(), full, &Router.register_resource(&2, &1))
 
-    full_runtime = runtime(full, "custode", %{"tools" => %{}, "resources" => %{}})
-    operator_runtime = runtime(operator, "custode", %{"tools" => %{}, "resources" => %{}})
-    memory_runtime = runtime(memory, "memory", %{"tools" => %{}})
-
-    for {path, kind, configured_runtime} <- [
-          {"/mcp", :operator, operator_runtime},
-          {"/mcp", :routine, full_runtime},
-          {"/mcp", :sub_agent, full_runtime},
-          {"/mcp/memory", :operator, memory_runtime},
-          {"/mcp/memory", :routine, memory_runtime},
-          {"/mcp/memory", :sub_agent, memory_runtime}
+    for {path, configured_runtime} <- [
+          {"/mcp", runtime(operator, "custode", :main, %{"tools" => %{}, "resources" => %{}})},
+          {"/mcp/memory", runtime(memory, "memory", :memory, %{"tools" => %{}})}
         ],
         into: %{} do
-      {{path, kind},
+      {path,
        MCPPlug.init(
          runtime: configured_runtime,
          executor: @executor,
@@ -60,11 +52,12 @@ defmodule Custode.MCP.MCPEx do
     end)
   end
 
-  defp runtime(router, name, capabilities) do
+  defp runtime(router, name, endpoint, capabilities) do
     Runtime.new(
       router: router,
       protocols: @protocols,
       capabilities: capabilities,
+      authorization: {Capabilities, endpoint},
       server_info: %{"name" => name, "version" => "0.1.0"}
     )
   end

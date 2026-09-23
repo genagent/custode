@@ -127,6 +127,21 @@ the denial text and inspect Claude's effective permission sources above. If
 it cannot connect or authenticate, run `mix custode doctor` and inspect the
 turn's MCP startup error.
 
+### Claude plan usage is blank or stale
+
+Every ten minutes Custode reads Claude plan usage from Anthropic's OAuth usage
+endpoint. It reads the Claude Code access token transiently from the macOS
+Keychain item or `<CLAUDE_CONFIG_DIR>/.credentials.json`, sends it only to
+`api.anthropic.com`, and never writes or logs it. Custode retains the resulting
+usage windows in memory. It does not refresh or modify Claude credentials.
+
+If the credential cannot be read, the endpoint rejects the request, or its
+undocumented response changes, Custode uses the existing sealed Haiku probe.
+Run `claude auth status` when the header remains blank. On macOS, a locked
+Keychain can also prevent the background process from reading the item; using
+Claude Code once after unlocking it normally restores the same credential
+access Custode relies on.
+
 ## The dashboard
 
 `http://localhost:4646`. Localhost only, no auth. No node or asset pipeline:

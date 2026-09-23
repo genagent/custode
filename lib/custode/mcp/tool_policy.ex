@@ -24,8 +24,8 @@ defmodule Custode.MCP.ToolPolicy do
       Worker-tier, over the caller's own sub-agents (`check_gate_target/2`).
     * `:roster_write` -- mutates the roster or a profile. Caretaker-only
       (`RosterTools.check_roster_writer/1`).
-    * `:operator` -- runs the fleet. On the operator allowlist only
-      (`Custode.Routine.mcp_tools/1`), or on no agent's allowlist at all.
+    * `:operator` -- runs the fleet. Endpoint and role admission is enforced by
+      `Custode.MCP.Capabilities`; individual operations can be narrower.
   """
 
   @type category ::

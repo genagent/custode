@@ -21,6 +21,8 @@ or tokens are collected.
 ## Sources and review
 
 - `overview.md`: language-neutral connection, identity, discovery and result guide.
+- `authorization.md`: identity and endpoint capability matrix, actual enforcement,
+  known gaps, and the planned server-side boundary.
 - `behavior.json`: reviewed summaries, results, side effects, access checks and
   behavioral notes keyed by public name. Tools also require a short `summary`.
 - Server registrations: exact tool schemas, public discovery metadata, endpoint
