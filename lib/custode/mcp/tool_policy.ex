@@ -102,6 +102,8 @@ defmodule Custode.MCP.ToolPolicy do
     "list_gates" => :read,
     "feed_tail" => :read,
     "spend_today" => :read,
+    "provision_owned_checkout" => :operator,
+    "refresh_owned_checkout" => :operator,
     # notebook
     "journal_append" => :self_write,
     "journal_read" => :read,

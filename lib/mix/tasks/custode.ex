@@ -22,6 +22,8 @@ defmodule Mix.Tasks.Custode do
       mix custode feed [-n 50] [--agent id]   # the activity feed
       mix custode spend                       # today's spend vs the rails
       mix custode pause <agent> / resume <agent>
+      mix custode provision-checkout <agent> <owner/name>
+      mix custode refresh-checkout <agent>
 
   `CUSTODE_MCP_PORT` overrides the port (default: the configured 6161).
   """
@@ -53,6 +55,8 @@ defmodule Mix.Tasks.Custode do
     subcommand(Custode.CLI.Spend)
     subcommand(Custode.CLI.Pause)
     subcommand(Custode.CLI.Resume)
+    subcommand(Custode.CLI.ProvisionCheckout)
+    subcommand(Custode.CLI.RefreshCheckout)
     subcommand(Custode.CLI.Away)
     subcommand(Custode.CLI.Back)
   end

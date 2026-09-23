@@ -7,6 +7,7 @@ defmodule Custode.OperatorToolsTest do
 
   alias Custode.Gates.{Gate, Review}
   alias Custode.MCP.OperatorTools
+  alias Custode.MCP.OwnedCheckoutTools
   alias Custode.{OperationCall, OperationRegistry, Repo}
   alias ObanClaude.Agent
 
@@ -261,6 +262,107 @@ defmodule Custode.OperatorToolsTest do
 
     test "pause of an offline agent is a tool error" do
       assert tool_error(OperatorTools.PauseAgent.execute(%{agent_id: "ghost"}, @frame)) =~ "pause"
+    end
+  end
+
+  describe "owned checkout operations" do
+    setup do
+      home = tmp_workspace!()
+      previous = System.get_env("CUSTODE_HOME")
+      System.put_env("CUSTODE_HOME", home)
+
+      on_exit(fn ->
+        if previous,
+          do: System.put_env("CUSTODE_HOME", previous),
+          else: System.delete_env("CUSTODE_HOME")
+      end)
+
+      %{home: home}
+    end
+
+    test "projects both registered operation definitions" do
+      registry = OperationRegistry.default()
+
+      assert {:ok, provision} =
+               OperationRegistry.fetch(registry, "fleet.provision_owned_checkout")
+
+      assert {:ok, refresh} = OperationRegistry.fetch(registry, "fleet.refresh_owned_checkout")
+      assert OwnedCheckoutTools.Provision.definition() == provision
+      assert OwnedCheckoutTools.Provision.name() == "provision_owned_checkout"
+      assert OwnedCheckoutTools.Refresh.definition() == refresh
+      assert OwnedCheckoutTools.Refresh.name() == "refresh_owned_checkout"
+    end
+
+    test "dry-run provision names the deterministic filesystem effect", %{home: home} do
+      json =
+        OwnedCheckoutTools.Provision.execute(
+          %{routine_id: "future-worker", repository: "acme/widgets", dry_run: true},
+          @frame
+        )
+        |> tool_json()
+
+      assert json["status"] == "dry_run"
+      assert json["effect_preview"]["path"] == Path.join([home, "checkouts", "future-worker"])
+      assert json["effect_preview"]["may"] == ["clone"]
+      refute File.exists?(json["effect_preview"]["path"])
+    end
+
+    test "matching checkout is idempotent through MCP and records one call", %{home: home} do
+      path = Path.join([home, "checkouts", "matching"])
+      File.mkdir_p!(path)
+      assert {_output, 0} = System.cmd("git", ["init", path])
+
+      assert {_output, 0} =
+               System.cmd("git", [
+                 "-C",
+                 path,
+                 "remote",
+                 "add",
+                 "origin",
+                 "git@github.com:acme/widgets.git"
+               ])
+
+      params = %{
+        routine_id: "matching",
+        repository: "acme/widgets",
+        idempotency_key: "owned-matching"
+      }
+
+      first = tool_json(OwnedCheckoutTools.Provision.execute(params, @frame))
+      second = tool_json(OwnedCheckoutTools.Provision.execute(params, @frame))
+      assert first == second
+      assert first["status"] == "already_provisioned"
+
+      assert Repo.aggregate(
+               from(c in OperationCall,
+                 where:
+                   c.operation == "fleet.provision_owned_checkout" and
+                     c.idempotency_key == "owned-matching"
+               ),
+               :count
+             ) == 1
+    end
+
+    test "refresh preview refuses a routine using an existing checkout", %{workspace: workspace} do
+      routine = routine_fixture!(workspace, %{repo: "acme/widgets"})
+
+      assert tool_error(
+               OwnedCheckoutTools.Refresh.execute(
+                 %{routine_id: routine.id, dry_run: true},
+                 @frame
+               )
+             ) =~ "existing_checkout_refused"
+    end
+
+    test "specialist routines cannot acquire checkout authority", %{routine: routine} do
+      frame = frame_for(:routine, routine.id)
+
+      assert tool_error(
+               OwnedCheckoutTools.Provision.execute(
+                 %{routine_id: "future", repository: "acme/widgets"},
+                 frame
+               )
+             ) =~ "operator_required"
     end
   end
 

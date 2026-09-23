@@ -78,7 +78,9 @@
         "preview_routine",
         "preview_routine_edit",
         "prompt_agent",
+        "provision_owned_checkout",
         "recall",
+        "refresh_owned_checkout",
         "reject_action",
         "remember",
         "remove_profile",
@@ -2344,6 +2346,50 @@
     },
     {
       "behavior": {
+        "access": "Authenticated operator or a configured caretaker routine with the operator grant. Other routines and sub-agents are refused by shared operation authorization.",
+        "effects": "May create the checkouts parent directory and clone the named GitHub repository through host gh authentication into the deterministic checkouts/<routine_id> path. Records one OperationCall and a typed filesystem effect. Dry run records an OperationCall but changes no files.",
+        "notes": "routine_id and repository owner/name are required; provisioning may run before the roster entry exists. Existing matching clones are idempotent success. Occupied, mismatched, unsafe, or unsuccessfully cloned destinations are preserved and return structured errors. Supply a stable idempotency_key when retrying one logical request.",
+        "result": "Execution returns routine_id, repository, absolute path and status provisioned or already_provisioned. Dry run returns status=dry_run and an effect_preview naming the path and possible clone.",
+        "summary": "Provision a routine-owned clone at its deterministic Custode path."
+      },
+      "category": "operator",
+      "definition": {
+        "description": "Provision a routine-owned repository clone at its deterministic path.",
+        "inputSchema": {
+          "properties": {
+            "dry_run": {
+              "description": "preview without changing the filesystem",
+              "type": "boolean"
+            },
+            "idempotency_key": {
+              "description": "stable key for one logical provision",
+              "type": "string"
+            },
+            "repository": {
+              "description": "GitHub owner/name",
+              "type": "string"
+            },
+            "routine_id": {
+              "description": "future or existing routine id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "repository",
+            "routine_id"
+          ],
+          "type": "object"
+        },
+        "name": "provision_owned_checkout",
+        "title": "provision_owned_checkout"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "provision_owned_checkout"
+    },
+    {
+      "behavior": {
         "access": "Any authenticated caller reaching this tool may read another identity's memories by ID. Also on the memory endpoint; no self-only read guard.",
         "effects": "None.",
         "notes": "routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. key is optional; omission returns all memory. A missing requested key is a tool error ('nothing remembered under ...'), not a null result. The endpoint's small tool set does not imply memory reads are self-only. Full-memory results are sorted by key.",
@@ -2378,6 +2424,45 @@
         "/mcp/memory"
       ],
       "name": "recall"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated operator or a configured caretaker routine with the operator grant. Other routines and sub-agents are refused by shared operation authorization.",
+        "effects": "For a configured routine using its deterministic owned checkout, may fetch origin and fast-forward the clean checked-out default branch. Records one OperationCall and a typed filesystem effect. Dry run records an OperationCall but performs no Git command.",
+        "notes": "routine_id is required. Existing-checkout routines are refused. The routine must be offline or idle; dirty, detached, non-default, ahead, divergent, mismatched, or unavailable checkouts are preserved and return structured errors. Command output and origin credentials are never returned. Supply a stable idempotency_key when retrying.",
+        "result": "Execution returns routine_id, repository, absolute path, branch, commit count and status up_to_date or fast_forwarded. Dry run returns status=dry_run and an effect_preview naming the path and possible fetch/fast-forward.",
+        "summary": "Safely refresh a configured routine-owned checkout."
+      },
+      "category": "operator",
+      "definition": {
+        "description": "Safely fetch and fast-forward a configured routine-owned checkout.",
+        "inputSchema": {
+          "properties": {
+            "dry_run": {
+              "description": "preview without fetching or fast-forwarding",
+              "type": "boolean"
+            },
+            "idempotency_key": {
+              "description": "stable key for one logical refresh",
+              "type": "string"
+            },
+            "routine_id": {
+              "description": "configured routine id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "routine_id"
+          ],
+          "type": "object"
+        },
+        "name": "refresh_owned_checkout",
+        "title": "refresh_owned_checkout"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "refresh_owned_checkout"
     },
     {
       "behavior": {
