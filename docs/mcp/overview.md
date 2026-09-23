@@ -71,6 +71,10 @@ Several notebook and memory tools accept either `routine_id` or `agent_id`. A no
 
 Each entry distinguishes intended usage from implemented access checks. A tool's category, presence in discovery, or absence from a client-side allowlist is not a substitute for a server-side authorization check. Some tools enforce operator identity, caretaker role, target ownership, repository policy, or approved action grants; these are documented individually. Do not assume one blanket access rule covers all write tools.
 
+The maintained [authorization matrix](authorization.md) maps identities and
+endpoints to intended authority, records current enforcement gaps, and defines
+the target server-side boundary.
+
 Resource URI variables are required opaque strings. Percent-encode each path segment and do not infer an ID format or construct cursors. Resource reads do not accept query parameters. List pages contain up to 25 items, a versioned `contract`, pagination metadata, and navigation links. Follow `page.next_uri` until null. Cursors are scoped to their collection; they are continuation handles, not a stable snapshot of changing data.
 
 Routine instructions, prompt files, the `prompt_agent` tool, and an agent's structured permission requests are different mechanisms from MCP prompts. Consult the generated Prompts section for registered MCP prompt templates and their arguments.
