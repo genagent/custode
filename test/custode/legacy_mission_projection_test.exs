@@ -161,7 +161,7 @@ defmodule Custode.LegacyMissionProjectionTest do
     assert {:ok, responses} =
              LegacyMissionProjection.project_all(
                routines: routines,
-               seeds: Application.fetch_env!(:custode, :legacy_mission_mappings),
+               seeds: legacy_mission_seeds(),
                repository_identity: RepositoryIdentity
              )
 
@@ -196,6 +196,32 @@ defmodule Custode.LegacyMissionProjectionTest do
              )
 
     assert LegacyMissionProjection.get_by_routine("unseeded-global") == nil
+  end
+
+  defp legacy_mission_seeds do
+    %{
+      "custode" => fixed_mission("system:custode", "system", "custode"),
+      "quakes" => fixed_mission("watch:earthquakes", "feed", "earthquakes"),
+      "stars" => fixed_mission("observation:stars", "owner_set", "acme-stars"),
+      "contributors" =>
+        fixed_mission("observation:contributors", "owner_set", "acme-contributors"),
+      "reviewer" => %{strategy: "repository_attempts"},
+      "consistency" => %{strategy: "ephemeral_per_investigation"}
+    }
+  end
+
+  defp fixed_mission(key, target_kind, target_id) do
+    %{
+      strategy: "fixed_mission",
+      mission: %{
+        key: key,
+        purpose: "Test #{key}",
+        lifecycle: "persistent",
+        targets: [
+          %{kind: target_kind, external_id: target_id, display_name: target_id}
+        ]
+      }
+    }
   end
 
   test "projection operation retains operator authorization" do
