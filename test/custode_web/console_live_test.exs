@@ -351,10 +351,13 @@ defmodule CustodeWeb.ConsoleLiveTest do
   test "an offline agent still has a message box, and it says what sending does",
        %{conn: conn, sleeper: sleeper} do
     subject = sleeper.id
+    assert {:ok, prepared} = Custode.ConversationArcs.prepare(sleeper, :operator)
     {:ok, view, html} = live(conn, "/console/#{sleeper.id}")
 
     assert html =~ "start + send"
     assert html =~ "this starts a turn with your message"
+    assert html =~ prepared.arc_id
+    assert html =~ "fresh/no_session"
     assert has_element?(view, ~s(form[phx-hook="SubjectDraft"][data-subject="#{sleeper.id}"]))
     assert has_element?(view, "[data-draft-state][hidden]", "unsent draft saved in this browser")
     assert has_element?(view, "button[data-discard-draft][hidden]", "discard draft")
@@ -1440,16 +1443,16 @@ defmodule CustodeWeb.ConsoleLiveTest do
       # ride that delivery too, not only a cast to a running agent
       import Ecto.Query, only: [from: 2]
 
-      [tick] =
+      [turn] =
         Custode.Repo.all(
           from(j in Oban.Job,
-            where: j.worker == "ObanClaude.Agent.Tick",
-            where: fragment("json_extract(?, '$.agent_id')", j.args) == ^sleeper.id
+            where: j.worker == "ObanClaude.Agent.Job",
+            where: fragment("json_extract(?, '$.agent_id')", j.meta) == ^sleeper.id
           )
         )
 
-      assert tick.args["prompt"] =~ "what is this"
-      [_, path] = Regex.run(~r/attached image: (\S+)/, tick.args["prompt"])
+      assert turn.args["prompt"] =~ "what is this"
+      [_, path] = Regex.run(~r/attached image: (\S+)/, turn.args["prompt"])
       assert Path.dirname(path) == Path.join(Path.expand(sleeper.workspace), "uploads")
       assert File.read!(path) == @png
     end

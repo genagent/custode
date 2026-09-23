@@ -236,7 +236,12 @@ defmodule Custode.RoutineTickTest do
     assert_receive {:intake, %{id: ^id, prompt: "unchanged prompt"}}
 
     assert [job] = ticks_for(id)
-    assert job.args == Custode.Routine.tick_args(Custode.Routine.get(id))
+    assert job.args["arc_id"] =~ "scheduled:"
+
+    assert Map.drop(job.args, ["arc_id"]) ==
+             Custode.Routine.tick_args(Custode.Routine.get(id))
+             |> put_in(["start", "session_arcs"], %{})
+
     assert job.args["prompt"] == "unchanged prompt"
     assert job.args["start"]["args"]["model"] == "haiku"
   end

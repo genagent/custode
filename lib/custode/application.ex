@@ -36,6 +36,7 @@ defmodule Custode.Application do
     Custode.Gates.attach()
     Custode.NextBeat.attach()
     Custode.SubAgents.attach()
+    Custode.ConversationArcs.attach()
     Barrier.attach()
     Custode.WorktreeBreadcrumb.attach()
     Custode.RunClock.attach()

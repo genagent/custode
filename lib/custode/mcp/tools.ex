@@ -269,7 +269,11 @@ defmodule Custode.MCP.Tools.AgentStatus do
   defp status(agent_id, frame) do
     case Custode.Agents.status(agent_id) do
       {:ok, :offline} ->
-        reply(frame, %{agent_id: agent_id, state: "offline"})
+        reply(frame, %{
+          agent_id: agent_id,
+          state: "offline",
+          conversation: Custode.ConversationArcs.read_model(agent_id)
+        })
 
       {:ok, status} ->
         {:ok, info} = Custode.Agents.info(agent_id)
@@ -280,7 +284,10 @@ defmodule Custode.MCP.Tools.AgentStatus do
           detail: inspect(status),
           turns: info.turns,
           cost_usd: info.cost_usd,
-          session_id: info.session_id
+          session_id: info.session_id,
+          active_arc_id: info.active_arc_id,
+          continuation: info.continuation,
+          conversation: Custode.ConversationArcs.read_model(agent_id)
         })
     end
   end

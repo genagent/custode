@@ -62,11 +62,7 @@ defmodule Custode.Operator.Actions do
         {:error, :agent_not_running}
 
       routine ->
-        args = Map.put(Custode.Routine.tick_args(routine), "prompt", text)
-        tick = Custode.Routine.tick_worker(routine)
-        {:ok, _job} = Oban.insert(tick.new(args, queue: :ticks))
-        Custode.Feed.record_prompted(agent_id, text)
-        {:ok, :started}
+        start_and_cast(routine, text)
     end
   end
 
@@ -74,18 +70,71 @@ defmodule Custode.Operator.Actions do
     with :ok <- resume(agent_id, opts), do: cast(agent_id, text, :resumed)
   end
 
+  # An answer belongs to the arc that asked the question. Omitting arc_id
+  # makes the wrapper keep its active arc while origin=:operator still marks
+  # the response as human input.
+  defp deliver(agent_id, text, :waiting_for_user, _opts) do
+    case Agents.cast_prompt(agent_id, text, origin: :operator) do
+      :ok ->
+        Custode.Feed.record_prompted(agent_id, text)
+        {:ok, :delivered}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp deliver(agent_id, text, _state, _opts), do: cast(agent_id, text, :delivered)
 
   # `how` is what the caller is told happened (#472), so a surface can say
   # "resumed" or "started" and not only "sent".
   defp cast(agent_id, text, how) do
-    case Agents.cast_prompt(agent_id, text) do
+    with {:ok, delivered_text, prompt_opts} <- operator_delivery(agent_id, text),
+         :ok <- Agents.cast_prompt(agent_id, delivered_text, prompt_opts) do
+      Custode.Feed.record_prompted(agent_id, text)
+      {:ok, how}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp start_and_cast(routine, text) do
+    with {:ok, delivered_text, prompt_opts} <-
+           Custode.ConversationArcs.operator_delivery(routine, text) do
+      seeds = Custode.ConversationArcs.seed_map(routine)
+      config = Custode.Routine.agent_config(routine, seeds)
+
+      case Agents.start_agent(routine.id, config) do
+        {:ok, _pid} ->
+          deliver_started(routine.id, text, delivered_text, prompt_opts)
+
+        {:error, {:already_started, _pid}} ->
+          deliver_started(routine.id, text, delivered_text, prompt_opts)
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp deliver_started(agent_id, original, delivered, prompt_opts) do
+    case Agents.cast_prompt(agent_id, delivered, prompt_opts) do
       :ok ->
-        Custode.Feed.record_prompted(agent_id, text)
-        {:ok, how}
+        Custode.Feed.record_prompted(agent_id, original)
+        {:ok, :started}
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp operator_delivery(agent_id, text) do
+    case Custode.Routine.get(agent_id) do
+      nil ->
+        {:ok, text, []}
+
+      routine ->
+        Custode.ConversationArcs.operator_delivery(routine, text)
     end
   end
 

@@ -28,6 +28,12 @@ defmodule Custode.InboxTest do
     assert [beat] = beats_for(routine.id)
     assert beat.state == "scheduled"
     assert beat.args["if_offline"] == "start"
+
+    assert [%{kind: "scheduled"}] =
+             routine.id
+             |> Custode.ConversationArcs.read_model()
+             |> Map.fetch!(:arcs)
+             |> Enum.filter(&(&1.kind == "scheduled"))
   end
 
   test "on_note: :ignore drops the note without a beat", %{workspace: workspace} do

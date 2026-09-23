@@ -51,6 +51,9 @@ defmodule CustodeWeb.Console.Subject do
     </div>
 
     <p class="mt-1 font-mono text-xs text-base-content/60">{facts(@subject)}</p>
+    <p :if={@subject.conversation.current} class="mt-1 font-mono text-xs text-base-content/50">
+      {conversation_facts(@subject.conversation.current)}
+    </p>
     <p :if={@subject.state == :offline} class="mt-2 text-sm text-base-content/50">
       offline -- the next beat starts it
     </p>
@@ -680,6 +683,12 @@ defmodule CustodeWeb.Console.Subject do
 
   defp budget(nil), do: " today"
   defp budget(limit), do: " of $#{usd(limit)}"
+
+  defp conversation_facts(arc) do
+    session = if arc.provider_session_id, do: "session ready", else: "no provider session"
+
+    "#{arc.kind} arc #{arc.arc_id} · #{arc.decision}/#{arc.reason} · #{session}"
+  end
 
   defp elapsed(%DateTime{} = started_at) do
     seconds = max(DateTime.diff(DateTime.utc_now(), started_at, :second), 0)
