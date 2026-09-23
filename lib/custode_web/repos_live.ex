@@ -56,7 +56,7 @@ defmodule CustodeWeb.ReposLive do
             </a>
             <.link
               :for={{agent, role} <- agents}
-              navigate={"/agents/#{agent}"}
+              navigate={"/console/#{agent}"}
               class="badge badge-ghost badge-sm gap-1 font-mono"
               title={Custode.Roles.summary(role)}
             >

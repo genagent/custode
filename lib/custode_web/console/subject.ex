@@ -51,6 +51,12 @@ defmodule CustodeWeb.Console.Subject do
     </div>
 
     <p class="mt-1 font-mono text-xs text-base-content/60">{facts(@subject)}</p>
+    <p :if={@subject.state == :offline} class="mt-2 text-sm text-base-content/50">
+      offline -- the next beat starts it
+    </p>
+    <p :if={@subject.state == :ended} class="mt-2 text-sm text-base-content/50">
+      ended -- this was an ephemeral agent; its memory and activity remain available here
+    </p>
 
     <div
       :if={@running_since}
@@ -651,6 +657,11 @@ defmodule CustodeWeb.Console.Subject do
     """
   end
 
+  defp facts(%{kind: :other, attention_item: {:proposal, _id}}),
+    do: "not an agent: a signal with no process behind it"
+
+  defp facts(%{kind: :other, state: :ended}), do: "ephemeral agent"
+  defp facts(%{kind: :other, state: :offline}), do: "no routine or recorded activity"
   defp facts(%{kind: :other}), do: "not an agent: a signal with no process behind it"
   defp facts(%{routine: nil}), do: "no routine: a sub-agent or a one-shot"
 

@@ -1,7 +1,7 @@
 defmodule CustodeWeb.StatusVocabularyTest do
   @moduledoc """
   One status vocabulary (#31 slice 1): a state carries the same word and the
-  same color on the fleet tile, the agent page header and the feed.
+  same color in the console subject, attention card and feed.
   """
 
   use ExUnit.Case, async: false
@@ -125,7 +125,7 @@ defmodule CustodeWeb.StatusVocabularyTest do
     defp assert_same_word(conn, id, status, machine_word) do
       label = status_label(status)
 
-      for path <- ["/", "/agents/#{id}", "/feed"] do
+      for path <- ["/", "/console/#{id}", "/feed"] do
         {:ok, _view, html} = live(conn, path)
         assert html =~ label, "#{path} does not say #{inspect(label)}"
         refute html =~ machine_word
@@ -136,7 +136,7 @@ defmodule CustodeWeb.StatusVocabularyTest do
   describe "offline and ended" do
     test "an agent with a routine is offline until its first beat",
          %{conn: conn, routine: routine} do
-      {:ok, _view, html} = live(conn, "/agents/#{routine.id}")
+      {:ok, _view, html} = live(conn, "/console/#{routine.id}")
       assert html =~ "offline"
       assert html =~ "the next beat starts it"
       refute html =~ "ephemeral agent"
@@ -146,14 +146,14 @@ defmodule CustodeWeb.StatusVocabularyTest do
       id = uid("ephemeral")
       Custode.Feed.record(%{event: "turn", agent: id, summary: "did one thing and stopped"})
 
-      {:ok, _view, html} = live(conn, "/agents/#{id}")
+      {:ok, _view, html} = live(conn, "/console/#{id}")
       assert html =~ status_label(:ended)
       assert html =~ "ephemeral agent"
       refute html =~ "the next beat starts it"
     end
 
     test "an id with no trail at all stays offline -- nothing has ended", %{conn: conn} do
-      {:ok, _view, html} = live(conn, "/agents/never-started")
+      {:ok, _view, html} = live(conn, "/console/never-started")
       assert html =~ "offline"
       refute html =~ "ephemeral agent"
     end

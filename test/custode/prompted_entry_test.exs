@@ -22,14 +22,14 @@ defmodule Custode.PromptedEntryTest do
   defp agent_frame(id),
     do: %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :routine, id: id}}}
 
-  test "the agent-page prompt submit records a prompted entry" do
+  test "the console message submit records a prompted entry" do
     workspace = tmp_workspace!()
     id = uid("routine")
     put_env!(:routines, [%{id: id, cron: :manual, workspace: workspace, prompt: "x"}])
     {:ok, _pid} = ObanClaude.Agent.start_agent(id, enqueue_fun: fn _a, _m -> {:ok, :queued} end)
 
-    {:ok, view, _html} = live(build_conn(), "/agents/#{id}")
-    render_submit(view, "prompt", %{"text" => "how are the hexagons?"})
+    {:ok, view, _html} = live(build_conn(), "/console/#{id}")
+    render_submit(view, "message", %{"text" => "how are the hexagons?"})
 
     assert [entry | _rest] =
              Custode.Feed.for_agent(id) |> Enum.filter(&(&1["event"] == "prompted"))

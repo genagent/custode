@@ -140,7 +140,7 @@ toggles them ([guides/ui-hierarchy.md](guides/ui-hierarchy.md)).
 | `/custode` | **Talking to custode**, `Cmd/Ctrl+K` from anywhere. A sentence box, custode's pending proposal as a plan with `do it` and `cancel`, its answers, and what it did while you were away. |
 | `/metrics` | Spend, approval rates by agent, by gate class and risk, and writes observed outside an approval. |
 | `/inbox`, `/repos`, `/workflows`, `/suggestions` | The needs-you queue, repository overviews, workflow runs, advisor suggestions. |
-| `/fleet`, `/agents/:id` | The earlier tile page and agent page. The console replaces them; they still work. |
+| `/fleet`, `/agents/:id` | Legacy bookmarks; redirect to the console and selected subject. |
 
 Ranking is never done in a page. `Custode.Attention` is a pure resolver
 ([design/007-attention.md](design/007-attention.md)) and every surface draws
@@ -230,6 +230,23 @@ mix credo --strict
 mix test
 mix dialyzer
 ```
+
+Render a fixture-backed dashboard to a standalone HTML file without booting a
+fleet. The console fixture opens the command menu so keyboard and search work
+can be reviewed in either maintained theme:
+
+```sh
+MIX_ENV=test PREVIEW_PAGE=console PREVIEW_THEME=paper \
+  PREVIEW_OUT=tmp/console-preview.html \
+  mix test --include preview test/support/preview/dashboard_preview_test.exs
+
+MIX_ENV=test PREVIEW_PAGE=custode PREVIEW_THEME=ink \
+  PREVIEW_OUT=tmp/custode-preview.html \
+  mix test --include preview test/support/preview/dashboard_preview_test.exs
+```
+
+Preview tests carry the `preview` tag and are excluded from the ordinary test
+suite. Open the generated file in a browser; no server remains running.
 
 Things that bite:
 

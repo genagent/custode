@@ -114,22 +114,22 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert has_element?(view, "button[phx-click=new_skip]", "skip for now")
   end
 
-  # the operator's decision, 2026-09-21: the console replaces the fleet page
-  # as the place the dashboard opens on
-  test "the console is the home page, and the fleet page is still there", %{
+  test "the console is home and legacy dashboard URLs redirect into it", %{
     conn: conn,
     sleeper: sleeper
   } do
     {:ok, view, html} = live(conn, "/")
     assert html =~ ~s(id="rail-filter")
-    assert has_element?(view, ~s(header a[href="/fleet"]), "fleet")
+    refute has_element?(view, ~s(header a[href="/fleet"]), "fleet")
 
     # the rail's links leave home for the subject's own address
     view |> element(~s(a[href="/console/#{sleeper.id}"])) |> render_click()
     assert_patched(view, "/console/#{sleeper.id}")
 
-    {:ok, _view, html} = live(conn, "/fleet")
-    assert html =~ sleeper.id
+    assert conn |> get("/fleet") |> redirected_to() == "/"
+
+    assert conn |> get("/agents/#{sleeper.id}") |> redirected_to() ==
+             "/console/#{sleeper.id}"
   end
 
   test "the return digest stays dismissed through console refreshes", %{conn: conn} do
@@ -247,6 +247,63 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ ~S|next.scrollIntoView({block: "nearest"})|
     assert html =~ ~S|input, textarea, select, button, [contenteditable='true'], [role='textbox']|
     assert html =~ ~S|window.removeEventListener("keydown", this.onKeydown)|
+  end
+
+  test "the command menu searches subjects, attention, results and labeled actions", %{
+    conn: conn,
+    asker: asker,
+    sleeper: sleeper
+  } do
+    {:ok, _ask} = Asks.ask(asker.id, "which environment should I use?")
+    Custode.Feed.record(%{event: "turn", agent: sleeper.id, summary: "compared the options"})
+
+    {:ok, view, html} = live(conn, "/console/#{sleeper.id}")
+    assert html =~ ~s(data-command-trigger)
+    assert html =~ "Search commands (Cmd/Ctrl+K)"
+    assert html =~ "Shift+Cmd/Ctrl+K"
+
+    view |> element("[data-command-trigger]") |> render_click()
+    assert has_element?(view, "#command-palette[role=dialog]")
+    assert has_element?(view, "[data-command-option]", "compared the options")
+    assert has_element?(view, "[data-command-option]", "which environment")
+    assert has_element?(view, "[data-command-option]", "Pause #{sleeper.id}")
+    refute has_element?(view, "[data-command-option]", "Approve")
+
+    view |> form("#command-search", %{"q" => "compared options"}) |> render_change()
+    assert has_element?(view, "[data-command-option]", "compared the options")
+    refute has_element?(view, "[data-command-option]", "which environment")
+
+    view |> element("button[phx-click=command_close]") |> render_click()
+    refute has_element?(view, "#command-palette")
+  end
+
+  test "opening a result navigates to activity without starting work", %{
+    conn: conn,
+    sleeper: sleeper
+  } do
+    Custode.Feed.record(%{event: "turn", agent: sleeper.id, summary: "saved the report"})
+    {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+
+    view |> element("[data-command-trigger]") |> render_click()
+
+    view
+    |> element("[data-command-option]", "saved the report")
+    |> render_click()
+
+    assert_redirected(view, "/console/#{sleeper.id}?tab=activity")
+    refute_receive {:enqueued, _args, _meta}, 100
+  end
+
+  test "the command shortcut hook handles only modified k and palette navigation", %{conn: conn} do
+    html = conn |> get("/console") |> html_response(200)
+
+    assert html =~ ~S(event.metaKey || event.ctrlKey)
+    assert html =~ ~S(event.shiftKey)
+    assert html =~ ~s|document.querySelector("[data-command-trigger]")|
+    assert html =~ ~s|event.key === "ArrowDown"|
+    assert html =~ ~s|event.key === "ArrowUp"|
+    assert html =~ ~s|event.key === "Enter" && event.target === this.input|
+    assert html =~ ~s|window.location.assign("/?commands=open")|
   end
 
   test "quiet subjects collapse to one line and open when one is selected", %{conn: conn} do
@@ -859,7 +916,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ "bench the pooled path"
     assert html =~ "pool flakes on macOS CI"
 
-    html = view |> element("button[phx-click=todo_done]") |> render_click()
+    view |> element("button[phx-click=todo_done]") |> render_click()
     # off the open list, and onto the done one
     refute view |> element("#open-todos") |> render() =~ "bench the pooled path"
     assert view |> element("#done-todos") |> render() =~ "bench the pooled path"
