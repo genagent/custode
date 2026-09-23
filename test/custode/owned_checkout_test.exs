@@ -2,7 +2,9 @@ defmodule Custode.OwnedCheckoutTest do
   use ExUnit.Case, async: true
 
   alias Custode.OwnedCheckout
+  alias Custode.OwnedCheckout.Barrier
   alias Custode.OwnedCheckout.GitHubCloneRunner
+  alias Custode.OwnedCheckout.GitRefreshRunner
 
   setup do
     root = Path.join(System.tmp_dir!(), "custode-owned-checkout-#{Ecto.UUID.generate()}")
@@ -266,6 +268,165 @@ defmodule Custode.OwnedCheckoutTest do
     end
   end
 
+  describe "refresh/3" do
+    test "fast-forwards the checked-out default branch and is then idempotent", %{root: root} do
+      fixture = refresh_fixture!(root, "refresh")
+      push_fixture_change!(fixture, "second\n")
+
+      assert {:ok,
+              %{
+                status: :fast_forwarded,
+                branch: "main",
+                commits: 1,
+                path: destination
+              }} =
+               OwnedCheckout.refresh("refresh", "acme/widgets",
+                 root: root,
+                 status: idle_status()
+               )
+
+      assert File.read!(Path.join(destination, "README.md")) == "second\n"
+
+      assert {:ok, %{status: :up_to_date, commits: 0}} =
+               OwnedCheckout.refresh("refresh", "acme/widgets",
+                 root: root,
+                 status: idle_status()
+               )
+    end
+
+    test "refuses active routine states before fetching", %{root: root} do
+      fixture = refresh_fixture!(root, "busy")
+      parent = self()
+
+      runner = fn path, args ->
+        send(parent, {:git, args})
+        GitRefreshRunner.run(path, args)
+      end
+
+      for state <- [:running, :paused, {:awaiting_permission, %{secret: "nope"}}] do
+        assert {:error, %{kind: :routine_busy, state: expected_state}} =
+                 OwnedCheckout.refresh("busy", "acme/widgets",
+                   root: root,
+                   status: fn _id -> {:ok, state} end,
+                   runner: runner
+                 )
+
+        assert expected_state == Custode.state_of(state)
+        refute_receive {:git, ["fetch", "origin"]}
+      end
+
+      assert File.read!(Path.join(fixture.destination, "README.md")) == "first\n"
+    end
+
+    test "refuses tracked and untracked changes without altering them", %{root: root} do
+      fixture = refresh_fixture!(root, "dirty")
+      readme = Path.join(fixture.destination, "README.md")
+      note = Path.join(fixture.destination, "note.txt")
+      File.write!(readme, "local\n")
+      File.write!(note, "keep\n")
+
+      assert {:error, %{kind: :dirty_checkout}} =
+               OwnedCheckout.refresh("dirty", "acme/widgets",
+                 root: root,
+                 status: idle_status()
+               )
+
+      assert File.read!(readme) == "local\n"
+      assert File.read!(note) == "keep\n"
+    end
+
+    test "refuses a non-default branch, detached head, and local history", %{root: root} do
+      branch_fixture = refresh_fixture!(root, "branch")
+      git!(branch_fixture.destination, ["switch", "-c", "feature"])
+
+      assert {:error, %{kind: :branch_refused, current_branch: "feature", default_branch: "main"}} =
+               OwnedCheckout.refresh("branch", "acme/widgets",
+                 root: root,
+                 status: idle_status()
+               )
+
+      detached_fixture = refresh_fixture!(root, "detached")
+      git!(detached_fixture.destination, ["checkout", "--detach", "--quiet"])
+
+      assert {:error, %{kind: :detached_head}} =
+               OwnedCheckout.refresh("detached", "acme/widgets",
+                 root: root,
+                 status: idle_status()
+               )
+
+      ahead_fixture = refresh_fixture!(root, "ahead")
+      commit_file!(ahead_fixture.destination, "local.txt", "local\n", "local")
+
+      assert {:error, %{kind: :history_refused, ahead: 1, behind: 0}} =
+               OwnedCheckout.refresh("ahead", "acme/widgets",
+                 root: root,
+                 status: idle_status()
+               )
+    end
+
+    test "sanitizes fetch authentication failures", %{root: root} do
+      _fixture = refresh_fixture!(root, "auth")
+
+      runner = fn path, args ->
+        if args == ["fetch", "origin"] do
+          {:error, :authentication_failed}
+        else
+          GitRefreshRunner.run(path, args)
+        end
+      end
+
+      assert {:error, %{kind: :fetch_failed, reason: :authentication_failed} = failure} =
+               OwnedCheckout.refresh("auth", "acme/widgets",
+                 root: root,
+                 status: idle_status(),
+                 runner: runner
+               )
+
+      refute inspect(failure) =~ "token"
+    end
+
+    test "the provider transition barrier waits for an in-progress refresh", %{root: root} do
+      fixture = refresh_fixture!(root, "barrier")
+      parent = self()
+
+      runner = fn path, args ->
+        if args == ["fetch", "origin"] do
+          send(parent, {:fetch_started, self()})
+
+          receive do
+            :continue -> GitRefreshRunner.run(path, args)
+          end
+        else
+          GitRefreshRunner.run(path, args)
+        end
+      end
+
+      refresh =
+        Task.async(fn ->
+          OwnedCheckout.refresh("barrier", "acme/widgets",
+            root: root,
+            status: idle_status(),
+            runner: runner
+          )
+        end)
+
+      assert_receive {:fetch_started, refresher}, 1_000
+
+      transition =
+        Task.async(fn ->
+          Barrier.synchronize_agent("barrier",
+            root: root,
+            routine: fn _id -> %{working_dir: fixture.destination} end
+          )
+        end)
+
+      refute Task.yield(transition, 100)
+      send(refresher, :continue)
+      assert {:ok, %{status: :up_to_date}} = Task.await(refresh, 2_000)
+      assert :ok = Task.await(transition, 2_000)
+    end
+  end
+
   describe "repository_from_origin/1" do
     test "rejects other hosts and repository-shaped extra path segments" do
       assert OwnedCheckout.repository_from_origin("https://example.com/acme/widgets.git") ==
@@ -302,6 +463,48 @@ defmodule Custode.OwnedCheckoutTest do
           {:error, :runner_failed}
       end
     end
+  end
+
+  defp idle_status, do: fn _id -> {:ok, :idle} end
+
+  defp refresh_fixture!(root, id) do
+    source = Path.join(root, "#{id}-source")
+    remote = Path.join(root, "#{id}-remote.git")
+    writer = Path.join(root, "#{id}-writer")
+    {:ok, destination} = OwnedCheckout.path(id, root: root)
+
+    File.mkdir_p!(source)
+    git!(source, ["init", "--quiet", "--initial-branch=main"])
+    configure_identity!(source)
+    commit_file!(source, "README.md", "first\n", "first")
+    git!(root, ["clone", "--bare", "--quiet", source, remote])
+    git!(remote, ["symbolic-ref", "HEAD", "refs/heads/main"])
+    git!(root, ["clone", "--quiet", remote, destination])
+    git!(root, ["clone", "--quiet", remote, writer])
+    configure_identity!(destination)
+    configure_identity!(writer)
+
+    github_origin = "https://github.com/acme/widgets.git"
+    git!(destination, ["remote", "set-url", "origin", github_origin])
+    git!(destination, ["config", "url.#{remote}.insteadOf", github_origin])
+
+    %{destination: destination, remote: remote, writer: writer}
+  end
+
+  defp push_fixture_change!(fixture, contents) do
+    commit_file!(fixture.writer, "README.md", contents, "remote update")
+    git!(fixture.writer, ["push", "--quiet", "origin", "main"])
+  end
+
+  defp configure_identity!(path) do
+    git!(path, ["config", "user.email", "custode@example.invalid"])
+    git!(path, ["config", "user.name", "Custode Test"])
+  end
+
+  defp commit_file!(path, name, contents, message) do
+    File.write!(Path.join(path, name), contents)
+    git!(path, ["add", name])
+    git!(path, ["commit", "--quiet", "-m", message])
   end
 
   defp git!(path, args) do

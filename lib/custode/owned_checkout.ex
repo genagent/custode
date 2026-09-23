@@ -1,11 +1,11 @@
 defmodule Custode.OwnedCheckout do
   @moduledoc """
-  Paths and read-only inspection for routine-owned repository clones.
+  Lifecycle operations for routine-owned repository clones.
 
   An owned checkout has one deterministic location below Custode's data
-  directory: `checkouts/<routine-id>`. This module does not create, update or
-  remove that location. It gives those later operations one conservative
-  answer about what is already there.
+  directory: `checkouts/<routine-id>`. Provisioning is idempotent for a
+  matching destination. Refresh preserves a dirty, diverged, detached or
+  non-default checkout and only fast-forwards a clean default branch.
 
   Repository inspection uses `git` with an argument vector. It accepts the
   common GitHub HTTPS and SSH origin forms, compares repository names without
@@ -50,6 +50,41 @@ defmodule Custode.OwnedCheckout do
              stderr_to_stdout: true
            ) do
         {_output, 0} -> :ok
+        {output, status} -> {:error, classify_failure(output, status)}
+      end
+    rescue
+      _error -> {:error, :command_unavailable}
+    end
+
+    defp classify_failure(output, status) do
+      normalized = output |> to_string() |> String.downcase()
+
+      if Enum.any?(
+           [
+             "authentication failed",
+             "could not read username",
+             "gh auth login",
+             "not logged into",
+             "permission denied (publickey)"
+           ],
+           &String.contains?(normalized, &1)
+         ) do
+        :authentication_failed
+      else
+        {:exit_status, status}
+      end
+    end
+  end
+
+  defmodule GitRefreshRunner do
+    @moduledoc false
+
+    @spec run(String.t(), [String.t()]) ::
+            {:ok, String.t()}
+            | {:error, :authentication_failed | :command_unavailable | {:exit_status, integer()}}
+    def run(path, args) do
+      case System.cmd("git", ["-C", path | args], stderr_to_stdout: true) do
+        {output, 0} -> {:ok, String.trim(output)}
         {output, status} -> {:error, classify_failure(output, status)}
       end
     rescue
@@ -123,9 +158,35 @@ defmodule Custode.OwnedCheckout do
   def provision(routine_id, repository, opts \\ []) do
     with {:ok, destination} <- path(routine_id, opts) do
       clone = Keyword.get(opts, :clone, &GitHubCloneRunner.clone/2)
-      lock_id = {{__MODULE__, destination}, self()}
+      synchronize(destination, fn -> provision_locked(destination, repository, clone) end)
+    end
+  end
 
-      :global.trans(lock_id, fn -> provision_locked(destination, repository, clone) end)
+  @doc "Run a function while holding the shared lock for an owned checkout."
+  @spec synchronize(String.t(), (-> result)) :: result when result: var
+  def synchronize(destination, function)
+      when is_binary(destination) and is_function(function, 0) do
+    :global.trans({{__MODULE__, Path.expand(destination)}, self()}, function)
+  end
+
+  @doc """
+  Refresh a clean routine-owned clone without changing branches or local work.
+
+  The clone must match `repository`, the routine must be offline or idle, and
+  the checked-out branch must be origin's configured default. Refresh fetches
+  origin and performs only a fast-forward. The shared checkout lock composes
+  with `Custode.OwnedCheckout.Barrier` so an agent transition cannot race it.
+  """
+  @spec refresh(String.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, map() | :invalid_routine_id}
+  def refresh(routine_id, repository, opts \\ []) do
+    with {:ok, destination} <- path(routine_id, opts) do
+      runner = Keyword.get(opts, :runner, &GitRefreshRunner.run/2)
+      status = Keyword.get(opts, :status, &Custode.Agents.status/1)
+
+      synchronize(destination, fn ->
+        refresh_locked(routine_id, destination, repository, runner, status)
+      end)
     end
   end
 
@@ -172,6 +233,174 @@ defmodule Custode.OwnedCheckout do
   end
 
   defp valid_routine_id?(_routine_id), do: false
+
+  defp refresh_locked(routine_id, destination, repository, runner, status) do
+    with :ok <- matching_destination(destination, repository),
+         :ok <- refreshable_status(routine_id, destination, repository, status),
+         :ok <- clean_checkout(destination, repository, runner),
+         {:ok, branch} <- current_branch(destination, repository, runner),
+         :ok <- require_default_branch(destination, repository, branch, runner),
+         :ok <- fetch_origin(destination, repository, runner),
+         {:ok, counts} <- revision_counts(destination, repository, branch, runner),
+         {:ok, outcome} <- fast_forward(destination, repository, branch, counts, runner),
+         :ok <- refresh_postcondition(destination, repository, branch, runner) do
+      {:ok,
+       %{
+         status: outcome,
+         path: destination,
+         repo: repository,
+         branch: branch,
+         commits: counts.behind
+       }}
+    else
+      {:error, %{kind: _kind}} = error ->
+        error
+    end
+  end
+
+  defp matching_destination(destination, repository) do
+    case inspect_destination(destination, repository) do
+      {:ok, %{state: :matching}} ->
+        :ok
+
+      {:ok, inspection} ->
+        failure(:destination_refused, destination, repository, inspection: inspection)
+
+      {:error, reason} ->
+        failure(:inspection_failed, destination, repository, reason: safe_reason(reason))
+    end
+  end
+
+  defp refreshable_status(routine_id, destination, repository, status) do
+    case status.(routine_id) do
+      {:ok, state} when state in [:offline, :idle] ->
+        :ok
+
+      {:ok, state} ->
+        failure(:routine_busy, destination, repository, state: Custode.state_of(state))
+
+      _other ->
+        failure(:routine_state_unavailable, destination, repository)
+    end
+  rescue
+    _error -> failure(:routine_state_unavailable, destination, repository)
+  end
+
+  defp clean_checkout(destination, repository, runner) do
+    case runner.(destination, ["status", "--porcelain=v1", "-z"]) do
+      {:ok, ""} -> :ok
+      {:ok, _changes} -> failure(:dirty_checkout, destination, repository)
+      {:error, reason} -> git_failure(:status_failed, destination, repository, reason)
+    end
+  end
+
+  defp current_branch(destination, repository, runner) do
+    case runner.(destination, ["symbolic-ref", "--quiet", "--short", "HEAD"]) do
+      {:ok, branch} when branch != "" -> {:ok, branch}
+      {:ok, _empty} -> failure(:detached_head, destination, repository)
+      {:error, {:exit_status, 1}} -> failure(:detached_head, destination, repository)
+      {:error, reason} -> git_failure(:branch_inspection_failed, destination, repository, reason)
+    end
+  end
+
+  defp default_branch(destination, repository, runner) do
+    case runner.(destination, [
+           "symbolic-ref",
+           "--quiet",
+           "--short",
+           "refs/remotes/origin/HEAD"
+         ]) do
+      {:ok, "origin/" <> branch} when branch != "" -> {:ok, branch}
+      {:ok, _other} -> failure(:default_branch_unknown, destination, repository)
+      {:error, reason} -> git_failure(:default_branch_unknown, destination, repository, reason)
+    end
+  end
+
+  defp require_default_branch(destination, repository, current, runner) do
+    case default_branch(destination, repository, runner) do
+      {:ok, ^current} ->
+        :ok
+
+      {:ok, expected} ->
+        failure(:branch_refused, destination, repository,
+          current_branch: current,
+          default_branch: expected
+        )
+
+      {:error, %{kind: _kind}} = error ->
+        error
+    end
+  end
+
+  defp fetch_origin(destination, repository, runner) do
+    case runner.(destination, ["fetch", "origin"]) do
+      {:ok, _output} -> :ok
+      {:error, reason} -> git_failure(:fetch_failed, destination, repository, reason)
+    end
+  end
+
+  defp revision_counts(destination, repository, branch, runner) do
+    case runner.(destination, [
+           "rev-list",
+           "--left-right",
+           "--count",
+           "HEAD...origin/#{branch}"
+         ]) do
+      {:ok, output} -> parse_revision_counts(output, destination, repository)
+      {:error, reason} -> git_failure(:history_inspection_failed, destination, repository, reason)
+    end
+  end
+
+  defp parse_revision_counts(output, destination, repository) do
+    case String.split(output) do
+      [ahead, behind] ->
+        with {ahead, ""} <- Integer.parse(ahead),
+             {behind, ""} <- Integer.parse(behind) do
+          {:ok, %{ahead: ahead, behind: behind}}
+        else
+          _invalid -> failure(:history_inspection_failed, destination, repository)
+        end
+
+      _invalid ->
+        failure(:history_inspection_failed, destination, repository)
+    end
+  end
+
+  defp fast_forward(_destination, _repository, _branch, %{ahead: 0, behind: 0}, _runner),
+    do: {:ok, :up_to_date}
+
+  defp fast_forward(destination, repository, branch, %{ahead: 0}, runner) do
+    case runner.(destination, ["merge", "--ff-only", "--no-edit", "origin/#{branch}"]) do
+      {:ok, _output} -> {:ok, :fast_forwarded}
+      {:error, reason} -> git_failure(:fast_forward_failed, destination, repository, reason)
+    end
+  end
+
+  defp fast_forward(destination, repository, _branch, counts, _runner) do
+    failure(:history_refused, destination, repository,
+      ahead: counts.ahead,
+      behind: counts.behind
+    )
+  end
+
+  defp refresh_postcondition(destination, repository, branch, runner) do
+    with :ok <- clean_checkout(destination, repository, runner),
+         {:ok, ^branch} <- current_branch(destination, repository, runner),
+         {:ok, %{ahead: 0, behind: 0}} <- revision_counts(destination, repository, branch, runner) do
+      :ok
+    else
+      {:error, %{kind: _kind}} = error -> error
+      _other -> failure(:postcondition_failed, destination, repository)
+    end
+  end
+
+  defp git_failure(kind, destination, repository, reason) do
+    failure(kind, destination, repository, reason: safe_reason(reason))
+  end
+
+  defp failure(kind, destination, repository, attrs \\ []) do
+    {:error, attrs |> Map.new() |> Map.merge(%{kind: kind, path: destination, repo: repository})}
+  end
 
   defp provision_locked(destination, repository, clone) do
     case inspect_destination(destination, repository) do
