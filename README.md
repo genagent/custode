@@ -28,9 +28,6 @@ nothing until you add a routine.
 - Elixir ~> 1.20 / OTP 29
 - the `claude` CLI, logged in (`claude login`)
 - the `gh` CLI, authenticated
-- sibling checkouts of [oban_claude](https://github.com/genagent/oban_claude)
-  at `../oban_claude` and oban_codex at `../oban_codex` (path deps;
-  `OBAN_CLAUDE_PATH` and `OBAN_CODEX_PATH` override)
 - local checkouts for agents configured to use an existing checkout; the
   dashboard can provision routine-owned clones instead
 
@@ -42,6 +39,10 @@ mix ecto.migrate
 mix custode doctor                        # preflight: claude, gh, migrations, checkout
 mix phx.server                            # dashboard :4646, MCP 127.0.0.1:6161
 ```
+
+Custode installs `oban_claude` and `oban_codex` from Hex. To test unreleased
+wrapper changes, set `OBAN_CLAUDE_PATH` or `OBAN_CODEX_PATH` to the matching
+local checkout before running `mix deps.get`. Each override is independent.
 
 The roster lives in `routines.toml`, which is gitignored: a routine names a
 repository and a working directory on one machine. With no `routines.toml`

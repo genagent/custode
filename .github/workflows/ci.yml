@@ -13,25 +13,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # the app path-deps on the sibling executor checkouts
-      - uses: actions/checkout@v7
-        with:
-          repository: genagent/oban_claude
-          path: .oban_claude
-      - uses: actions/checkout@v7
-        with:
-          repository: genagent/oban_codex
-          path: .oban_codex
       - uses: actions/checkout@v7
         with:
           repository: joshrotenberg/mcp_ex
           ref: 6e357655210f7f146c967f702e46be7f724866d5
           path: .mcp_ex
           ssh-key: ${{ secrets.MCP_EX_DEPLOY_KEY }}
-      - name: Point the path deps at the CI checkouts
+      - name: Point the private dependency at its CI checkout
         run: |
-          echo "OBAN_CLAUDE_PATH=$GITHUB_WORKSPACE/.oban_claude" >> "$GITHUB_ENV"
-          echo "OBAN_CODEX_PATH=$GITHUB_WORKSPACE/.oban_codex" >> "$GITHUB_ENV"
           echo "MCP_EX_PATH=$GITHUB_WORKSPACE/.mcp_ex" >> "$GITHUB_ENV"
           echo "MCP_EX_REV=$(git -C .mcp_ex rev-parse --short HEAD)" >> "$GITHUB_ENV"
 
@@ -67,28 +56,14 @@ jobs:
 
       - uses: actions/checkout@v7
         with:
-          repository: genagent/oban_claude
-          path: .oban_claude
-      - uses: actions/checkout@v7
-        with:
-          repository: genagent/oban_codex
-          path: .oban_codex
-      - uses: actions/checkout@v7
-        with:
           repository: joshrotenberg/mcp_ex
           ref: 6e357655210f7f146c967f702e46be7f724866d5
           path: .mcp_ex
           ssh-key: ${{ secrets.MCP_EX_DEPLOY_KEY }}
-      - name: Point the path deps at the CI checkouts
+      - name: Point the private dependency at its CI checkout
         run: |
-          echo "OBAN_CLAUDE_PATH=$GITHUB_WORKSPACE/.oban_claude" >> "$GITHUB_ENV"
-          echo "OBAN_CODEX_PATH=$GITHUB_WORKSPACE/.oban_codex" >> "$GITHUB_ENV"
           echo "MCP_EX_PATH=$GITHUB_WORKSPACE/.mcp_ex" >> "$GITHUB_ENV"
-          # The engines are path deps, so mix.lock does not move when they do.
-          # Their commits go in the cache keys, or the PLT keeps analysing an
-          # engine that is no longer the one checked out (call_to_missing on a
-          # function the engine had just gained).
-          echo "ENGINES=$(git -C .oban_claude rev-parse --short HEAD)-$(git -C .oban_codex rev-parse --short HEAD)-$(git -C .mcp_ex rev-parse --short HEAD)" >> "$GITHUB_ENV"
+          echo "MCP_EX_REV=$(git -C .mcp_ex rev-parse --short HEAD)" >> "$GITHUB_ENV"
 
       - uses: erlef/setup-beam@v1
         with:
@@ -100,7 +75,7 @@ jobs:
           path: |
             deps
             _build
-          key: mix-dialyzer-${{ runner.os }}-${{ hashFiles('mix.lock') }}-${{ env.ENGINES }}
+          key: mix-dialyzer-${{ runner.os }}-${{ hashFiles('mix.lock') }}-${{ env.MCP_EX_REV }}
           restore-keys: mix-dialyzer-${{ runner.os }}-${{ hashFiles('mix.lock') }}-
 
       # The PLT is expensive to build; cache it on the toolchain and the lock
@@ -108,7 +83,7 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: priv/plts
-          key: plt-${{ runner.os }}-otp29-elixir1.20-${{ hashFiles('mix.lock') }}-${{ env.ENGINES }}
+          key: plt-${{ runner.os }}-otp29-elixir1.20-${{ hashFiles('mix.lock') }}-${{ env.MCP_EX_REV }}
 
       - run: mix deps.get
       - run: mix dialyzer

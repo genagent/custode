@@ -23,6 +23,18 @@ cd custode && mix deps.get
 export CUSTODE_HOME=~/.custode   # all runtime state lives here
 ```
 
+The normal install resolves both agent wrappers from Hex and needs no sibling
+repositories. Wrapper contributors can opt into a source checkout before
+fetching dependencies:
+
+```sh
+export OBAN_CLAUDE_PATH=/path/to/oban_claude
+export OBAN_CODEX_PATH=/path/to/oban_codex
+mix deps.get
+```
+
+Set either variable on its own when changing only one wrapper.
+
 With `CUSTODE_HOME` set, the database, workspace notebooks, agent tokens,
 feed, and the roster all root under that one directory. Unset, everything
 lives beside the code (the dev-loop default).
