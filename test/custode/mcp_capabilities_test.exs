@@ -7,14 +7,32 @@ defmodule Custode.MCPCapabilitiesTest do
   alias Custode.MCP.Tools
 
   setup do
-    workspace = tmp_workspace!()
+    worker_workspace = tmp_workspace!()
+    caretaker_workspace = tmp_workspace!()
     worker_id = uid("worker")
     caretaker_id = uid("caretaker")
+    repo = "acme/" <> uid("capability-repo")
 
     put_env!(:routines, [
-      %{id: worker_id, role: :backlog_worker, cron: :manual, workspace: workspace, prompt: "x"},
-      %{id: caretaker_id, role: :caretaker, cron: :manual, workspace: workspace, prompt: "x"}
+      %{
+        id: worker_id,
+        role: :backlog_worker,
+        cron: :manual,
+        workspace: worker_workspace,
+        repo: repo,
+        prompt: "x"
+      },
+      %{
+        id: caretaker_id,
+        role: :caretaker,
+        cron: :manual,
+        workspace: caretaker_workspace,
+        repo: repo,
+        prompt: "x"
+      }
     ])
+
+    :ok = Custode.Repository.ensure_served(repo, worker_id)
 
     previous_presence = Application.fetch_env(:custode, :presence_override)
     Application.delete_env(:custode, :presence_override)
@@ -30,9 +48,12 @@ defmodule Custode.MCPCapabilitiesTest do
 
     %{
       operator_token: operator_token,
+      repo: repo,
       worker_id: worker_id,
+      worker_workspace: worker_workspace,
       worker_token: Identity.mint(:routine, worker_id),
       caretaker_id: caretaker_id,
+      caretaker_workspace: caretaker_workspace,
       caretaker_token: Identity.mint(:routine, caretaker_id),
       sub_token: Identity.mint(:sub_agent, uid("sub"))
     }
@@ -65,6 +86,7 @@ defmodule Custode.MCPCapabilitiesTest do
 
     assert "journal_append" in worker_tools
     assert "repo_open_pr" in worker_tools
+    assert "repo_list_issues" in worker_tools
     refute "beat" in worker_tools
     refute "list_attention" in worker_tools
 
@@ -132,6 +154,67 @@ defmodule Custode.MCPCapabilitiesTest do
     assert Custode.TestHelpers.tool_error(
              Tools.StartAgent.execute(%{agent_id: uid("nested"), workspace: "/tmp"}, frame)
            ) =~ "may not delegate"
+  end
+
+  test "blind job calls cannot escape the authenticated routine's paths or grant", ctx do
+    worker = session(ctx.worker_token, "/mcp")
+    operator = session(ctx.operator_token, "/mcp")
+    own_inbox = Path.join(ctx.worker_workspace, "inbox")
+    foreign_inbox = Path.join(ctx.caretaker_workspace, "inbox")
+    before = length(jobs_for("Custode.OneShotJob"))
+
+    assert tool_error(worker, "run_job", %{
+             prompt: "inspect",
+             workspace: ctx.caretaker_workspace,
+             report_inbox: own_inbox
+           }) =~ "may not use workspace"
+
+    assert tool_error(worker, "run_job", %{
+             prompt: "inspect",
+             workspace: ctx.worker_workspace,
+             report_inbox: foreign_inbox
+           }) =~ "may not use report_inbox"
+
+    assert tool_error(worker, "run_job", %{
+             prompt: "inspect",
+             workspace: ctx.worker_workspace,
+             report_inbox: own_inbox,
+             elevated: true
+           }) =~ "no approved action in flight"
+
+    assert length(jobs_for("Custode.OneShotJob")) == before
+
+    assert %{"job_id" => job_id} =
+             call(operator, "run_job", %{
+               prompt: "inspect",
+               workspace: ctx.caretaker_workspace,
+               report_inbox: foreign_inbox,
+               elevated: true
+             })
+
+    assert is_integer(job_id)
+  end
+
+  test "blind repository-fact calls keep record ownership and the operator override", ctx do
+    number = System.unique_integer([:positive])
+    {:ok, row} = Custode.Disowned.disown(ctx.worker_id, ctx.repo, number, "worker judgment")
+
+    on_exit(fn ->
+      if current = Custode.Disowned.get(ctx.repo, number), do: Custode.Repo.delete!(current)
+    end)
+
+    caretaker = session(ctx.caretaker_token, "/mcp")
+    operator = session(ctx.operator_token, "/mcp")
+
+    assert tool_error(caretaker, "repo_reclaim_pr", %{repo: ctx.repo, number: number}) =~
+             "record owned by #{ctx.worker_id}"
+
+    assert Custode.Disowned.get(ctx.repo, number).id == row.id
+
+    assert %{"disowned" => false} =
+             call(operator, "repo_reclaim_pr", %{repo: ctx.repo, number: number})
+
+    assert Custode.Disowned.get(ctx.repo, number) == nil
   end
 
   defp tool_names(client) do

@@ -111,21 +111,22 @@ The current handlers enforce these boundaries:
 - Delegated-agent lifecycle, prompts, history, and gate decisions verify the
   durable parent record. Missing or reconciled records deny routine access;
   the human operator retains an override.
+- One-shot jobs bind a routine to its configured working directory or owned
+  checkout and its own notebook inbox. Elevated jobs require the human
+  operator or a live approved continuation whose action class permits shell
+  work.
+- Disown and reclaim operations require a served repository. Routines act
+  only on the repository in their roster entry and may revise only records
+  they own; the human operator retains an explicit override.
 - Repository writes check served-repository policy. Agent writes also pass
   through the action-grant check, whose default mode currently observes and
   records an out-of-grant call rather than refusing it.
 - Main-endpoint resources require the human operator identity.
 
-The following narrower restrictions are not yet uniformly enforced in shared
-operations:
+The repository grant checker still defaults to observation. Turning refusal
+on is the policy decision tracked by #554.
 
-- `run_job` does not constrain its workspace, reporting inbox, or elevated
-  mode to the caller's identity or an approved continuation.
-- `repo_reclaim_pr` does not verify that the caller owns the disowned record.
-- The repository grant checker defaults to observation. Turning refusal on is
-  the policy decision tracked by #554.
-
-These gaps matter even when Claude Code or Codex honors its generated
+This remaining gap matters even when Claude Code or Codex honors its generated
 allowlist. Custode is intentionally MCP-native, so external sessions, command
 line clients, and future model providers must receive the same server-side
 decision from the same authenticated request.

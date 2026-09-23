@@ -1236,9 +1236,9 @@ Record that a pull request is outside the fleet work being handled.
 
 **Side effects:** Creates a local disownment record, changing how failing PR checks reach the operator. No GitHub write.
 
-**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Uses the authenticated caller ID as author. The tool does not verify that the caller owns or serves the repository.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. The repository must be served. A routine may act only on the repository in its current roster entry and is recorded as the owner. The human operator may act on any served repository and override record ownership.
 
-**Behavior, defaults and errors:** repo and number are required; reason is optional. Idempotent by repo+number: an existing record preserves its original author and reason. A repeated call cannot revise those fields.
+**Behavior, defaults and errors:** repo and number are required; reason is optional. Idempotent by repo+number for the record owner or operator: an existing record preserves its original author and reason. Another routine cannot revise that record. Authorization is checked before inserting a record.
 
 ### Tool: repo_draft_issues
 
@@ -1493,9 +1493,9 @@ Remove a pull-request disownment.
 
 **Side effects:** Deletes the local disownment record so future failing-check attention returns to normal fleet handling. No GitHub write.
 
-**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. No caller/owner check in the current tool: reclaim is keyed globally by repo+number, despite the self-write policy classification.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. The repository must be served. A routine may act only on its configured repository and may reclaim only a record it owns. The human operator may reclaim any record in any served repository.
 
-**Behavior, defaults and errors:** repo and number are required. Missing disownment is an error ('was not disowned'), so a completed repeat is not a successful no-op.
+**Behavior, defaults and errors:** repo and number are required. Missing disownment is an error ('was not disowned'), so a completed repeat is not a successful no-op. Repository and owner authorization occurs before deletion.
 
 ### Tool: repo_review_pr
 
@@ -1594,9 +1594,9 @@ Queue a bounded one-shot task with an inbox completion report.
 
 **Side effects:** Enqueues a one-shot Claude run that can edit files, spend model budget, and write a completion note. Elevated jobs have full shell/Git/GitHub permissions.
 
-**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. No ownership or approval-grant check inside this tool. elevated is documented for already approved work, but that precondition is not checked here.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. A routine is limited to its configured working directory or deterministic owned checkout and its own notebook inbox. Elevated routine jobs require a live approved continuation whose action class permits shell work. The human operator may use any existing directories and run elevated jobs directly.
 
-**Behavior, defaults and errors:** prompt and report_inbox are required; report_inbox and any workspace must already be directories. model and max_budget_usd default to configuration; tag defaults to 'job'. Runs have 15 agentic turns and a 200000 ms timeout, or 900000 ms when elevated. Acceptance is asynchronous and not idempotent. Final report requires status and summary, with optional artifacts array and cost_note.
+**Behavior, defaults and errors:** prompt and report_inbox are required; report_inbox and any workspace must already be directories. A routine that omits workspace uses its configured working directory. Lexical and physical path containment prevent traversal and symlink escapes. Path and elevation checks occur before a job is inserted. model and max_budget_usd default to configuration; tag defaults to 'job'. Runs have 15 agentic turns and a 200000 ms timeout, or 900000 ms when elevated. Acceptance is asynchronous and not idempotent. Final report requires status and summary, with optional artifacts array and cost_note.
 
 ### Tool: set_next_beat
 

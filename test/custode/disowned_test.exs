@@ -1,6 +1,8 @@
 defmodule Custode.DisownedTest do
   use ExUnit.Case, async: false
 
+  import Custode.TestHelpers, only: [put_env!: 2, tmp_workspace!: 0, uid: 1]
+
   alias Custode.Disowned
   alias Custode.MCP.DisownTools
 
@@ -11,7 +13,22 @@ defmodule Custode.DisownedTest do
 
   setup do
     on_exit(fn -> Custode.Repo.query!("DELETE FROM disowned_prs") end)
-    %{repo: "joshrotenberg/mdbook-lint"}
+    repo = "acme/" <> uid("disowned")
+    owner = uid("owner")
+    sibling = uid("sibling")
+    foreign = uid("foreign")
+    workspace = tmp_workspace!()
+    foreign_repo = "acme/" <> uid("foreign-repo")
+
+    put_env!(:routines, [
+      %{id: owner, cron: :manual, workspace: workspace, prompt: "x", repo: repo},
+      %{id: sibling, cron: :manual, workspace: workspace, prompt: "x", repo: repo},
+      %{id: foreign, cron: :manual, workspace: workspace, prompt: "x", repo: foreign_repo}
+    ])
+
+    :ok = Custode.Repository.ensure_served(repo, owner)
+    :ok = Custode.Repository.ensure_served(foreign_repo, foreign)
+    %{repo: repo, owner: owner, sibling: sibling, foreign: foreign}
   end
 
   describe "disown/4" do
@@ -82,36 +99,97 @@ defmodule Custode.DisownedTest do
   end
 
   describe "the MCP tools" do
-    test "repo_disown_pr records the caller as the author", %{repo: repo} do
+    test "repo_disown_pr records the caller as the author", %{repo: repo, owner: owner} do
       json =
         DisownTools.DisownPr.execute(
           %{repo: repo, number: 400, reason: "human's LSP config fix"},
-          routine_frame("mdbook-lint")
+          routine_frame(owner)
         )
         |> Custode.TestHelpers.tool_json()
 
-      assert json["disowned_by"] == "mdbook-lint"
+      assert json["disowned_by"] == owner
       assert json["number"] == 400
       assert json["note"] =~ "reaches the operator"
     end
 
-    test "repo_reclaim_pr undoes it", %{repo: repo} do
-      {:ok, _row} = Disowned.disown("mdbook-lint", repo, 400)
+    test "repo_reclaim_pr undoes it", %{repo: repo, owner: owner} do
+      {:ok, _row} = Disowned.disown(owner, repo, 400)
 
       json =
-        DisownTools.ReclaimPr.execute(%{repo: repo, number: 400}, routine_frame("mdbook-lint"))
+        DisownTools.ReclaimPr.execute(%{repo: repo, number: 400}, routine_frame(owner))
         |> Custode.TestHelpers.tool_json()
 
       assert json["disowned"] == false
       assert Disowned.get(repo, 400) == nil
     end
 
-    test "repo_reclaim_pr on an owned PR is a tool error, not a crash", %{repo: repo} do
+    test "repo_reclaim_pr on an owned PR is a tool error, not a crash", %{
+      repo: repo,
+      owner: owner
+    } do
       error =
-        DisownTools.ReclaimPr.execute(%{repo: repo, number: 999}, routine_frame("mdbook-lint"))
+        DisownTools.ReclaimPr.execute(%{repo: repo, number: 999}, routine_frame(owner))
         |> Custode.TestHelpers.tool_error()
 
       assert error =~ "was not disowned"
+    end
+
+    test "another routine cannot revise or reclaim the owner's record", %{
+      repo: repo,
+      owner: owner,
+      sibling: sibling
+    } do
+      {:ok, row} = Disowned.disown(owner, repo, 400, "not mine")
+
+      error =
+        DisownTools.DisownPr.execute(
+          %{repo: repo, number: 400, reason: "replace it"},
+          routine_frame(sibling)
+        )
+        |> Custode.TestHelpers.tool_error()
+
+      assert error =~ "record owned by #{owner}"
+
+      error =
+        DisownTools.ReclaimPr.execute(%{repo: repo, number: 400}, routine_frame(sibling))
+        |> Custode.TestHelpers.tool_error()
+
+      assert error =~ "record owned by #{owner}"
+      assert Disowned.get(repo, 400).id == row.id
+      assert Disowned.get(repo, 400).reason == "not mine"
+    end
+
+    test "the human operator can reclaim another caller's record", %{repo: repo, owner: owner} do
+      {:ok, _row} = Disowned.disown(owner, repo, 400)
+
+      assert %{"disowned" => false} =
+               DisownTools.ReclaimPr.execute(%{repo: repo, number: 400}, @operator)
+               |> Custode.TestHelpers.tool_json()
+
+      assert Disowned.get(repo, 400) == nil
+    end
+
+    test "an unserved repository is refused before a fact is written", %{owner: owner} do
+      repo = "acme/" <> uid("unserved")
+
+      error =
+        DisownTools.DisownPr.execute(%{repo: repo, number: 400}, routine_frame(owner))
+        |> Custode.TestHelpers.tool_error()
+
+      assert error =~ "is not served"
+      assert Disowned.get(repo, 400) == nil
+    end
+
+    test "a routine cannot write facts for another served repository", %{
+      repo: repo,
+      foreign: foreign
+    } do
+      error =
+        DisownTools.DisownPr.execute(%{repo: repo, number: 400}, routine_frame(foreign))
+        |> Custode.TestHelpers.tool_error()
+
+      assert error =~ "owns repository"
+      assert Disowned.get(repo, 400) == nil
     end
 
     test "list_disowned reports them, and filters by repo", %{repo: repo} do

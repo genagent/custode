@@ -80,8 +80,17 @@ defmodule Custode.Disowned do
   def reclaim(repo, number) do
     case get(repo, number) do
       nil -> {:error, :not_disowned}
-      %Row{} = row -> Repo.delete!(row) && :ok
+      %Row{} = row -> reclaim(row)
     end
+  end
+
+  @doc "Undo the exact disownment row that was authorized by its caller."
+  @spec reclaim(Row.t()) :: :ok | {:error, :not_disowned}
+  def reclaim(%Row{} = row) do
+    Repo.delete!(row)
+    :ok
+  rescue
+    Ecto.StaleEntryError -> {:error, :not_disowned}
   end
 
   @doc "The disownment for this PR, or nil."

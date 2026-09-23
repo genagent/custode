@@ -386,6 +386,127 @@ defmodule Custode.MCPToolsTest do
       assert tool_error(reply) =~ "report_inbox"
     end
 
+    test "a routine defaults to its configured checkout and reports to its own inbox" do
+      workspace = tmp_workspace!()
+      routine = routine_fixture!(workspace, %{working_dir: workspace})
+      frame = routine_frame(routine.id)
+
+      json =
+        tool_json(
+          Tools.RunJob.execute(
+            %{prompt: "inspect it", report_inbox: Path.join(workspace, "inbox")},
+            frame
+          )
+        )
+
+      [job] = jobs_for("Custode.OneShotJob") |> Enum.filter(&(&1.id == json["job_id"]))
+      assert File.stat!(job.args["working_dir"]) == File.stat!(workspace)
+
+      assert File.stat!(job.args["report_inbox"]) ==
+               File.stat!(Path.join(workspace, "inbox"))
+    end
+
+    test "a routine may use its owned checkout" do
+      notebook = tmp_workspace!()
+      routine = routine_fixture!(notebook)
+      {:ok, owned} = Custode.OwnedCheckout.path(routine.id)
+      File.mkdir_p!(owned)
+      on_exit(fn -> File.rm_rf!(owned) end)
+
+      json =
+        tool_json(
+          Tools.RunJob.execute(
+            %{
+              prompt: "inspect it",
+              workspace: owned,
+              report_inbox: Path.join(notebook, "inbox")
+            },
+            routine_frame(routine.id)
+          )
+        )
+
+      [job] = jobs_for("Custode.OneShotJob") |> Enum.filter(&(&1.id == json["job_id"]))
+      assert job.args["working_dir"] == owned
+    end
+
+    test "a routine cannot traverse out or use another routine's checkout or inbox" do
+      own = tmp_workspace!()
+      sibling = tmp_workspace!()
+      id = uid("job-owner")
+      sibling_id = uid("job-sibling")
+
+      put_env!(:routines, [
+        %{id: id, cron: :manual, workspace: own, working_dir: own, prompt: "x"},
+        %{
+          id: sibling_id,
+          cron: :manual,
+          workspace: sibling,
+          working_dir: sibling,
+          prompt: "x"
+        }
+      ])
+
+      frame = routine_frame(id)
+      inbox = Path.join(own, "inbox")
+      before = length(jobs_for("Custode.OneShotJob"))
+      symlink = Path.join(own, "sibling-link")
+      File.ln_s!(sibling, symlink)
+
+      traversal = Path.join([own, "..", Path.basename(sibling)])
+
+      assert tool_error(
+               Tools.RunJob.execute(
+                 %{prompt: "x", workspace: traversal, report_inbox: inbox},
+                 frame
+               )
+             ) =~ "may not use workspace"
+
+      assert tool_error(
+               Tools.RunJob.execute(
+                 %{prompt: "x", workspace: symlink, report_inbox: inbox},
+                 frame
+               )
+             ) =~ "may not use workspace"
+
+      assert tool_error(
+               Tools.RunJob.execute(
+                 %{prompt: "x", workspace: sibling, report_inbox: inbox},
+                 frame
+               )
+             ) =~ "may not use workspace"
+
+      assert tool_error(
+               Tools.RunJob.execute(
+                 %{prompt: "x", workspace: own, report_inbox: Path.join(sibling, "inbox")},
+                 frame
+               )
+             ) =~ "may not use report_inbox"
+
+      assert length(jobs_for("Custode.OneShotJob")) == before
+    end
+
+    test "elevated routine jobs require a live shell approval" do
+      workspace = tmp_workspace!()
+      routine = routine_fixture!(workspace)
+      frame = routine_frame(routine.id)
+      args = %{prompt: "x", report_inbox: Path.join(workspace, "inbox"), elevated: true}
+      before = length(jobs_for("Custode.OneShotJob"))
+
+      assert tool_error(Tools.RunJob.execute(args, frame)) =~
+               "elevated job with no approved action"
+
+      refute_job_inserted(before)
+      gate = approved_gate!(routine.id, "comment")
+
+      assert tool_error(Tools.RunJob.execute(args, frame)) =~ "outside gate #{gate.id}"
+      refute_job_inserted(before)
+
+      Custode.Repo.delete!(gate)
+      _gate = approved_gate!(routine.id, "implement")
+      json = tool_json(Tools.RunJob.execute(args, frame))
+      assert is_integer(json["job_id"])
+    end
+
     test "handle_result writes the completion note where the sweep will find it" do
       inbox = Path.join(tmp_workspace!(), "inbox")
 
@@ -414,5 +535,29 @@ defmodule Custode.MCPToolsTest do
 
       assert File.read!(Path.join(inbox, "job-992-job.md")) =~ "FAILED"
     end
+  end
+
+  defp routine_frame(id),
+    do: %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :routine, id: id}}}
+
+  defp approved_gate!(agent_id, class) do
+    gate =
+      Custode.Repo.insert!(%Custode.Gates.Gate{
+        agent_id: agent_id,
+        kind: "approval",
+        status: "resolved",
+        outcome: "approved",
+        class: class
+      })
+
+    on_exit(fn ->
+      if Custode.Repo.get(Custode.Gates.Gate, gate.id), do: Custode.Repo.delete!(gate)
+    end)
+
+    gate
+  end
+
+  defp refute_job_inserted(before) do
+    assert length(jobs_for("Custode.OneShotJob")) == before
   end
 end

@@ -562,6 +562,8 @@ defmodule Custode.MCP.Tools.RunJob do
 
   import Custode.MCP.Tools
 
+  alias Custode.MCP.Scope
+
   schema do
     field(:prompt, :string, required: true)
 
@@ -593,16 +595,19 @@ defmodule Custode.MCP.Tools.RunJob do
 
   @impl true
   def execute(%{prompt: prompt, report_inbox: report_inbox} = params, frame) do
-    cond do
-      not File.dir?(Path.expand(report_inbox)) ->
-        fail(frame, "report_inbox is not an existing directory: #{report_inbox}")
-
-      params[:workspace] && not File.dir?(Path.expand(params[:workspace])) ->
-        fail(frame, "workspace is not an existing directory: #{params[:workspace]}")
-
-      true ->
-        {:ok, job} = params |> job_args(prompt, report_inbox) |> enqueue()
-        reply(frame, %{job_id: job.id, reports_to: Path.expand(report_inbox)})
+    with {:ok, paths} <-
+           Scope.authorize_job(
+             frame,
+             params[:workspace],
+             report_inbox,
+             params[:elevated] == true
+           ),
+         :ok <- existing_directory(paths.report_inbox, "report_inbox"),
+         :ok <- existing_optional_directory(paths.workspace, "workspace") do
+      {:ok, job} = params |> job_args(prompt, paths) |> enqueue()
+      reply(frame, %{job_id: job.id, reports_to: paths.report_inbox})
+    else
+      {:error, message} -> fail(frame, message)
     end
   end
 
@@ -610,7 +615,7 @@ defmodule Custode.MCP.Tools.RunJob do
   # human-approved work that needs git/gh) runs bypass_permissions with a
   # suite-length timeout -- otherwise the first `git fetch` dies asking a
   # question nobody can answer non-interactively
-  defp job_args(params, prompt, report_inbox) do
+  defp job_args(params, prompt, paths) do
     [
       prompt: prompt,
       model: params[:model] || Application.fetch_env!(:custode, :model),
@@ -624,11 +629,20 @@ defmodule Custode.MCP.Tools.RunJob do
       # typed fields instead of hoping the prose is shaped right.
       json_schema: report_schema()
     ]
-    |> maybe_workspace(params[:workspace])
+    |> maybe_workspace(paths.workspace)
     |> ObanClaude.Args.new()
-    |> Map.put("report_inbox", Path.expand(report_inbox))
+    |> Map.put("report_inbox", paths.report_inbox)
     |> Map.put("tag", params[:tag] || "job")
   end
+
+  defp existing_directory(path, label) do
+    if File.dir?(path),
+      do: :ok,
+      else: {:error, "#{label} is not an existing directory: #{path}"}
+  end
+
+  defp existing_optional_directory(nil, _label), do: :ok
+  defp existing_optional_directory(path, label), do: existing_directory(path, label)
 
   # The one-shot report contract. Kept lenient on which fields are required
   # (status + summary) so a terse job still validates, but strict on shape so
