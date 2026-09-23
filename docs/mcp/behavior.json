@@ -380,6 +380,13 @@
       "result": "before and after strings containing configuration sections.",
       "summary": "Preview a change to an existing routine."
     },
+    "provision_owned_checkout": {
+      "access": "Authenticated operator or a configured caretaker routine with the operator grant. Other routines and sub-agents are refused by shared operation authorization.",
+      "effects": "May create the checkouts parent directory and clone the named GitHub repository through host gh authentication into the deterministic checkouts/<routine_id> path. Records one OperationCall and a typed filesystem effect. Dry run records an OperationCall but changes no files.",
+      "notes": "routine_id and repository owner/name are required; provisioning may run before the roster entry exists. Existing matching clones are idempotent success. Occupied, mismatched, unsafe, or unsuccessfully cloned destinations are preserved and return structured errors. Supply a stable idempotency_key when retrying one logical request.",
+      "result": "Execution returns routine_id, repository, absolute path and status provisioned or already_provisioned. Dry run returns status=dry_run and an effect_preview naming the path and possible clone.",
+      "summary": "Provision a routine-owned clone at its deterministic Custode path."
+    },
     "prompt_agent": {
       "access": "Operators use the shared operator-message action. Agent callers use direct delegation; this tool does not check parent ownership of the target.",
       "effects": "Sends or queues work. For an operator, can resume a paused agent or start an offline configured routine and records activity.",
@@ -393,6 +400,13 @@
       "notes": "routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. key is optional; omission returns all memory. A missing requested key is a tool error ('nothing remembered under ...'), not a null result. The endpoint's small tool set does not imply memory reads are self-only. Full-memory results are sorted by key.",
       "result": "Without key: memories array of key/value. With key: key and value.",
       "summary": "Read one or all persistent facts for an identity."
+    },
+    "refresh_owned_checkout": {
+      "access": "Authenticated operator or a configured caretaker routine with the operator grant. Other routines and sub-agents are refused by shared operation authorization.",
+      "effects": "For a configured routine using its deterministic owned checkout, may fetch origin and fast-forward the clean checked-out default branch. Records one OperationCall and a typed filesystem effect. Dry run records an OperationCall but performs no Git command.",
+      "notes": "routine_id is required. Existing-checkout routines are refused. The routine must be offline or idle; dirty, detached, non-default, ahead, divergent, mismatched, or unavailable checkouts are preserved and return structured errors. Command output and origin credentials are never returned. Supply a stable idempotency_key when retrying.",
+      "result": "Execution returns routine_id, repository, absolute path, branch, commit count and status up_to_date or fast_forwarded. Dry run returns status=dry_run and an effect_preview naming the path and possible fetch/fast-forward.",
+      "summary": "Safely refresh a configured routine-owned checkout."
     },
     "reject_action": {
       "access": "Same target guard as approve_action: routine callers cannot decide configured-routine gates; non-routine target ownership is not checked here.",

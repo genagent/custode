@@ -85,7 +85,7 @@ Routine instructions, prompt files, the `prompt_agent` tool, and an agent's stru
 
 | Endpoint | Server | Tools | Resources | Templates | Prompts |
 | --- | --- | ---: | ---: | ---: | ---: |
-| `/mcp` | custode 0.1.0 | 75 | 4 | 13 | 0 |
+| `/mcp` | custode 0.1.0 | 77 | 4 | 13 | 0 |
 | `/mcp/memory` | memory 0.1.0 | 4 | 0 | 0 | 0 |
 
 **`/mcp`**: protocol versions 2025-11-25, 2025-06-18, 2025-03-26; capabilities `{"resources":{},"tools":{}}`.
@@ -141,7 +141,9 @@ Categories are descriptive policy metadata, not an authorization guarantee.
 | [preview_routine](#tool-preview_routine) | read |
 | [preview_routine_edit](#tool-preview_routine_edit) | read |
 | [prompt_agent](#tool-prompt_agent) | delegate |
+| [provision_owned_checkout](#tool-provision_owned_checkout) | operator |
 | [recall](#tool-recall) | read |
+| [refresh_owned_checkout](#tool-refresh_owned_checkout) | operator |
 | [reject_action](#tool-reject_action) | delegate |
 | [remember](#tool-remember) | self_write |
 | [remove_profile](#tool-remove_profile) | roster_write |
@@ -1055,6 +1057,27 @@ Send work or an answer to an agent.
 
 **Behavior, defaults and errors:** agent_id and prompt are required. Waiting-for-user input answers the question; busy input queues. Operator how='started' means a startup tick was queued, not that execution began. The agent path reports how='delivered' after a cast is accepted; this is not a delivery receipt and paused delegation can be dropped. No idempotency key; retry can submit duplicate input.
 
+### Tool: provision_owned_checkout
+
+Provision a routine-owned clone at its deterministic Custode path.
+
+**Endpoints:** /mcp. **Category:** operator.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| dry_run | boolean | no | preview without changing the filesystem |  |
+| idempotency_key | string | no | stable key for one logical provision |  |
+| repository | string | yes | GitHub owner/name |  |
+| routine_id | string | yes | future or existing routine id |  |
+
+**Result:** Execution returns routine_id, repository, absolute path and status provisioned or already_provisioned. Dry run returns status=dry_run and an effect_preview naming the path and possible clone.
+
+**Side effects:** May create the checkouts parent directory and clone the named GitHub repository through host gh authentication into the deterministic checkouts/&lt;routine_id&gt; path. Records one OperationCall and a typed filesystem effect. Dry run records an OperationCall but changes no files.
+
+**Access:** Authenticated operator or a configured caretaker routine with the operator grant. Other routines and sub-agents are refused by shared operation authorization.
+
+**Behavior, defaults and errors:** routine_id and repository owner/name are required; provisioning may run before the roster entry exists. Existing matching clones are idempotent success. Occupied, mismatched, unsafe, or unsuccessfully cloned destinations are preserved and return structured errors. Supply a stable idempotency_key when retrying one logical request.
+
 ### Tool: recall
 
 Read one or all persistent facts for an identity.
@@ -1074,6 +1097,26 @@ Read one or all persistent facts for an identity.
 **Access:** Any authenticated caller reaching this tool may read another identity's memories by ID. Also on the memory endpoint; no self-only read guard.
 
 **Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. key is optional; omission returns all memory. A missing requested key is a tool error ('nothing remembered under ...'), not a null result. The endpoint's small tool set does not imply memory reads are self-only. Full-memory results are sorted by key.
+
+### Tool: refresh_owned_checkout
+
+Safely refresh a configured routine-owned checkout.
+
+**Endpoints:** /mcp. **Category:** operator.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| dry_run | boolean | no | preview without fetching or fast-forwarding |  |
+| idempotency_key | string | no | stable key for one logical refresh |  |
+| routine_id | string | yes | configured routine id |  |
+
+**Result:** Execution returns routine_id, repository, absolute path, branch, commit count and status up_to_date or fast_forwarded. Dry run returns status=dry_run and an effect_preview naming the path and possible fetch/fast-forward.
+
+**Side effects:** For a configured routine using its deterministic owned checkout, may fetch origin and fast-forward the clean checked-out default branch. Records one OperationCall and a typed filesystem effect. Dry run records an OperationCall but performs no Git command.
+
+**Access:** Authenticated operator or a configured caretaker routine with the operator grant. Other routines and sub-agents are refused by shared operation authorization.
+
+**Behavior, defaults and errors:** routine_id is required. Existing-checkout routines are refused. The routine must be offline or idle; dirty, detached, non-default, ahead, divergent, mismatched, or unavailable checkouts are preserved and return structured errors. Command output and origin credentials are never returned. Supply a stable idempotency_key when retrying.
 
 ### Tool: reject_action
 

@@ -3,6 +3,7 @@ defmodule Custode.OperationRegistry do
 
   alias Custode.OperationDefinition
   alias Custode.Operations.Fleet.PauseAgent
+  alias Custode.Operations.Fleet.{ProvisionOwnedCheckout, RefreshOwnedCheckout}
   alias Custode.Operations.Git.PublishBranch
   alias Custode.Operations.GitHub.MergePr
   alias Custode.Operations.GitHub.OpenPr
@@ -39,6 +40,8 @@ defmodule Custode.OperationRegistry do
     {:ok, registry} =
       new([
         PauseAgent.definition(),
+        ProvisionOwnedCheckout.definition(),
+        RefreshOwnedCheckout.definition(),
         PublishBranch.definition(),
         MergePr.definition(),
         OpenPr.definition(),
