@@ -1038,19 +1038,43 @@ defmodule CustodeWeb.ConsoleLiveTest do
          %{
            sha: "abc",
            checks: [
-             %{name: "fmt", status: "completed", conclusion: "success", url: "https://x/fmt"},
              %{
+               id: 638,
+               name: "fmt",
+               status: "completed",
+               conclusion: "success",
+               url: "https://x/fmt"
+             },
+             %{
+               id: 637,
                name: "test (ubuntu)",
                status: "completed",
                conclusion: "failure",
                url: "https://x/t"
              },
-             %{name: "docs", status: "in_progress", conclusion: nil, url: nil}
+             %{
+               id: 636,
+               name: "lint",
+               status: "completed",
+               conclusion: "failure",
+               url: "https://x/lint"
+             },
+             %{id: 639, name: "docs", status: "in_progress", conclusion: nil, url: nil}
            ]
          }}
       end
 
       def pr_checks(_owner, _repo, _number), do: {:error, "github: 502"}
+
+      def job_log_tail(_owner, _repo, 636) do
+        send(Application.fetch_env!(:custode, :checks_test_pid), {:job_log_tail, 636})
+        {:error, "GitHub Actions logs unavailable"}
+      end
+
+      def job_log_tail(_owner, _repo, job_id) do
+        send(Application.fetch_env!(:custode, :checks_test_pid), {:job_log_tail, job_id})
+        {:ok, "Compiling 42 files\n** (RuntimeError) expected true, got false"}
+      end
     end
 
     setup %{conn: conn} do
@@ -1071,6 +1095,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
       overviews = Application.get_env(:custode, :fake_repo_overviews, %{})
       put_env!(:fake_repo_overviews, Map.put(overviews, repo, {:ok, overview}))
       put_env!(:repo_ops, ChecksOps)
+      put_env!(:checks_test_pid, self())
 
       routine = routine_fixture!(tmp_workspace!(), %{repo: repo})
       :ok = Custode.Repository.ensure_served(repo, routine.id)
@@ -1091,8 +1116,15 @@ defmodule CustodeWeb.ConsoleLiveTest do
           html
         end)
 
-      assert html =~ ~r/test \(ubuntu\).*failure.*docs.*in_progress.*fmt.*success/s
+      assert html =~ ~r/lint.*failure.*test \(ubuntu\).*failure.*docs.*in_progress.*fmt.*success/s
       assert html =~ ~s(href="https://x/t")
+      assert html =~ ~s(id="check-log-637")
+      assert html =~ "expected true, got false"
+      assert_receive {:job_log_tail, 637}
+      assert_receive {:job_log_tail, 636}
+      refute html =~ ~s(id="check-log-636")
+      refute_receive {:job_log_tail, 638}
+      refute_receive {:job_log_tail, 639}
       # one PR's read failing does not take the other's rows with it
       assert html =~ ~r/checks unavailable: [^<]*502/
     end

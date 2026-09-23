@@ -32,6 +32,7 @@ defmodule Custode.Attention.VerifyTest do
     def view_issue(_owner, _repo, _number), do: {:error, :unused}
     def list_prs(_owner, _repo, _opts), do: {:error, :unused}
     def view_pr(_owner, _repo, _number), do: {:error, :unused}
+    def job_log_tail(_owner, _repo, _job_id), do: {:error, :unused}
     def pr_diff(_owner, _repo, _number), do: {:error, :unused}
     def review_snapshot(_owner, _repo, _number), do: {:error, :unused}
     def review_state(_owner, _repo, _number), do: :unreviewed

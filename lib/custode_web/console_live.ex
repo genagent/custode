@@ -81,7 +81,8 @@ defmodule CustodeWeb.ConsoleLive do
        new_agent: nil,
        feed_limit: @feed_page,
        journal_limit: @journal_page,
-       checks: %{}
+       checks: %{},
+       check_logs: %{}
      )}
   end
 
@@ -95,7 +96,8 @@ defmodule CustodeWeb.ConsoleLive do
        edit: nil,
        feed_limit: @feed_page,
        journal_limit: @journal_page,
-       checks: %{}
+       checks: %{},
+       check_logs: %{}
      )
      |> refresh()
      |> read_checks()}
@@ -120,18 +122,68 @@ defmodule CustodeWeb.ConsoleLive do
 
   @impl Phoenix.LiveView
   def handle_async({:checks, repo, number}, {:ok, result}, socket) do
-    rows =
+    if selected_pr?(socket, repo, number) do
       case result do
-        {:ok, %{checks: checks}} -> {:ok, Enum.sort_by(checks, &check_rank/1)}
-        {:error, reason} -> {:error, to_string(reason)}
-      end
+        {:ok, %{checks: checks}} ->
+          rows = Enum.sort_by(checks, &check_rank/1)
 
-    {:noreply, update(socket, :checks, &Map.put(&1, {repo, number}, rows))}
+          socket =
+            update(socket, :checks, &Map.put(&1, {repo, number}, {:ok, rows}))
+
+          {:noreply, read_failed_check_logs(socket, repo, number, rows)}
+
+        {:error, reason} ->
+          {:noreply,
+           update(socket, :checks, &Map.put(&1, {repo, number}, {:error, to_string(reason)}))}
+      end
+    else
+      {:noreply, socket}
+    end
   end
 
-  def handle_async({:checks, repo, number}, {:exit, reason}, socket),
-    do:
+  def handle_async({:checks, repo, number}, {:exit, reason}, socket) do
+    if selected_pr?(socket, repo, number) do
       {:noreply, update(socket, :checks, &Map.put(&1, {repo, number}, {:error, inspect(reason)}))}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:check_log, repo, number, check_id}, {:ok, result}, socket) do
+    if selected_pr?(socket, repo, number) do
+      log = if match?({:ok, _text}, result), do: result, else: :unavailable
+
+      {:noreply, update(socket, :check_logs, &Map.put(&1, {repo, check_id}, log))}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:check_log, _repo, _number, _check_id}, {:exit, _reason}, socket),
+    do: {:noreply, socket}
+
+  defp read_failed_check_logs(socket, repo, number, rows) do
+    rows
+    |> Enum.filter(&failed_check?/1)
+    |> Enum.reduce(socket, fn
+      %{id: id}, socket when is_integer(id) ->
+        start_async(socket, {:check_log, repo, number, id}, fn ->
+          Custode.Repository.job_log_tail(repo, id)
+        end)
+
+      _row, socket ->
+        socket
+    end)
+  end
+
+  defp selected_pr?(
+         %{assigns: %{signal: %Signal{item: {:prs, numbers}}, subject: %{repo: repo}}},
+         repo,
+         number
+       ),
+       do: number in numbers
+
+  defp selected_pr?(_socket, _repo, _number), do: false
 
   # failed first, then still running, then the rest, each by name
   defp check_rank(%{conclusion: conclusion, name: name})
@@ -140,6 +192,9 @@ defmodule CustodeWeb.ConsoleLive do
 
   defp check_rank(%{conclusion: nil, name: name}), do: {1, name}
   defp check_rank(%{name: name}), do: {2, name}
+
+  defp failed_check?(%{conclusion: conclusion}),
+    do: conclusion in ~w(failure timed_out cancelled)
 
   @impl Phoenix.LiveView
   def handle_info({:status_changed, _agent_id}, socket), do: {:noreply, refresh(socket)}
@@ -549,6 +604,7 @@ defmodule CustodeWeb.ConsoleLive do
             message_gen={@message_gen}
             next_up={@next_up}
             checks={@checks}
+            check_logs={@check_logs}
           />
           <section :if={@suggestions != []} id="advisor-suggestions" class="mt-6 flex flex-col gap-2">
             <div class="flex items-baseline gap-2">

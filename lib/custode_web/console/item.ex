@@ -19,6 +19,7 @@ defmodule CustodeWeb.Console.Item do
   attr(:message_gen, :integer, required: true)
   attr(:next_up, :any, default: nil)
   attr(:checks, :map, default: %{})
+  attr(:check_logs, :map, default: %{})
 
   def item(assigns) do
     assigns =
@@ -42,7 +43,12 @@ defmodule CustodeWeb.Console.Item do
       {context(@signal)}
     </p>
 
-    <.evidence item={@signal.item} repo={@subject.repo} checks={@checks} />
+    <.evidence
+      item={@signal.item}
+      repo={@subject.repo}
+      checks={@checks}
+      check_logs={@check_logs}
+    />
     <.draft_batch :if={@subject.draft_batch} drafts={@subject.draft_batch} />
 
     <h3
@@ -85,6 +91,9 @@ defmodule CustodeWeb.Console.Item do
   # `{repo, number} => {:ok, [check]} | {:error, reason}`, filled in by the
   # LiveView as GitHub answers; a missing key is a read still in flight
   attr(:checks, :map, default: %{})
+  # `{repo, check_id} => {:ok, excerpt} | :unavailable`; missing means the
+  # failed check's log read is still in flight
+  attr(:check_logs, :map, default: %{})
 
   # What the signal points at, as something to click. On the live fleet
   # "main is red" arrived with no way to see what was red.
@@ -113,7 +122,11 @@ defmodule CustodeWeb.Console.Item do
       >
         #{number}
       </a>
-      <.checks result={Map.get(@checks, {@repo, number})} />
+      <.checks
+        result={Map.get(@checks, {@repo, number})}
+        repo={@repo}
+        check_logs={@check_logs}
+      />
     </div>
     """
   end
@@ -170,23 +183,49 @@ defmodule CustodeWeb.Console.Item do
   def evidence(assigns), do: ~H""
 
   attr(:result, :any, required: true)
+  attr(:repo, :string, default: nil)
+  attr(:check_logs, :map, default: %{})
 
   # Which check is red, not only that one is. Failed first, as returned by
   # `CustodeWeb.ConsoleLive`; each row links to its run, which is where the
   # log is.
   defp checks(%{result: {:ok, rows}} = assigns) do
+    rows =
+      Enum.map(rows, fn row ->
+        excerpt =
+          case Map.get(assigns.check_logs, {assigns.repo, row[:id]}) do
+            {:ok, text} when is_binary(text) and text != "" -> text
+            _other -> nil
+          end
+
+        Map.put(row, :excerpt, excerpt)
+      end)
+
     assigns = assign(assigns, rows: rows)
 
     ~H"""
     <ul class="mt-1 divide-y divide-base-200 rounded-lg border border-base-300">
       <li :if={@rows == []} class="px-3 py-1.5 text-xs text-base-content/50">no check runs</li>
-      <li :for={row <- @rows} class="flex items-center gap-2 px-3 py-1.5 font-mono text-xs">
-        <span class={["inline-block size-2 shrink-0 rounded-full", check_tone(row)]}></span>
-        <a :if={row[:url]} href={row.url} target="_blank" rel="noopener" class="link-hover truncate">
-          {row.name}
-        </a>
-        <span :if={!row[:url]} class="truncate">{row.name}</span>
-        <span class="ml-auto shrink-0 text-base-content/50">{row.conclusion || row.status}</span>
+      <li :for={row <- @rows} class="px-3 py-1.5 font-mono text-xs">
+        <div class="flex items-center gap-2">
+          <span class={["inline-block size-2 shrink-0 rounded-full", check_tone(row)]}></span>
+          <a
+            :if={row[:url]}
+            href={row.url}
+            target="_blank"
+            rel="noopener"
+            class="link-hover truncate"
+          >
+            {row.name}
+          </a>
+          <span :if={!row[:url]} class="truncate">{row.name}</span>
+          <span class="ml-auto shrink-0 text-base-content/50">{row.conclusion || row.status}</span>
+        </div>
+        <pre
+          :if={row.excerpt}
+          id={"check-log-#{row.id}"}
+          class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded border border-base-300 bg-base-200 p-2 text-xs text-base-content/70"
+        >{row.excerpt}</pre>
       </li>
     </ul>
     """
