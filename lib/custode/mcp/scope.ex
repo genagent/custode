@@ -1,0 +1,235 @@
+defmodule Custode.MCP.Scope do
+  @moduledoc """
+  Runtime ownership checks for caller-scoped MCP operations.
+
+  Client allowlists keep routine prompts small, but authenticated callers can
+  still invoke an advertised tool directly. This module binds filesystem and
+  repository-local effects to the identity attached to that request.
+  """
+
+  alias Custode.Gates.Class
+  alias Custode.{MCP, OwnedCheckout, Repository, Routine}
+
+  @type job_paths :: %{workspace: String.t() | nil, report_inbox: String.t()}
+
+  @doc """
+  Resolve and authorize a one-shot job's execution and reporting paths.
+
+  Operators may use any existing directory. A routine runs in its configured
+  working directory or its deterministic owned checkout and reports only to
+  its notebook inbox. An omitted routine workspace defaults to its configured
+  working directory.
+  """
+  @spec authorize_job(Anubis.Server.Frame.t(), String.t() | nil, String.t(), boolean()) ::
+          {:ok, job_paths()} | {:error, String.t()}
+  def authorize_job(frame, workspace, report_inbox, elevated) do
+    caller = MCP.caller(frame)
+
+    with :ok <- authorize_elevation(caller, elevated) do
+      authorize_job_paths(caller, workspace, report_inbox)
+    end
+  end
+
+  @doc """
+  Authorize a mutable fact tied to one served repository.
+
+  Operators may act on any served repository. A routine may mutate local facts
+  only for the repository in its current roster entry.
+  """
+  @spec authorize_repo_fact(Anubis.Server.Frame.t(), String.t()) ::
+          :ok | {:error, String.t()}
+  def authorize_repo_fact(frame, repo) do
+    caller = MCP.caller(frame)
+
+    with :ok <- served(repo) do
+      case caller do
+        %{kind: :operator} ->
+          :ok
+
+        %{kind: :routine, id: id} ->
+          authorize_routine_repo(Routine.get(id), id, repo)
+
+        %{kind: :sub_agent, id: id} ->
+          {:error, "identity: temporary agent #{id} may not change repository facts"}
+      end
+    end
+  end
+
+  defp authorize_routine_repo(%{repo: repo}, _id, repo), do: :ok
+
+  defp authorize_routine_repo(%{repo: nil}, id, _repo),
+    do: {:error, "identity: routine #{id} has no configured repository"}
+
+  defp authorize_routine_repo(%{repo: owned}, id, repo),
+    do: {:error, "identity: routine #{id} owns repository #{owned}, not #{repo}"}
+
+  defp authorize_routine_repo(nil, id, _repo),
+    do: {:error, "identity: routine #{id} is not in the current roster"}
+
+  @doc "Authorize a local fact owned by an identity, with an operator override."
+  @spec authorize_owner(Anubis.Server.Frame.t(), String.t()) :: :ok | {:error, String.t()}
+  def authorize_owner(frame, owner_id) do
+    case MCP.caller(frame) do
+      %{kind: :operator} ->
+        :ok
+
+      %{kind: :routine, id: ^owner_id} ->
+        :ok
+
+      %{kind: :sub_agent, id: caller_id} ->
+        {:error, "identity: temporary agent #{caller_id} may not change repository facts"}
+
+      %{id: caller_id} ->
+        {:error, "identity: #{caller_id} may not change a record owned by #{owner_id}"}
+    end
+  end
+
+  defp authorize_elevation(%{kind: :operator}, _elevated), do: :ok
+  defp authorize_elevation(_caller, false), do: :ok
+
+  defp authorize_elevation(%{kind: :routine, id: id}, true) do
+    case Custode.Gates.active_grant(id) do
+      %{class: class, gate_id: gate_id} ->
+        if Class.shell?(class) do
+          :ok
+        else
+          {:error,
+           "gate grant: elevated job is outside gate #{gate_id} (class #{class}); " <>
+             "raise request_permission for shell work first"}
+        end
+
+      nil ->
+        {:error,
+         "gate grant: elevated job with no approved action in flight; " <>
+           "raise request_permission first"}
+    end
+  end
+
+  defp authorize_elevation(%{kind: :sub_agent, id: id}, true),
+    do: {:error, "identity: temporary agent #{id} may not run elevated jobs"}
+
+  defp authorize_job_paths(%{kind: :operator}, workspace, report_inbox) do
+    {:ok,
+     %{
+       workspace: expand_optional(workspace),
+       report_inbox: Path.expand(report_inbox)
+     }}
+  end
+
+  defp authorize_job_paths(%{kind: :routine, id: id}, workspace, report_inbox) do
+    case Routine.get(id) do
+      nil ->
+        {:error, "identity: routine #{id} is not in the current roster"}
+
+      routine ->
+        workspace = workspace || routine.working_dir
+        {:ok, owned_checkout} = OwnedCheckout.path(id)
+
+        with {:ok, workspace} <-
+               authorize_path(workspace, [routine.working_dir, owned_checkout], "workspace", id),
+             {:ok, report_inbox} <-
+               authorize_path(
+                 report_inbox,
+                 [Path.join(routine.workspace, "inbox")],
+                 "report_inbox",
+                 id
+               ) do
+          {:ok, %{workspace: workspace, report_inbox: report_inbox}}
+        end
+    end
+  end
+
+  defp authorize_job_paths(%{kind: :sub_agent, id: id}, _workspace, _report_inbox),
+    do: {:error, "identity: temporary agent #{id} may not run jobs"}
+
+  defp authorize_path(path, roots, label, caller_id) do
+    expanded = Path.expand(path)
+    expanded_roots = Enum.map(roots, &Path.expand/1)
+
+    if Enum.any?(expanded_roots, &inside?(expanded, &1)) do
+      authorize_physical_path(expanded, expanded_roots, label, caller_id)
+    else
+      {:error, "identity: routine #{caller_id} may not use #{label} #{expanded}"}
+    end
+  end
+
+  # Existing symlinks must not turn a lexically contained path into a sibling
+  # checkout. A missing directory is left to the handler's ordinary validation;
+  # no job or filesystem write has happened at that point.
+  defp authorize_physical_path(path, roots, label, caller_id) do
+    if File.dir?(path) do
+      physical_roots = Enum.flat_map(roots, &physical_root/1)
+      authorize_physical_candidate(physical_path(path), physical_roots, path, label, caller_id)
+    else
+      {:ok, path}
+    end
+  end
+
+  defp authorize_physical_candidate(
+         {:ok, physical_path},
+         physical_roots,
+         _path,
+         label,
+         caller_id
+       ) do
+    if Enum.any?(physical_roots, &inside?(physical_path, &1)),
+      do: {:ok, physical_path},
+      else: {:error, "identity: routine #{caller_id} may not use #{label} #{physical_path}"}
+  end
+
+  defp authorize_physical_candidate({:error, _reason}, _roots, path, label, caller_id),
+    do: {:error, "identity: routine #{caller_id} may not use #{label} #{path}"}
+
+  defp physical_root(root) do
+    if File.dir?(root) do
+      case physical_path(root) do
+        {:ok, path} -> [path]
+        {:error, _reason} -> []
+      end
+    else
+      []
+    end
+  end
+
+  defp physical_path(path) do
+    path
+    |> Path.expand()
+    |> Path.split()
+    |> resolve_links([], 0)
+  end
+
+  defp resolve_links(_parts, _resolved, hops) when hops > 40, do: {:error, :too_many_links}
+
+  defp resolve_links([], resolved, _hops), do: {:ok, Path.join(resolved)}
+
+  defp resolve_links([part | rest], resolved, hops) do
+    candidate = Path.join(resolved ++ [part])
+
+    case File.lstat(candidate) do
+      {:ok, %{type: :symlink}} ->
+        with {:ok, target} <- File.read_link(candidate) do
+          target
+          |> Path.expand(Path.dirname(candidate))
+          |> Path.split()
+          |> Kernel.++(rest)
+          |> resolve_links([], hops + 1)
+        end
+
+      {:ok, _stat} ->
+        resolve_links(rest, resolved ++ [part], hops)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp served(repo) do
+    if Repository.served?(repo),
+      do: :ok,
+      else: {:error, "repo #{repo} is not served (no routine is tied to it)"}
+  end
+
+  defp inside?(path, root), do: path == root or String.starts_with?(path, root <> "/")
+  defp expand_optional(nil), do: nil
+  defp expand_optional(path), do: Path.expand(path)
+end

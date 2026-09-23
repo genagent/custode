@@ -28,6 +28,8 @@ defmodule Custode.MCP.DisownTools.DisownPr do
 
   import Custode.MCP.Tools
 
+  alias Custode.{Disowned, MCP.Scope}
+
   schema do
     field(:repo, :string, required: true, description: ~s(the repo, as "owner/name"))
     field(:number, :integer, required: true, description: "the pull request number")
@@ -41,18 +43,26 @@ defmodule Custode.MCP.DisownTools.DisownPr do
   def execute(params, frame) do
     caller = Custode.MCP.caller(frame)
 
-    case Custode.Disowned.disown(caller.id, params.repo, params.number, params[:reason]) do
-      {:ok, row} ->
-        reply(frame, %{
-          repo: row.repo,
-          number: row.number,
-          disowned_by: row.agent_id,
-          reason: row.reason,
-          note: "a red check here now reaches the operator instead of waiting on you"
-        })
+    with :ok <- Scope.authorize_repo_fact(frame, params.repo),
+         :ok <- authorize_existing(frame, params.repo, params.number),
+         {:ok, row} <-
+           Disowned.disown(caller.id, params.repo, params.number, params[:reason]) do
+      reply(frame, %{
+        repo: row.repo,
+        number: row.number,
+        disowned_by: row.agent_id,
+        reason: row.reason,
+        note: "a red check here now reaches the operator instead of waiting on you"
+      })
+    else
+      {:error, reason} -> fail(frame, to_string(reason))
+    end
+  end
 
-      {:error, reason} ->
-        fail(frame, to_string(reason))
+  defp authorize_existing(frame, repo, number) do
+    case Disowned.get(repo, number) do
+      nil -> :ok
+      row -> Scope.authorize_owner(frame, row.agent_id)
     end
   end
 end
@@ -69,6 +79,8 @@ defmodule Custode.MCP.DisownTools.ReclaimPr do
 
   import Custode.MCP.Tools
 
+  alias Custode.{Disowned, MCP.Scope}
+
   schema do
     field(:repo, :string, required: true, description: ~s(the repo, as "owner/name"))
     field(:number, :integer, required: true, description: "the pull request number")
@@ -76,12 +88,24 @@ defmodule Custode.MCP.DisownTools.ReclaimPr do
 
   @impl true
   def execute(params, frame) do
-    case Custode.Disowned.reclaim(params.repo, params.number) do
-      :ok ->
-        reply(frame, %{repo: params.repo, number: params.number, disowned: false})
-
+    with :ok <- Scope.authorize_repo_fact(frame, params.repo),
+         {:ok, row} <- fetch_record(params.repo, params.number),
+         :ok <- Scope.authorize_owner(frame, row.agent_id),
+         :ok <- Disowned.reclaim(row) do
+      reply(frame, %{repo: params.repo, number: params.number, disowned: false})
+    else
       {:error, :not_disowned} ->
         fail(frame, "#{params.repo}##{params.number} was not disowned")
+
+      {:error, reason} ->
+        fail(frame, to_string(reason))
+    end
+  end
+
+  defp fetch_record(repo, number) do
+    case Disowned.get(repo, number) do
+      nil -> {:error, :not_disowned}
+      row -> {:ok, row}
     end
   end
 end
