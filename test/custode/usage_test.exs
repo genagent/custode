@@ -6,6 +6,7 @@ defmodule Custode.UsageTest do
   import ExUnit.CaptureLog
 
   alias Custode.Availability
+  alias Custode.Availability.ClaudeOAuthUsage
   alias Custode.Availability.Collectors.Claude
   alias Custode.Availability.Probe
 
@@ -30,6 +31,7 @@ defmodule Custode.UsageTest do
 
   setup do
     Availability.forget(:all)
+    put_env!(:usage_oauth_fun, fn _options -> {:error, :credential_not_found} end)
     on_exit(fn -> Availability.forget(:all) end)
     :ok
   end
@@ -58,6 +60,170 @@ defmodule Custode.UsageTest do
 
       assert buckets["seven_day"].status == :rejected
       assert buckets["five_hour"].status == :ok
+    end
+  end
+
+  describe "OAuth usage" do
+    @oauth_usage %{
+      "five_hour" => %{"utilization" => 12.0, "resets_at" => "2026-09-20T05:00:00Z"},
+      "seven_day" => %{"utilization" => 41.0, "resets_at" => "2026-09-24T05:00:00Z"},
+      "seven_day_sonnet" => %{
+        "utilization" => 1.0,
+        "resets_at" => "2026-09-24T06:00:00Z"
+      },
+      "extra_usage" => %{"utilization" => 70.0}
+    }
+
+    test "normalizes endpoint percentages, including exactly one percent" do
+      assert {:ok, snapshot} = Claude.observe_oauth_usage(@oauth_usage, now: @now)
+      buckets = Map.new(snapshot.buckets, &{&1.id, &1})
+
+      assert snapshot.source == "oauth_usage_endpoint"
+      assert buckets["five_hour"].utilization == 0.12
+      assert buckets["seven_day"].utilization == 0.41
+      assert buckets["seven_day_sonnet"].utilization == 0.01
+      assert buckets["five_hour"].window_seconds == 18_000
+      assert buckets["seven_day_sonnet"].window_seconds == 604_800
+      refute Map.has_key?(buckets, "extra_usage")
+    end
+
+    test "rejects a successful response with no usage windows" do
+      assert Claude.observe_oauth_usage(%{"extra_usage" => %{}}, now: @now) ==
+               {:error, :unexpected_oauth_usage_payload}
+
+      assert Availability.usage("claude", now: @now).freshness == :unknown
+    end
+
+    test "reads nested and flat credential shapes without retaining refresh tokens" do
+      nested =
+        Jason.encode!(%{
+          "claudeAiOauth" => %{
+            "accessToken" => "secret-access",
+            "refreshToken" => "secret-refresh",
+            "expiresAt" => 1_800_000_000_000,
+            "subscriptionType" => "max"
+          }
+        })
+
+      assert {:ok, credential} = ClaudeOAuthUsage.parse_credential(nested)
+      assert credential.access_token == "secret-access"
+      assert credential.expires_at_ms == 1_800_000_000_000
+      assert credential.subscription_type == "max"
+      refute Map.has_key?(credential, :refresh_token)
+
+      assert {:ok, %{access_token: "flat"}} =
+               ClaudeOAuthUsage.parse_credential(~s({"accessToken":"flat"}))
+    end
+
+    test "reads the default macOS keychain item without exposing its output" do
+      test_pid = self()
+      raw = Jason.encode!(%{"claudeAiOauth" => %{"accessToken" => "keychain-token"}})
+
+      command_fun = fn command, args, _options ->
+        send(test_pid, {:command, command, args})
+        {raw, 0}
+      end
+
+      assert {:ok, %{access_token: "keychain-token"}} =
+               ClaudeOAuthUsage.read_credential(
+                 platform: :darwin,
+                 config_dir: Path.join(System.user_home!(), ".claude"),
+                 user: "operator",
+                 command_fun: command_fun
+               )
+
+      assert_receive {:command, "security", args}
+
+      assert args == [
+               "find-generic-password",
+               "-s",
+               "Claude Code-credentials",
+               "-a",
+               "operator",
+               "-w"
+             ]
+    end
+
+    test "uses the credentials file outside macOS" do
+      test_pid = self()
+      raw = Jason.encode!(%{"claudeAiOauth" => %{"accessToken" => "file-token"}})
+
+      read_fun = fn path ->
+        send(test_pid, {:read, path})
+        {:ok, raw}
+      end
+
+      assert {:ok, %{access_token: "file-token"}} =
+               ClaudeOAuthUsage.read_credential(
+                 platform: :linux,
+                 config_dir: "/tmp/claude-profile",
+                 read_fun: read_fun
+               )
+
+      assert_receive {:read, "/tmp/claude-profile/.credentials.json"}
+    end
+
+    test "scopes a custom macOS config directory to its hashed keychain item" do
+      test_pid = self()
+      config_dir = "/tmp/claude-work"
+      raw = Jason.encode!(%{"claudeAiOauth" => %{"accessToken" => "work-token"}})
+
+      command_fun = fn _command, args, _options ->
+        send(test_pid, {:args, args})
+        {raw, 0}
+      end
+
+      assert {:ok, %{access_token: "work-token"}} =
+               ClaudeOAuthUsage.read_credential(
+                 platform: :darwin,
+                 config_dir: config_dir,
+                 user: "operator",
+                 command_fun: command_fun
+               )
+
+      expected_service = ClaudeOAuthUsage.keychain_service(config_dir)
+      assert_receive {:args, ["find-generic-password", "-s", ^expected_service | _rest]}
+      refute expected_service == "Claude Code-credentials"
+    end
+
+    test "sends the token only to the bounded usage request and caches no token" do
+      test_pid = self()
+
+      credential_fun = fn _options ->
+        {:ok, %{access_token: "one-request-secret", expires_at_ms: nil, subscription_type: "max"}}
+      end
+
+      http_fun = fn url, options ->
+        send(test_pid, {:request, url, options})
+        {:ok, %Req.Response{status: 200, body: @oauth_usage}}
+      end
+
+      assert {:ok, snapshot} =
+               ClaudeOAuthUsage.collect(
+                 now: @now,
+                 credential_fun: credential_fun,
+                 http_fun: http_fun
+               )
+
+      assert_receive {:request, "https://api.anthropic.com/api/oauth/usage", options}
+      assert {"authorization", "Bearer one-request-secret"} in options[:headers]
+      assert {"anthropic-beta", "oauth-2025-04-20"} in options[:headers]
+      refute inspect(snapshot) =~ "one-request-secret"
+      refute inspect(Availability.current("claude")) =~ "one-request-secret"
+    end
+
+    test "sanitizes endpoint failures" do
+      credential_fun = fn _options ->
+        {:ok, %{access_token: "never-log-this", expires_at_ms: nil, subscription_type: nil}}
+      end
+
+      http_fun = fn _url, _options ->
+        {:ok, %Req.Response{status: 500, body: %{"echo" => "never-log-this"}}}
+      end
+
+      result = ClaudeOAuthUsage.collect(credential_fun: credential_fun, http_fun: http_fun)
+      assert result == {:error, {:http_status, 500}}
+      refute inspect(result) =~ "never-log-this"
     end
   end
 
@@ -92,6 +258,17 @@ defmodule Custode.UsageTest do
   end
 
   describe "the probe" do
+    test "uses OAuth usage without starting a model turn" do
+      test_pid = self()
+      {:ok, snapshot} = Claude.observe_oauth_usage(@oauth_usage, now: @now, cache: false)
+
+      put_env!(:usage_oauth_fun, fn _options -> {:ok, snapshot} end)
+      put_env!(:usage_probe_fun, fn -> send(test_pid, :probed) end)
+
+      assert {:ok, ^snapshot} = Probe.run(now: @now)
+      refute_receive :probed
+    end
+
     test "takes the rate_limit_event out of a run's stream and records it" do
       Custode.PubSubBridge.subscribe()
 

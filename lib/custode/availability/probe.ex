@@ -1,7 +1,11 @@
 defmodule Custode.Availability.Probe do
   @moduledoc """
-  Asks Claude how much of the plan is used, by running the smallest turn there
-  is (#458).
+  Asks Claude how much of the plan is used (#458, #524).
+
+  The primary source is Claude's OAuth usage endpoint. It reads Claude Code's
+  local access token for one request and costs no model quota. Because that
+  endpoint is undocumented, any missing credential, refusal, transport error
+  or unrecognized response falls back to the sealed stream probe below.
 
   Claude publishes its rate-limit state as an event INSIDE a run's stream:
 
@@ -31,6 +35,7 @@ defmodule Custode.Availability.Probe do
   require Logger
 
   alias Custode.Availability
+  alias Custode.Availability.ClaudeOAuthUsage
   alias Custode.Availability.Collectors.Claude
 
   @provider "claude"
@@ -57,6 +62,23 @@ defmodule Custode.Availability.Probe do
   end
 
   defp probe(options) do
+    oauth_fun = Application.get_env(:custode, :usage_oauth_fun, &ClaudeOAuthUsage.collect/1)
+
+    case oauth_fun.(options) do
+      {:ok, snapshot} ->
+        changed(snapshot)
+
+      {:error, reason} ->
+        Logger.warning("OAuth usage unavailable (#{reason_label(reason)}); using sealed probe")
+        stream_probe(options)
+    end
+  rescue
+    _error ->
+      Logger.warning("OAuth usage collector failed; using sealed probe")
+      stream_probe(options)
+  end
+
+  defp stream_probe(options) do
     stream_fun = Application.get_env(:custode, :usage_probe_fun, &stream/0)
 
     case Enum.find(stream_fun.(), &rate_limit_event?/1) do
@@ -66,8 +88,7 @@ defmodule Custode.Availability.Probe do
 
       event ->
         with {:ok, snapshot} <- Claude.observe(payload(event), options) do
-          Custode.PubSubBridge.broadcast({:usage_changed, @provider})
-          {:ok, snapshot}
+          changed(snapshot)
         end
     end
   rescue
@@ -75,6 +96,21 @@ defmodule Custode.Availability.Probe do
       Logger.warning("usage probe failed: #{Exception.message(error)}")
       {:error, :probe_failed}
   end
+
+  defp changed(snapshot) do
+    Custode.PubSubBridge.broadcast({:usage_changed, @provider})
+    {:ok, snapshot}
+  end
+
+  defp reason_label({:http_status, status}) when is_integer(status), do: "HTTP #{status}"
+  defp reason_label(:credential_not_found), do: "no credential"
+  defp reason_label(:credential_unreadable), do: "credential unreadable"
+  defp reason_label(:invalid_credentials), do: "invalid credential shape"
+  defp reason_label(:credential_rejected), do: "credential rejected"
+  defp reason_label(:rate_limited), do: "rate limited"
+  defp reason_label(:request_failed), do: "request failed"
+  defp reason_label(:unexpected_oauth_usage_payload), do: "unexpected response"
+  defp reason_label(_reason), do: "collector failed"
 
   # Sealed (`hermetic: :full`): no ambient CLAUDE.md, skills, or MCP servers,
   # so the turn is as small as a turn gets and cannot touch anything.

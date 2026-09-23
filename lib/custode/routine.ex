@@ -108,10 +108,10 @@ defmodule Custode.Routine do
       lease_reconcile_entries() ++ aging_entries() ++ usage_probe_entries() ++ advisor_entries()
   end
 
-  # How much of the plan is used (#458). Every ten minutes keeps the snapshot
-  # inside `Custode.Availability`'s fifteen-minute freshness window; the probe
-  # skips itself when something else already refreshed it. `false` disables
-  # the line (advisor semantics).
+  # How much of the plan is used (#458, #524). Every ten minutes keeps the
+  # snapshot inside `Custode.Availability`'s fifteen-minute freshness window;
+  # the OAuth read falls back to a sealed probe and skips itself when something
+  # else already refreshed it. `false` disables the line (advisor semantics).
   defp usage_probe_entries do
     case Application.get_env(:custode, :usage_probe_cron, "*/10 * * * *") do
       false -> []
