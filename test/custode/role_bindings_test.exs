@@ -51,6 +51,11 @@ defmodule Custode.RoleBindingsTest do
     assert unknown.key == "role:assistant"
     assert unknown.operation_grants == ["worker"]
     refute "mcp__custode__pause_agent" in unknown.transport_allowlists["mcp"]
+
+    specialist = RoleTemplates.fetch!("profile:specialist")
+    assert specialist.operation_grants == ["worker"]
+    assert specialist.executor_defaults["provider_defaults"]["claude"]["model"] == "opus"
+    assert specialist.executor_defaults["provider_defaults"]["codex"]["model"] == "gpt-6-sol"
   end
 
   test "a Mission-backed legacy routine projects to one stable read-only binding" do

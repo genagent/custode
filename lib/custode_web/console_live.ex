@@ -34,6 +34,7 @@ defmodule CustodeWeb.ConsoleLive do
   alias Custode.Attention
   alias Custode.Operator.Actions
   alias Custode.Operator.Attachments
+  alias Custode.Operator.DirectoryBrowser
   alias Custode.Operator.RoutineEdit
   alias Custode.Operator.RoutineNew
   alias Custode.Signal
@@ -79,6 +80,7 @@ defmodule CustodeWeb.ConsoleLive do
        fleet_notice: nil,
        edit: nil,
        new_agent: nil,
+       setup_skipped: false,
        feed_limit: @feed_page,
        journal_limit: @journal_page,
        checks: %{},
@@ -353,19 +355,59 @@ defmodule CustodeWeb.ConsoleLive do
   # Adding a routine (#450). The form's conversions and the TOML preview are
   # RoutineNew's; what is previewed is the literal text a create appends.
   def handle_event("new_open", _params, socket),
-    do: {:noreply, assign(socket, new_agent: %{params: %{}, preview: nil, error: nil})}
+    do: {:noreply, assign(socket, new_agent: plan_new_agent(RoutineNew.defaults("bespoke")))}
+
+  def handle_event("new_choose", _params, socket),
+    do: {:noreply, assign(socket, new_agent: new_agent_state(%{}, choosing: true))}
+
+  def handle_event("new_kind", %{"kind" => kind}, socket),
+    do: {:noreply, assign(socket, new_agent: plan_new_agent(RoutineNew.defaults(kind)))}
+
+  def handle_event("new_skip", _params, socket),
+    do: {:noreply, assign(socket, new_agent: nil, setup_skipped: true)}
 
   def handle_event("new_close", _params, socket), do: {:noreply, assign(socket, new_agent: nil)}
 
   def handle_event("new_change", %{"routine" => params}, socket) do
-    new_agent =
-      case RoutineNew.preview(params) do
-        {:ok, toml} -> %{params: params, preview: toml, error: nil}
-        {:error, message} -> %{params: params, preview: nil, error: message}
-      end
-
-    {:noreply, assign(socket, new_agent: new_agent)}
+    {:noreply, assign(socket, new_agent: plan_new_agent(params))}
   end
+
+  def handle_event("new_browse", _params, socket) do
+    start = socket.assigns.new_agent.params["working_dir"]
+    start = if is_binary(start) and File.dir?(start), do: start
+
+    case DirectoryBrowser.list(start) do
+      {:ok, browser} ->
+        {:noreply, update(socket, :new_agent, &%{&1 | browser: browser})}
+
+      {:error, reason} ->
+        {:noreply,
+         update(socket, :new_agent, &%{&1 | error: "cannot browse host: #{inspect(reason)}"})}
+    end
+  end
+
+  def handle_event("new_browse_dir", %{"path" => path}, socket) do
+    case DirectoryBrowser.list(path) do
+      {:ok, browser} ->
+        {:noreply, update(socket, :new_agent, &%{&1 | browser: browser})}
+
+      {:error, reason} ->
+        {:noreply,
+         update(socket, :new_agent, &%{&1 | error: "cannot browse host: #{inspect(reason)}"})}
+    end
+  end
+
+  def handle_event("new_browse_choose", %{"path" => path}, socket) do
+    params =
+      socket.assigns.new_agent.params
+      |> Map.put("working_dir", path)
+      |> Map.put("checkout_mode", "existing")
+
+    {:noreply, assign(socket, new_agent: plan_new_agent(params))}
+  end
+
+  def handle_event("new_browse_close", _params, socket),
+    do: {:noreply, update(socket, :new_agent, &%{&1 | browser: nil})}
 
   def handle_event("new_create", %{"routine" => params}, socket) do
     case RoutineNew.create(params, surface: "console") do
@@ -569,7 +611,7 @@ defmodule CustodeWeb.ConsoleLive do
                 (a sub-agent, a one-shot) can be in the rail of a machine that
                 still has nothing configured. --%>
           <div
-            :if={@roster_empty and @new_agent == nil}
+            :if={@roster_empty and @new_agent == nil and @setup_skipped}
             id="empty-fleet"
             class="mb-6 max-w-prose text-sm text-base-content/70"
           >
@@ -581,6 +623,23 @@ defmodule CustodeWeb.ConsoleLive do
               to <span class="font-mono">routines.toml</span>
               and restart.
             </p>
+          </div>
+          <.new_agent_form
+            :if={@roster_empty and @new_agent == nil and not @setup_skipped}
+            new_agent={new_agent_state(%{}, choosing: true)}
+          />
+          <div
+            :if={not @roster_empty and @caretaker_missing and @new_agent == nil}
+            id="caretaker-setup"
+            class="mb-6 rounded-lg border border-warning/30 bg-warning/5 p-4"
+          >
+            <p class="font-semibold">This fleet has no valid caretaker.</p>
+            <p class="mt-1 text-sm text-base-content/60">
+              Add the fixed caretaker role to make the Custode surface available.
+            </p>
+            <button class="btn btn-primary btn-sm mt-3" phx-click="new_kind" phx-value-kind="caretaker">
+              set up caretaker
+            </button>
           </div>
           <.subject
             :if={@subject && @new_agent == nil}
@@ -664,6 +723,7 @@ defmodule CustodeWeb.ConsoleLive do
       in_flight: Custode.RunClock.running(),
       needs_you: Enum.count(signals, &Signal.needs_you?/1),
       roster_empty: Custode.Routine.all() == [],
+      caretaker_missing: not Enum.any?(Custode.Routine.all(), &(&1.role == :caretaker)),
       # already ranked by the resolver, so the first one that is not on screen
       # is the next one
       next_up: Enum.find(signals, &(Signal.needs_you?(&1) and &1.subject != selected)),
@@ -675,6 +735,24 @@ defmodule CustodeWeb.ConsoleLive do
       suggestions: Enum.take(standing_suggestions, @suggestion_limit),
       suggestion_count: length(standing_suggestions)
     )
+  end
+
+  defp plan_new_agent(params) do
+    case RoutineNew.plan(params) do
+      {:ok, plan} -> new_agent_state(params, plan: plan)
+      {:error, message} -> new_agent_state(params, error: message)
+    end
+  end
+
+  defp new_agent_state(params, opts) do
+    %{
+      params: params,
+      plan: Keyword.get(opts, :plan),
+      preview: Keyword.get(opts, :plan) && Keyword.fetch!(opts, :plan).toml,
+      error: Keyword.get(opts, :error),
+      browser: Keyword.get(opts, :browser),
+      choosing: Keyword.get(opts, :choosing, false)
+    }
   end
 
   # What the rail filter matches: the subject's id, and for a routine its

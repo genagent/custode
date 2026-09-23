@@ -110,6 +110,8 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ ~s(<nav aria-label="breadcrumb")
     # and the way to add one is on the page
     assert has_element?(view, "button[phx-click=new_open]")
+    assert has_element?(view, "#first-agent-setup", "Fleet caretaker")
+    assert has_element?(view, "button[phx-click=new_skip]", "skip for now")
   end
 
   # the operator's decision, 2026-09-21: the console replaces the fleet page
@@ -1287,7 +1289,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
       html =
         view
         |> form("#new-routine", %{
-          "routine" => %{"id" => id, "cron" => "@daily", "prompt" => "sweep"}
+          "routine" => %{"id" => id, "cadence" => "daily", "prompt" => "sweep"}
         })
         |> render_change()
 
@@ -1296,7 +1298,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
 
       view
       |> form("#new-routine", %{
-        "routine" => %{"id" => id, "cron" => "@daily", "prompt" => "sweep"}
+        "routine" => %{"id" => id, "cadence" => "daily", "prompt" => "sweep"}
       })
       |> render_submit()
 
@@ -1312,11 +1314,42 @@ defmodule CustodeWeb.ConsoleLiveTest do
 
       html =
         view
-        |> form("#new-routine", %{"routine" => %{"id" => "", "cron" => "@daily"}})
+        |> form("#new-routine", %{"routine" => %{"id" => "", "cadence" => "daily"}})
         |> render_change()
 
       assert html =~ "id is required"
       refute File.exists?(roster)
+    end
+
+    test "an empty fleet creates a real caretaker from the recommended choice",
+         %{conn: conn} do
+      put_env!(:routines, [])
+      {:ok, view, _html} = live(conn, "/console")
+
+      view
+      |> element(~s(button[phx-click=new_kind][phx-value-kind="caretaker"]))
+      |> render_click()
+
+      assert has_element?(view, ~s(#new-routine option[value="caretaker"][selected]))
+      view |> form("#new-routine") |> render_submit()
+
+      assert %{role: :caretaker, mcp: true, tags: tags} = Custode.Routine.get("custode")
+      assert :meta in tags
+      assert_patch(view, "/console/custode")
+    end
+
+    test "the normal setup flow offers a provider-aware specialist", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/console")
+      view |> element("button[phx-click=new_open]") |> render_click()
+      view |> element("button[phx-click=new_choose]") |> render_click()
+
+      html =
+        view
+        |> element(~s(button[phx-click=new_kind][phx-value-kind="specialist"]))
+        |> render_click()
+
+      assert html =~ "resolved agent"
+      assert has_element?(view, ~s(#new-routine option[value="specialist"][selected]))
     end
   end
 

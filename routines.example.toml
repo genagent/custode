@@ -32,6 +32,17 @@ daily_budget_usd = 10.0               # optional: the daily spend rail
 # Optional overrides, each falling back to the profile: model, max_turns,
 # max_budget_usd, timeout_ms, prompt, extra_allowed_tools.
 
+# A high-capacity specialist uses a strong model for its entire sweep. The
+# profile resolves Claude to Opus and Codex to the configured Sol model.
+# It may be repository-backed, with a managed checkout selected in the UI,
+# or a persistent non-repository subject with its standing prompt here.
+# [[routines]]
+# id = "hard-project"
+# provider = "codex"
+# profile = "specialist"
+# cron = "@daily"
+# prompt = "Track and resolve the difficult questions for this project."
+
 # A sensor is a cheap cron job that polls something and wakes a routine with
 # what it found. `module` is a name under Custode.Sensors.
 # [[sensors]]

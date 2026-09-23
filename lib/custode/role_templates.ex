@@ -23,7 +23,13 @@ defmodule Custode.RoleTemplates do
     profile_templates =
       Map.new(Routine.profiles(), fn {profile, declaration} ->
         role = Map.get(declaration, :role, :assistant)
-        template_pair(:profile, profile, Map.put(declaration, :role, role))
+
+        declaration =
+          declaration
+          |> Map.put(:role, role)
+          |> Map.put(:provider_defaults, Routine.profile_provider_defaults(profile))
+
+        template_pair(:profile, profile, declaration)
       end)
 
     Map.merge(role_templates, profile_templates)
@@ -91,7 +97,11 @@ defmodule Custode.RoleTemplates do
       # version moves when the prompt text does and an Attempt can record the
       # exact bytes it ran.
       prompt_assets: Prompts.assets_for_role(role),
-      executor_defaults: stringify(Map.take(defaults, @executor_fields)),
+      executor_defaults:
+        defaults
+        |> Map.take(@executor_fields)
+        |> maybe_provider_defaults(declaration)
+        |> stringify(),
       budget_defaults: stringify(Map.take(defaults, @budget_fields)),
       limits: stringify(Map.take(defaults, @limit_fields)),
       provenance: %{
@@ -123,6 +133,12 @@ defmodule Custode.RoleTemplates do
     }
     |> Map.merge(Map.take(declaration, @executor_fields ++ @budget_fields ++ @limit_fields))
   end
+
+  defp maybe_provider_defaults(defaults, %{provider_defaults: by_provider})
+       when is_map(by_provider),
+       do: Map.put(defaults, :provider_defaults, by_provider)
+
+  defp maybe_provider_defaults(defaults, _declaration), do: defaults
 
   defp effective_role(role) when is_atom(role) do
     if Roles.known?(role), do: role, else: :assistant

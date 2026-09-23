@@ -16,6 +16,19 @@ config :custode,
   # approved_args templates to the routine id). sensors: [:ci] derives a
   # 15-minute CiStatus poll per repo-tied wearer.
   profiles: %{
+    caretaker: %{
+      cron: "@daily",
+      prompt: "Do your fleet caretaker sweep now.",
+      role: :caretaker,
+      mcp: true,
+      model: "sonnet",
+      effort: "low",
+      max_budget_usd: 5.0,
+      daily_budget_usd: 25.0,
+      timeout_ms: 600_000,
+      max_turns: 40,
+      tags: [:meta]
+    },
     backlog_worker: %{
       cron: "@daily",
       prompt: "Do your backlog sweep now.",
@@ -52,6 +65,27 @@ config :custode,
         "model" => "opus",
         "effort" => "high"
       }
+    },
+    specialist: %{
+      cron: "@daily",
+      prompt: "Do your specialist sweep now.",
+      role: :specialist,
+      mcp: true,
+      effort: "high",
+      max_budget_usd: 25.0,
+      daily_budget_usd: 100.0,
+      daily_budget_tokens: 2_000_000,
+      timeout_ms: 1_800_000,
+      max_turns: 120,
+      tags: [:specialist],
+      sensors: [:ci],
+      extra_allowed_tools: [
+        "Bash(git log:*)",
+        "Bash(git status:*)",
+        "Bash(git diff:*)",
+        "Bash(git show:*)"
+      ],
+      approved_args: %{"worktree" => "custode-{id}"}
     },
     # The personal-learning tile (#119): an anki-esque tutor whose crontab
     # entry IS the spaced repetition. The notebook holds the deck; each run
@@ -96,6 +130,15 @@ config :custode,
       sensors: [:ci]
     }
   },
+  # Provider-specific profile values live outside the roster-serializable
+  # envelope. This keeps one profile valid across Claude and Codex while the
+  # profile tools continue to read and write their flat TOML contract.
+  profile_provider_defaults: %{
+    specialist: %{
+      claude: %{model: "opus"},
+      codex: %{model: "gpt-6-sol", approved_args: nil}
+    }
+  },
   # P1 intake pilot (#366). This allowlist IS the operator approval design/008
   # asks for: a routine with an entry here has its beats drive the work
   # kernel's GitHub issue intake as well as its legacy tick.
@@ -134,6 +177,10 @@ config :custode,
   # A Codex routine with no model override follows the installed CLI's
   # configured default. Set this to pin one fleet-wide Codex model instead.
   codex_model: nil,
+  # The setup form's host directory browser never walks outside these roots.
+  # It also includes parents of current repository checkouts and the parent of
+  # Custode's home, so a source checkout works without configuration.
+  checkout_roots: [],
   # The budget rails guard against runaway loops, NOT dollar cost: on a
   # subscription (claude Max) the CLI-reported cost_usd is notional, so
   # every cap here is sized as an "obviously wrong" threshold rather than
