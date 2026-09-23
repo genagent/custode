@@ -208,4 +208,104 @@ defmodule Custode.Operator.ActionsTest do
       assert Actions.handles?(:approve)
     end
   end
+
+  describe "shared fleet authority" do
+    test "the caretaker has the bounded bundle; specialists and temporary agents do not" do
+      workspace = tmp_workspace!()
+      target_id = uid("target")
+      caretaker_id = uid("caretaker")
+      specialist_id = uid("specialist")
+
+      put_env!(:routines, [
+        %{id: target_id, cron: "@daily", workspace: workspace, prompt: "sweep"},
+        %{
+          id: caretaker_id,
+          cron: "@daily",
+          workspace: workspace,
+          prompt: "sweep",
+          role: :caretaker
+        },
+        %{
+          id: specialist_id,
+          cron: "@daily",
+          workspace: workspace,
+          prompt: "sweep",
+          role: :specialist
+        }
+      ])
+
+      caretaker_opts = [actor: %{kind: :routine, id: caretaker_id}, via: :mcp]
+      specialist_opts = [actor: %{kind: :routine, id: specialist_id}, via: :mcp]
+      temporary_opts = [actor: %{kind: :sub_agent, id: uid("temporary")}, via: :mcp]
+
+      assert {:error, reason} = Actions.beat(target_id, specialist_opts)
+      assert reason =~ "caretaker role"
+      assert ticks_for(target_id) == []
+
+      assert {:error, reason} =
+               Actions.drop_note(target_id, "denied.md", "no", temporary_opts)
+
+      assert reason =~ "caretaker role"
+      refute File.exists?(Path.join([workspace, "inbox", "denied.md"]))
+
+      assert :ok = Actions.beat(target_id, caretaker_opts)
+      assert [_tick] = ticks_for(target_id)
+
+      assert {:ok, path} = Actions.drop_note(target_id, "allowed.md", "yes", caretaker_opts)
+      assert File.read!(path) == "yes"
+    end
+
+    test "denied resume, presence, and drain calls do not change state" do
+      workspace = tmp_workspace!()
+      caretaker_id = uid("caretaker")
+      specialist_id = uid("specialist")
+
+      put_env!(:routines, [
+        %{
+          id: caretaker_id,
+          cron: "@daily",
+          workspace: workspace,
+          prompt: "sweep",
+          role: :caretaker
+        },
+        %{
+          id: specialist_id,
+          cron: "@daily",
+          workspace: workspace,
+          prompt: "sweep",
+          role: :specialist
+        }
+      ])
+
+      target = start_stub_agent!()
+      :ok = Agent.emergency_pause(target)
+      {:ok, :paused} = Agent.await(target, :paused, 1_000)
+
+      specialist_opts = [actor: %{kind: :routine, id: specialist_id}, via: :mcp]
+      caretaker_opts = [actor: %{kind: :routine, id: caretaker_id}, via: :mcp]
+
+      assert {:error, reason} = Actions.resume(target, specialist_opts)
+      assert reason =~ "caretaker role"
+      assert {:ok, :paused} = Agent.status(target)
+
+      put_env!(:presence_override, :away)
+      assert {:error, reason} = Actions.set_presence(:present, caretaker_opts)
+      assert reason =~ "human operator"
+      assert Application.get_env(:custode, :presence_override) == :away
+
+      parent = self()
+
+      assert {:error, reason} =
+               Actions.drain(
+                 caretaker_opts ++
+                   [queues: [:ticks], pause: fn _queue -> send(parent, :paused_queue) end]
+               )
+
+      assert reason =~ "human operator"
+      refute_received :paused_queue
+
+      assert :ok = Actions.resume(target, caretaker_opts)
+      assert {:ok, :idle} = Agent.await(target, :idle, 1_000)
+    end
+  end
 end

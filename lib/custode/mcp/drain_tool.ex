@@ -31,24 +31,20 @@ defmodule Custode.MCP.Tools.Drain do
 
   @impl true
   def execute(params, frame) do
-    case Custode.MCP.caller(frame) do
-      %{kind: :operator} ->
-        case Actions.drain(timeout_ms: params[:timeout_ms]) do
-          {:ok, executing} ->
-            reply(frame, %{
-              draining: true,
-              executing: executing,
-              note:
-                "queues paused; the server stops when the #{executing} executing turn(s) finish. " <>
-                  "Progress lands in the feed; on timeout the queues stay paused (resume_queue to abort)."
-            })
+    opts = [{:timeout_ms, params[:timeout_ms]} | actor_opts(frame)]
 
-          {:error, reason} ->
-            fail(frame, "drain admission failed: #{reason}")
-        end
+    case Actions.drain(opts) do
+      {:ok, executing} ->
+        reply(frame, %{
+          draining: true,
+          executing: executing,
+          note:
+            "queues paused; the server stops when the #{executing} executing turn(s) finish. " <>
+              "Progress lands in the feed; on timeout the queues stay paused (resume_queue to abort)."
+        })
 
-      _agent ->
-        fail(frame, "identity: drain is the operator's; agents propose restarts, humans run them")
+      {:error, reason} ->
+        fail(frame, "drain admission failed: #{reason}")
     end
   end
 end

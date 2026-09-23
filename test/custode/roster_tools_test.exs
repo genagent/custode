@@ -7,7 +7,9 @@ defmodule Custode.RosterToolsTest do
 
   import Custode.TestHelpers
 
+  alias Custode.Gates.Gate
   alias Custode.MCP.RosterTools.{AddRoutine, PreviewRoutine}
+  alias Custode.Repo
 
   @operator %Anubis.Server.Frame{}
 
@@ -16,6 +18,21 @@ defmodule Custode.RosterToolsTest do
 
   defp sub_frame(id),
     do: %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :sub_agent, id: id}}}
+
+  defp grant_roster!(id, class \\ "roster") do
+    gate =
+      Repo.insert!(%Gate{
+        agent_id: id,
+        kind: "approval",
+        action_id: uid("roster-action"),
+        class: class,
+        status: "resolved",
+        outcome: "approved"
+      })
+
+    on_exit(fn -> Repo.delete(gate) end)
+    gate
+  end
 
   setup do
     path = Path.join(System.tmp_dir!(), uid("roster") <> ".toml")
@@ -102,6 +119,32 @@ defmodule Custode.RosterToolsTest do
   end
 
   test "the caretaker's continuation may add; other routines may not" do
+    refused =
+      tool_error(
+        AddRoutine.execute(
+          %{id: "ungated", profile: "backlog_worker", repo: "o/r"},
+          routine_frame("keeper")
+        )
+      )
+
+    assert refused =~ "active human-approved roster continuation"
+    assert Custode.Routine.get("ungated") == nil
+
+    grant_roster!("keeper", "merge")
+
+    refused =
+      tool_error(
+        AddRoutine.execute(
+          %{id: "wrong-grant", profile: "backlog_worker", repo: "o/r"},
+          routine_frame("keeper")
+        )
+      )
+
+    assert refused =~ "active human-approved roster continuation"
+    assert Custode.Routine.get("wrong-grant") == nil
+
+    grant_roster!("keeper")
+
     json =
       tool_json(
         AddRoutine.execute(
@@ -120,16 +163,18 @@ defmodule Custode.RosterToolsTest do
         )
       )
 
-    assert refused =~ "only the caretaker writes the roster"
+    assert refused =~ "human operator or caretaker role"
     assert Custode.Routine.get("workeradd") == nil
 
     refused = tool_error(AddRoutine.execute(%{id: "subadd"}, sub_frame("helper")))
-    assert refused =~ "sub-agents do not touch the roster"
+    assert refused =~ "temporary agents may not write"
   end
 
   test "an :external routine adds through the caretaker's gate flow and the operator alike" do
     # the caretaker's add only runs as an approved continuation, so the human
     # read the rendered TOML -- that approval is the :external protection now
+    grant_roster!("keeper")
+
     json =
       tool_json(
         AddRoutine.execute(
@@ -149,7 +194,7 @@ defmodule Custode.RosterToolsTest do
         )
       )
 
-    assert refused =~ "only the caretaker writes the roster"
+    assert refused =~ "human operator or caretaker role"
   end
 
   test "duplicates and unknown profiles come back as tool errors" do
@@ -179,6 +224,8 @@ defmodule Custode.RosterToolsTest do
     end
 
     test "the caretaker edits through the gate flow; a worker is refused", %{path: path} do
+      grant_roster!("keeper")
+
       json =
         tool_json(
           UpdateRoutine.execute(
@@ -195,7 +242,7 @@ defmodule Custode.RosterToolsTest do
           UpdateRoutine.execute(%{id: "keeper", model: "opus"}, routine_frame("existing"))
         )
 
-      assert refused =~ "only the caretaker writes the roster"
+      assert refused =~ "human operator or caretaker role"
     end
 
     test "drop removes an override so the profile serves again" do
@@ -256,7 +303,8 @@ defmodule Custode.RosterToolsTest do
     test "remove_routine splices the entry out; unknown ids and workers are refused", %{
       path: path
     } do
-      json = tool_json(RemoveRoutine.execute(%{id: "existing"}, @operator))
+      grant_roster!("keeper")
+      json = tool_json(RemoveRoutine.execute(%{id: "existing"}, routine_frame("keeper")))
       assert json["live"] == true
       refute File.read!(path) =~ ~s(id = "existing")
       assert Custode.Routine.get("existing") == nil
@@ -265,7 +313,7 @@ defmodule Custode.RosterToolsTest do
       assert refused =~ "unknown_id"
 
       refused = tool_error(RemoveRoutine.execute(%{id: "keeper"}, routine_frame("nobody")))
-      assert refused =~ "only the caretaker writes the roster"
+      assert refused =~ "human operator or caretaker role"
     end
   end
 end

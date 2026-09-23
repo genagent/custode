@@ -218,7 +218,7 @@ Add a routine to the configuration and live roster.
 
 **Side effects:** Appends configuration, reloads the live roster and records a feed entry. The routine becomes beatable immediately and eligible for scheduling. Also mints credentials, writes the routine MCP config, initializes its workspace and starts repository service when configured.
 
-**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The tool does not independently verify an approval grant.
+**Access:** Main endpoint capability: operator or caretaker routine. A human operator may write directly; a caretaker must also have a live human-approved continuation whose action class is roster. Specialists and temporary agents are refused before configuration changes.
 
 **Behavior, defaults and errors:** id is required. provider is claude or codex and defaults to claude. Intended flow is preview, human approval, then add. The tool's current external-tag policy check allows the write; it does not impose a separate human-only restriction. No idempotency key; duplicate IDs are validated by the configuration writer.
 
@@ -352,7 +352,7 @@ Schedule an immediate sweep of a configured routine.
 
 **Side effects:** Queues an out-of-schedule routine sweep through the usual lifecycle policy, potentially starting an offline agent.
 
-**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller check.
+**Access:** Main endpoint capability: operator or caretaker routine. The shared operator action repeats that boundary, so specialists, temporary agents and alternate clients are refused before a tick is queued.
 
 **Behavior, defaults and errors:** agent_id is required and must be a known routine. Success reports scheduling, not run admission or completion. Busy/paused/lifecycle policy can still affect execution. No idempotency key is exposed.
 
@@ -414,7 +414,7 @@ Create a reusable routine profile.
 
 **Side effects:** Writes a profile, reloads the roster and records a feed entry. Routines can inherit it immediately.
 
-**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The tool does not independently verify an approval grant.
+**Access:** Main endpoint capability: operator or caretaker routine. A human operator may write directly; a caretaker must also have a live human-approved continuation whose action class is roster. Specialists and temporary agents are refused before configuration changes.
 
 **Behavior, defaults and errors:** name is required. provider is claude or codex and becomes the default provider for wearers. Intended flow requires preview and human approval of dangerous grants. approve_bypass_permissions=false is omitted. No restart is required for configuration reload; this is not a runtime permission revocation protocol for an in-flight turn.
 
@@ -470,7 +470,7 @@ Stop admitting work and shut down after executing jobs finish.
 
 **Side effects:** Closes work admission, pauses execution queues and begins a background wait. Stops the server after executing jobs finish; a timeout leaves queues paused and emits a feed event.
 
-**Access:** Main endpoint capability: human operator only. Routines and temporary agents are refused. The handler repeats the human-operator check.
+**Access:** Main endpoint capability: human operator only. The shared operator action repeats the human-only boundary and refuses every routine and temporary agent before pausing queues.
 
 **Behavior, defaults and errors:** timeout_ms is optional; omission means unbounded waiting. The response confirms drain admission, not server shutdown. Existing executing jobs may continue. Observe feed/executing_turns for progress. On timeout, queue resumption is a separate recovery action, not automatic.
 
@@ -490,7 +490,7 @@ Write a routine inbox note and trigger its note-arrival policy.
 
 **Side effects:** Writes a routine inbox note and triggers its debounced on_note event policy, which can cause a sweep. Records an inbox feed event.
 
-**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller check.
+**Access:** Main endpoint capability: operator or caretaker routine. The shared operator action repeats that boundary, so specialists, temporary agents and alternate clients are refused before a note is written.
 
 **Behavior, defaults and errors:** agent_id and content are required. name defaults to note-&lt;UTC timestamp to seconds&gt;.md. File writing and kickoff are part of this operation; a raw file write is not equivalent. Reusing a name can overwrite the same path; there is no dedicated idempotency key. The current name input is joined to the inbox path without a basename check; callers should pass a simple filename. Kickoff failure is logged and does not turn a successful file write into a tool error.
 
@@ -874,7 +874,7 @@ Emergency-pause an agent until it is resumed.
 
 **Side effects:** Requests an emergency pause, records the operation and its audit event. Resume is a separate operation.
 
-**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The shared operation also admits operator-tier caretaker routines.
+**Access:** Main endpoint capability: operator or caretaker routine. The registered shared operation repeats that boundary and refuses specialists and temporary agents.
 
 **Behavior, defaults and errors:** agent_id is required. idempotency_key is optional at the MCP boundary; omission generates a new key. Reuse one key when retrying the same logical pause. Do not assume the response reverses already completed file or remote effects.
 
@@ -1178,7 +1178,7 @@ Remove a profile that no routine currently uses.
 
 **Side effects:** Removes a profile, reloads the roster and records a feed entry.
 
-**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The tool does not independently verify an approval grant.
+**Access:** Main endpoint capability: operator or caretaker routine. A human operator may write directly; a caretaker must also have a live human-approved continuation whose action class is roster. Specialists and temporary agents are refused before configuration changes.
 
 **Behavior, defaults and errors:** name is required. Refused while any configured routine still uses the profile; reassign those routines first. Does not remove routine notebooks or workspaces.
 
@@ -1196,7 +1196,7 @@ Remove a routine and stop its live agent.
 
 **Side effects:** Removes the routine configuration, reloads the roster, stops its live agent and records a feed entry. Notebook and workspace records remain.
 
-**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The tool does not independently verify an approval grant.
+**Access:** Main endpoint capability: operator or caretaker routine. A human operator may write directly; a caretaker must also have a live human-approved continuation whose action class is roster. Specialists and temporary agents are refused before configuration changes.
 
 **Behavior, defaults and errors:** id is required. Removal also applies to external-tagged routines. It is not deletion of the routine's history or files; a later repeated removal may be refused as unknown. Sensors that target the removed ID remain configured for later cleanup.
 
@@ -1570,7 +1570,7 @@ Resume a paused agent.
 
 **Side effects:** Resumes a paused agent, including an operator override of a budget pause.
 
-**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller check.
+**Access:** Main endpoint capability: operator or caretaker routine. The shared operator action repeats that boundary, so specialists, temporary agents and alternate clients are refused before agent state changes.
 
 **Behavior, defaults and errors:** agent_id is required. Failed transitions return 'resume failed'. It does not increase budget settings or undo effects from before the pause.
 
@@ -1653,7 +1653,7 @@ Set or release an operator-presence override.
 
 **Side effects:** Pins operator presence to present/away, or restores automatic inference and records a fresh operator action.
 
-**Access:** Main endpoint capability: human operator only. Routines and temporary agents are refused. The handler has no narrower caller check.
+**Access:** Main endpoint capability: human operator only. The shared operator action repeats the human-only boundary and refuses every routine and temporary agent before changing presence.
 
 **Behavior, defaults and errors:** mode is required and runtime-validated as present, away or auto. It influences instructions agents read; it does not itself pause the scheduler or approve work.
 
@@ -1791,7 +1791,7 @@ Change a reusable routine profile.
 
 **Side effects:** Rewrites the profile, reloads the roster and records a feed entry. Routines inheriting it receive the change on their next run. If the effective provider changes, live wearers are stopped on the old provider and restart on their next beat.
 
-**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The tool does not independently verify an approval grant.
+**Access:** Main endpoint capability: operator or caretaker routine. A human operator may write directly; a caretaker must also have a live human-approved continuation whose action class is roster. Specialists and temporary agents are refused before configuration changes.
 
 **Behavior, defaults and errors:** name is required. provider is claude or codex. Omitted fields remain unchanged; drop removes envelope keys, lists replace, and false bypass does not explicitly revoke an existing grant. Preview the resulting approved_args before writing. Supplying any approve_* values replaces the approved_args envelope rather than merging nested keys. Rewriting removes comments inside the edited section.
 
@@ -1831,7 +1831,7 @@ Update an existing routine configuration.
 
 **Side effects:** Rewrites configuration, reloads the live roster and records changed field names in the feed. Updated schedule is used by subsequent scheduler checks. A provider change stops the live agent on the old provider; the next beat starts it on the new provider. A repository change starts service for the new repository and can retire the old service if no longer needed.
 
-**Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The tool does not independently verify an approval grant.
+**Access:** Main endpoint capability: operator or caretaker routine. A human operator may write directly; a caretaker must also have a live human-approved continuation whose action class is roster. Specialists and temporary agents are refused before configuration changes.
 
 **Behavior, defaults and errors:** id is required and immutable. provider is claude or codex. Omitted fields stay unchanged; lists replace; drop removes overrides and wins over a supplied value. Preview before applying. This response does not promise changes to an already executing turn. Rewriting removes comments inside the edited configuration section; comments in other sections are preserved.
 
