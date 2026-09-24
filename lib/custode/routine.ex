@@ -82,6 +82,18 @@ defmodule Custode.Routine do
   @doc "The routine with this id, or nil."
   def get(id), do: Enum.find(all(), &(&1.id == id))
 
+  @doc "The configured role for this routine id, or nil when it is not in the roster."
+  def role(id) do
+    case Enum.find(Application.fetch_env!(:custode, :routines), &(&1.id == id)) do
+      nil ->
+        nil
+
+      routine ->
+        profile = Map.get(profiles(), Map.get(routine, :profile), %{})
+        Map.get(routine, :role, Map.get(profile, :role, :assistant))
+    end
+  end
+
   @doc "The first configured routine (the default target for the console)."
   def default, do: hd(all())
 

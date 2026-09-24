@@ -64,7 +64,7 @@ defmodule Custode.MCP.Capabilities do
   def authorize_endpoint(:main, %{kind: :operator}), do: :ok
 
   def authorize_endpoint(:main, %{kind: :routine, id: id}) do
-    if Routine.get(id), do: :ok, else: {:error, "routine is not in the current roster"}
+    if Routine.role(id), do: :ok, else: {:error, "routine is not in the current roster"}
   end
 
   def authorize_endpoint(:memory, %{kind: :sub_agent}), do: :ok
@@ -88,15 +88,15 @@ defmodule Custode.MCP.Capabilities do
   def authorized_tool_names(:main, %{kind: :operator}), do: :all
 
   def authorized_tool_names(:main, %{kind: :routine, id: id}) do
-    case Routine.get(id) do
-      %{role: :caretaker} ->
+    case Routine.role(id) do
+      :caretaker ->
         exposed_tool_names(:caretaker) ++ @caretaker_on_demand_tools
-
-      %{role: role} ->
-        exposed_tool_names(role)
 
       nil ->
         []
+
+      role when is_atom(role) ->
+        exposed_tool_names(role)
     end
   end
 

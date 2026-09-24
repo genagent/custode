@@ -124,6 +124,25 @@ defmodule Custode.RoutineTest do
                Enum.find(Custode.Routine.sensors(), &(&1.id == "ci-prof-a"))
     end
 
+    test "role/1 reads explicit, inherited, and default roles without normalizing the roster" do
+      put_env!(:profiles, %{tester: %{role: :backlog_worker}})
+
+      put_env!(:routines, [
+        %{id: "explicit", role: :caretaker},
+        %{
+          id: "inherited",
+          profile: :tester,
+          system_prompt_file: "/missing/role-lookup-must-not-read-this"
+        },
+        %{id: "default"}
+      ])
+
+      assert Custode.Routine.role("explicit") == :caretaker
+      assert Custode.Routine.role("inherited") == :backlog_worker
+      assert Custode.Routine.role("default") == :assistant
+      assert Custode.Routine.role("missing") == nil
+    end
+
     test "specialist profile resolves provider-specific strong models without broader authority" do
       workspace = tmp_workspace!()
 

@@ -102,6 +102,26 @@ defmodule Custode.MCPCapabilitiesTest do
     assert tool_names(sub) == ~w(forget journal_read recall remember)
   end
 
+  test "routine discovery does not normalize unrelated roster fields" do
+    id = uid("profile-worker")
+
+    put_env!(:profiles, %{tester: %{role: :backlog_worker}})
+
+    put_env!(:routines, [
+      %{
+        id: id,
+        profile: :tester,
+        system_prompt_file: "/missing/discovery-must-not-read-this"
+      }
+    ])
+
+    tools = :routine |> Identity.mint(id) |> session("/mcp") |> tool_names()
+
+    assert "journal_append" in tools
+    assert "repo_open_pr" in tools
+    refute "beat" in tools
+  end
+
   test "generated allowlists are a compact projection of the same policy", _ctx do
     worker = Custode.Routine.mcp_tools(:backlog_worker)
     caretaker = Custode.Routine.mcp_tools(:caretaker)
