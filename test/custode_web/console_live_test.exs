@@ -954,6 +954,22 @@ defmodule CustodeWeb.ConsoleLiveTest do
     refute html =~ "pool flakes on macOS CI"
   end
 
+  test "a long notebook memory folds behind an explicit disclosure", %{
+    conn: conn,
+    sleeper: sleeper
+  } do
+    value = String.duplicate("bounded context stays readable. ", 20)
+    Custode.Memory.remember(sleeper.id, "long-context", value)
+
+    {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+    view |> element("button[phx-value-tab=notebook]") |> render_click()
+
+    disclosure = view |> element("details[data-foldable-text]") |> render()
+    assert disclosure =~ "show more"
+    assert disclosure =~ "show less"
+    assert disclosure =~ value
+  end
+
   # seeing many things at once is the point: a rail of bare names made every
   # one of them a click
   test "the rail says what is wrong for a subject that needs you, and stays quiet otherwise",
