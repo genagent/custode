@@ -89,7 +89,7 @@ Routine instructions, prompt files, the `prompt_agent` tool, and an agent's stru
 
 | Endpoint | Server | Tools | Resources | Templates | Prompts |
 | --- | --- | ---: | ---: | ---: | ---: |
-| `/mcp` | custode 0.1.0 | 77 | 4 | 13 | 0 |
+| `/mcp` | custode 0.1.0 | 78 | 4 | 13 | 0 |
 | `/mcp/memory` | memory 0.1.0 | 4 | 0 | 0 | 0 |
 
 **`/mcp`**: protocol versions 2026-07-28, 2025-11-25, 2025-06-18; capabilities `{"resources":{},"tools":{}}`.
@@ -139,6 +139,7 @@ Categories are descriptive policy metadata, not an authorization guarantee.
 | [list_suggestions](#tool-list_suggestions) | read |
 | [list_workflows](#tool-list_workflows) | read |
 | [metrics](#tool-metrics) | read |
+| [operator_bootstrap](#tool-operator_bootstrap) | read |
 | [pause_agent](#tool-pause_agent) | operator |
 | [preview_profile](#tool-preview_profile) | read |
 | [preview_profile_edit](#tool-preview_profile_edit) | read |
@@ -859,6 +860,22 @@ Read one category of fleet measurements.
 **Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** kind is required and runtime-validated against spend, turns, gate_latency, by_model, gate_outcomes and prs_opened. days defaults to 7. gate_latency always reads the 15 most recent non-open gates and does not apply days; its empty result is gates=[] and median_minutes=0. Positive day bounds are not declared.
+
+### Tool: operator_bootstrap
+
+Read the first-contact brief for an operator session.
+
+**Endpoints:** /mcp. **Category:** read.
+
+**Arguments:** none.
+
+**Result:** schema_version, installation (id, custode_version, host, timezone), caller (kind, id, transport, verified), authority (scope, endpoint, tool_count), fleet and expand. fleet has caretaker (id and state, or null), routines (total and by_state counts), executing_turns count, attention (total and by_group counts), open_gates and open_asks counts. expand is an array of topic and tool.
+
+**Side effects:** No fleet state changes. The first call on a home with no installation id writes a random id to a file beside the database; later calls read it.
+
+**Access:** Main endpoint capability: human operator only. The tool is named in no routine's exposure list, so only the operator discovers it, and the handler refuses every routine before building the result. The shared builder does not repeat the check.
+
+**Behavior, defaults and errors:** No arguments. schema_version is custode.operator_bootstrap.v1. installation.id is a stable non-secret id for this instance; host is null if the hostname lookup fails and timezone is the configured fleet timezone or null. caller.transport is mcp or cli. caller.verified is true only when the router attached an authenticated identity, and false for a direct call with no request context. authority is fixed at scope all and endpoint main; tool_count is the number of tools in the tool policy, not a per-call grant. fleet.caretaker is null when no caretaker is configured. Fleet counts come from the sources the console reads: attention groups, open gates, open asks, agent lifecycle state and executing jobs. expand pairs each topic with an existing read operation; tool discovery remains authoritative for schemas. The result holds no token, filesystem path, prompt text or provider transcript.
 
 ### Tool: pause_agent
 

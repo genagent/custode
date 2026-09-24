@@ -345,6 +345,13 @@
       "result": "kind, days and data. spend: date-to-agent maps of usd/tokens. turns: date maps of ok/failed. gate_latency: gates array plus integer median_minutes. by_model: model maps of usd/tokens/turns/failed. gate_outcomes: agent maps of outcome counts. prs_opened: agent arrays of repo/number.",
       "summary": "Read one category of fleet measurements."
     },
+    "operator_bootstrap": {
+      "access": "Main endpoint capability: human operator only. The tool is named in no routine's exposure list, so only the operator discovers it, and the handler refuses every routine before building the result. The shared builder does not repeat the check.",
+      "effects": "No fleet state changes. The first call on a home with no installation id writes a random id to a file beside the database; later calls read it.",
+      "notes": "No arguments. schema_version is custode.operator_bootstrap.v1. installation.id is a stable non-secret id for this instance; host is null if the hostname lookup fails and timezone is the configured fleet timezone or null. caller.transport is mcp or cli. caller.verified is true only when the router attached an authenticated identity, and false for a direct call with no request context. authority is fixed at scope all and endpoint main; tool_count is the number of tools in the tool policy, not a per-call grant. fleet.caretaker is null when no caretaker is configured. Fleet counts come from the sources the console reads: attention groups, open gates, open asks, agent lifecycle state and executing jobs. expand pairs each topic with an existing read operation; tool discovery remains authoritative for schemas. The result holds no token, filesystem path, prompt text or provider transcript.",
+      "result": "schema_version, installation (id, custode_version, host, timezone), caller (kind, id, transport, verified), authority (scope, endpoint, tool_count), fleet and expand. fleet has caretaker (id and state, or null), routines (total and by_state counts), executing_turns count, attention (total and by_group counts), open_gates and open_asks counts. expand is an array of topic and tool.",
+      "summary": "Read the first-contact brief for an operator session."
+    },
     "pause_agent": {
       "access": "Main endpoint capability: operator or caretaker routine. The registered shared operation repeats that boundary and refuses specialists and temporary agents.",
       "effects": "Requests an emergency pause, records the operation and its audit event. Resume is a separate operation.",
