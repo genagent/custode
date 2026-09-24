@@ -90,7 +90,7 @@ defmodule Custode.Operator.Bootstrap do
     routines = Routine.all()
 
     %{
-      caretaker: caretaker(routines),
+      caretaker: caretaker(),
       routines: %{total: length(routines), by_state: by_state(routines)},
       executing_turns: length(Custode.executing_turns()),
       attention: attention(),
@@ -99,10 +99,10 @@ defmodule Custode.Operator.Bootstrap do
     }
   end
 
-  defp caretaker(routines) do
-    case Enum.find(routines, &(&1.role == :caretaker)) do
+  defp caretaker do
+    case Custode.Operator.Actions.caretaker() do
       nil -> nil
-      routine -> %{id: routine.id, state: state(routine.id)}
+      id -> %{id: id, state: state(id)}
     end
   end
 
