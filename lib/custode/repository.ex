@@ -593,10 +593,14 @@ defmodule Custode.Repository.Ops do
     if Enum.all?(@merge_methods, fn {key, _method} -> is_nil(repository[key]) end) do
       {:ok, "merge"}
     else
-      case Enum.find(@merge_methods, fn {key, _method} -> repository[key] == true end) do
-        {_key, method} -> {:ok, method}
-        nil -> {:error, :no_allowed_merge_method}
-      end
+      first_allowed_merge_method(repository)
+    end
+  end
+
+  defp first_allowed_merge_method(repository) do
+    case Enum.find(@merge_methods, fn {key, _method} -> repository[key] == true end) do
+      {_key, method} -> {:ok, method}
+      nil -> {:error, :no_allowed_merge_method}
     end
   end
 
