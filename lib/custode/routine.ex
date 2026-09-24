@@ -649,8 +649,33 @@ defmodule Custode.Routine do
       |> Path.expand()
 
     File.mkdir_p!(Path.dirname(path))
-    File.write!(path, directive_schema())
+    File.write!(path, Jason.encode!(codex_directive_schema_map()))
     path
+  end
+
+  # Codex structured outputs use OpenAI's strict schema contract: every
+  # declared property must appear in `required`. Preserve the directive's
+  # conditional fields by requiring their keys while accepting null values.
+  # Claude keeps the original optional-property schema above.
+  defp codex_directive_schema_map do
+    schema = directive_schema_map()
+
+    properties =
+      Map.new(schema.properties, fn
+        {key, property} when key in [:directive, :summary] ->
+          {key, property}
+
+        {key, property} ->
+          {key, %{anyOf: [property, %{type: "null"}]}}
+      end)
+
+    required =
+      properties
+      |> Map.keys()
+      |> Enum.map(&Atom.to_string/1)
+      |> Enum.sort()
+
+    %{schema | properties: properties, required: required}
   end
 
   defp directive_schema_map do

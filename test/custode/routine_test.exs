@@ -383,10 +383,18 @@ defmodule Custode.RoutineTest do
 
       assert File.exists?(args["output_schema"])
 
-      assert Jason.decode!(File.read!(args["output_schema"]))["required"] == [
-               "directive",
-               "summary"
-             ]
+      codex_schema = Jason.decode!(File.read!(args["output_schema"]))
+
+      assert MapSet.new(codex_schema["required"]) ==
+               MapSet.new(Map.keys(codex_schema["properties"]))
+
+      for field <- ~w(action action_class issues_touched prs question repo) do
+        assert %{"anyOf" => choices} = codex_schema["properties"][field]
+        assert %{"type" => "null"} in choices
+      end
+
+      refute Map.has_key?(codex_schema["properties"]["directive"], "anyOf")
+      refute Map.has_key?(codex_schema["properties"]["summary"], "anyOf")
 
       overrides = args["config_overrides"]
       assert Enum.any?(overrides, &String.starts_with?(&1, "developer_instructions="))
