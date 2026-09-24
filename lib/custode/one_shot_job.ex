@@ -42,6 +42,9 @@ defmodule Custode.OneShotJob do
       "job" => job.id,
       "tag" => tag(job),
       "status" => status,
+      # #673: the resolved turn cap, so a max_turns_exceeded failure names
+      # the bound it hit
+      "max_turns" => job.args["max_turns"],
       "cost_usd" => cost_usd || 0.0,
       "structured" => structured
     }
@@ -58,7 +61,7 @@ defmodule Custode.OneShotJob do
 
     report(job, """
     #{front_matter(job, "failed: " <> kind, failed_cost(payload), nil)}
-    One-shot job ##{job.id} (#{tag(job)}) FAILED: #{kind}.
+    One-shot job ##{job.id} (#{tag(job)}) FAILED: #{kind}.#{turn_cap(job)}
 
     Task: #{String.slice(job.args["prompt"], 0, 200)}
     """)
@@ -77,6 +80,11 @@ defmodule Custode.OneShotJob do
   defp report(_job, _text), do: :ok
 
   defp tag(%Oban.Job{args: args}), do: args["tag"] || "job"
+
+  defp turn_cap(%Oban.Job{args: %{"max_turns" => turns}}) when is_integer(turns),
+    do: " Turn cap: #{turns}."
+
+  defp turn_cap(_job), do: ""
 
   defp failed_cost(payload) when is_struct(payload), do: ObanClaude.cost_usd(payload)
   defp failed_cost(_payload), do: 0.0

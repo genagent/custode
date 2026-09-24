@@ -6,9 +6,10 @@ defmodule Custode.MCPToolsTest do
   use ExUnit.Case, async: false
 
   import Custode.TestHelpers
+  import Ecto.Query, only: [from: 2]
   import ObanClaude.Testing
 
-  alias Custode.MCP.{MCPEx, Tools}
+  alias Custode.MCP.{MCPEx, ReadTools, Scope, Tools}
   alias ObanClaude.Agent
 
   @frame %Anubis.Server.Frame{}
@@ -475,6 +476,277 @@ defmodule Custode.MCPToolsTest do
       assert job.args["max_budget_usd"] == 3.0
     end
 
+    test "an omitted max_turns keeps the default and the reply names it" do
+      inbox = Path.join(tmp_workspace!(), "inbox")
+
+      json = tool_json(Tools.RunJob.execute(%{prompt: "x", report_inbox: inbox}, @frame))
+
+      assert json["max_turns"] == 15
+      [job] = jobs_for("Custode.OneShotJob") |> Enum.filter(&(&1.id == json["job_id"]))
+      assert job.args["max_turns"] == 15
+    end
+
+    test "the operator may set a bounded max_turns that reaches the job" do
+      inbox = Path.join(tmp_workspace!(), "inbox")
+
+      json =
+        tool_json(
+          Tools.RunJob.execute(%{prompt: "x", report_inbox: inbox, max_turns: 75}, @frame)
+        )
+
+      assert json["max_turns"] == 75
+      [job] = jobs_for("Custode.OneShotJob") |> Enum.filter(&(&1.id == json["job_id"]))
+      assert job.args["max_turns"] == 75
+    end
+
+    test "invalid, zero and over-ceiling max_turns are typed errors that insert nothing" do
+      inbox = Path.join(tmp_workspace!(), "inbox")
+      before = length(jobs_for("Custode.OneShotJob"))
+      ceiling = Scope.job_turns_ceiling()
+
+      for bad <- [0, -3, 2.5, "40"] do
+        assert tool_error(
+                 Tools.RunJob.execute(%{prompt: "x", report_inbox: inbox, max_turns: bad}, @frame)
+               ) =~ "max_turns: must be a positive integer"
+      end
+
+      assert tool_error(
+               Tools.RunJob.execute(
+                 %{prompt: "x", report_inbox: inbox, max_turns: ceiling + 1},
+                 @frame
+               )
+             ) =~ "exceeds the hard ceiling of #{ceiling}"
+
+      refute_job_inserted(before)
+    end
+
+    test "a routine may lower max_turns but raising it needs an approved action" do
+      workspace = tmp_workspace!()
+      routine = routine_fixture!(workspace)
+      frame = routine_frame(routine.id)
+      inbox = Path.join(workspace, "inbox")
+      before = length(jobs_for("Custode.OneShotJob"))
+
+      assert tool_error(
+               Tools.RunJob.execute(%{prompt: "x", report_inbox: inbox, max_turns: 75}, frame)
+             ) =~ "max_turns 75 is above the default of 15 with no approved action"
+
+      refute_job_inserted(before)
+
+      json =
+        tool_json(Tools.RunJob.execute(%{prompt: "x", report_inbox: inbox, max_turns: 5}, frame))
+
+      assert json["max_turns"] == 5
+    end
+
+    test "an unrelated active grant cannot raise max_turns" do
+      workspace = tmp_workspace!()
+      routine = routine_fixture!(workspace)
+      frame = routine_frame(routine.id)
+      inbox = Path.join(workspace, "inbox")
+
+      for class <- ["comment", "ready_pr"] do
+        gate = approved_gate!(routine.id, class)
+        before = length(jobs_for("Custode.OneShotJob"))
+
+        assert tool_error(
+                 Tools.RunJob.execute(%{prompt: "x", report_inbox: inbox, max_turns: 150}, frame)
+               ) =~ "outside gate #{gate.id} (class #{class})"
+
+        refute_job_inserted(before)
+
+        json =
+          tool_json(
+            Tools.RunJob.execute(%{prompt: "x", report_inbox: inbox, max_turns: 15}, frame)
+          )
+
+        assert json["max_turns"] == 15
+        Custode.Repo.delete!(gate)
+      end
+    end
+
+    test "an approved specialist job may exceed the routine's own sweep cap" do
+      workspace = tmp_workspace!()
+      id = uid("job-specialist")
+
+      put_env!(:routines, [
+        %{
+          id: id,
+          cron: :manual,
+          workspace: workspace,
+          working_dir: workspace,
+          prompt: "x",
+          max_turns: 20
+        }
+      ])
+
+      frame = routine_frame(id)
+      _gate = approved_gate!(id, "implement", "fix #1: implement the slice; max_turns=75")
+
+      args = %{
+        prompt: "implement the approved slice",
+        report_inbox: Path.join(workspace, "inbox"),
+        elevated: true,
+        max_budget_usd: 12,
+        max_turns: 75
+      }
+
+      json = tool_json(Tools.RunJob.execute(args, frame))
+
+      assert json["max_turns"] == 75
+      [job] = jobs_for("Custode.OneShotJob") |> Enum.filter(&(&1.id == json["job_id"]))
+      assert job.args["max_turns"] == 75
+      assert job.args["permission_mode"] == "bypass_permissions"
+
+      assert tool_error(
+               Tools.RunJob.execute(
+                 %{args | max_turns: Scope.job_turns_ceiling() + 1},
+                 frame
+               )
+             ) =~ "exceeds the hard ceiling"
+    end
+
+    test "a routine's raise must match the max_turns=<N> its shell-class gate approved" do
+      workspace = tmp_workspace!()
+      routine = routine_fixture!(workspace)
+      frame = routine_frame(routine.id)
+      inbox = Path.join(workspace, "inbox")
+
+      run = fn turns ->
+        Tools.RunJob.execute(%{prompt: "x", report_inbox: inbox, max_turns: turns}, frame)
+      end
+
+      # exact: only the approved cap itself, so the gate detail names the
+      # resolved cap
+      gate = approved_gate!(routine.id, "implement", "fix #9: slice one; max_turns=60; draft PR")
+      assert tool_json(run.(60))["max_turns"] == 60
+
+      # a raise that differs from the approved cap, below or above it
+      before = length(jobs_for("Custode.OneShotJob"))
+
+      assert tool_error(run.(40)) =~
+               "max_turns 40 is not the max_turns=60 that gate #{gate.id} approved; " <>
+                 "request exactly 60"
+
+      assert tool_error(run.(61)) =~ "max_turns 61 is not the max_turns=60 that gate #{gate.id}"
+      refute_job_inserted(before)
+      # the default and below still need no marker
+      assert tool_json(run.(15))["max_turns"] == 15
+      Custode.Repo.delete!(gate)
+
+      # missing: a shell-class approval that never named a cap
+      gate = approved_gate!(routine.id, "pr_maintain", "fix CI on #9; push to the same branch")
+      before = length(jobs_for("Custode.OneShotJob"))
+      assert tool_error(run.(40)) =~ "gate #{gate.id} names no max_turns=<N>"
+      refute_job_inserted(before)
+      # the default and below still need no marker
+      assert tool_json(run.(15))["max_turns"] == 15
+      Custode.Repo.delete!(gate)
+
+      # ambiguous: two different caps match no single approval
+      gate = approved_gate!(routine.id, "implement", "max_turns=40 then max_turns=90")
+      before = length(jobs_for("Custode.OneShotJob"))
+      assert tool_error(run.(30)) =~ "gate #{gate.id} names more than one max_turns=<N>"
+      refute_job_inserted(before)
+    end
+
+    test "approved_turn_cap reads exactly one stable marker" do
+      assert Scope.approved_turn_cap("implement #1; max_turns=75") == {:ok, 75}
+      assert Scope.approved_turn_cap("max_turns=75 ... max_turns=75") == {:ok, 75}
+      assert Scope.approved_turn_cap("max_turns=40, max_turns=75") == :ambiguous
+      assert Scope.approved_turn_cap("raise max_turns to 75") == :missing
+      assert Scope.approved_turn_cap("run_job_max_turns=75") == :missing
+      assert Scope.approved_turn_cap("max_turns=75x") == :missing
+      assert Scope.approved_turn_cap("max_turns=0") == :missing
+      assert Scope.approved_turn_cap(nil) == :missing
+    end
+
+    test "invalid configured bounds are typed errors that insert nothing" do
+      inbox = Path.join(tmp_workspace!(), "inbox")
+      before = length(jobs_for("Custode.OneShotJob"))
+
+      cases = [
+        {15, 0, "run_job_max_turns_ceiling must be a positive integer"},
+        {15, "150", "run_job_max_turns_ceiling must be a positive integer"},
+        {0, 150, "run_job_max_turns must be a positive integer"},
+        {nil, 150, "run_job_max_turns must be a positive integer"},
+        {2.5, 150, "run_job_max_turns must be a positive integer"},
+        {200, 150, "run_job_max_turns 200 exceeds run_job_max_turns_ceiling 150"}
+      ]
+
+      for {default, ceiling, message} <- cases do
+        put_env!(:run_job_max_turns, default)
+        put_env!(:run_job_max_turns_ceiling, ceiling)
+
+        # omission is checked too, and so is an explicit value
+        assert tool_error(Tools.RunJob.execute(%{prompt: "x", report_inbox: inbox}, @frame)) =~
+                 message
+
+        assert tool_error(
+                 Tools.RunJob.execute(%{prompt: "x", report_inbox: inbox, max_turns: 5}, @frame)
+               ) =~ message
+      end
+
+      refute_job_inserted(before)
+    end
+
+    test "a running one-shot job shows its turn cap in executing_turns" do
+      inbox = Path.join(tmp_workspace!(), "inbox")
+
+      json =
+        tool_json(
+          Tools.RunJob.execute(%{prompt: "x", report_inbox: inbox, max_turns: 40}, @frame)
+        )
+
+      other =
+        Custode.Repo.insert!(%Oban.Job{
+          worker: "Custode.NotAJob",
+          queue: "agents",
+          args: %{"max_turns" => 99},
+          state: "executing"
+        })
+
+      ids = [json["job_id"], other.id]
+
+      on_exit(fn -> Custode.Repo.delete_all(from(j in Oban.Job, where: j.id in ^ids)) end)
+
+      Custode.Repo.update_all(from(j in Oban.Job, where: j.id == ^json["job_id"]),
+        set: [state: "executing"]
+      )
+
+      executing = Custode.executing_turns()
+      assert %{worker: "Custode.OneShotJob", max_turns: 40} = find_job(executing, json["job_id"])
+      refute Map.has_key?(find_job(executing, other.id), :max_turns)
+      refute Map.has_key?(find_job(executing, other.id), :args)
+
+      reply = tool_json(ReadTools.ExecutingTurns.execute(%{}, @frame))
+      assert Enum.find(reply["executing"], &(&1["id"] == json["job_id"]))["max_turns"] == 40
+    end
+
+    test "the completion report carries the resolved turn cap" do
+      inbox = Path.join(tmp_workspace!(), "inbox")
+
+      job = %Oban.Job{
+        id: 993,
+        args: %{
+          "prompt" => "long work",
+          "report_inbox" => inbox,
+          "tag" => "long",
+          "max_turns" => 75
+        }
+      }
+
+      Custode.OneShotJob.handle_error(
+        {:cancel, :max_turns_exceeded},
+        error(:max_turns_exceeded),
+        job
+      )
+
+      note = File.read!(Path.join(inbox, "job-993-long.md"))
+      assert note =~ ~s("max_turns":75)
+      assert note =~ "Turn cap: 75."
+    end
+
     test "a missing report_inbox directory is a tool error" do
       reply = Tools.RunJob.execute(%{prompt: "x", report_inbox: "/nope/inbox"}, @frame)
       assert tool_error(reply) =~ "report_inbox"
@@ -634,14 +906,15 @@ defmodule Custode.MCPToolsTest do
   defp routine_frame(id),
     do: %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :routine, id: id}}}
 
-  defp approved_gate!(agent_id, class) do
+  defp approved_gate!(agent_id, class, detail \\ nil) do
     gate =
       Custode.Repo.insert!(%Custode.Gates.Gate{
         agent_id: agent_id,
         kind: "approval",
         status: "resolved",
         outcome: "approved",
-        class: class
+        class: class,
+        detail: detail
       })
 
     on_exit(fn ->
@@ -650,6 +923,8 @@ defmodule Custode.MCPToolsTest do
 
     gate
   end
+
+  defp find_job(jobs, id), do: Enum.find(jobs, &(&1.id == id))
 
   defp refute_job_inserted(before) do
     assert length(jobs_for("Custode.OneShotJob")) == before
