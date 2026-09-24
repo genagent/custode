@@ -47,6 +47,10 @@ defmodule Custode.Gates.CrossProviderReviewTest do
     assert args["sandbox"] == "read_only"
     assert args["approval_policy"] == "never"
     assert args["search"] == "disabled"
+    assert args["skip_git_repo_check"] == true
+    assert args["ephemeral"] == true
+    assert args["ignore_user_config"] == true
+    assert args["ignore_rules"] == true
     assert files == @expected_files
     refute File.exists?(directory)
 
@@ -94,6 +98,86 @@ defmodule Custode.Gates.CrossProviderReviewTest do
     assert Repo.aggregate(Review, :count) == 1
   end
 
+  test "an infrastructure-failed review retries at the same head" do
+    first = gate!(:claude, head: "retry-head")
+
+    assert :ok =
+             CrossProviderReview.run(first.id,
+               fetch: fetch("retry-head"),
+               runner: fn _provider, _args -> {:error, :provider_unavailable} end
+             )
+
+    failed = Gate |> Repo.get!(first.id) |> Repo.preload(:review)
+    assert failed.review_state == "infrastructure_failed"
+    assert failed.review.status == "infrastructure_failed"
+    assert failed.review.round == 1
+
+    second = gate!(:claude, head: "retry-head")
+    assert :ok = CrossProviderReview.run(second.id, fetch: fetch("retry-head"), runner: success())
+
+    recovered = Gate |> Repo.get!(second.id) |> Repo.preload(:review)
+    assert recovered.review_id == failed.review_id
+    assert recovered.review_state == "completed"
+    assert recovered.review.status == "completed"
+    assert recovered.review.round == 2
+    assert Repo.aggregate(Review, :count) == 1
+  end
+
+  test "a legacy failed review retries at the same head" do
+    review =
+      Repo.insert!(%Review{
+        repo: "acme/widget",
+        pr_number: 42,
+        head_sha: "legacy-failed-head",
+        author_provider: "claude",
+        reviewer_provider: "codex",
+        round: 1,
+        status: "failed",
+        error: "{:error, :not_git_repo}",
+        completed_at: DateTime.utc_now()
+      })
+
+    gate = gate!(:claude, head: "legacy-failed-head")
+
+    assert :ok =
+             CrossProviderReview.run(gate.id,
+               fetch: fetch("legacy-failed-head"),
+               runner: success()
+             )
+
+    recovered = Gate |> Repo.get!(gate.id) |> Repo.preload(:review)
+    assert recovered.review_id == review.id
+    assert recovered.review_state == "completed"
+    assert recovered.review.status == "completed"
+    assert recovered.review.round == 2
+    assert Repo.aggregate(Review, :count) == 1
+  end
+
+  test "same-head infrastructure recovery stops at the review-round limit" do
+    put_env!(:gate_review_max_rounds, 1)
+    first = gate!(:claude, head: "retry-limit")
+
+    assert :ok =
+             CrossProviderReview.run(first.id,
+               fetch: fetch("retry-limit"),
+               runner: fn _provider, _args -> {:error, :provider_unavailable} end
+             )
+
+    failed = Repo.get!(Gate, first.id)
+    second = gate!(:claude, head: "retry-limit")
+
+    assert :ok =
+             CrossProviderReview.run(second.id,
+               fetch: fetch("retry-limit"),
+               runner: fn _provider, _args -> flunk("retry limit was ignored") end
+             )
+
+    limited = Repo.get!(Gate, second.id)
+    assert limited.review_id == failed.review_id
+    assert limited.review_state == "infrastructure_failed: round_limit"
+    assert Repo.get!(Review, limited.review_id).round == 1
+  end
+
   test "review rounds are capped per pull request" do
     put_env!(:gate_review_max_rounds, 1)
     first = gate!(:claude, head: "round-one")
@@ -121,7 +205,17 @@ defmodule Custode.Gates.CrossProviderReviewTest do
     assert :ok =
              CrossProviderReview.run(uncited.id, fetch: fetch("uncited"), runner: result(output))
 
-    assert Repo.get!(Gate, uncited.id).review_state == "failed"
+    assert Repo.get!(Gate, uncited.id).review_state == "invalid"
+
+    unchanged = gate!(:claude, head: "uncited")
+
+    assert :ok =
+             CrossProviderReview.run(unchanged.id,
+               fetch: fetch("uncited"),
+               runner: fn _provider, _args -> flunk("invalid evidence was reviewed again") end
+             )
+
+    assert Repo.get!(Gate, unchanged.id).review_state == "invalid"
 
     insufficient = gate!(:claude, head: "insufficient")
 

@@ -4,7 +4,9 @@ defmodule Custode.Gates.Review do
 
   Reviews are reusable evidence. The unique repository, pull request and head
   tuple means a second gate at an unchanged head attaches the existing review
-  instead of spending another model turn.
+  instead of spending another model turn. An infrastructure-failed attempt may
+  reuse that row for a bounded retry; completed or invalid evidence is reused
+  without another provider call.
   """
 
   use Ecto.Schema
