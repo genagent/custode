@@ -55,7 +55,9 @@ defmodule Custode.RoleBindingsTest do
     specialist = RoleTemplates.fetch!("profile:specialist")
     assert specialist.operation_grants == ["worker"]
     assert specialist.executor_defaults["provider_defaults"]["claude"]["model"] == "opus"
-    assert specialist.executor_defaults["provider_defaults"]["codex"]["model"] == "gpt-6-sol"
+
+    assert specialist.executor_defaults["provider_defaults"]["codex"]["model"] ==
+             "gpt-5.6-sol"
   end
 
   test "a Mission-backed legacy routine projects to one stable read-only binding" do

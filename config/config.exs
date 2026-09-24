@@ -141,7 +141,7 @@ config :custode,
   profile_provider_defaults: %{
     specialist: %{
       claude: %{model: "opus"},
-      codex: %{model: "gpt-6-sol", approved_args: nil}
+      codex: %{model: "gpt-5.6-sol", approved_args: nil}
     }
   },
   # P1 intake pilot (#366). This allowlist IS the operator approval design/008

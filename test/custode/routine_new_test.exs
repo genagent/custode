@@ -61,7 +61,7 @@ defmodule Custode.Operator.RoutineNewTest do
     params = RoutineNew.defaults("specialist") |> Map.put("provider", "codex")
     assert {:ok, plan} = RoutineNew.plan(params)
     assert plan.resolved.role == :specialist
-    assert plan.resolved.model == "gpt-6-sol"
+    assert plan.resolved.model == "gpt-5.6-sol"
     assert plan.resolved.effort == :high
     assert plan.resolved.max_turns == 120
     assert plan.toml =~ ~s(profile = "specialist")

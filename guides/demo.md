@@ -121,7 +121,7 @@ walkthrough uses one specialist so that a single agent does the whole task.
 2. Fill in the **new agent** form:
    - **id**: `demo` (the default is `specialist`).
    - **provider**: `claude` or `codex`. The specialist profile resolves to
-     `opus` on Claude and `gpt-6-sol` on Codex.
+     `opus` on Claude and `gpt-5.6-sol` on Codex.
    - **cadence**: pick a preset such as **Weekdays** (09:00, Monday to
      Friday) or **Daily**. **Profile default** is daily for a specialist. The
      timezone is shown under the field. Only **Custom** asks for cron syntax.
