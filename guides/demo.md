@@ -220,14 +220,19 @@ so read it again after a restart. Keep it out of logs and issues.
 | Step | Tool and arguments |
 |---|---|
 | Discovery | `tools/list`; `list_routines` |
-| Submit a task | `prompt_agent` with `agent_id: "demo"`, `prompt: "..."` |
-| Wait | `await_agent` with `agent_id: "demo"` (default 60 s, max 180 s) |
+| Submit a task | `prompt_agent` with `agent_id: "demo"`, `prompt: "..."`, optionally `idempotency_key`; returns a receipt with `message_id` |
+| Wait | `await_agent` with `agent_id: "demo"` and that `message_id` (default 60 s, max 180 s) |
 | Status and conversation | `agent_status` with `agent_id: "demo"` |
 | Attention | `list_attention`, optionally `group: "needs_you"` |
 | Decide | `answer_ask`, `approve_action`, `reject_action` |
 
-`await_agent` returns when the agent settles, including when it parks on a
-gate or a question; a settled state is not proof that the task finished. The
+With `message_id`, `await_agent` waits for that one message to reach
+`waiting_for_input`, `waiting_for_approval`, `completed`, `failed` or
+`refused`, and returns its durable receipt. A message parked on a gate or a
+question has not finished its task. Retrying `prompt_agent` with the same
+`idempotency_key` and prompt returns the existing receipt instead of sending
+the work twice. Without `message_id`, `await_agent` falls back to waiting for
+the agent to settle, and its last result may belong to an earlier turn. The
 UI reads the same records: a gate approved over MCP disappears from the
 console, and a message sent from the console appears in `agent_status`.
 Arguments, results and access rules for every tool are in the
@@ -253,7 +258,7 @@ What comes back, all under `$CUSTODE_HOME`:
 | `checkouts/demo/` | the agent-owned clone and its branches |
 | `custode.db` | the feed, gates with outcome and decider, asks and answers, notebooks, spend, and conversation arcs |
 | `feed.jsonl` | an append-only mirror of the feed |
-| `workspaces/demo/` | the inbox and rendered `journal.md` / `TODO.md` |
+| `workspaces/demo/` | the inbox, rendered `journal.md` / `TODO.md`, and `HANDOFF.md`, the bounded context file each scheduled turn reads |
 | `tmp/` | per-boot operator and agent tokens and MCP configs (regenerated) |
 
 After the restart the subject is offline until its next beat or message. The
