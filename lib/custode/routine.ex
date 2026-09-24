@@ -426,7 +426,7 @@ defmodule Custode.Routine do
       end
 
     tools = Enum.map(mcp_tools(routine.role), &String.replace_prefix(&1, "mcp__custode__", ""))
-    server = ~s(mcp_servers."custode")
+    server = codex_mcp_server_root!("custode")
 
     [
       toml_override(server <> ".url", Custode.MCP.url()),
@@ -439,7 +439,7 @@ defmodule Custode.Routine do
 
   defp codex_external_overrides do
     Enum.flat_map(Custode.MCP.external_servers(), fn server ->
-      root = ~s(mcp_servers."#{String.replace(server.name, "\"", "\\\"")}")
+      root = codex_mcp_server_root!(server.name)
 
       case server do
         %{type: :http, url: url} when is_binary(url) ->
@@ -454,6 +454,15 @@ defmodule Custode.Routine do
           []
       end
     end)
+  end
+
+  defp codex_mcp_server_root!(name) when is_binary(name) do
+    if Regex.match?(~r/\A[a-zA-Z0-9_-]+\z/, name) do
+      "mcp_servers." <> name
+    else
+      raise ArgumentError,
+            "invalid Codex MCP server name #{inspect(name)}; expected letters, numbers, _ or -"
+    end
   end
 
   defp toml_override(key, value), do: key <> "=" <> Jason.encode!(value)
