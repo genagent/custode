@@ -3,6 +3,37 @@ defmodule CustodeWeb.ComponentsTest do
 
   import CustodeWeb.Components
 
+  describe "foldable_text/1" do
+    import Phoenix.LiveViewTest, only: [render_component: 2]
+
+    test "short text stays plain" do
+      html = render_component(&CustodeWeb.Components.foldable_text/1, text: "a useful sentence")
+
+      assert html =~ "a useful sentence"
+      refute html =~ "<details"
+      refute html =~ "show more"
+    end
+
+    test "missing text stays plain and empty" do
+      html = render_component(&CustodeWeb.Components.foldable_text/1, text: nil)
+
+      assert html =~ "data-foldable-text"
+      refute html =~ "<details"
+      refute html =~ "show more"
+    end
+
+    test "long text has a preview and an explicit native disclosure" do
+      text = String.duplicate("a useful sentence ", 30)
+      html = render_component(&CustodeWeb.Components.foldable_text/1, text: text)
+
+      assert html =~ "<details"
+      assert html =~ "show more"
+      assert html =~ "show less"
+      assert html =~ "line-clamp-3"
+      assert html =~ text
+    end
+  end
+
   describe "usd/1" do
     test "always two decimals" do
       assert usd(7.6782) == "7.68"

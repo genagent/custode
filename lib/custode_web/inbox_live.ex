@@ -202,9 +202,11 @@ defmodule CustodeWeb.InboxLive do
           </div>
 
           <p class="mt-1 font-medium">{item.headline}</p>
-          <p :if={item.detail} class="mt-1 line-clamp-3 text-sm text-base-content/70">
-            {item.detail}
-          </p>
+          <.foldable_text
+            :if={item.detail}
+            text={item.detail}
+            class="mt-1 text-sm text-base-content/70"
+          />
 
           <%!-- The reply box is the affordance a QUESTION deserves: the agent
                 made a judgment call and wants a human read, which is a
