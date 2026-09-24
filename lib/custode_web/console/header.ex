@@ -1,22 +1,22 @@
 defmodule CustodeWeb.Console.Header do
   @moduledoc """
-  The console's header (#450): where the operator is, a sentence to the
-  caretaker from anywhere (#451), what needs them, presence, the fleet-wide
-  controls, and how much of the plan is used (#458).
+  The console's local control row below the shared application header (#450):
+  where the operator is, a sentence to the caretaker from anywhere (#451),
+  presence, fleet controls, and how much of the plan is used (#458).
   """
 
   use Phoenix.Component
 
-  import CustodeWeb.Components, only: [theme_toggle: 1, usd: 1]
+  import CustodeWeb.Components, only: [app_header: 1]
 
   alias Custode.Signal
   alias CustodeWeb.Console.Rail
 
   attr(:caretaker, :any, required: true)
   attr(:tell_gen, :integer, required: true)
-  attr(:needs_you, :integer, required: true)
   attr(:presence, :any, required: true)
   attr(:usage, :map, required: true)
+  attr(:attention_signals, :list, required: true)
   attr(:fleet_today, :any, required: true)
   attr(:notice, :string, default: nil)
   attr(:selected, :string, default: nil)
@@ -24,86 +24,74 @@ defmodule CustodeWeb.Console.Header do
 
   def console_header(assigns) do
     ~H"""
-    <header class="flex items-baseline gap-4 border-b border-base-300 bg-base-100 px-5 py-3">
-      <.link navigate="/" class="text-xl font-bold hover:opacity-70">custode</.link>
-      <.breadcrumb selected={@selected} signal={@signal} />
-      <nav class="flex gap-3 text-sm text-base-content/60">
-        <span class="font-semibold text-base-content underline underline-offset-4">console</span>
+    <.app_header
+      active={:console}
+      fleet_today={@fleet_today}
+      attention_signals={@attention_signals}
+    />
+    <div id="console-controls" class="border-b border-base-300 bg-base-100 px-5 py-2">
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <.breadcrumb selected={@selected} signal={@signal} />
         <button
           type="button"
           phx-click="command_open"
           data-command-trigger
-          class="hover:text-base-content"
+          class="btn btn-ghost btn-xs"
           title="Search commands (Cmd/Ctrl+K)"
         >
           commands <kbd class="kbd kbd-xs">⌘K</kbd>
         </button>
-        <.link navigate="/custode" class="hover:text-base-content" title="Shift+Cmd/Ctrl+K">
-          custode
-        </.link>
-        <.link navigate="/inbox" class="hover:text-base-content">inbox</.link>
-        <.link navigate="/repos" class="hover:text-base-content">repos</.link>
-        <.link navigate="/workflows" class="hover:text-base-content">workflows</.link>
-        <.link navigate="/metrics" class="hover:text-base-content">metrics</.link>
-      </nav>
-      <%!-- Most of what the operator wants is a sentence to the caretaker,
-            not a visit to one agent (#451). --%>
-      <form
-        :if={@caretaker}
-        id={"tell-#{@tell_gen}"}
-        phx-submit="tell_custode"
-        class="ml-auto flex min-w-0 flex-1 justify-end"
-      >
-        <input
-          type="text"
-          name="text"
-          autocomplete="off"
-          placeholder={"tell #{@caretaker}..."}
-          class="input input-bordered input-sm w-full max-w-md"
-        />
-      </form>
-      <span :if={@needs_you > 0} class={["badge badge-warning whitespace-nowrap", !@caretaker && "ml-auto"]}>
-        {@needs_you} need you
-      </span>
-      <button
-        class={[
-          "badge cursor-pointer whitespace-nowrap",
-          (match?({:away, _}, @presence) && "badge-neutral") || "badge-ghost",
-          !@caretaker && @needs_you == 0 && "ml-auto"
-        ]}
-        phx-click="toggle_presence"
-        title="present: gates ping you. away: pinned, the desktop stays quiet and the phone still rings"
-      >
-        {presence_word(@presence)}
-      </button>
-      <.theme_toggle />
-      <details class="dropdown dropdown-end">
-        <summary class="btn btn-ghost btn-xs">fleet</summary>
-        <ul class="menu dropdown-content z-10 mt-1 w-44 rounded-box bg-base-100 p-2 shadow-lg">
-          <li>
-            <button phx-click="pause_all" data-confirm="Pause every running agent?">
-              pause all
-            </button>
-          </li>
-          <li><button phx-click="resume_all">resume all</button></li>
-          <li>
-            <button
-              phx-click="drain"
-              data-confirm="Drain for a restart? Queues pause, executing turns finish, then the node STOPS and this page goes away."
-            >
-              drain for restart
-            </button>
-          </li>
-        </ul>
-      </details>
-      <.usage usage={@usage} />
-      <span class="whitespace-nowrap font-mono text-xs text-base-content/40">
-        ${usd(@fleet_today)}
-      </span>
-    </header>
-    <p :if={@notice} class="bg-base-100 px-5 pb-2 text-right text-xs text-base-content/60">
-      {@notice}
-    </p>
+        <%!-- Most of what the operator wants is a sentence to the caretaker,
+              not a visit to one agent (#451). --%>
+        <form
+          :if={@caretaker}
+          id={"tell-#{@tell_gen}"}
+          phx-submit="tell_custode"
+          class="order-last flex min-w-64 flex-1 sm:order-none"
+        >
+          <input
+            type="text"
+            name="text"
+            autocomplete="off"
+            placeholder={"tell #{@caretaker}..."}
+            class="input input-bordered input-sm w-full"
+          />
+        </form>
+        <div class={["ml-auto flex items-center gap-3", @caretaker && "sm:ml-0"]}>
+          <button
+            class={[
+              "badge cursor-pointer whitespace-nowrap",
+              (match?({:away, _}, @presence) && "badge-neutral") || "badge-ghost"
+            ]}
+            phx-click="toggle_presence"
+            title="present: gates ping you. away: pinned, the desktop stays quiet and the phone still rings"
+          >
+            {presence_word(@presence)}
+          </button>
+          <details class="dropdown dropdown-end">
+            <summary class="btn btn-ghost btn-xs">fleet</summary>
+            <ul class="menu dropdown-content z-10 mt-1 w-44 rounded-box bg-base-100 p-2 shadow-lg">
+              <li>
+                <button phx-click="pause_all" data-confirm="Pause every running agent?">
+                  pause all
+                </button>
+              </li>
+              <li><button phx-click="resume_all">resume all</button></li>
+              <li>
+                <button
+                  phx-click="drain"
+                  data-confirm="Drain for a restart? Queues pause, executing turns finish, then the node STOPS and this page goes away."
+                >
+                  drain for restart
+                </button>
+              </li>
+            </ul>
+          </details>
+          <.usage usage={@usage} />
+        </div>
+      </div>
+      <p :if={@notice} class="pt-1 text-right text-xs text-base-content/60">{@notice}</p>
+    </div>
     """
   end
 
