@@ -515,7 +515,12 @@ defmodule Custode do
     end
   end
 
-  @doc "The still-executing turns Oban has not yet finished; [] means safe to stop."
+  @doc """
+  The still-executing turns Oban has not yet finished; [] means safe to stop.
+
+  A one-shot job also carries its resolved `max_turns` (#673), so a long
+  job's bound is visible while it runs.
+  """
   def executing_turns do
     executing_jobs()
   end
@@ -524,13 +529,19 @@ defmodule Custode do
   defp executing_jobs do
     import Ecto.Query, only: [from: 2]
 
-    Custode.Repo.all(
-      from(j in Oban.Job,
-        where: j.state == "executing",
-        select: %{id: j.id, queue: j.queue, worker: j.worker}
-      )
+    from(j in Oban.Job,
+      where: j.state == "executing",
+      select: %{id: j.id, queue: j.queue, worker: j.worker, args: j.args}
     )
+    |> Custode.Repo.all()
+    |> Enum.map(&executing_job/1)
   end
+
+  defp executing_job(%{worker: "Custode.OneShotJob", args: args} = job) do
+    job |> Map.delete(:args) |> Map.put(:max_turns, args["max_turns"])
+  end
+
+  defp executing_job(job), do: Map.delete(job, :args)
 
   defp await_drained(executing, poll, deadline) do
     case executing.() do

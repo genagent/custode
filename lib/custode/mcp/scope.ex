@@ -38,51 +38,113 @@ defmodule Custode.MCP.Scope do
   (`:run_job_max_turns_ceiling`), whoever asks. Lowering the cap is always
   allowed. Raising it above the default is the operator's call, or a
   routine's while an approved action of a shell class is in flight, the same
-  `Custode.Gates.Class.shell?/1` rule that gates elevated jobs: the approval
-  is what sized the work, so neither an unapproved sweep nor an unrelated
+  `Custode.Gates.Class.shell?/1` rule that gates elevated jobs. That approval
+  must also name the cap it sized: its detail carries one stable
+  `max_turns=<N>` marker, and the request may not exceed `N`. The resolved
+  cap is then part of what the operator read and approved rather than a
+  prose convention, and neither an unapproved sweep nor an unrelated
   approval (a comment, a ready_pr) can buy a longer job.
+
+  Both configured bounds are checked first: a non-positive or non-integer
+  value, or a default above the ceiling, is an error for every request,
+  including an omitted one, so a bad config never inserts a job.
   """
   @spec authorize_job_turns(Anubis.Server.Frame.t(), term()) ::
           {:ok, pos_integer()} | {:error, String.t()}
   def authorize_job_turns(frame, requested) do
+    with {:ok, default, ceiling} <- job_turns_bounds() do
+      cond do
+        is_nil(requested) ->
+          {:ok, default}
+
+        not is_integer(requested) or requested < 1 ->
+          {:error, "max_turns: must be a positive integer, got #{inspect(requested)}"}
+
+        requested > ceiling ->
+          {:error, "max_turns: #{requested} exceeds the hard ceiling of #{ceiling}"}
+
+        requested <= default ->
+          {:ok, requested}
+
+        true ->
+          authorize_raised_turns(MCP.caller(frame), requested, default)
+      end
+    end
+  end
+
+  @doc "The turn cap a one-shot job gets when the caller names none, as configured."
+  @spec job_turns_default() :: term()
+  def job_turns_default, do: Application.get_env(:custode, :run_job_max_turns, 15)
+
+  @doc "The turn cap no one-shot job may exceed, whoever asks, as configured."
+  @spec job_turns_ceiling() :: term()
+  def job_turns_ceiling, do: Application.get_env(:custode, :run_job_max_turns_ceiling, 150)
+
+  @doc """
+  The configured default and ceiling, validated: both positive integers and
+  the default no greater than the ceiling.
+  """
+  @spec job_turns_bounds() :: {:ok, pos_integer(), pos_integer()} | {:error, String.t()}
+  def job_turns_bounds do
     default = job_turns_default()
     ceiling = job_turns_ceiling()
 
     cond do
-      is_nil(requested) ->
-        {:ok, default}
+      not positive_integer?(default) ->
+        {:error,
+         "max_turns: configured run_job_max_turns must be a positive integer, " <>
+           "got #{inspect(default)}"}
 
-      not is_integer(requested) or requested < 1 ->
-        {:error, "max_turns: must be a positive integer, got #{inspect(requested)}"}
+      not positive_integer?(ceiling) ->
+        {:error,
+         "max_turns: configured run_job_max_turns_ceiling must be a positive integer, " <>
+           "got #{inspect(ceiling)}"}
 
-      requested > ceiling ->
-        {:error, "max_turns: #{requested} exceeds the hard ceiling of #{ceiling}"}
-
-      requested <= default ->
-        {:ok, requested}
+      default > ceiling ->
+        {:error,
+         "max_turns: configured run_job_max_turns #{default} exceeds " <>
+           "run_job_max_turns_ceiling #{ceiling}"}
 
       true ->
-        authorize_raised_turns(MCP.caller(frame), requested, default)
+        {:ok, default, ceiling}
     end
   end
 
-  @doc "The turn cap a one-shot job gets when the caller names none."
-  @spec job_turns_default() :: pos_integer()
-  def job_turns_default, do: Application.get_env(:custode, :run_job_max_turns, 15)
+  @doc """
+  The turn cap an approved action's detail names through its one stable
+  `max_turns=<N>` marker. `:missing` when it names none (or only zero),
+  `:ambiguous` when it names more than one value.
+  """
+  @spec approved_turn_cap(String.t() | nil) :: {:ok, pos_integer()} | :missing | :ambiguous
+  def approved_turn_cap(detail) when is_binary(detail) do
+    caps =
+      ~r/(?<![\w-])max_turns=(\d+)(?!\w)/
+      |> Regex.scan(detail, capture: :all_but_first)
+      |> Enum.map(fn [n] -> String.to_integer(n) end)
+      |> Enum.reject(&(&1 == 0))
+      |> Enum.uniq()
 
-  @doc "The turn cap no one-shot job may exceed, whoever asks."
-  @spec job_turns_ceiling() :: pos_integer()
-  def job_turns_ceiling, do: Application.get_env(:custode, :run_job_max_turns_ceiling, 150)
+    case caps do
+      [] -> :missing
+      [cap] -> {:ok, cap}
+      _many -> :ambiguous
+    end
+  end
+
+  def approved_turn_cap(_detail), do: :missing
+
+  defp positive_integer?(value), do: is_integer(value) and value > 0
 
   defp authorize_raised_turns(%{kind: :operator}, requested, _default), do: {:ok, requested}
 
   defp authorize_raised_turns(%{kind: :routine, id: id}, requested, default) do
     # the same rule as elevation: only a shell-class approval (implement,
-    # pr_maintain, or an unbounded other/undeclared class) sizes a long job
+    # pr_maintain, or an unbounded other/undeclared class) sizes a long job,
+    # and it must name the cap it sized
     case Custode.Gates.active_grant(id) do
-      %{class: class, gate_id: gate_id} ->
+      %{class: class, gate_id: gate_id} = grant ->
         if Class.shell?(class) do
-          {:ok, requested}
+          within_approved_cap(grant, requested, default)
         else
           {:error,
            "gate grant: max_turns #{requested} is above the default of #{default} " <>
@@ -100,6 +162,29 @@ defmodule Custode.MCP.Scope do
   defp authorize_raised_turns(%{id: id}, requested, default) do
     {:error,
      "identity: #{id} may not raise max_turns to #{requested} above the default of #{default}"}
+  end
+
+  defp within_approved_cap(%{gate_id: gate_id, detail: detail}, requested, default) do
+    case approved_turn_cap(detail) do
+      {:ok, cap} when requested <= cap ->
+        {:ok, requested}
+
+      {:ok, cap} ->
+        {:error,
+         "gate grant: max_turns #{requested} exceeds the max_turns=#{cap} " <>
+           "that gate #{gate_id} approved"}
+
+      :missing ->
+        {:error,
+         "gate grant: max_turns #{requested} is above the default of #{default} " <>
+           "but gate #{gate_id} names no max_turns=<N>; " <>
+           "name the cap in the request_permission action"}
+
+      :ambiguous ->
+        {:error,
+         "gate grant: gate #{gate_id} names more than one max_turns=<N>, " <>
+           "so max_turns #{requested} matches no single approved cap"}
+    end
   end
 
   @doc """
