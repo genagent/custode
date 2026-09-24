@@ -81,7 +81,7 @@ The complete fresh-machine sequence is in
 that know their respective layers:
 
 ```sh
-mix custode doctor   # Custode, provider login, GitHub, home and roster
+mix custode doctor   # Custode, provider login, GitHub, home, roster, managed settings
 claude doctor        # Claude Code settings and rejected configuration
 ```
 
@@ -107,8 +107,10 @@ which settings sources loaded. Also inspect, as applicable:
 - `~/.claude/settings.json` for user settings;
 - `.claude/settings.json` in the repository for shared project settings;
 - `.claude/settings.local.json` for machine-local project settings;
-- the managed source named by `/status`, which may come from an organization,
-  MDM or a system `managed-settings.json`.
+- the managed source named by `/status`: server-managed settings (cached in
+  `~/.claude/remote-settings.json`, or under `CLAUDE_CONFIG_DIR` when set), an
+  MDM profile, or a system `managed-settings.json` and its
+  `managed-settings.d/` directory.
 
 Current Claude Code accepts `mcp__custode__*` as an allow rule for every tool
 on the named Custode server. An unscoped `mcp__*` allow glob is skipped with a
@@ -118,6 +120,27 @@ locally. See Claude Code's
 [permission rules](https://code.claude.com/docs/en/permissions) and
 [settings precedence](https://code.claude.com/docs/en/settings) for the
 current behavior.
+
+An organization can set `allowManagedPermissionRulesOnly` in its managed
+settings. Claude Code then keeps only the managed policy's allow rules and
+drops every allow rule supplied as `--allowed-tools`, by a parent host, or in
+any settings file, so no local or command-line allow rule applies and
+Custode's allowlist has no effect. A headless turn cannot prompt, so every
+tool without a managed allow rule is denied: Custode's MCP tools, other MCP
+servers' tools, and even reads outside the working directory. The fix is a
+managed allow rule such as `mcp__custode__*`, added by the organization's
+administrator to the managed source Claude Code selects on that machine. See
+[managed settings](https://code.claude.com/docs/en/managed-settings).
+
+The same policy can set `permissions.disableBypassPermissionsMode` to
+`"disable"`. That blocks the `bypass_permissions` permission mode, which
+approved Claude continuations use by default, so approved work that needs it
+cannot run on that machine.
+
+`mix custode doctor` reads the server-managed settings cache and the system
+managed settings files and prints a `warning:` line, without failing, for
+either key. It does not read an MDM profile or the Windows registry; `/status`
+names the managed source in force.
 
 ### `Invalid params` is not a permission denial
 

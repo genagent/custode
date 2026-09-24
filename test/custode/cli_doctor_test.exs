@@ -3,6 +3,8 @@ defmodule Custode.CLI.DoctorTest do
   # without a server and report shape-compatibly with ObanClaude's doctor.
   use ExUnit.Case, async: false
 
+  import Custode.TestHelpers, only: [put_env!: 2, uid: 1]
+
   test "every check reports as {label, {:ok, _} | {:error, _}}" do
     for {label, result} <- Custode.CLI.Doctor.checks() do
       assert is_binary(label)
@@ -40,5 +42,30 @@ defmodule Custode.CLI.DoctorTest do
       Custode.CLI.Doctor.checks() |> Enum.find(fn {l, _} -> l =~ "home" end)
 
     assert match?({:error, _}, result)
+  end
+
+  test "managed settings that drop custode's allow rules warn without failing the run" do
+    root = Path.join(System.tmp_dir!(), uid("doctor-managed"))
+    File.mkdir_p!(root)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(root, "remote-settings.json"),
+      Jason.encode!(%{
+        "allowManagedPermissionRulesOnly" => true,
+        "permissions" => %{"disableBypassPermissionsMode" => "disable"}
+      })
+    )
+
+    put_env!(:claude_managed_settings, config_dir: root, system_dir: Path.join(root, "system"))
+
+    managed =
+      Custode.CLI.Doctor.checks()
+      |> Enum.filter(fn {label, _} -> label =~ "claude managed" or label =~ "bypass" end)
+
+    assert [{_, {:ok, "warning: " <> rules}}, {_, {:ok, "warning: " <> bypass}}] = managed
+    assert rules =~ "no managed allow rule matches the custode MCP server"
+    assert bypass =~ "disableBypassPermissionsMode"
+    assert {_text, true} = ObanClaude.CLI.Doctor.report(managed)
   end
 end

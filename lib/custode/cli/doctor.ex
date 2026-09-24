@@ -25,6 +25,11 @@ defmodule Custode.CLI.Doctor do
       surfaces as a supervision-tree crash on a fleet that has already stopped
     * the checkout is not behind its upstream, which is the state where a
       merged fix and the running code have never met
+    * the organization's managed Claude Code settings, read from the files
+      Claude Code reads (`Custode.ClaudeManagedSettings`): whether they drop
+      custode's `--allowed-tools` (`allowManagedPermissionRulesOnly` without
+      a managed allow rule for the custode server) or disable the
+      `bypass_permissions` mode approved continuations use
 
   ## The restart protocol
 
@@ -39,12 +44,15 @@ defmodule Custode.CLI.Doctor do
 
   use Cheer.Command
 
+  alias Custode.ClaudeManagedSettings
   alias Custode.Config.Loader
   alias Custode.Home
   alias ObanClaude.CLI.Doctor, as: SharedDoctor
 
   command "doctor" do
-    about("Install preflight: claude, gh, timezone, home dir, and roster checks.")
+    about(
+      "Install preflight: claude, gh, timezone, home dir, roster and managed settings checks."
+    )
 
     long_about("""
     Runs the fleet's environment checks without starting (or contacting) a
@@ -86,7 +94,7 @@ defmodule Custode.CLI.Doctor do
       {"migrations", migrations_check()},
       {"pending migrations", pending_check()},
       {"checkout", checkout_check()}
-    ]
+    ] ++ managed_settings_checks()
   end
 
   # Hard failure, because Ecto refuses the ENTIRE migration run on a duplicate
@@ -128,6 +136,36 @@ defmodule Custode.CLI.Doctor do
       {:behind, _count, _fetched} -> {:error, description}
       _current_or_skipped -> {:ok, description}
     end
+  end
+
+  # Warnings, not failures, like pending migrations: a managed policy is an
+  # answer about this machine, not a reason the fleet cannot boot. Codex and
+  # non-MCP routines are unaffected, the operator cannot change the policy
+  # locally, and a permanent non-zero exit would only block install scripts.
+  # The shared report has no third level, so the info text says "warning:".
+  defp managed_settings_checks do
+    policy =
+      :custode
+      |> Application.get_env(:claude_managed_settings, [])
+      |> ClaudeManagedSettings.read()
+      |> ClaudeManagedSettings.policy()
+
+    [
+      {"claude managed permission rules",
+       {:ok, ClaudeManagedSettings.describe_permission_rules(policy, custode_tools())}},
+      {"claude bypass permissions mode", {:ok, ClaudeManagedSettings.describe_bypass(policy)}}
+    ]
+  rescue
+    error ->
+      [{"claude managed settings", {:ok, "warning: not read: " <> Exception.message(error)}}]
+  end
+
+  # Every tool any role's --allowed-tools names on the custode server.
+  defp custode_tools do
+    Custode.Roles.all()
+    |> Map.keys()
+    |> Enum.flat_map(&Custode.Routine.mcp_tools/1)
+    |> Enum.uniq()
   end
 
   # A missing binary is doctor's bread-and-butter failure, and the wrapper's

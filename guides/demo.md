@@ -71,8 +71,10 @@ mix phx.server        # dashboard :4646, MCP 127.0.0.1:6161
 `mix custode doctor` checks the `claude` binary and its login, `gh` and its
 login, the configured timezone, that the home is writable, that the roster
 parses, migration versions and pending count, and whether the checkout is
-behind its upstream. It has no Codex check. Read its result by provider
-setup:
+behind its upstream. It also reads the organization's managed Claude Code
+settings and warns, without failing, when they drop Custode's MCP allowlist
+or disable bypass permissions mode. It has no Codex check. Read its result by
+provider setup:
 
 - **Claude, or both providers**: every check must pass. With both, also run
   the Codex check below.
