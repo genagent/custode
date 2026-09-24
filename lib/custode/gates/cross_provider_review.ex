@@ -55,7 +55,7 @@ defmodule Custode.Gates.CrossProviderReview do
          {:ok, review, disposition} <- claim_review(gate, repo, evidence.pr.head_sha) do
       attach(gate, review, disposition)
 
-      if disposition == :new do
+      if disposition in [:new, :retry] do
         execute(review, gate, evidence, opts)
       else
         :ok
@@ -126,10 +126,10 @@ defmodule Custode.Gates.CrossProviderReview do
   defp claim_review_locked(gate, repo, head_sha) do
     case Repo.get_by(Review, repo: repo, pr_number: gate.pr_number, head_sha: head_sha) do
       %Review{} = review ->
-        {:ok, review, :reused}
+        reuse_or_retry(review)
 
       nil ->
-        round = Repo.aggregate(review_query(repo, gate.pr_number), :count) + 1
+        round = next_round(repo, gate.pr_number)
 
         if round > max_rounds() do
           {:limit, gate}
@@ -138,6 +138,44 @@ defmodule Custode.Gates.CrossProviderReview do
         end
     end
   end
+
+  defp reuse_or_retry(review) do
+    if retryable_failure?(review) do
+      retry_review(review)
+    else
+      {:ok, review, :reused}
+    end
+  end
+
+  defp retry_review(review) do
+    round = next_round(review.repo, review.pr_number)
+
+    if round > max_rounds() do
+      {:ok, review, :retry_limit}
+    else
+      review =
+        update_review(review,
+          round: round,
+          status: "pending",
+          evidence_digest: nil,
+          summary: nil,
+          findings: nil,
+          error: nil,
+          completed_at: nil
+        )
+
+      {:ok, review, :retry}
+    end
+  end
+
+  defp retryable_failure?(%Review{status: "infrastructure_failed"}), do: true
+
+  # Before #660 every failure used the same status. Keep old provider failures
+  # recoverable while leaving invalid review output as durable review evidence.
+  defp retryable_failure?(%Review{status: "failed", error: error}) when is_binary(error),
+    do: error not in [":invalid_findings", ":invalid_review_output"]
+
+  defp retryable_failure?(_review), do: false
 
   defp insert_review(gate, repo, head_sha, round) do
     author = Custode.Agents.provider(gate.agent_id)
@@ -167,6 +205,9 @@ defmodule Custode.Gates.CrossProviderReview do
   defp review_query(repo, number),
     do: from(r in Review, where: r.repo == ^repo and r.pr_number == ^number)
 
+  defp next_round(repo, number),
+    do: (Repo.aggregate(review_query(repo, number), :max, :round) || 0) + 1
+
   defp max_rounds, do: Application.get_env(:custode, :gate_review_max_rounds, 3)
 
   defp opposite(:claude), do: :codex
@@ -175,6 +216,8 @@ defmodule Custode.Gates.CrossProviderReview do
   defp attach(gate, review, disposition) do
     state =
       case {disposition, review.status} do
+        {:retry, _status} -> "retrying"
+        {:retry_limit, _status} -> "infrastructure_failed: round_limit"
         {:reused, "completed"} -> "reused"
         {_disposition, status} -> status
       end
@@ -197,10 +240,10 @@ defmodule Custode.Gates.CrossProviderReview do
 
       case invoke(review, directory, opts) do
         {:ok, output} -> complete(review, output, manifest)
-        {:error, reason} -> fail(review, reason)
+        {:error, reason} -> fail_infrastructure(review, reason)
       end
     rescue
-      exception -> fail(review, Exception.message(exception))
+      exception -> fail_infrastructure(review, Exception.message(exception))
     after
       File.rm_rf(directory)
     end
@@ -302,6 +345,7 @@ defmodule Custode.Gates.CrossProviderReview do
       ignore_user_config: true,
       ignore_rules: true,
       search: :disabled,
+      skip_git_repo_check: true,
       output_schema: Path.join(directory, "review-output-schema.json")
     )
   end
@@ -396,7 +440,7 @@ defmodule Custode.Gates.CrossProviderReview do
         :ok
 
       {:error, reason} ->
-        fail(review, reason)
+        invalidate(review, reason)
     end
   end
 
@@ -436,19 +480,31 @@ defmodule Custode.Gates.CrossProviderReview do
 
   defp present?(value), do: is_binary(value) and String.trim(value) != ""
 
-  defp fail(review, reason) do
+  defp invalidate(review, reason) do
     update_review(review,
-      status: "failed",
+      status: "invalid",
       error: inspect(reason, printable_limit: 500),
       completed_at: DateTime.utc_now()
     )
 
-    finish_attached(review.id, "failed")
+    finish_attached(review.id, "invalid")
+    :ok
+  end
+
+  defp fail_infrastructure(review, reason) do
+    update_review(review,
+      status: "infrastructure_failed",
+      error: inspect(reason, printable_limit: 500),
+      completed_at: DateTime.utc_now()
+    )
+
+    finish_attached(review.id, "infrastructure_failed")
     :ok
   end
 
   defp fail_gate(gate_id, reason) do
-    set_gate(gate_id, review_state: "failed: #{inspect(reason, printable_limit: 300)}")
+    state = "infrastructure_failed: #{inspect(reason, printable_limit: 300)}"
+    set_gate(gate_id, review_state: state)
     :ok
   end
 
