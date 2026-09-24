@@ -31,7 +31,8 @@ nothing until you add a routine.
 
 - Elixir ~> 1.20 / OTP 29
 - the `claude` CLI, logged in (`claude login`), and/or the `codex` CLI,
-  logged in, for Codex routines
+  logged in, for Codex routines. `mix custode doctor` checks only `claude`;
+  on a Codex-only host see [the demo guide's preflight](guides/demo.md#3-migrate-preflight-boot)
 - the `gh` CLI, authenticated
 - SSH read access to the private `joshrotenberg/mcp_ex` dependency, or
   `MCP_EX_PATH` pointing at a local checkout of it

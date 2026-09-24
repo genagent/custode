@@ -45,9 +45,8 @@ work is in [ROADMAP.md](../ROADMAP.md) and
 - A GitHub repository you are willing to let an agent open a draft pull
   request against. A small sandbox repository is best for the demonstration.
 
-`mix custode doctor` checks the `claude` CLI, not `codex`: on a Codex-only
-host it reports the Claude checks as failures. Verify Codex yourself with
-the Codex CLI.
+`mix custode doctor` checks the `claude` CLI and not `codex`. Section 3 gives
+the preflight for each provider setup.
 
 ## 2. Fresh checkout and home
 
@@ -72,7 +71,33 @@ mix phx.server        # dashboard :4646, MCP 127.0.0.1:6161
 `mix custode doctor` checks the `claude` binary and its login, `gh` and its
 login, the configured timezone, that the home is writable, that the roster
 parses, migration versions and pending count, and whether the checkout is
-behind its upstream. With no roster it passes and the boot log says:
+behind its upstream. It has no Codex check. Read its result by provider
+setup:
+
+- **Claude, or both providers**: every check must pass. With both, also run
+  the Codex check below.
+- **Codex only**: the two Claude checks (`claude binary + version`,
+  `claude authentication`) fail and the command exits non-zero. Confirm that
+  they are the only failures, then check Codex directly:
+
+  ```sh
+  mix custode doctor --json   # every check except the two claude ones must be "ok": true
+  codex --version
+  codex login status          # e.g. "Logged in using ChatGPT"
+  ```
+
+  Choose `codex` as the provider when you create the agent in section 4.
+
+  The node boots, but it runs the same Claude check at boot and, when it
+  fails, withholds the `:ticks` queue: the log says `claude doctor failed;
+  ticks withheld`, and the console shows **no agent can run: the boot doctor
+  failed**. That queue carries scheduled beats and inbox wake-ups, so on a
+  Codex-only host the agent does not run on its schedule. Work you send it
+  from the console or with `prompt_agent`, answers and gate decisions do not
+  use that queue, so sections 5 to 8 still apply. To get scheduled beats,
+  install the `claude` CLI and log in, then restart.
+
+With no roster the remaining checks pass and the boot log says:
 
 ```
 custode: no routines.toml found, the fleet is empty (cp routines.example.toml routines.toml, or add an agent from /console)
@@ -212,7 +237,7 @@ Arguments, results and access rules for every tool are in the
 
 ```sh
 mix custode drain      # stop admitting work, let executing turns finish, stop
-mix custode doctor
+mix custode doctor     # on a Codex-only host, read it as in section 3
 mix phx.server
 ```
 
@@ -248,7 +273,9 @@ log.
   authentication; see [install.md](install.md) before exposing the
   dashboard.
 - `mcp_ex` is a private Git dependency; see prerequisites.
-- `mix custode doctor` does not check the Codex CLI.
+- `mix custode doctor` does not check the Codex CLI, and on a Codex-only host
+  it exits non-zero on its Claude checks. The boot check behind it also
+  withholds scheduled beats on such a host; see section 3.
 - Every turn is a real provider call against your plan. Rails pause an agent
   at its daily limit; the specialist profile's defaults are high (25 USD per
   turn, 100 USD per day), editable in the **config** tab.
