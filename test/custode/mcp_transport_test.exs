@@ -111,6 +111,31 @@ defmodule Custode.MCPTransportTest do
     assert Jason.decode!(encoded)["value"] == value
   end
 
+  test "a stale approval is an HTTP 200 tool error and recovers its durable gate", ctx do
+    {:ok, operator} = Identity.operator_token()
+    version = "2025-11-25"
+
+    gate =
+      Custode.Repo.insert!(%Custode.Gates.Gate{
+        agent_id: ctx.routine_id,
+        kind: "approval",
+        action_id: uid("act-stale"),
+        detail: "action from a departed provider process"
+      })
+
+    initialize("/mcp", operator, version)
+
+    response =
+      rpc("/mcp", operator, version, 9, "tools/call", %{
+        "name" => "approve_action",
+        "arguments" => %{"agent_id" => ctx.routine_id, "action_id" => gate.action_id}
+      })
+
+    assert %{"isError" => true, "content" => [%{"text" => message} | _rest]} = result(response)
+    assert message =~ "rehydration_required"
+    assert Custode.Repo.get!(Custode.Gates.Gate, gate.id).status == "requeued"
+  end
+
   defp initialize(path, token, version) do
     response =
       post(path, token, nil, %{

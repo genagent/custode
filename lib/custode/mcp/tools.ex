@@ -515,8 +515,14 @@ defmodule Custode.MCP.Tools.ApproveAction do
 
   defp do_approve(agent_id, action_id, frame) do
     case Custode.approve_action(agent_id, action_id, decided(frame)) do
-      :processing -> reply(frame, %{agent_id: agent_id, approved: action_id})
-      other -> fail(frame, "approve failed: #{inspect(other)}")
+      :processing ->
+        reply(frame, %{agent_id: agent_id, approved: action_id})
+
+      {:already_applied, :approved} ->
+        reply(frame, %{agent_id: agent_id, approved: action_id, already_applied: true})
+
+      other ->
+        fail(frame, "approve failed: #{inspect(other)}")
     end
   end
 end
@@ -551,8 +557,14 @@ defmodule Custode.MCP.Tools.RejectAction do
     opts = Keyword.put(decided(frame), :standing, Map.get(params, :one_off) != true)
 
     case Custode.reject_with_note(agent_id, action_id, reason, opts) do
-      :rejected -> reply(frame, %{agent_id: agent_id, rejected: action_id})
-      other -> fail(frame, "reject failed: #{inspect(other)}")
+      :rejected ->
+        reply(frame, %{agent_id: agent_id, rejected: action_id})
+
+      {:already_applied, :rejected} ->
+        reply(frame, %{agent_id: agent_id, rejected: action_id, already_applied: true})
+
+      other ->
+        fail(frame, "reject failed: #{inspect(other)}")
     end
   end
 end

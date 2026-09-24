@@ -296,6 +296,7 @@ defmodule Custode.Attention do
     * `:id` -- the agent id. Required.
     * `:state` -- the lifecycle state atom (`:idle`, `:running`, `:paused`,
       `:offline`, `:awaiting_permission`, `:waiting_for_user`, `:ended`).
+    * `:live_action_id` -- the provider's current approval id, or `nil`.
     * `:gate` -- the open gate row as `%{kind:, detail:, action_id:,
       opened_at:}`, or `nil`. Supplies the durable `raised_at` that the live
       status cannot: the gen_statem knows it is gated, not since when.
@@ -478,22 +479,49 @@ defmodule Custode.Attention do
   end
 
   defp approval(view, _context) do
-    if state(view) == :awaiting_permission or gate_kind(view) == "approval" do
-      action_id = get_in(view, [:gate, :action_id])
+    gate_action = get_in(view, [:gate, :action_id])
+    live_action = Map.get(view, :live_action_id)
 
-      signal(view, :approval, :high,
-        headline: approval_headline(get_in(view, [:gate, :class]), get_in(view, [:gate, :risk])),
-        detail: approval_detail(view),
-        raised_at: gate_opened_at(view),
-        item: action_id,
-        resolving: [
-          op("Approve", :approve, %{agent: view.id, action: action_id}),
-          op("Reject", :reject, %{agent: view.id, action: action_id}),
-          op("Open agent", :open_agent, %{agent: view.id})
-        ]
-      )
+    cond do
+      state(view) == :awaiting_permission and live_action_matches?(live_action, gate_action) ->
+        action_id = live_action || gate_action
+
+        signal(view, :approval, :high,
+          headline:
+            approval_headline(get_in(view, [:gate, :class]), get_in(view, [:gate, :risk])),
+          detail: approval_detail(view),
+          raised_at: gate_opened_at(view),
+          item: action_id,
+          resolving: [
+            op("Approve", :approve, %{agent: view.id, action: action_id}),
+            op("Reject", :reject, %{agent: view.id, action: action_id}),
+            op("Open agent", :open_agent, %{agent: view.id})
+          ]
+        )
+
+      gate_kind(view) == "approval" ->
+        signal(view, :approval, :high,
+          headline: "approval needs recovery",
+          detail: approval_detail(view),
+          raised_at: gate_opened_at(view),
+          item: gate_action,
+          resolving: [
+            op("Requeue", :recover_gate, %{agent: view.id, action: gate_action}),
+            op("Open agent", :open_agent, %{agent: view.id})
+          ]
+        )
+
+      true ->
+        nil
     end
   end
+
+  # Hand-written resolver views from older callers omit live_action_id. A
+  # production Fleet view always carries it, so only those compatibility
+  # views fall back to the durable action id.
+  defp live_action_matches?(nil, gate_action), do: is_binary(gate_action)
+  defp live_action_matches?(live_action, nil), do: is_binary(live_action)
+  defp live_action_matches?(live_action, gate_action), do: live_action == gate_action
 
   # The class the agent declared (#451), when it declared one: "ready_pr" and
   # "merge" are different asks, and the rail has room to say which.

@@ -95,21 +95,21 @@ defmodule Custode do
   """
   @spec approve_action(String.t(), String.t(), keyword()) :: term()
   def approve_action(agent_id, action_id, opts \\ []) do
-    # The elevation is sized to what was approved (#451): read the class
-    # before the decision is recorded, while the gate is still open.
-    args =
-      agent_id
-      |> Custode.Gates.open_class(action_id)
-      |> Grant.approval_args(Agents.provider(agent_id))
+    decide_action(agent_id, action_id, opts, :approved, :processing, fn ->
+      # The elevation is sized to what was approved (#451): read the class
+      # before the decision is recorded, while the gate is still open.
+      args =
+        agent_id
+        |> Custode.Gates.open_class(action_id)
+        |> Grant.approval_args(Agents.provider(agent_id))
 
-    Custode.Gates.record_decision(agent_id, action_id, opts)
-
-    # With no override this is the call every engine has. Only an actual
-    # override needs approve_action/3 (oban_claude >= 0.5), so a checkout whose
-    # engine is behind still approves gates in the default :observe mode.
-    if args == %{},
-      do: Agents.approve_action(agent_id, action_id),
-      else: Agents.approve_action(agent_id, action_id, args: args)
+      # With no override this is the call every engine has. Only an actual
+      # override needs approve_action/3 (oban_claude >= 0.5), so a checkout whose
+      # engine is behind still approves gates in the default :observe mode.
+      if args == %{},
+        do: Agents.approve_action(agent_id, action_id),
+        else: Agents.approve_action(agent_id, action_id, args: args)
+    end)
   end
 
   @doc """
@@ -133,8 +133,15 @@ defmodule Custode do
     stated = stated_reason(reason)
     standing? = stated != nil and Keyword.get(opts, :standing, true)
 
-    Custode.Gates.record_decision(agent_id, action_id, Keyword.put(opts, :reason, stated))
-    result = Agents.reject_action(agent_id, action_id, stated || "no reason given")
+    result =
+      decide_action(
+        agent_id,
+        action_id,
+        Keyword.put(opts, :reason, stated),
+        :rejected,
+        :rejected,
+        fn -> Agents.reject_action(agent_id, action_id, stated || "no reason given") end
+      )
 
     if result == :rejected and Custode.Routine.get(agent_id) do
       {:ok, _path} =
@@ -153,6 +160,128 @@ defmodule Custode do
     end
 
     result
+  end
+
+  defp decide_action(agent_id, action_id, opts, outcome, success, perform) do
+    case Agents.status(agent_id) do
+      {:ok, {:awaiting_permission, %{id: ^action_id, description: detail}}} ->
+        carry_out_decision(agent_id, action_id, detail, opts, outcome, success, perform)
+
+      {:ok, state} ->
+        inactive_gate_result(agent_id, action_id, outcome, state)
+    end
+  end
+
+  defp carry_out_decision(agent_id, action_id, detail, opts, outcome, success, perform) do
+    case prepare_decision(agent_id, action_id, detail, opts) do
+      {:ok, _count} -> perform_decision(agent_id, action_id, outcome, success, perform)
+      {:error, reason} -> {:error, {:decision_preparation_failed, reason}}
+    end
+  end
+
+  defp prepare_decision(agent_id, action_id, detail, opts) do
+    Custode.Gates.prepare_decision(agent_id, action_id, detail, opts)
+  rescue
+    exception ->
+      require Logger
+      Logger.error(Exception.format(:error, exception, __STACKTRACE__))
+      {:error, :exception}
+  catch
+    kind, reason ->
+      require Logger
+      Logger.error(Exception.format(kind, reason, __STACKTRACE__))
+      {:error, :failed}
+  end
+
+  defp perform_decision(agent_id, action_id, outcome, success, perform) do
+    case safe_perform(perform) do
+      {:ok, ^success} ->
+        success
+
+      {:ok, other} ->
+        retry_or_recover(agent_id, action_id, outcome, other)
+
+      {:error, :provider_exited} ->
+        retry_or_recover(agent_id, action_id, outcome, :provider_exited)
+
+      {:error, failure} ->
+        retry_or_recover(agent_id, action_id, outcome, failure)
+    end
+  end
+
+  defp safe_perform(perform) do
+    {:ok, perform.()}
+  rescue
+    exception ->
+      require Logger
+      Logger.error(Exception.format(:error, exception, __STACKTRACE__))
+      {:error, :provider_exception}
+  catch
+    kind, reason ->
+      require Logger
+      Logger.error(Exception.format(kind, reason, __STACKTRACE__))
+
+      failure = if kind == :exit, do: :provider_exited, else: :provider_failed
+      {:error, failure}
+  end
+
+  defp retry_or_recover(agent_id, action_id, outcome, failure) do
+    case Agents.status(agent_id) do
+      {:ok, {:awaiting_permission, %{id: ^action_id}}} ->
+        :ok = Custode.Gates.clear_decision(agent_id, action_id)
+        {:error, {:decision_retryable, failure}}
+
+      {:ok, state} ->
+        case inactive_gate_result(agent_id, action_id, outcome, state) do
+          {:already_applied, _outcome} = applied ->
+            applied
+
+          {:error, {:rehydration_required, recovery, _state}} ->
+            {:error, {:decision_failed, recovery, failure}}
+
+          _not_applied ->
+            failed_gate_error(agent_id, action_id, failure)
+        end
+    end
+  end
+
+  defp inactive_gate_result(agent_id, action_id, outcome, state) do
+    expected = to_string(outcome)
+
+    case Custode.Gates.decision_state(agent_id, action_id) do
+      %{status: "resolved", outcome: ^expected} ->
+        {:already_applied, outcome}
+
+      %{status: "resolved", outcome: decided} ->
+        {:error, {:already_decided, decided}}
+
+      %{status: "open"} ->
+        case safe_recover_gate(agent_id, action_id) do
+          {:ok, recovery} -> {:error, {:rehydration_required, recovery, state}}
+          {:error, reason} -> {:error, {:gate_recovery_failed, state, reason}}
+        end
+
+      %{status: status} ->
+        {:error, {:rehydration_required, status, state}}
+
+      nil ->
+        {:error, {:unknown_action, action_id, state}}
+    end
+  end
+
+  defp failed_gate_error(agent_id, action_id, failure) do
+    case safe_recover_gate(agent_id, action_id) do
+      {:ok, recovery} -> {:error, {:decision_failed, recovery, failure}}
+      {:error, recovery} -> {:error, {:decision_failed, {:recovery_failed, recovery}, failure}}
+    end
+  end
+
+  defp safe_recover_gate(agent_id, action_id) do
+    Custode.Gates.recover(agent_id, action_id)
+  rescue
+    exception -> {:error, {:exception, Exception.message(exception)}}
+  catch
+    kind, reason -> {:error, {kind, reason}}
   end
 
   # The strings surfaces used to send when the operator typed nothing. They

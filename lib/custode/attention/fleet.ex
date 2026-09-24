@@ -194,6 +194,7 @@ defmodule Custode.Attention.Fleet do
       id: id,
       state: Custode.state_of(status),
       detail: status_detail(status),
+      live_action_id: status_action_id(status),
       gate: sources.gates |> Map.get(id, []) |> List.first() |> gate_view(),
       # OLDEST open ask, not newest: staleness is what should surface, and an
       # agent with three open questions is owed the first one first.
@@ -209,6 +210,9 @@ defmodule Custode.Attention.Fleet do
       next_beat_at: routine && next_beat_at(routine, sources.next_beats)
     }
   end
+
+  defp status_action_id({:awaiting_permission, %{id: action_id}}), do: action_id
+  defp status_action_id(_status), do: nil
 
   # Failure streaks of the CONFIGURED sensors, grouped by the agent each one
   # notifies (#444). The configured list is the join's left side on purpose: a

@@ -52,6 +52,33 @@ defmodule CustodeWeb.InboxLiveTest do
     assert html =~ "console"
   end
 
+  test "an offline approval offers and performs truthful recovery", %{
+    conn: conn,
+    routine: routine
+  } do
+    gate =
+      Custode.Repo.insert!(%Custode.Gates.Gate{
+        agent_id: routine.id,
+        kind: "approval",
+        action_id: "act_departed",
+        detail: "publish the release"
+      })
+
+    {:ok, view, html} = live(conn, "/inbox")
+
+    assert html =~ "approval needs recovery"
+    assert html =~ "Requeue"
+    refute html =~ ">Approve<"
+
+    html =
+      view
+      |> element(~s(button[phx-click=recover_gate][phx-value-action="#{gate.action_id}"]))
+      |> render_click()
+
+    assert html =~ "approval requeued for agent re-evaluation"
+    assert Custode.Repo.get!(Custode.Gates.Gate, gate.id).status == "requeued"
+  end
+
   test "a question renders with its text and a reply affordance",
        %{conn: conn, routine: routine} do
     {:ok, _ask} = Asks.ask(routine.id, "is the uncommitted diff yours?")

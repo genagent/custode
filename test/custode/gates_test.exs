@@ -1,6 +1,7 @@
 defmodule Custode.GatesTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
   import Custode.TestHelpers
   import ObanClaude.Testing
 
@@ -114,6 +115,252 @@ defmodule Custode.GatesTest do
       assert Gates.record_decision(uid("nobody"), nil, via: :mcp) == 0
 
       assert gate_for(id).decided_by == "custode"
+    end
+
+    test "a stale durable gate is requeued instead of resolving a fresh live gate" do
+      workspace = tmp_workspace!()
+      routine = routine_fixture!(workspace, %{on_note: :ignore})
+      test_pid = self()
+
+      {:ok, _pid} =
+        Agent.start_agent(routine.id,
+          enqueue_fun: fn args, meta ->
+            send(test_pid, {:enqueued, args, meta})
+            {:ok, :queued}
+          end
+        )
+
+      on_exit(fn -> Agent.stop_agent(routine.id) end)
+
+      stale =
+        Custode.Repo.insert!(%Gates.Gate{
+          agent_id: routine.id,
+          kind: "approval",
+          action_id: "act_old_generation",
+          detail: "old process action"
+        })
+
+      :processing = Agent.submit_prompt(routine.id, "x")
+      assert_receive {:enqueued, _args, turn_meta}
+
+      :ok =
+        finish_agent_turn(
+          turn_meta,
+          structured_result(%{"directive" => "request_permission", "action" => "fresh action"})
+        )
+
+      {:ok, {:awaiting_permission, %{id: action_id}}} =
+        Agent.await(routine.id, :awaiting_permission, 1_000)
+
+      stale
+      |> Ecto.Changeset.change(action_id: action_id)
+      |> Custode.Repo.update!()
+
+      eventually(fn -> assert length(Gates.open_gates(routine.id)) == 2 end)
+      :processing = Custode.approve_action(routine.id, action_id, via: :mcp)
+
+      assert %{status: "requeued", outcome: nil, decided_by: nil} =
+               Custode.Repo.get!(Gates.Gate, stale.id)
+
+      assert %{status: "resolved", outcome: "approved", decided_via: "mcp"} =
+               Custode.Repo.get_by!(Gates.Gate,
+                 action_id: action_id,
+                 detail: "fresh action"
+               )
+
+      assert File.read!(Path.join([workspace, "inbox", "restart-gate-#{stale.id}.md"])) =~
+               "old process action"
+    end
+
+    test "offline gate decisions recover once and never record a false decision" do
+      workspace = tmp_workspace!()
+      routine = routine_fixture!(workspace, %{on_note: :ignore})
+
+      approve =
+        Custode.Repo.insert!(%Gates.Gate{
+          agent_id: routine.id,
+          kind: "approval",
+          action_id: "act_crashed_approve",
+          detail: "approve after crash",
+          decided_by: "operator",
+          decided_via: "mcp"
+        })
+
+      assert {:error, {:rehydration_required, :requeued, :offline}} =
+               Custode.approve_action(routine.id, approve.action_id, via: :mcp)
+
+      assert %{status: "requeued", outcome: nil, decided_by: nil, decided_via: nil} =
+               Custode.Repo.get!(Gates.Gate, approve.id)
+
+      assert {:error, {:rehydration_required, "requeued", :offline}} =
+               Custode.approve_action(routine.id, approve.action_id, via: :mcp)
+
+      reject =
+        Custode.Repo.insert!(%Gates.Gate{
+          agent_id: routine.id,
+          kind: "approval",
+          action_id: "act_crashed_reject",
+          detail: "reject after crash"
+        })
+
+      assert {:error, {:rehydration_required, :requeued, :offline}} =
+               Custode.reject_with_note(routine.id, reject.action_id, "no", via: :mcp)
+
+      assert %{status: "requeued", outcome: nil, reason: nil} =
+               Custode.Repo.get!(Gates.Gate, reject.id)
+
+      assert length(Path.wildcard(Path.join([workspace, "inbox", "restart-gate-*.md"]))) == 2
+    end
+
+    test "a provider crash during approval becomes a recoverable domain error" do
+      workspace = tmp_workspace!()
+      routine = routine_fixture!(workspace, %{on_note: :ignore})
+      test_pid = self()
+      enqueues = :atomics.new(1, [])
+
+      {:ok, _pid} =
+        Agent.start_agent(routine.id,
+          enqueue_fun: fn args, meta ->
+            case :atomics.add_get(enqueues, 1, 1) do
+              1 ->
+                send(test_pid, {:enqueued, args, meta})
+                {:ok, :queued}
+
+              _continuation ->
+                raise "queue unavailable"
+            end
+          end
+        )
+
+      on_exit(fn -> Agent.stop_agent(routine.id) end)
+
+      :processing = Agent.submit_prompt(routine.id, "x")
+      assert_receive {:enqueued, _args, turn_meta}
+
+      :ok =
+        finish_agent_turn(
+          turn_meta,
+          structured_result(%{"directive" => "request_permission", "action" => "ship it"})
+        )
+
+      {:ok, {:awaiting_permission, %{id: action_id}}} =
+        Agent.await(routine.id, :awaiting_permission, 1_000)
+
+      eventually(fn -> assert [_gate] = Gates.open_gates(routine.id) end)
+
+      log =
+        capture_log(fn ->
+          assert {:error, {:decision_failed, :requeued, :provider_exited}} =
+                   Custode.approve_action(routine.id, action_id, via: :mcp)
+        end)
+
+      assert log =~ "queue unavailable"
+
+      assert %{status: "requeued", outcome: nil, decided_by: nil} =
+               Custode.Repo.get_by!(Gates.Gate, action_id: action_id)
+
+      assert File.read!(
+               Path.join([workspace, "inbox", "restart-gate-#{gate_for(routine.id).id}.md"])
+             ) =~ "ship it"
+    end
+
+    test "an enqueue refusal keeps the live gate open and retryable" do
+      workspace = tmp_workspace!()
+      routine = routine_fixture!(workspace, %{on_note: :ignore})
+      test_pid = self()
+      enqueues = :atomics.new(1, [])
+
+      {:ok, _pid} =
+        Agent.start_agent(routine.id,
+          enqueue_fun: fn args, meta ->
+            case :atomics.add_get(enqueues, 1, 1) do
+              1 ->
+                send(test_pid, {:enqueued, args, meta})
+                {:ok, :queued}
+
+              2 ->
+                {:error, :queue_unavailable}
+
+              3 ->
+                send(test_pid, {:approved_enqueued, args, meta})
+                {:ok, :queued}
+            end
+          end
+        )
+
+      on_exit(fn -> Agent.stop_agent(routine.id) end)
+
+      :processing = Agent.submit_prompt(routine.id, "x")
+      assert_receive {:enqueued, _args, turn_meta}
+
+      :ok =
+        finish_agent_turn(
+          turn_meta,
+          structured_result(%{"directive" => "request_permission", "action" => "retry me"})
+        )
+
+      {:ok, {:awaiting_permission, %{id: action_id}}} =
+        Agent.await(routine.id, :awaiting_permission, 1_000)
+
+      eventually(fn -> assert [_gate] = Gates.open_gates(routine.id) end)
+
+      assert {:error, {:decision_retryable, {:error, {:enqueue_failed, :queue_unavailable}}}} =
+               Custode.approve_action(routine.id, action_id, via: :mcp)
+
+      assert {:ok, {:awaiting_permission, %{id: ^action_id}}} = Agent.status(routine.id)
+
+      assert %{status: "open", outcome: nil, decided_by: nil, decided_via: nil} =
+               Custode.Repo.get_by!(Gates.Gate, action_id: action_id)
+
+      assert :processing = Custode.approve_action(routine.id, action_id, via: :mcp)
+      assert_receive {:approved_enqueued, %{"prompt" => "Approved: retry me" <> _rest}, _meta}
+    end
+
+    test "retries distinguish already applied decisions without a second continuation" do
+      {approved_id, approved_action} = gated_agent!("ship once")
+      :processing = Custode.approve_action(approved_id, approved_action, via: :mcp)
+      assert_receive {:enqueued, _args, _meta}
+
+      assert {:already_applied, :approved} =
+               Custode.approve_action(approved_id, approved_action, via: :mcp)
+
+      refute_receive {:enqueued, _args, _meta}, 50
+
+      {rejected_id, rejected_action} = gated_agent!("reject once")
+      :rejected = Custode.reject_with_note(rejected_id, rejected_action, "no", via: :mcp)
+
+      assert {:already_applied, :rejected} =
+               Custode.reject_with_note(rejected_id, rejected_action, "no", via: :mcp)
+
+      assert Custode.approve_action(rejected_id, rejected_action, via: :mcp) ==
+               {:error, {:already_decided, "rejected"}}
+    end
+
+    test "concurrent stale retries create one recovery notice" do
+      workspace = tmp_workspace!()
+      routine = routine_fixture!(workspace, %{on_note: :ignore})
+
+      gate =
+        Custode.Repo.insert!(%Gates.Gate{
+          agent_id: routine.id,
+          kind: "approval",
+          action_id: "act_concurrent",
+          detail: "recover exactly once"
+        })
+
+      results =
+        1..2
+        |> Task.async_stream(fn _ -> Gates.recover(routine.id, gate.action_id) end,
+          max_concurrency: 2,
+          ordered: false
+        )
+        |> Enum.map(fn {:ok, result} -> result end)
+
+      assert {:ok, :requeued} in results
+      assert {:ok, {:already, "requeued", nil}} in results
+
+      notes = Custode.Feed.recent_by_event("inbox_note", agent: routine.id, limit: 10)
+      assert Enum.count(notes, &(&1["summary"] =~ "restart-gate-#{gate.id}.md")) == 1
     end
 
     test "approval_rates counts decided approvals per agent and leaves the undecided out" do

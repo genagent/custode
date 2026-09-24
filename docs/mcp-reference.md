@@ -289,13 +289,13 @@ Approve an agent action awaiting a decision.
 | action_id | string | yes |  |  |
 | agent_id | string | yes |  |  |
 
-**Result:** agent_id and approved action_id.
+**Result:** agent_id and approved action_id; already_applied=true only when the same approval had already succeeded.
 
 **Side effects:** Resolves an approval gate and starts its approved continuation; records decision actor and transport.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may approve only a temporary agent whose durable spawn record names it as parent and may never decide a configured routine's gate. The operator may override target scope. Missing or reconciled records do not widen access.
 
-**Behavior, defaults and errors:** agent_id and action_id are required. Obtain the current action ID from status/await/gates. Success means the continuation is processing, not that work completed. Failed/stale decisions return 'approve failed'. Retrying must account for changed gate state.
+**Behavior, defaults and errors:** agent_id and action_id are required. Obtain the current action ID from status/await/gates. Success means the continuation is processing, not that work completed. A durable gate whose provider action no longer exists is requeued for a configured routine (or orphaned for a temporary agent) and returns a rehydration_required isError tool result over HTTP 200. A live enqueue refusal remains open and retryable. Retrying an already-approved action succeeds idempotently with already_applied=true and cannot enqueue a second continuation; a different recorded outcome or unknown action remains an error.
 
 ### Tool: ask_operator
 
@@ -1135,13 +1135,13 @@ Reject an agent action and optionally give feedback.
 | one_off | boolean | no | true = this rejection applies to this proposal only; the agent is told not to make it a standing rule |  |
 | reason | string | no |  |  |
 
-**Result:** agent_id and rejected action_id.
+**Result:** agent_id and rejected action_id; already_applied=true only when the same rejection had already succeeded.
 
 **Side effects:** Rejects the pending action, returns the target to idle, and records rejection feedback; feedback is standing by default.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may reject only a temporary agent whose durable spawn record names it as parent and may never decide a configured routine's gate. The operator may override target scope. Missing or reconciled records do not widen access.
 
-**Behavior, defaults and errors:** agent_id and action_id are required. reason is optional. one_off=true makes feedback proposal-specific; omission or false makes it standing. A stale or failed decision returns 'reject failed'.
+**Behavior, defaults and errors:** agent_id and action_id are required. reason is optional. one_off=true makes feedback proposal-specific; omission or false makes it standing. A durable gate whose provider action no longer exists is requeued for a configured routine (or orphaned for a temporary agent) and returns a rehydration_required isError tool result over HTTP 200. Retrying an already-rejected action succeeds idempotently with already_applied=true and cannot write rejection feedback twice; a different recorded outcome or unknown action remains an error.
 
 ### Tool: remember
 

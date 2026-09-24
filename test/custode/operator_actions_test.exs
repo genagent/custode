@@ -41,16 +41,67 @@ defmodule Custode.Operator.ActionsTest do
     # message as its turn's prompt instead.
     test "an OFFLINE routine is started with the message as the turn's prompt" do
       routine = routine_fixture!(tmp_workspace!())
+      on_exit(fn -> Agent.stop_agent(routine.id) end)
 
       assert {:ok, :started} = Actions.message(routine.id, "look at issue 42 first")
+
+      [turn] =
+        eventually(fn ->
+          assert [turn] =
+                   jobs_for("ObanClaude.Agent.Job")
+                   |> Enum.filter(&(&1.meta["agent_id"] == routine.id))
+
+          [turn]
+        end)
+
+      assert turn.args["prompt"] == "look at issue 42 first"
+      assert turn.meta["arc_id"] =~ "operator:"
+      assert turn.queue == "agents"
+    end
+
+    test "an OFFLINE routine's first gate remains approvable through the real queue" do
+      routine =
+        routine_fixture!(tmp_workspace!(), %{
+          approved_args: %{
+            "effort" => "high",
+            "model" => "opus",
+            "permission_mode" => "bypass_permissions",
+            "worktree" => "custode-#{uid("worktree")}"
+          }
+        })
+
+      on_exit(fn -> Agent.stop_agent(routine.id) end)
+
+      assert {:ok, :started} = Actions.message(routine.id, "prepare issue 42")
 
       assert [turn] =
                jobs_for("ObanClaude.Agent.Job")
                |> Enum.filter(&(&1.meta["agent_id"] == routine.id))
 
-      assert turn.args["prompt"] == "look at issue 42 first"
-      assert turn.meta["arc_id"] =~ "operator:"
-      assert turn.queue == "agents"
+      :ok =
+        finish_agent_turn(
+          turn.meta,
+          structured_result(
+            %{
+              "directive" => "request_permission",
+              "action" => "implement issue 42"
+            },
+            session_id: "session-issue-42"
+          )
+        )
+
+      {:ok, {:awaiting_permission, %{id: action_id}}} =
+        Agent.await(routine.id, :awaiting_permission, 1_000)
+
+      assert :ok = Actions.approve(routine.id, action_id, via: :mcp)
+      assert {:ok, :running} = Agent.await(routine.id, :running, 1_000)
+
+      assert [_first, approved] =
+               jobs_for("ObanClaude.Agent.Job")
+               |> Enum.filter(&(&1.meta["agent_id"] == routine.id))
+
+      assert approved.args["prompt"] =~ "Approved: implement issue 42"
+      assert approved.args["worktree"] =~ "custode-worktree-"
     end
 
     test "an offline id with no routine cannot be started, and says so" do
@@ -113,9 +164,14 @@ defmodule Custode.Operator.ActionsTest do
       assert Actions.caretaker() == caretaker
       assert {:ok, :started} = Actions.tell_custode("what needs me today?")
 
-      assert [turn] =
-               jobs_for("ObanClaude.Agent.Job")
-               |> Enum.filter(&(&1.meta["agent_id"] == caretaker))
+      [turn] =
+        eventually(fn ->
+          assert [turn] =
+                   jobs_for("ObanClaude.Agent.Job")
+                   |> Enum.filter(&(&1.meta["agent_id"] == caretaker))
+
+          [turn]
+        end)
 
       assert turn.args["prompt"] == "what needs me today?"
       assert turn.meta["arc_id"] =~ "operator:"
@@ -214,6 +270,7 @@ defmodule Custode.Operator.ActionsTest do
       refute Actions.handles?(:open_agent)
       refute Actions.handles?(:set_rail)
       assert Actions.handles?(:approve)
+      assert Actions.handles?(:recover_gate)
     end
   end
 
