@@ -57,6 +57,32 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ "#{asker.id} asked you"
   end
 
+  test "the fleet caretaker is visibly identified without leaving the normal rail", %{
+    conn: conn
+  } do
+    workspace = tmp_workspace!()
+    caretaker = uid("right-hand")
+    worker = uid("worker")
+
+    put_env!(:routines, [
+      %{id: caretaker, profile: :caretaker, workspace: workspace},
+      %{id: worker, cron: "@daily", workspace: workspace, prompt: "sweep"}
+    ])
+
+    {:ok, view, _html} = live(conn, "/console")
+
+    assert has_element?(
+             view,
+             ~s(#subject-rail a[data-rail-caretaker="true"][href="/console/#{caretaker}"]),
+             "caretaker"
+           )
+
+    refute has_element?(
+             view,
+             ~s(#subject-rail a[data-rail-caretaker="true"][href="/console/#{worker}"])
+           )
+  end
+
   test "the selected running agent shows a live elapsed strip", %{conn: conn, sleeper: sleeper} do
     :ets.insert(
       :custode_run_clock,
