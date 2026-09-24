@@ -93,7 +93,7 @@ defmodule Custode.Gates do
        when provider in [:oban_claude, :oban_codex] do
     if meta.from in @gated do
       outcome = resolution(meta.from, meta.to)
-      resolve_open(meta.agent_id, outcome)
+      resolve_open(meta.agent_id, meta.from, outcome)
       Custode.Feed.mark_gate_resolved(meta.agent_id, outcome)
     end
 
@@ -176,6 +176,55 @@ defmodule Custode.Gates do
       )
 
     count
+  end
+
+  @doc """
+  Prepare one live action for a decision.
+
+  Older open gates for the same agent no longer name a live provider action,
+  so they are recovered before the current row is stamped. This keeps the
+  provider's action and the durable gate one-to-one even after a process
+  restart left stale rows behind.
+  """
+  @spec prepare_decision(String.t(), String.t(), keyword()) :: non_neg_integer()
+  def prepare_decision(agent_id, action_id, opts) do
+    agent_id
+    |> open_gates()
+    |> Enum.reject(&(&1.action_id == action_id))
+    |> Enum.each(&recover!/1)
+
+    record_decision(agent_id, action_id, opts)
+  end
+
+  @doc """
+  Recover one stale durable gate by action id.
+
+  Configured routines receive the same restart notice used during boot
+  reconciliation and become `requeued`. Gates for temporary agents, which
+  cannot be revived, become `orphaned`. Repeating the call is idempotent.
+  """
+  @spec recover(String.t(), String.t()) ::
+          {:ok, :requeued | :orphaned | :already_recovered} | {:error, :not_found}
+  def recover(agent_id, action_id) do
+    gate =
+      Repo.one(
+        from(g in Gate,
+          where: g.agent_id == ^agent_id and g.action_id == ^action_id,
+          order_by: [desc: g.id],
+          limit: 1
+        )
+      )
+
+    case gate do
+      nil ->
+        {:error, :not_found}
+
+      %{status: "open"} = gate ->
+        {:ok, recover!(gate)}
+
+      _already_closed ->
+        {:ok, :already_recovered}
+    end
   end
 
   defp stringify(nil), do: nil
@@ -446,12 +495,38 @@ defmodule Custode.Gates do
   end
 
   # The outcome goes on the row as well as the feed card (#448): the card is
-  # JSON inside a feed entry, which nothing can aggregate over.
-  defp resolve_open(agent_id, outcome) do
-    Repo.update_all(
-      from(g in Gate, where: g.agent_id == ^agent_id and g.status == "open"),
-      set: [status: "resolved", outcome: outcome, updated_at: DateTime.utc_now()]
-    )
+  # JSON inside a feed entry, which nothing can aggregate over. A provider
+  # transition represents one gate. Older process generations may have left
+  # other rows open, so resolve only the newest row of the departed kind.
+  defp resolve_open(agent_id, from, outcome) do
+    kind = if from == :awaiting_permission, do: "approval", else: "question"
+
+    gate_id =
+      Repo.one(
+        from(g in Gate,
+          where: g.agent_id == ^agent_id and g.kind == ^kind and g.status == "open",
+          order_by: [desc: g.id],
+          limit: 1,
+          select: g.id
+        )
+      )
+
+    if gate_id do
+      Repo.update_all(
+        from(g in Gate, where: g.id == ^gate_id),
+        set: [status: "resolved", outcome: outcome, updated_at: DateTime.utc_now()]
+      )
+    end
+  end
+
+  defp recover!(gate) do
+    if Custode.Routine.get(gate.agent_id) do
+      requeue!(gate)
+      :requeued
+    else
+      update_status!(gate, "orphaned", clear_decision())
+      :orphaned
+    end
   end
 
   defp requeue!(gate) do
@@ -468,10 +543,14 @@ defmodule Custode.Gates do
       just journal that and move on.
       """)
 
-    update_status!(gate, "requeued")
+    update_status!(gate, "requeued", clear_decision())
   end
 
-  defp update_status!(gate, status) do
-    gate |> Ecto.Changeset.change(status: status) |> Repo.update!()
+  defp clear_decision do
+    %{outcome: nil, decided_by: nil, decided_via: nil, reason: nil}
+  end
+
+  defp update_status!(gate, status, attrs \\ %{}) do
+    gate |> Ecto.Changeset.change(Map.put(attrs, :status, status)) |> Repo.update!()
   end
 end

@@ -1,6 +1,7 @@
 defmodule Custode.GatesTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
   import Custode.TestHelpers
   import ObanClaude.Testing
 
@@ -114,6 +115,146 @@ defmodule Custode.GatesTest do
       assert Gates.record_decision(uid("nobody"), nil, via: :mcp) == 0
 
       assert gate_for(id).decided_by == "custode"
+    end
+
+    test "a stale durable gate is requeued instead of resolving a fresh live gate" do
+      workspace = tmp_workspace!()
+      routine = routine_fixture!(workspace, %{on_note: :ignore})
+      test_pid = self()
+
+      {:ok, _pid} =
+        Agent.start_agent(routine.id,
+          enqueue_fun: fn args, meta ->
+            send(test_pid, {:enqueued, args, meta})
+            {:ok, :queued}
+          end
+        )
+
+      on_exit(fn -> Agent.stop_agent(routine.id) end)
+
+      stale =
+        Custode.Repo.insert!(%Gates.Gate{
+          agent_id: routine.id,
+          kind: "approval",
+          action_id: "act_old_generation",
+          detail: "old process action"
+        })
+
+      :processing = Agent.submit_prompt(routine.id, "x")
+      assert_receive {:enqueued, _args, turn_meta}
+
+      :ok =
+        finish_agent_turn(
+          turn_meta,
+          structured_result(%{"directive" => "request_permission", "action" => "fresh action"})
+        )
+
+      {:ok, {:awaiting_permission, %{id: action_id}}} =
+        Agent.await(routine.id, :awaiting_permission, 1_000)
+
+      eventually(fn -> assert length(Gates.open_gates(routine.id)) == 2 end)
+      :processing = Custode.approve_action(routine.id, action_id, via: :mcp)
+
+      assert %{status: "requeued", outcome: nil, decided_by: nil} =
+               Custode.Repo.get!(Gates.Gate, stale.id)
+
+      assert %{status: "resolved", outcome: "approved", decided_via: "mcp"} =
+               Custode.Repo.get_by!(Gates.Gate, action_id: action_id)
+
+      assert File.read!(Path.join([workspace, "inbox", "restart-gate-#{stale.id}.md"])) =~
+               "old process action"
+    end
+
+    test "offline gate decisions recover once and never record a false decision" do
+      workspace = tmp_workspace!()
+      routine = routine_fixture!(workspace, %{on_note: :ignore})
+
+      approve =
+        Custode.Repo.insert!(%Gates.Gate{
+          agent_id: routine.id,
+          kind: "approval",
+          action_id: "act_crashed_approve",
+          detail: "approve after crash",
+          decided_by: "operator",
+          decided_via: "mcp"
+        })
+
+      assert {:error, {:stale_gate_requeued, :offline}} =
+               Custode.approve_action(routine.id, approve.action_id, via: :mcp)
+
+      assert %{status: "requeued", outcome: nil, decided_by: nil, decided_via: nil} =
+               Custode.Repo.get!(Gates.Gate, approve.id)
+
+      assert {:error, {:stale_gate_already_recovered, :offline}} =
+               Custode.approve_action(routine.id, approve.action_id, via: :mcp)
+
+      reject =
+        Custode.Repo.insert!(%Gates.Gate{
+          agent_id: routine.id,
+          kind: "approval",
+          action_id: "act_crashed_reject",
+          detail: "reject after crash"
+        })
+
+      assert {:error, {:stale_gate_requeued, :offline}} =
+               Custode.reject_with_note(routine.id, reject.action_id, "no", via: :mcp)
+
+      assert %{status: "requeued", outcome: nil, reason: nil} =
+               Custode.Repo.get!(Gates.Gate, reject.id)
+
+      assert length(Path.wildcard(Path.join([workspace, "inbox", "restart-gate-*.md"]))) == 2
+    end
+
+    test "a provider crash during approval becomes a recoverable domain error" do
+      workspace = tmp_workspace!()
+      routine = routine_fixture!(workspace, %{on_note: :ignore})
+      test_pid = self()
+      enqueues = :atomics.new(1, [])
+
+      {:ok, _pid} =
+        Agent.start_agent(routine.id,
+          enqueue_fun: fn args, meta ->
+            case :atomics.add_get(enqueues, 1, 1) do
+              1 ->
+                send(test_pid, {:enqueued, args, meta})
+                {:ok, :queued}
+
+              _continuation ->
+                raise "queue unavailable"
+            end
+          end
+        )
+
+      on_exit(fn -> Agent.stop_agent(routine.id) end)
+
+      :processing = Agent.submit_prompt(routine.id, "x")
+      assert_receive {:enqueued, _args, turn_meta}
+
+      :ok =
+        finish_agent_turn(
+          turn_meta,
+          structured_result(%{"directive" => "request_permission", "action" => "ship it"})
+        )
+
+      {:ok, {:awaiting_permission, %{id: action_id}}} =
+        Agent.await(routine.id, :awaiting_permission, 1_000)
+
+      eventually(fn -> assert [_gate] = Gates.open_gates(routine.id) end)
+
+      log =
+        capture_log(fn ->
+          assert {:error, {:decision_failed, :requeued, :provider_exited}} =
+                   Custode.approve_action(routine.id, action_id, via: :mcp)
+        end)
+
+      assert log =~ "queue unavailable"
+
+      assert %{status: "requeued", outcome: nil, decided_by: nil} =
+               Custode.Repo.get_by!(Gates.Gate, action_id: action_id)
+
+      assert File.read!(
+               Path.join([workspace, "inbox", "restart-gate-#{gate_for(routine.id).id}.md"])
+             ) =~ "ship it"
     end
 
     test "approval_rates counts decided approvals per agent and leaves the undecided out" do
