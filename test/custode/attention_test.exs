@@ -508,6 +508,34 @@ defmodule Custode.AttentionTest do
                signal.resolving
     end
 
+    test "an approval left by an offline provider offers recovery instead of approval" do
+      signal =
+        resolve(
+          view("git-spawn",
+            state: :offline,
+            gate: gate("approval", @now, action_id: "act_departed")
+          )
+        )
+
+      assert signal.kind == :approval
+      assert signal.headline == "approval needs recovery"
+      assert [%{label: "Requeue", op: :recover_gate}, %{op: :open_agent}] = signal.resolving
+      refute Enum.any?(signal.resolving, &(&1.op in [:approve, :reject]))
+    end
+
+    test "a durable gate for a different action is never offered as the live approval" do
+      signal =
+        resolve(
+          view("git-spawn",
+            state: :awaiting_permission,
+            live_action_id: "act_current",
+            gate: gate("approval", @now, action_id: "act_departed")
+          )
+        )
+
+      assert [%{op: :recover_gate, args: %{action: "act_departed"}} | _rest] = signal.resolving
+    end
+
     test "an approval says which class of action it is, when the agent declared one (#451)" do
       gated = fn fields ->
         resolve(

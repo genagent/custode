@@ -53,6 +53,18 @@ defmodule CustodeWeb.InboxLive do
     {:noreply, refresh(socket)}
   end
 
+  def handle_event("recover_gate", %{"agent" => id, "action" => action_id}, socket) do
+    case Actions.recover_gate(id, action_id, via: :liveview) do
+      :ok ->
+        {:noreply,
+         socket |> put_flash(:info, "approval requeued for agent re-evaluation") |> refresh()}
+
+      {:error, reason} ->
+        {:noreply,
+         socket |> put_flash(:error, "approval recovery failed: #{inspect(reason)}") |> refresh()}
+    end
+  end
+
   # The workflow decisions (#447), through `Custode.Operator.Actions` like
   # every handler should be (design/010 decision 4): the workflows page makes
   # the same three calls, so the two pages cannot come to differ.
@@ -289,6 +301,19 @@ defmodule CustodeWeb.InboxLive do
   defp action(%{action: %{op: :reject}} = assigns) do
     ~H"""
     <.reject_form agent={@action.args[:agent]} action={@action.args[:action]} />
+    """
+  end
+
+  defp action(%{action: %{op: :recover_gate}} = assigns) do
+    ~H"""
+    <button
+      class="btn btn-warning btn-xs"
+      phx-click="recover_gate"
+      phx-value-agent={@action.args[:agent]}
+      phx-value-action={@action.args[:action]}
+    >
+      {@action.label}
+    </button>
     """
   end
 

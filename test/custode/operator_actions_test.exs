@@ -45,9 +45,14 @@ defmodule Custode.Operator.ActionsTest do
 
       assert {:ok, :started} = Actions.message(routine.id, "look at issue 42 first")
 
-      assert [turn] =
-               jobs_for("ObanClaude.Agent.Job")
-               |> Enum.filter(&(&1.meta["agent_id"] == routine.id))
+      [turn] =
+        eventually(fn ->
+          assert [turn] =
+                   jobs_for("ObanClaude.Agent.Job")
+                   |> Enum.filter(&(&1.meta["agent_id"] == routine.id))
+
+          [turn]
+        end)
 
       assert turn.args["prompt"] == "look at issue 42 first"
       assert turn.meta["arc_id"] =~ "operator:"
@@ -159,9 +164,14 @@ defmodule Custode.Operator.ActionsTest do
       assert Actions.caretaker() == caretaker
       assert {:ok, :started} = Actions.tell_custode("what needs me today?")
 
-      assert [turn] =
-               jobs_for("ObanClaude.Agent.Job")
-               |> Enum.filter(&(&1.meta["agent_id"] == caretaker))
+      [turn] =
+        eventually(fn ->
+          assert [turn] =
+                   jobs_for("ObanClaude.Agent.Job")
+                   |> Enum.filter(&(&1.meta["agent_id"] == caretaker))
+
+          [turn]
+        end)
 
       assert turn.args["prompt"] == "what needs me today?"
       assert turn.meta["arc_id"] =~ "operator:"
@@ -260,6 +270,7 @@ defmodule Custode.Operator.ActionsTest do
       refute Actions.handles?(:open_agent)
       refute Actions.handles?(:set_rail)
       assert Actions.handles?(:approve)
+      assert Actions.handles?(:recover_gate)
     end
   end
 

@@ -223,6 +223,17 @@ defmodule Custode.MCPToolsTest do
       assert json["approved"] == action_id
       assert_receive {:enqueued, %{"prompt" => "Approved: " <> _rest = prompt}, _meta}
       assert prompt =~ "risky"
+
+      retry =
+        tool_json(Tools.ApproveAction.execute(%{agent_id: id, action_id: action_id}, @frame))
+
+      assert retry == %{
+               "agent_id" => id,
+               "approved" => action_id,
+               "already_applied" => true
+             }
+
+      refute_receive {:enqueued, _args, _meta}, 50
     end
 
     test "reject returns the agent to idle; a stale id is a tool error" do
@@ -238,6 +249,17 @@ defmodule Custode.MCPToolsTest do
 
       assert json["rejected"] == action_id
       assert {:ok, :idle} = Agent.await(id, :idle, 1_000)
+
+      retry =
+        tool_json(
+          Tools.RejectAction.execute(%{agent_id: id, action_id: action_id, reason: "no"}, @frame)
+        )
+
+      assert retry == %{
+               "agent_id" => id,
+               "rejected" => action_id,
+               "already_applied" => true
+             }
     end
   end
 

@@ -132,7 +132,7 @@ defmodule Custode.MCPTransportTest do
       })
 
     assert %{"isError" => true, "content" => [%{"text" => message} | _rest]} = result(response)
-    assert message =~ "stale_gate_requeued"
+    assert message =~ "rehydration_required"
     assert Custode.Repo.get!(Custode.Gates.Gate, gate.id).status == "requeued"
   end
 

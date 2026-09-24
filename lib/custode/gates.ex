@@ -186,14 +186,61 @@ defmodule Custode.Gates do
   provider's action and the durable gate one-to-one even after a process
   restart left stale rows behind.
   """
-  @spec prepare_decision(String.t(), String.t(), keyword()) :: non_neg_integer()
-  def prepare_decision(agent_id, action_id, opts) do
-    agent_id
-    |> open_gates()
-    |> Enum.reject(&(&1.action_id == action_id))
-    |> Enum.each(&recover!/1)
+  @spec prepare_decision(String.t(), String.t(), String.t(), keyword()) ::
+          {:ok, non_neg_integer()}
+  def prepare_decision(agent_id, action_id, detail, opts) do
+    gates = open_gates(agent_id)
 
-    record_decision(agent_id, action_id, opts)
+    current =
+      gates
+      |> Enum.filter(&(&1.action_id == action_id and &1.detail == detail))
+      |> Enum.max_by(& &1.id, fn -> nil end)
+
+    case current do
+      nil ->
+        Enum.each(gates, &recover!/1)
+        {:ok, 0}
+
+      current ->
+        gates
+        |> Enum.reject(&(&1.id == current.id))
+        |> Enum.each(&recover!/1)
+
+        {count, _rows} =
+          Repo.update_all(
+            from(g in Gate, where: g.id == ^current.id and g.status == "open"),
+            set: decision_fields(opts)
+          )
+
+        {:ok, count}
+    end
+  end
+
+  @doc "Clear an attempted decision while its exact live gate remains retryable."
+  @spec clear_decision(String.t(), String.t()) :: :ok
+  def clear_decision(agent_id, action_id) do
+    Repo.update_all(
+      from(g in Gate,
+        where: g.agent_id == ^agent_id and g.action_id == ^action_id and g.status == "open"
+      ),
+      set: clear_decision_fields() |> Map.to_list()
+    )
+
+    :ok
+  end
+
+  @doc "The newest durable row for one provider action id, if it exists."
+  @spec decision_state(String.t(), String.t()) ::
+          %{status: String.t(), outcome: String.t() | nil} | nil
+  def decision_state(agent_id, action_id) do
+    Repo.one(
+      from(g in Gate,
+        where: g.agent_id == ^agent_id and g.action_id == ^action_id,
+        order_by: [desc: g.id],
+        limit: 1,
+        select: %{status: g.status, outcome: g.outcome}
+      )
+    )
   end
 
   @doc """
@@ -204,7 +251,8 @@ defmodule Custode.Gates do
   cannot be revived, become `orphaned`. Repeating the call is idempotent.
   """
   @spec recover(String.t(), String.t()) ::
-          {:ok, :requeued | :orphaned | :already_recovered} | {:error, :not_found}
+          {:ok, :requeued | :orphaned | {:already, String.t(), String.t() | nil}}
+          | {:error, :not_found}
   def recover(agent_id, action_id) do
     gate =
       Repo.one(
@@ -222,9 +270,17 @@ defmodule Custode.Gates do
       %{status: "open"} = gate ->
         {:ok, recover!(gate)}
 
-      _already_closed ->
-        {:ok, :already_recovered}
+      %{status: status, outcome: outcome} ->
+        {:ok, {:already, status, outcome}}
     end
+  end
+
+  defp decision_fields(opts) do
+    [
+      decided_by: opts |> Keyword.get(:by, "operator") |> to_string(),
+      decided_via: opts |> Keyword.get(:via) |> stringify(),
+      reason: Keyword.get(opts, :reason)
+    ]
   end
 
   defp stringify(nil), do: nil
@@ -374,14 +430,8 @@ defmodule Custode.Gates do
   Idempotent: only `open` rows are touched.
   """
   def reconcile! do
-    routine_ids = Enum.map(Custode.Routine.all(), & &1.id)
-
     for gate <- Repo.all(from(g in Gate, where: g.status == "open")) do
-      if gate.agent_id in routine_ids do
-        requeue!(gate)
-      else
-        update_status!(gate, "orphaned")
-      end
+      recover!(gate)
     end
 
     :ok
@@ -520,37 +570,51 @@ defmodule Custode.Gates do
   end
 
   defp recover!(gate) do
-    if Custode.Routine.get(gate.agent_id) do
-      requeue!(gate)
-      :requeued
-    else
-      update_status!(gate, "orphaned", clear_decision())
-      :orphaned
+    case Repo.transaction(fn -> claim_recovery(gate) end) do
+      {:ok, result} -> result
+      {:error, reason} -> raise "gate recovery failed: #{inspect(reason)}"
     end
   end
 
-  defp requeue!(gate) do
+  defp claim_recovery(gate) do
     routine = Custode.Routine.get(gate.agent_id)
+    status = if routine, do: "requeued", else: "orphaned"
 
-    {:ok, _path} =
-      Custode.Inbox.drop(routine, "restart-gate-#{gate.id}.md", """
-      RESTART NOTICE: before the last restart you had a pending #{gate.kind}:
+    {count, _rows} =
+      Repo.update_all(
+        from(g in Gate, where: g.id == ^gate.id and g.status == "open"),
+        set:
+          clear_decision_fields()
+          |> Map.put(:status, status)
+          |> Map.put(:updated_at, DateTime.utc_now())
+          |> Map.to_list()
+      )
 
-      #{gate.detail || "(no detail recorded)"}
+    case {count, routine} do
+      {1, nil} ->
+        :orphaned
 
-      If it is still relevant, re-raise it on this sweep
-      (directive=request_permission or directive=ask_user). If it is moot,
-      just journal that and move on.
-      """)
+      {1, routine} ->
+        {:ok, _path} =
+          Custode.Inbox.drop(routine, "restart-gate-#{gate.id}.md", """
+          RESTART NOTICE: before the last restart you had a pending #{gate.kind}:
 
-    update_status!(gate, "requeued", clear_decision())
+          #{gate.detail || "(no detail recorded)"}
+
+          If it is still relevant, re-raise it on this sweep
+          (directive=request_permission or directive=ask_user). If it is moot,
+          just journal that and move on.
+          """)
+
+        :requeued
+
+      {0, _routine} ->
+        current = Repo.get!(Gate, gate.id)
+        {:already, current.status, current.outcome}
+    end
   end
 
-  defp clear_decision do
+  defp clear_decision_fields do
     %{outcome: nil, decided_by: nil, decided_via: nil, reason: nil}
-  end
-
-  defp update_status!(gate, status, attrs \\ %{}) do
-    gate |> Ecto.Changeset.change(Map.put(attrs, :status, status)) |> Repo.update!()
   end
 end

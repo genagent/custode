@@ -150,6 +150,7 @@ defmodule Custode.Operator.Actions do
   def approve(agent_id, action_id, opts \\ []) do
     case Custode.approve_action(agent_id, action_id, opts) do
       :processing -> :ok
+      {:already_applied, :approved} -> :ok
       other -> {:error, other}
     end
   end
@@ -162,7 +163,19 @@ defmodule Custode.Operator.Actions do
   def reject(agent_id, action_id, reason, opts \\ []) do
     case Custode.reject_with_note(agent_id, action_id, reason, opts) do
       :rejected -> :ok
+      {:already_applied, :rejected} -> :ok
       other -> {:error, other}
+    end
+  end
+
+  @doc "Recover a durable gate whose provider action is no longer live."
+  @spec recover_gate(String.t(), String.t(), keyword()) :: result()
+  def recover_gate(agent_id, action_id, _opts \\ []) do
+    case Custode.Gates.recover(agent_id, action_id) do
+      {:ok, :requeued} -> :ok
+      {:ok, :orphaned} -> :ok
+      {:ok, {:already, status, outcome}} -> {:error, {:already_decided, status, outcome}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -476,6 +489,9 @@ defmodule Custode.Operator.Actions do
     reject(agent, action, params["reason"], Keyword.put(opts, :standing, standing?))
   end
 
+  def run(:recover_gate, %{agent: agent, action: action}, _params, opts),
+    do: recover_gate(agent, action, opts)
+
   def run(:answer_ask, %{ask: ask}, params, opts), do: answer_ask(ask, params["text"], opts)
 
   def run(:dismiss_ask, %{ask: ask}, params, _opts) do
@@ -508,6 +524,7 @@ defmodule Custode.Operator.Actions do
     op in [
       :approve,
       :reject,
+      :recover_gate,
       :answer_ask,
       :dismiss_ask,
       :answer,
