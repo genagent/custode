@@ -29,9 +29,21 @@ defmodule Custode.AttentionTest do
       assert signal.kind == :disowned_check
       assert signal.group == :needs_you
       assert Signal.needs_you?(signal)
-      assert signal.headline == "#400 red, and not its work"
-      assert signal.detail =~ "nobody else will"
+      assert signal.headline == "PR #400 has failing checks"
+
+      assert signal.detail ==
+               "mdbook-lint marked this PR as someone else's work. Review it or assign it to another agent."
+
       assert signal.item == {:prs, [400]}
+    end
+
+    test "several disowned pull requests use explicit plural copy" do
+      signal = resolve(view("mdbook-lint", failing_prs: [pr(400, true), pr(429, true)]))
+
+      assert signal.headline == "PRs #400, #429 have failing checks"
+
+      assert signal.detail ==
+               "mdbook-lint marked these PRs as someone else's work. Review them or assign them to another agent."
     end
 
     test "the same check, still owned, stays in watching" do
