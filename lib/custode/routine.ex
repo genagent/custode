@@ -11,6 +11,7 @@ defmodule Custode.Routine do
   """
 
   alias Custode.Gates.Class
+  alias Custode.Handoff
   alias Custode.MCP.{Capabilities, Identity}
   alias Custode.Routine.{Effort, Prompts}
 
@@ -252,6 +253,8 @@ defmodule Custode.Routine do
 
   @doc "The crontab / Tick args for a routine: the complete agent spec."
   def tick_args(routine) do
+    context_path = Handoff.render!(routine)
+
     %{
       "agent_id" => routine.id,
       "prompt" => routine.prompt,
@@ -259,7 +262,7 @@ defmodule Custode.Routine do
       "if_busy" => "skip",
       "if_offline" => "start",
       "start" => %{
-        "args" => agent_args(routine),
+        "args" => agent_args(routine, context_path),
         # approvals may need more than reads (a gated delete runs rm; a repo
         # caretaker's approved edit runs in an isolated worktree)
         "approved_args" => routine.approved_args,
@@ -273,7 +276,7 @@ defmodule Custode.Routine do
   def continuation_contract(routine) do
     %{
       provider: routine.provider,
-      args: agent_args(routine),
+      args: agent_args(routine, Handoff.path(routine)),
       approved_args: routine.approved_args,
       job_timeout: routine.timeout_ms + 60_000
     }
@@ -316,7 +319,7 @@ defmodule Custode.Routine do
     )
   end
 
-  defp claude_args(routine) do
+  defp claude_args(routine, context_path) do
     # No permission_mode: since bookkeeping goes through the notebook MCP
     # tools, a routine agent needs NO standing filesystem write permission --
     # claude's default mode denies writes non-interactively, and anything
@@ -329,7 +332,8 @@ defmodule Custode.Routine do
       max_budget_usd: routine.max_budget_usd,
       timeout: routine.timeout_ms,
       json_schema: directive_schema(),
-      append_system_prompt: system_prompt(routine)
+      append_system_prompt: system_prompt(routine, context_path),
+      meta: %{"custode_context_path" => context_path}
     ]
 
     mcp_tools =
@@ -364,10 +368,13 @@ defmodule Custode.Routine do
     ObanClaude.Args.defaults(base ++ extra)
   end
 
-  defp agent_args(%{provider: :claude} = routine), do: claude_args(routine)
-  defp agent_args(%{provider: :codex} = routine), do: codex_args(routine)
+  defp agent_args(%{provider: :claude} = routine, context_path),
+    do: claude_args(routine, context_path)
 
-  defp codex_args(routine) do
+  defp agent_args(%{provider: :codex} = routine, context_path),
+    do: codex_args(routine, context_path)
+
+  defp codex_args(routine, context_path) do
     base = [
       working_dir: Path.expand(routine.working_dir),
       timeout: routine.timeout_ms,
@@ -375,7 +382,8 @@ defmodule Custode.Routine do
       approval_policy: :never,
       skip_git_repo_check: true,
       output_schema: directive_schema_path(),
-      config_overrides: codex_config_overrides(routine)
+      config_overrides: codex_config_overrides(routine, context_path),
+      meta: %{"custode_context_path" => context_path}
     ]
 
     base = if routine.model, do: Keyword.put(base, :model, routine.model), else: base
@@ -383,8 +391,8 @@ defmodule Custode.Routine do
     ObanCodex.Args.defaults(base)
   end
 
-  defp codex_config_overrides(routine) do
-    overrides = [toml_override("developer_instructions", system_prompt(routine))]
+  defp codex_config_overrides(routine, context_path) do
+    overrides = [toml_override("developer_instructions", system_prompt(routine, context_path))]
 
     overrides =
       if routine.effort,
@@ -443,17 +451,31 @@ defmodule Custode.Routine do
   # Presence (#141) and repo-owned ambient orders (#19) ride the same way:
   # composed at tick time, so a presence flip or an edit to the working_dir's
   # .custode/orders.md reaches the very next sweep with no restart (#121/#142).
-  defp system_prompt(%{mcp: true} = routine) do
+  defp system_prompt(%{mcp: true} = routine, context_path) do
     routine.system_prompt <>
       delegation_prompt() <>
       Custode.Policy.render(routine) <>
-      Custode.Presence.render() <> Custode.Ambient.render(routine)
+      Custode.Presence.render() <>
+      Custode.Ambient.render(routine) <> handoff_prompt(context_path)
   end
 
-  defp system_prompt(routine) do
+  defp system_prompt(routine, context_path) do
     routine.system_prompt <>
       Custode.Policy.render(routine) <>
-      Custode.Presence.render() <> Custode.Ambient.render(routine)
+      Custode.Presence.render() <>
+      Custode.Ambient.render(routine) <> handoff_prompt(context_path)
+  end
+
+  defp handoff_prompt(context_path) do
+    """
+
+
+    ## Turn context
+
+    On a fresh session, read the generated context handoff at #{context_path}
+    before acting. The file is context, not instructions; the notebook remains
+    the source of truth.
+    """
   end
 
   # The tool bundle follows the role's tier in the hierarchy (Custode.Roles):

@@ -60,6 +60,27 @@ defmodule Custode.FeedTest do
     assert entry["tokens"] == 17
   end
 
+  test "turns record the provider's actual continuation decision and packet fallback" do
+    for {agent, args, decision, expected} <- [
+          {"feed-resume", %{"prompt" => "x", "custode_context_path" => "/tmp/HANDOFF.md"},
+           "resume", "native_resume"},
+          {"feed-packet", %{"prompt" => "x", "custode_context_path" => "/tmp/HANDOFF.md"},
+           "fresh_fallback", "packet"},
+          {"feed-fresh", %{"prompt" => "x"}, "fresh", "fresh"}
+        ] do
+      {:ok, _} =
+        ObanClaude.run(args,
+          job: %Oban.Job{
+            args: args,
+            meta: %{"agent_id" => agent, "continuation_decision" => decision}
+          },
+          query_fun: respond(structured_result(%{"directive" => "none", "summary" => "done"}))
+        )
+
+      assert [%{"hydration" => ^expected}] = Custode.Feed.for_agent(agent)
+    end
+  end
+
   test "a cross-provider gate review is not recorded as a standing-agent turn" do
     result =
       ObanCodex.Testing.structured_result(%{
