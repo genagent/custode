@@ -15,6 +15,10 @@ permission model. It is written up in
 current plan is
 [design/010-back-to-the-dashboard.md](design/010-back-to-the-dashboard.md).
 
+**New here?** [guides/demo.md](guides/demo.md) is the 0.1.0 quickstart: a
+fresh home, one agent with its own clone, one task through a gate to a draft
+pull request, the same steps over MCP, and a restart.
+
 ## Cost
 
 Every turn is a real `claude` call against the logged-in plan. The dashboard
@@ -26,8 +30,11 @@ nothing until you add a routine.
 ## Prerequisites
 
 - Elixir ~> 1.20 / OTP 29
-- the `claude` CLI, logged in (`claude login`)
+- the `claude` CLI, logged in (`claude login`), and/or the `codex` CLI,
+  logged in, for Codex routines
 - the `gh` CLI, authenticated
+- SSH read access to the private `joshrotenberg/mcp_ex` dependency, or
+  `MCP_EX_PATH` pointing at a local checkout of it
 - local checkouts for agents configured to use an existing checkout; the
   dashboard can provision routine-owned clones instead
 
