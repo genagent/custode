@@ -193,7 +193,9 @@ defmodule Custode.MCP.RepoTools.MergePr do
   @moduledoc """
   Merge a PR on a served repo -- WHERE POLICY ALLOWS. Under the shipped
   policy every repo is merge: :manual, so this refuses with the rule named;
-  it exists so the refusal is mechanical rather than remembered.
+  it exists so the refusal is mechanical rather than remembered. The merge
+  method comes from the repository's allowed methods (merge, then squash,
+  then rebase), and the reply names the one used.
   """
   use Anubis.Server.Component, type: :tool
 
@@ -207,8 +209,16 @@ defmodule Custode.MCP.RepoTools.MergePr do
   @impl true
   def execute(%{repo: repo, number: number}, frame) do
     case granted(frame, :merge_pr, fn -> Custode.Repository.merge_pr(repo, number) end) do
-      {:ok, _result} -> reply(frame, %{repo: repo, number: number, state: "merged"})
-      {:error, message} -> fail(frame, to_string(message))
+      {:ok, result} ->
+        reply(frame, %{
+          repo: repo,
+          number: number,
+          state: "merged",
+          merge_method: result["merge_method"]
+        })
+
+      {:error, message} ->
+        fail(frame, to_string(message))
     end
   end
 end

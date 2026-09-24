@@ -4,9 +4,13 @@ defmodule Custode.GitHubMerge do
 
   The legacy `Repository.merge_pr/2` policy remains unchanged. This module is
   the narrower work-first seam: it pins the WorkItem version, policy, pull
-  request head, checks, and review evidence; activates the merge OperationCall;
-  reconciles an already-landed external effect; completes the WorkItem once;
-  and releases its workspace lease idempotently.
+  request head, checks, review evidence, and the merge method the repository
+  allows (#674); activates the merge OperationCall; reconciles an
+  already-landed external effect; completes the WorkItem once; and releases its
+  workspace lease idempotently.
+
+  The method is read with the review snapshot, so a repository settings change
+  makes the Gate stale before any mutation.
   """
 
   alias Custode.{
@@ -153,8 +157,10 @@ defmodule Custode.GitHubMerge do
            Repository.merge_pr_at_head(
              value(arguments, :repository),
              value(arguments, :pull_request_number),
-             value(arguments, :expected_head_sha)
+             value(arguments, :expected_head_sha),
+             pinned_merge_method(arguments)
            ),
+         :ok <- sent_pinned_method(merged, arguments),
          {:ok, merge_commit_sha} <- merge_commit(merged),
          finalization <- finalize(arguments, envelope, merge_commit_sha, "merged") do
       case finalization do
@@ -590,7 +596,8 @@ defmodule Custode.GitHubMerge do
         repository: value(arguments, :repository),
         pull_request_number: value(arguments, :pull_request_number),
         head_sha: value(arguments, :expected_head_sha),
-        sha: merge_commit_sha
+        sha: merge_commit_sha,
+        merge_method: pinned_merge_method(arguments)
       },
       acceptance: %{
         gate_id: value(arguments, :gate_id),
@@ -610,11 +617,26 @@ defmodule Custode.GitHubMerge do
         number: value(arguments, :pull_request_number),
         head_sha: value(arguments, :expected_head_sha),
         merge_commit_sha: merge_commit_sha,
+        merge_method: pinned_merge_method(arguments),
         source: source
       },
       lease: lease && WorkspaceLeases.render(lease),
       cleanup: cleanup
     }
+  end
+
+  defp pinned_merge_method(arguments),
+    do: arguments |> value(:external_preconditions) |> value(:merge_method)
+
+  # The evidence records the pinned method, so the method sent must be that one
+  # (#674). The seam sends it exactly; this refuses to record anything else.
+  defp sent_pinned_method(merged, arguments) do
+    pinned = pinned_merge_method(arguments)
+
+    case value(merged, :merge_method) do
+      ^pinned -> :ok
+      sent -> {:error, {:github_merge_method_mismatch, %{pinned: pinned, sent: sent}}}
+    end
   end
 
   defp effects(result) do
@@ -624,7 +646,8 @@ defmodule Custode.GitHubMerge do
         repository: result.pull_request.repository,
         number: result.pull_request.number,
         head_sha: result.pull_request.head_sha,
-        merge_commit_sha: result.pull_request.merge_commit_sha
+        merge_commit_sha: result.pull_request.merge_commit_sha,
+        merge_method: result.pull_request.merge_method
       },
       %{
         type: "work_item_completed",

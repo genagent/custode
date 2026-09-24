@@ -61,6 +61,34 @@ defmodule Custode.Policy do
     end
   end
 
+  @merge_methods ~w(merge squash rebase)
+
+  @doc """
+  The merge method a served repository's policy names (#674), or nil when no
+  `:merge_method` policy binds it.
+
+  The policy is `%{id: :merge_method, applies: [repo: "owner/name"], value:
+  "squash", text: ...}`, scoped by repository rather than by routine: every
+  merge on that repository uses the same method, whoever proposes it. Its
+  value is `merge`, `squash` or `rebase` (atom or string). Any other value is
+  an error rather than ignored, so a typo cannot silently fall back to the
+  repository's flag order. When several bind, the first declared wins.
+  """
+  def merge_method(repo) when is_binary(repo) do
+    scope = %{repo: repo, tags: [], role: nil}
+
+    case Enum.find(all(), &(&1.id == :merge_method and applies?(&1.applies, scope))) do
+      nil -> nil
+      %{value: value} -> normalize_merge_method(value)
+    end
+  end
+
+  defp normalize_merge_method(value) when is_atom(value) and not is_nil(value),
+    do: normalize_merge_method(Atom.to_string(value))
+
+  defp normalize_merge_method(value) when value in @merge_methods, do: {:ok, value}
+  defp normalize_merge_method(value), do: {:error, {:invalid_merge_method, value}}
+
   @doc """
   Does a scope bind this routine?
 

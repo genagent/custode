@@ -2983,13 +2983,13 @@
       "behavior": {
         "access": "Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.",
         "effects": "Requests a GitHub merge and records repository-write activity if repository policy and the review floor permit it.",
-        "notes": "repo and number are required. Shipped manual merge policy normally refuses this tool. Review evidence is also required, and a latest needs-human marker blocks it. This tool does not accept an expected head SHA or expose the separate head-checked merge-gate path.",
-        "result": "repo, number, state='merged' on accepted success.",
+        "notes": "repo and number are required. Shipped manual merge policy normally refuses this tool. Review evidence is also required, and a latest needs-human marker blocks it. This tool does not accept an expected head SHA or expose the separate head-checked merge-gate path. An explicit :merge_method Custode policy scoped to the served repository selects merge, squash or rebase and takes precedence over the default flag order, but GitHub must still allow that method. Without one, the repository's allow_merge_commit, allow_squash_merge and allow_rebase_merge flags select merge, then squash, then rebase; when all three flags are absent it sends the configured method or \"merge\". A repository that allows none of them, or disallows the configured method, is refused with a typed \"policy merge_method: ...\" error before any merge request. Selection happens after the merge-policy and review-floor checks. The separate exact-head merge Gate pins this selection, rechecks that exact method immediately before mutation, and records the method actually sent.",
+        "result": "repo, number, state='merged' and merge_method (the method sent to GitHub) on accepted success.",
         "summary": "Request a pull-request merge subject to repository policy."
       },
       "category": "repo_write:merge_pr",
       "definition": {
-        "description": "Merge a PR on a served repo -- WHERE POLICY ALLOWS. Under the shipped\npolicy every repo is merge: :manual, so this refuses with the rule named;\nit exists so the refusal is mechanical rather than remembered.\n",
+        "description": "Merge a PR on a served repo -- WHERE POLICY ALLOWS. Under the shipped\npolicy every repo is merge: :manual, so this refuses with the rule named;\nit exists so the refusal is mechanical rather than remembered. The merge\nmethod comes from the repository's allowed methods (merge, then squash,\nthen rebase), and the reply names the one used.\n",
         "inputSchema": {
           "properties": {
             "number": {
