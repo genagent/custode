@@ -81,6 +81,55 @@ defmodule Custode.AgentsTest do
                     %{"agent_id" => ^id}}
   end
 
+  test "a Codex routine forks a source arc into a distinct target through the facade" do
+    id = uid("codex-fork")
+    parent = self()
+
+    put_env!(:routines, [
+      %{id: id, provider: :codex, cron: :manual, workspace: tmp_workspace!(), prompt: "review"}
+    ])
+
+    {:ok, _pid} =
+      Agents.start_agent(id,
+        enqueue_fun: fn args, meta ->
+          send(parent, {:codex_fork_enqueued, args, meta})
+          {:ok, :queued}
+        end
+      )
+
+    on_exit(fn -> Agents.stop_agent(id, :codex) end)
+
+    assert :processing = Agents.submit_prompt(id, "first", arc_id: "source")
+    assert_receive {:codex_fork_enqueued, %{"prompt" => "first"}, %{"agent_id" => ^id} = meta}
+
+    result = ObanCodex.Testing.result(session_id: "source-thread")
+    :ok = ObanCodex.Agent.Job.handle_result(result, %Oban.Job{meta: meta})
+    assert Agents.await(id, :idle, 1_000) == {:ok, :idle}
+
+    assert Agents.fork_arc(id, "source", "source", "x") == {:error, :same_arc}
+    refute_receive {:codex_fork_enqueued, _args, _meta}, 100
+
+    assert :processing = Agents.fork_arc(id, "source", "alternative", "try another approach")
+
+    assert_receive {:codex_fork_enqueued,
+                    %{
+                      "prompt" => "try another approach",
+                      "session_id" => "source-thread",
+                      "fork_session" => true
+                    }, %{"agent_id" => ^id} = fork_meta}
+
+    fork_result = ObanCodex.Testing.result(session_id: "alternative-thread")
+    :ok = ObanCodex.Agent.Job.handle_result(fork_result, %Oban.Job{meta: fork_meta})
+    assert Agents.await(id, :idle, 1_000) == {:ok, :idle}
+
+    assert {:ok, info} = Agents.info(id)
+
+    assert info.session_arcs == %{
+             "source" => "source-thread",
+             "alternative" => "alternative-thread"
+           }
+  end
+
   test "a Codex permission request opens the shared gate" do
     id = uid("codex-gate")
     parent = self()

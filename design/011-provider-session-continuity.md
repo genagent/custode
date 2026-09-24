@@ -45,7 +45,7 @@ The behavior was traced through Custode and the released packages in use on
 | `oban_claude` | 0.5.1 | Its agent state machine retains one Claude session id, resumes it on later turns, and captures ids from successes and rail stops. A fresh turn clears the one in-memory handle. |
 | `oban_codex` | 0.2.0 | Its mirrored agent state machine retains one Codex thread id and sends it as `session_id` on later turns. A fresh turn clears the one in-memory handle. |
 | `claude_wrapper` | 0.14.0 | Explicit resume, pinned session id, no-persistence mode, and fork are available. |
-| `codex_wrapper` | 0.4.0 | Explicit resume and no-persistence mode are available. The installed Codex CLI also has `exec fork`, which this wrapper version does not expose. |
+| `codex_wrapper` | 0.5.0 | Explicit resume, no-persistence mode and `exec fork` are available. oban_codex 0.5.0 exposes fork and independent resume. |
 | Custode Model Attempt | current `main` | An Attempt records `provider_continuation` and a transcript reference. Later logical Attempts do not consume the prior handle. |
 | Custode sub-agent | current `main` | Claude sub-agents persist a session id long enough to offer manual revival after restart. Codex sub-agent revival is not implemented. |
 

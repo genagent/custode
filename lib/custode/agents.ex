@@ -50,6 +50,13 @@ defmodule Custode.Agents do
   def cast_prompt(agent_id, prompt, opts \\ []),
     do: call_provider(agent_id, :cast_prompt, [agent_id, prompt, opts])
 
+  @doc """
+  Forks a named conversation arc into another through the agent's provider.
+  The source arc's handle is left unchanged.
+  """
+  def fork_arc(agent_id, source_arc_id, target_arc_id, prompt, opts \\ []),
+    do: call_provider(agent_id, :fork_arc, [agent_id, source_arc_id, target_arc_id, prompt, opts])
+
   def approve_action(agent_id, action_id),
     do: call_provider(agent_id, :approve_action, [agent_id, action_id])
 
