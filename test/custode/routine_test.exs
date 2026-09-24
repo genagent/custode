@@ -400,10 +400,12 @@ defmodule Custode.RoutineTest do
       assert Enum.any?(overrides, &String.starts_with?(&1, "developer_instructions="))
       assert Enum.any?(overrides, &String.contains?(&1, args["custode_context_path"]))
       assert "model_reasoning_effort=\"high\"" in overrides
-      assert Enum.any?(overrides, &String.starts_with?(&1, ~s(mcp_servers."custode".url=)))
+      assert Enum.any?(overrides, &String.starts_with?(&1, "mcp_servers.custode.url="))
+      assert Enum.any?(overrides, &String.starts_with?(&1, "mcp_servers.hexpm.url="))
+      refute Enum.any?(overrides, &String.starts_with?(&1, ~s(mcp_servers.")))
 
       enabled =
-        Enum.find(overrides, &String.starts_with?(&1, ~s(mcp_servers."custode".enabled_tools=)))
+        Enum.find(overrides, &String.starts_with?(&1, "mcp_servers.custode.enabled_tools="))
 
       assert enabled =~ "repo_list_prs"
       refute enabled =~ "mcp__custode__"
