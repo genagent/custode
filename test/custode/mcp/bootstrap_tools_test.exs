@@ -38,7 +38,8 @@ defmodule Custode.MCP.BootstrapToolsTest do
     result = Jason.decode!(text)
 
     assert result["schema_version"] == "custode.operator_bootstrap.v1"
-    assert result["installation"]["id"] == Custode.Installation.id()
+    assert {:ok, id} = Custode.Installation.fetch()
+    assert result["installation"]["id"] == id
     assert result["caller"]["kind"] == "operator"
     assert result["caller"]["verified"] == true
     assert result["caller"]["transport"] == "mcp"
@@ -75,6 +76,21 @@ defmodule Custode.MCP.BootstrapToolsTest do
 
     assert Custode.TestHelpers.tool_error(OperatorBootstrap.execute(%{}, frame)) =~
              "requires the human operator"
+  end
+
+  test "the handler reports a tool error and creates no file when the id is not provisioned" do
+    path = unprovision_installation!()
+
+    text = Custode.TestHelpers.tool_error(OperatorBootstrap.execute(%{}, %Anubis.Server.Frame{}))
+
+    assert text =~ "installation id unavailable"
+    assert text =~ ":not_provisioned"
+    refute text =~ ".installation"
+    refute text =~ Path.dirname(path)
+
+    assert Custode.Installation.fetch() == {:error, :not_provisioned}
+    refute File.exists?(path)
+    assert File.ls!(Path.dirname(path)) == []
   end
 
   defp tool_names(client) do

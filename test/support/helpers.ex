@@ -130,6 +130,33 @@ defmodule Custode.TestHelpers do
     dir
   end
 
+  @doc """
+  Leave `Custode.Installation` unprovisioned and point the configured database
+  at a temporary directory, so a test can prove a read never creates the id
+  file. Returns the path a lazy create would have written. The boot-provisioned
+  id and the database config are restored on exit.
+  """
+  def unprovision_installation! do
+    booted = Custode.Installation.fetch()
+    dir = Path.join(System.tmp_dir!(), uid("custode-installation"))
+    File.mkdir_p!(dir)
+    database = Path.join(dir, "custode.db")
+
+    put_env!(
+      Custode.Repo,
+      :custode |> Application.get_env(Custode.Repo, []) |> Keyword.put(:database, database)
+    )
+
+    Custode.Installation.forget()
+
+    on_exit(fn ->
+      Custode.Installation.restore(booted)
+      File.rm_rf!(dir)
+    end)
+
+    database <> ".installation"
+  end
+
   @doc "Point `key` app env at `value` for this test, restoring afterwards."
   def put_env!(key, value) do
     previous = Application.fetch_env(:custode, key)

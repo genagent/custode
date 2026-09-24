@@ -13,6 +13,12 @@ defmodule Custode.Operator.Bootstrap do
   lifecycle state and `Custode.executing_turns/0` for running turns. The result
   holds no token, filesystem path, prompt text or provider transcript.
 
+  Building the result is read-only. The installation id comes from
+  `Custode.Installation.fetch/0`, which reads the cache `Custode.Application`
+  fills at boot and never touches the filesystem; when boot could not persist
+  the id, `build/2` returns an error instead of an id that would not survive a
+  restart.
+
   The caller must be the human operator. `build/2` does not check that: the
   surface that invokes it does, through `Custode.Operator.Authority.human/1`.
   """
@@ -49,35 +55,49 @@ defmodule Custode.Operator.Bootstrap do
   Options: `:transport` (`:mcp` | `:cli`, default `:mcp`) and `:verified`
   (whether the identity came from an authenticated request rather than a direct
   call, default `true`).
+
+  Returns `{:error, {:installation_unavailable, reason}}` when the installation
+  id was not provisioned at boot.
   """
-  @spec build(%{required(:kind) => atom(), optional(:id) => String.t()}, keyword()) :: map()
+  @spec build(%{required(:kind) => atom(), optional(:id) => String.t()}, keyword()) ::
+          {:ok, map()} | {:error, {:installation_unavailable, term()}}
   def build(%{kind: :operator} = caller, opts \\ []) do
-    %{
-      schema_version: @schema_version,
-      installation: installation(),
-      caller: %{
-        kind: Atom.to_string(caller.kind),
-        id: Map.get(caller, :id, "operator"),
-        transport: opts |> Keyword.get(:transport, :mcp) |> to_string(),
-        verified: Keyword.get(opts, :verified, true)
-      },
-      authority: %{
-        scope: "all",
-        endpoint: "main",
-        tool_count: map_size(ToolPolicy.all())
-      },
-      fleet: fleet(),
-      expand: for({topic, tool} <- @expand, do: %{topic: topic, tool: tool})
-    }
+    with {:ok, installation} <- installation() do
+      {:ok,
+       %{
+         schema_version: @schema_version,
+         installation: installation,
+         caller: %{
+           kind: Atom.to_string(caller.kind),
+           id: Map.get(caller, :id, "operator"),
+           transport: opts |> Keyword.get(:transport, :mcp) |> to_string(),
+           verified: Keyword.get(opts, :verified, true)
+         },
+         authority: %{
+           scope: "all",
+           endpoint: "main",
+           tool_count: map_size(ToolPolicy.all())
+         },
+         fleet: fleet(),
+         expand: for({topic, tool} <- @expand, do: %{topic: topic, tool: tool})
+       }}
+    end
   end
 
   defp installation do
-    %{
-      id: Installation.id(),
-      custode_version: :custode |> Application.spec(:vsn) |> to_string(),
-      host: host(),
-      timezone: Application.get_env(:custode, :timezone)
-    }
+    case Installation.fetch() do
+      {:ok, id} ->
+        {:ok,
+         %{
+           id: id,
+           custode_version: :custode |> Application.spec(:vsn) |> to_string(),
+           host: host(),
+           timezone: Application.get_env(:custode, :timezone)
+         }}
+
+      {:error, reason} ->
+        {:error, {:installation_unavailable, reason}}
+    end
   end
 
   @doc false

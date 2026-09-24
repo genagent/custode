@@ -15,12 +15,13 @@ defmodule Custode.Operator.BootstrapTest do
   end
 
   test "build/2 summarizes the installation, caller, authority and fleet" do
-    result = Bootstrap.build(@operator)
+    assert {:ok, result} = Bootstrap.build(@operator)
 
     assert result.schema_version == "custode.operator_bootstrap.v1"
     assert result.schema_version == Bootstrap.schema_version()
 
-    assert result.installation.id == Installation.id()
+    assert {:ok, id} = Installation.fetch()
+    assert result.installation.id == id
     assert is_binary(result.installation.custode_version)
 
     assert %{kind: "operator", id: "operator", transport: "mcp", verified: true} = result.caller
@@ -38,7 +39,7 @@ defmodule Custode.Operator.BootstrapTest do
   end
 
   test "build/2 stamps the transport and verification it is given" do
-    result = Bootstrap.build(@operator, transport: :cli, verified: false)
+    assert {:ok, result} = Bootstrap.build(@operator, transport: :cli, verified: false)
 
     assert %{transport: "cli", verified: false} = result.caller
   end
@@ -49,7 +50,7 @@ defmodule Custode.Operator.BootstrapTest do
   end
 
   test "every expand entry names a tool in the policy table" do
-    %{expand: expand} = Bootstrap.build(@operator)
+    assert {:ok, %{expand: expand}} = Bootstrap.build(@operator)
     policy = ToolPolicy.all()
 
     assert expand != []
@@ -70,7 +71,9 @@ defmodule Custode.Operator.BootstrapTest do
       %{id: caretaker_id, cron: :manual, workspace: workspace, prompt: "x", tags: [:meta]}
     ])
 
-    assert %{id: ^caretaker_id, state: state} = Bootstrap.build(@operator).fleet.caretaker
+    assert {:ok, %{fleet: %{caretaker: %{id: ^caretaker_id, state: state}}}} =
+             Bootstrap.build(@operator)
+
     assert is_atom(state)
   end
 
@@ -79,14 +82,40 @@ defmodule Custode.Operator.BootstrapTest do
       %{id: uid("plain"), cron: :manual, workspace: tmp_workspace!(), prompt: "x"}
     ])
 
-    assert Bootstrap.build(@operator).fleet.caretaker == nil
+    assert {:ok, %{fleet: %{caretaker: nil}}} = Bootstrap.build(@operator)
+  end
+
+  test "build/2 does no file I/O: a provisioned id survives its file being deleted" do
+    path = unprovision_installation!()
+    assert {:ok, id} = Installation.provision_at(path)
+    File.rm!(path)
+
+    assert {:ok, result} = Bootstrap.build(@operator)
+
+    assert result.installation.id == id
+    refute File.exists?(path)
+    assert File.ls!(Path.dirname(path)) == []
+  end
+
+  test "build/2 reports the installation unavailable and creates no file when unprovisioned" do
+    path = unprovision_installation!()
+
+    assert Installation.fetch() == {:error, :not_provisioned}
+
+    assert Bootstrap.build(@operator) ==
+             {:error, {:installation_unavailable, :not_provisioned}}
+
+    assert Installation.fetch() == {:error, :not_provisioned}
+    refute File.exists?(path)
+    assert File.ls!(Path.dirname(path)) == []
   end
 
   test "the result holds no database path, installation file or operator token" do
     {:ok, operator_token} = Identity.operator_token()
     database = :custode |> Application.get_env(Custode.Repo) |> Keyword.fetch!(:database)
 
-    encoded = @operator |> Bootstrap.build() |> Jason.encode!()
+    assert {:ok, result} = Bootstrap.build(@operator)
+    encoded = Jason.encode!(result)
 
     refute encoded =~ Path.expand(database)
     refute encoded =~ database

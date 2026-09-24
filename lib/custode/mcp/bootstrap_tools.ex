@@ -13,7 +13,9 @@ defmodule Custode.MCP.BootstrapTools.OperatorBootstrap do
   @moduledoc """
   One read for a newly connected operator session: which instance this is, who
   the caller is and over which transport, the effective authority, a compact
-  fleet summary, and the operations to expand it. Read-only.
+  fleet summary, and the operations to expand it. Read-only: it never creates
+  or replaces the installation id, and reports a tool error when boot could not
+  provision one.
   """
   use Anubis.Server.Component, type: :tool
 
@@ -28,14 +30,19 @@ defmodule Custode.MCP.BootstrapTools.OperatorBootstrap do
   def execute(_params, frame) do
     caller = Custode.MCP.caller(frame)
 
-    case Authority.human(caller) do
-      :ok ->
-        reply(
+    with :ok <- Authority.human(caller),
+         {:ok, result} <-
+           Bootstrap.build(caller,
+             transport: Custode.MCP.origin_transport(frame),
+             verified: verified?(frame)
+           ) do
+      reply(frame, result)
+    else
+      {:error, {:installation_unavailable, reason}} ->
+        fail(
           frame,
-          Bootstrap.build(caller,
-            transport: Custode.MCP.origin_transport(frame),
-            verified: verified?(frame)
-          )
+          "installation id unavailable (#{inspect(reason)}): Custode could not persist " <>
+            "its installation id at boot; check the log and restart"
         )
 
       {:error, message} ->
