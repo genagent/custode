@@ -582,8 +582,8 @@ defmodule Custode.Attention do
 
       disowned ->
         signal(view, :disowned_check, :normal,
-          headline: "#{numbers(disowned)} red, and not its work",
-          detail: "the agent disowned #{pluralise(length(disowned), "it")}; nobody else will",
+          headline: disowned_check_headline(disowned),
+          detail: disowned_check_detail(view.id, disowned),
           item: {:prs, Enum.map(disowned, & &1.number)},
           raised_at: nil,
           resolving: [op("Inspect", :open_agent, %{agent: view.id})]
@@ -706,6 +706,17 @@ defmodule Custode.Attention do
   defp numbers([one]), do: "##{one.number}"
 
   defp numbers(prs), do: Enum.map_join(prs, ", ", &"##{&1.number}")
+
+  defp disowned_check_headline([one]), do: "PR ##{one.number} has failing checks"
+  defp disowned_check_headline(prs), do: "PRs #{numbers(prs)} have failing checks"
+
+  defp disowned_check_detail(agent, [_one]) do
+    "#{agent} marked this PR as someone else's work. Review it or assign it to another agent."
+  end
+
+  defp disowned_check_detail(agent, _prs) do
+    "#{agent} marked these PRs as someone else's work. Review them or assign them to another agent."
+  end
 
   defp failing_prs(view), do: Map.get(view, :failing_prs, [])
 
