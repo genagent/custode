@@ -1,5 +1,7 @@
 defmodule Custode.MigrationsTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
+
+  import Custode.TestHelpers
 
   alias Custode.Migrations
 
@@ -72,6 +74,31 @@ defmodule Custode.MigrationsTest do
       File.write!(Path.join(dir, "README.md"), "")
 
       assert Migrations.files(dir) == ["1_real.exs"]
+    end
+  end
+
+  describe "database_path/0" do
+    test "resolves a relative source-install database under CUSTODE_HOME" do
+      home = Path.join(System.tmp_dir!(), uid("migration-home"))
+      previous_home = System.get_env("CUSTODE_HOME")
+      put_env!(Custode.Repo, database: "custode.db")
+      System.put_env("CUSTODE_HOME", home)
+
+      on_exit(fn ->
+        case previous_home do
+          nil -> System.delete_env("CUSTODE_HOME")
+          value -> System.put_env("CUSTODE_HOME", value)
+        end
+      end)
+
+      assert Migrations.database_path() == Path.join(home, "custode.db")
+    end
+
+    test "keeps an absolute runtime database path" do
+      path = Path.join(System.tmp_dir!(), uid("custode") <> ".db")
+      put_env!(Custode.Repo, database: path)
+
+      assert Migrations.database_path() == path
     end
   end
 

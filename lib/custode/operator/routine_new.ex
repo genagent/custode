@@ -355,7 +355,7 @@ defmodule Custode.Operator.RoutineNew do
 
   defp validate_model(_provider, nil), do: :ok
   defp validate_model(:claude, model) when model in ["opus", "sonnet", "haiku"], do: :ok
-  defp validate_model(:codex, "gpt-6-sol"), do: :ok
+  defp validate_model(:codex, "gpt-5.6-sol"), do: :ok
 
   defp validate_model(provider, model),
     do: {:error, "model #{model} is not configured for #{provider}"}

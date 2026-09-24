@@ -155,7 +155,7 @@ defmodule Custode.RoutineTest do
       codex = Custode.Routine.get("codex-specialist")
 
       assert {claude.model, claude.effort} == {"opus", :high}
-      assert {codex.model, codex.effort} == {"gpt-6-sol", :high}
+      assert {codex.model, codex.effort} == {"gpt-5.6-sol", :high}
       assert claude.max_turns > 75
       assert claude.timeout_ms > 900_000
       assert Custode.Roles.grants(claude.role) == :worker
@@ -168,12 +168,12 @@ defmodule Custode.RoutineTest do
       end
 
       assert_raise ArgumentError,
-                   ~r/Codex model gpt-6-sol cannot be used by a Claude routine/,
+                   ~r/Codex model gpt-5.6-sol cannot be used by a Claude routine/,
                    fn ->
                      routine_fixture!("workspace", %{
                        profile: :specialist,
                        provider: :claude,
-                       model: "gpt-6-sol"
+                       model: "gpt-5.6-sol"
                      })
                    end
     end

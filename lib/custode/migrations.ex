@@ -76,7 +76,10 @@ defmodule Custode.Migrations do
   @doc "The configured SQLite path, or nil when the repo has none."
   @spec database_path() :: String.t() | nil
   def database_path do
-    :custode |> Application.get_env(Custode.Repo, []) |> Keyword.get(:database)
+    case :custode |> Application.get_env(Custode.Repo, []) |> Keyword.get(:database) do
+      nil -> nil
+      path -> Custode.Home.resolve_in(&Custode.Home.data_dir/0, path)
+    end
   end
 
   @doc """
@@ -93,19 +96,26 @@ defmodule Custode.Migrations do
     cond do
       is_nil(db) -> {:error, "no database configured for Custode.Repo"}
       not File.exists?(db) -> {:fresh, length(files())}
-      true -> count_pending()
+      true -> count_pending(db)
     end
   end
 
-  defp count_pending do
-    Ecto.Migrator.with_repo(Custode.Repo, fn repo ->
-      repo
-      |> Ecto.Migrator.migrations([path()])
-      |> Enum.count(fn {status, _version, _name} -> status == :down end)
-    end)
-    |> case do
-      {:ok, count, _apps} -> {:ok, count}
-      {:error, reason} -> {:error, reason}
+  defp count_pending(database) do
+    original = Application.get_env(:custode, Custode.Repo, [])
+    Application.put_env(:custode, Custode.Repo, Keyword.put(original, :database, database))
+
+    try do
+      Ecto.Migrator.with_repo(Custode.Repo, fn repo ->
+        repo
+        |> Ecto.Migrator.migrations([path()])
+        |> Enum.count(fn {status, _version, _name} -> status == :down end)
+      end)
+      |> case do
+        {:ok, count, _apps} -> {:ok, count}
+        {:error, reason} -> {:error, reason}
+      end
+    after
+      Application.put_env(:custode, Custode.Repo, original)
     end
   rescue
     error -> {:error, Exception.message(error)}
