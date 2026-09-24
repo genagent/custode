@@ -108,6 +108,10 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.ReadTools.Workflows, name: "list_workflows")
   component(Custode.MCP.ReadTools.ExecutingTurns, name: "executing_turns")
 
+  # the operator's first read (#647): granted to NO routine, refused by the
+  # handler for any non-operator caller
+  component(Custode.MCP.BootstrapTools.OperatorBootstrap, name: "operator_bootstrap")
+
   # the operator tier (issue #33): run the fleet, not just delegate into it
   component(Custode.MCP.OperatorTools.Beat, name: "beat")
   component(Custode.MCP.OperatorTools.DropNote, name: "drop_note")

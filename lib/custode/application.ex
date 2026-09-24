@@ -11,6 +11,8 @@ defmodule Custode.Application do
 
   use Application
 
+  require Logger
+
   alias Custode.Feed
   alias Custode.MCP.MCPEx
   alias Custode.OwnedCheckout.Barrier
@@ -49,6 +51,7 @@ defmodule Custode.Application do
     Custode.Assets.report()
     Custode.Definitions.report()
     Custode.Routine.ensure_workspaces!()
+    provision_installation()
 
     children = [
       {Phoenix.PubSub, name: Custode.PubSub},
@@ -147,6 +150,23 @@ defmodule Custode.Application do
     ]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: Custode.Supervisor)
+  end
+
+  # The installation id (#647) is created or replaced here and nowhere else, so
+  # `operator_bootstrap` stays read-only. A failure must not stop the fleet:
+  # the id stays unprovisioned and that tool reports it, which is a smaller
+  # harm than refusing to boot over an identity file.
+  defp provision_installation do
+    case Custode.Installation.provision() do
+      {:ok, _id} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error(
+          "installation id could not be provisioned (#{inspect(reason, limit: 3, printable_limit: 128)}); " <>
+            "operator_bootstrap will report it unavailable until Custode is restarted with a writable database directory"
+        )
+    end
   end
 
   # The Cron plugin inserts a row for every crontab entry whose minute matches
