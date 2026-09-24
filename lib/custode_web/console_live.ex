@@ -887,7 +887,8 @@ defmodule CustodeWeb.ConsoleLive do
       memories: Custode.Memory.recall(id),
       history: history(id),
       sensors: Enum.filter(Custode.Routine.sensors(), &(&1.notify == id)),
-      policies: (routine && Custode.Policy.ids_for(routine)) || []
+      policies: (routine && Custode.Policy.ids_for(routine)) || [],
+      conversation: Custode.ConversationArcs.read_model(id)
     }
   end
 

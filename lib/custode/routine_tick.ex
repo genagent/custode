@@ -133,8 +133,22 @@ defmodule Custode.RoutineTick do
       routine ->
         run_intake(routine)
         tick = Routine.tick_worker(routine)
-        {:ok, _job} = Oban.insert(tick.new(Routine.tick_args(routine), queue: :ticks))
+
+        with {:ok, args, prepared} <- Custode.ConversationArcs.tick_args(routine, :scheduled) do
+          enqueue_tick(routine, tick, args, prepared)
+        end
+    end
+  end
+
+  defp enqueue_tick(routine, tick, args, prepared) do
+    case Oban.insert(tick.new(args, queue: :ticks)) do
+      {:ok, _job} ->
         :ok
+
+      {:error, reason} = error ->
+        Custode.ConversationArcs.abandon(prepared, :enqueue_failed)
+        Logger.warning("scheduled beat insert failed for #{routine.id}: #{inspect(reason)}")
+        error
     end
   end
 

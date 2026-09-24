@@ -50,27 +50,34 @@ defmodule Custode.Inbox do
   def maybe_beat(routine) do
     tick = Custode.Routine.tick_worker(routine)
 
-    changeset =
-      tick.new(
-        Custode.Routine.tick_args(routine),
-        queue: :ticks,
-        schedule_in: @debounce_seconds,
-        unique: [
-          period: @unique_period,
-          fields: [:worker, :queue, :args],
-          keys: [:agent_id],
-          states: [:available, :scheduled]
-        ]
-      )
+    with {:ok, args, prepared} <- Custode.ConversationArcs.tick_args(routine, :scheduled) do
+      changeset =
+        tick.new(
+          args,
+          queue: :ticks,
+          schedule_in: @debounce_seconds,
+          unique: [
+            period: @unique_period,
+            fields: [:worker, :queue, :args],
+            keys: [:agent_id],
+            states: [:available, :scheduled]
+          ]
+        )
 
-    case Oban.insert(changeset) do
-      {:ok, _job} ->
-        :ok
+      case Oban.insert(changeset) do
+        {:ok, %Oban.Job{conflict?: false}} ->
+          :ok
 
-      {:error, reason} ->
-        require Logger
-        Logger.warning("event beat insert failed for #{routine.id}: #{inspect(reason)}")
-        :ok
+        {:ok, %Oban.Job{conflict?: true}} ->
+          Custode.ConversationArcs.abandon(prepared, :duplicate_beat)
+          :ok
+
+        {:error, reason} ->
+          Custode.ConversationArcs.abandon(prepared, :enqueue_failed)
+          require Logger
+          Logger.warning("event beat insert failed for #{routine.id}: #{inspect(reason)}")
+          :ok
+      end
     end
   end
 

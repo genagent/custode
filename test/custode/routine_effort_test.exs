@@ -4,11 +4,11 @@ defmodule Custode.RoutineEffortTest do
   import Custode.TestHelpers
   import Ecto.Query, only: [from: 2]
 
+  alias Custode.{Agents, Repo, Routine}
   alias Custode.CLI.Client
   alias Custode.Config.{Loader, WriteBack}
   alias Custode.MCP.Identity
   alias Custode.Operator.RoutineEdit
-  alias Custode.{Repo, Routine}
 
   setup do
     workspace = tmp_workspace!()
@@ -84,13 +84,16 @@ defmodule Custode.RoutineEffortTest do
                prompt: "Diagnose the failing test."
              })
 
+    on_exit(fn -> Agents.stop_agent(context.id) end)
+
     assert [job] =
-             Repo.all(from(j in Oban.Job, where: j.queue == "ticks"))
-             |> Enum.filter(&(&1.args["agent_id"] == context.id))
+             Repo.all(from(j in Oban.Job, where: j.worker == "ObanClaude.Agent.Job"))
+             |> Enum.filter(&(&1.meta["agent_id"] == context.id))
 
     on_exit(fn -> Repo.delete_all(from(j in Oban.Job, where: j.id == ^job.id)) end)
     assert job.args["prompt"] == "Diagnose the failing test."
-    assert job.args["start"]["args"]["effort"] == "high"
+    assert job.args["effort"] == "high"
+    assert job.meta["arc_id"] =~ "operator:"
     assert job.state == "available"
   end
 

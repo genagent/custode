@@ -269,6 +269,28 @@ defmodule Custode.Routine do
     }
   end
 
+  @doc "The effective provider contract whose change makes a stored session incompatible."
+  def continuation_contract(routine) do
+    %{
+      provider: routine.provider,
+      args: agent_args(routine),
+      approved_args: routine.approved_args,
+      job_timeout: routine.timeout_ms + 60_000
+    }
+  end
+
+  @doc "Provider agent configuration for a cold start, with durable arc seeds."
+  def agent_config(routine, session_arcs \\ %{}) do
+    start = tick_args(routine)["start"]
+
+    [
+      args: start["args"],
+      approved_args: start["approved_args"],
+      job_timeout: start["job_timeout"],
+      session_arcs: session_arcs
+    ]
+  end
+
   @doc "The provider-specific Oban worker that delivers a routine tick."
   def tick_worker(routine), do: Custode.Agents.tick_worker(routine)
 

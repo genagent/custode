@@ -44,10 +44,13 @@ defmodule Custode.Operator.ActionsTest do
 
       assert {:ok, :started} = Actions.message(routine.id, "look at issue 42 first")
 
-      assert [tick] = ticks_for(routine.id)
-      assert tick.args["prompt"] == "look at issue 42 first"
-      assert tick.args["if_offline"] == "start"
-      assert tick.queue == "ticks"
+      assert [turn] =
+               jobs_for("ObanClaude.Agent.Job")
+               |> Enum.filter(&(&1.meta["agent_id"] == routine.id))
+
+      assert turn.args["prompt"] == "look at issue 42 first"
+      assert turn.meta["arc_id"] =~ "operator:"
+      assert turn.queue == "agents"
     end
 
     test "an offline id with no routine cannot be started, and says so" do
@@ -109,8 +112,13 @@ defmodule Custode.Operator.ActionsTest do
 
       assert Actions.caretaker() == caretaker
       assert {:ok, :started} = Actions.tell_custode("what needs me today?")
-      assert [tick] = ticks_for(caretaker)
-      assert tick.args["prompt"] == "what needs me today?"
+
+      assert [turn] =
+               jobs_for("ObanClaude.Agent.Job")
+               |> Enum.filter(&(&1.meta["agent_id"] == caretaker))
+
+      assert turn.args["prompt"] == "what needs me today?"
+      assert turn.meta["arc_id"] =~ "operator:"
     end
 
     test "a roster with no caretaker says so" do

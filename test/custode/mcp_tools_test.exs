@@ -41,6 +41,18 @@ defmodule Custode.MCPToolsTest do
       assert json["state"] == "running"
       assert json["turns"] == 0
     end
+
+    test "agent_status exposes the same durable conversation model while offline" do
+      routine = routine_fixture!(tmp_workspace!())
+      assert {:ok, prepared} = Custode.ConversationArcs.prepare(routine, :operator)
+
+      json = tool_json(Tools.AgentStatus.execute(%{agent_id: routine.id}, @frame))
+
+      assert json["state"] == "offline"
+      assert json["conversation"]["current"]["arc_id"] == prepared.arc_id
+      assert json["conversation"]["current"]["logical_id"] == "operator"
+      assert json["conversation"]["current"]["decision"] == "fresh"
+    end
   end
 
   describe "start_agent / prompt_agent" do
@@ -99,11 +111,12 @@ defmodule Custode.MCPToolsTest do
 
       assert json["how"] == "started"
 
-      assert [tick] =
-               jobs_for("ObanClaude.Agent.Tick")
-               |> Enum.filter(&(&1.args["agent_id"] == routine.id))
+      assert [turn] =
+               jobs_for("ObanClaude.Agent.Job")
+               |> Enum.filter(&(&1.meta["agent_id"] == routine.id))
 
-      assert tick.args["prompt"] == "look at 42"
+      assert turn.args["prompt"] == "look at 42"
+      assert turn.meta["arc_id"] =~ "operator:"
     end
 
     test "a routine prompting its sub-agent keeps the direct cast and never resumes it" do

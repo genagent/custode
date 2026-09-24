@@ -243,7 +243,7 @@ Read the recent tail of an agent event history.
 
 ### Tool: agent_status
 
-Inspect one agent and its current session.
+Inspect one agent and its durable conversation arc.
 
 **Endpoints:** /mcp. **Category:** read.
 
@@ -251,13 +251,13 @@ Inspect one agent and its current session.
 | --- | --- | --- | --- | --- |
 | agent_id | string | yes | the agent to inspect |  |
 
-**Result:** Offline: agent_id and state='offline'. Otherwise: agent_id, state, detail, turns, cost_usd, session_id.
+**Result:** All states: agent_id, state and conversation with current plus active arcs. A current arc names its logical and provider arc ids, kind, provider, optional provider_session_id, host/workspace/config identity, decision, reason, outcome and timestamps. Running agents also return detail, turns, cost_usd, legacy default session_id, active_arc_id and the wrapper's current or latest continuation.
 
-**Side effects:** None; reads agent lifecycle and session information.
+**Side effects:** None; reads agent lifecycle and Custode-owned conversation-arc state.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may inspect only a temporary agent whose durable spawn record names it as parent; the operator may inspect any target. Missing or reconciled records do not widen access.
 
-**Behavior, defaults and errors:** agent_id is required. detail is diagnostic text and can carry pending gate information; no structured action object is guaranteed.
+**Behavior, defaults and errors:** agent_id is required. detail is diagnostic text and can carry pending gate information; no structured action object is guaranteed. conversation is the durable read model shared with LiveView. Provider session ids are opaque, host-local acceleration handles and may be null.
 
 ### Tool: answer_ask
 

@@ -43,15 +43,35 @@ defmodule Custode do
     routine = fetch!(id)
     tick = Routine.tick_worker(routine)
 
-    {:ok, job} = Oban.insert(tick.new(Routine.tick_args(routine), queue: :ticks))
-    {:ok, job.id}
+    with {:ok, args, prepared} <- Custode.ConversationArcs.tick_args(routine, :scheduled) do
+      case Oban.insert(tick.new(args, queue: :ticks)) do
+        {:ok, job} ->
+          {:ok, job.id}
+
+        {:error, _reason} = error ->
+          Custode.ConversationArcs.abandon(prepared, :enqueue_failed)
+          error
+      end
+    end
   end
 
   @doc "Fire-and-forget prompt to the agent (queued if it is mid-sweep)."
-  def poke(prompt, id \\ nil), do: Agents.cast_prompt(fetch!(id).id, prompt)
+  def poke(prompt, id \\ nil) do
+    routine = fetch!(id)
+
+    with {:ok, delivered, opts} <- Custode.ConversationArcs.operator_delivery(routine, prompt) do
+      Agents.cast_prompt(routine.id, delivered, opts)
+    end
+  end
 
   @doc "Prompt and block until the turn is enqueued (the answer path for ask_user)."
-  def ask(prompt, id \\ nil), do: Agents.submit_prompt(fetch!(id).id, prompt)
+  def ask(prompt, id \\ nil) do
+    routine = fetch!(id)
+
+    with {:ok, delivered, opts} <- Custode.ConversationArcs.operator_delivery(routine, prompt) do
+      Agents.submit_prompt(routine.id, delivered, opts)
+    end
+  end
 
   @doc "Approve whatever action the agent is blocked on."
   def approve(id \\ nil) do
