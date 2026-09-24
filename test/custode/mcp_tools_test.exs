@@ -70,6 +70,9 @@ defmodule Custode.MCPToolsTest do
 
       json = tool_json(Tools.PromptAgent.execute(%{agent_id: id, prompt: "hello"}, @frame))
       assert json["delivered"] == true
+      assert json["message_id"] =~ "msg_"
+      assert json["status"] in ["queued", "executing"]
+      assert json["duplicate"] == false
       assert {:ok, :running} = Agent.await(id, :running, 1_000)
 
       [job] = jobs_for("ObanClaude.Agent.Job") |> Enum.filter(&(&1.meta["agent_id"] == id))
@@ -119,7 +122,7 @@ defmodule Custode.MCPToolsTest do
       assert turn.meta["arc_id"] =~ "operator:"
     end
 
-    test "a routine prompting its sub-agent keeps the direct cast and never resumes it" do
+    test "a routine prompting its paused sub-agent receives a durable refusal" do
       id = start_stub_agent!()
       :ok = Agent.emergency_pause(id)
       {:ok, :paused} = Agent.await(id, :paused, 1_000)
@@ -129,15 +132,42 @@ defmodule Custode.MCPToolsTest do
       on_exit(fn -> Custode.SubAgents.forget(id) end)
       json = tool_json(Tools.PromptAgent.execute(%{agent_id: id, prompt: "go"}, parent))
 
-      assert json["how"] == "delivered"
+      assert json["delivered"] == false
+      assert json["status"] == "refused"
+      assert json["error"]["detail"] =~ "agent_paused"
       # the operator's pause stands: a parent cannot lift it by prompting
       assert {:ok, :paused} = Agent.status(id)
       refute_receive {:enqueued, _args, _meta}, 200
     end
 
-    test "prompting a non-running agent is a tool error" do
-      reply = Tools.PromptAgent.execute(%{agent_id: "ghost", prompt: "x"}, @frame)
-      assert tool_error(reply) =~ "agent_not_running"
+    test "an idempotency retry returns the same receipt without a second delivery" do
+      id = start_stub_agent!()
+
+      params = %{agent_id: id, prompt: "release it", idempotency_key: "release-42"}
+      first = tool_json(Tools.PromptAgent.execute(params, @frame))
+      assert_receive {:enqueued, _args, _meta}
+
+      second = tool_json(Tools.PromptAgent.execute(params, @frame))
+      assert second["message_id"] == first["message_id"]
+      assert second["duplicate"] == true
+      refute_receive {:enqueued, _args, _meta}, 100
+
+      reply =
+        Tools.PromptAgent.execute(
+          %{params | prompt: "change it after all"},
+          @frame
+        )
+
+      assert tool_error(reply) =~ "idempotency_conflict"
+    end
+
+    test "failure before enqueue returns a durable refused receipt" do
+      json = tool_json(Tools.PromptAgent.execute(%{agent_id: "ghost", prompt: "x"}, @frame))
+
+      assert json["delivered"] == false
+      assert json["status"] == "refused"
+      assert json["error"]["kind"] == "delivery_refused"
+      assert json["message_id"] =~ "msg_"
     end
   end
 
@@ -180,6 +210,35 @@ defmodule Custode.MCPToolsTest do
       json = tool_json(Tools.AwaitAgent.execute(%{agent_id: id, timeout_ms: 100}, @frame))
       assert json["state"] == "running"
       assert json["timed_out"] == true
+    end
+
+    test "message_id awaits the exact prompt and returns its provider identity" do
+      id = start_stub_agent!()
+
+      prompt = tool_json(Tools.PromptAgent.execute(%{agent_id: id, prompt: "exact"}, @frame))
+      assert_receive {:enqueued, _args, turn_meta}
+
+      :ok =
+        finish_agent_turn(
+          turn_meta,
+          result(result: "exact result", session_id: "exact-session")
+        )
+
+      json =
+        tool_json(
+          Tools.AwaitAgent.execute(
+            %{agent_id: id, message_id: prompt["message_id"], timeout_ms: 2_000},
+            @frame
+          )
+        )
+
+      assert json["message_id"] == prompt["message_id"]
+      assert json["status"] == "completed"
+      assert json["timed_out"] == false
+      assert json["provider_turn"]["generation"] == turn_meta["agent_generation"]
+      assert json["provider_turn"]["turn_id"] == turn_meta["agent_turn_id"]
+      assert json["provider_turn"]["arc_id"] == turn_meta["arc_id"]
+      assert json["provider_turn"]["session_id"] == "exact-session"
     end
 
     test "history returns printable entries, bounded by last" do

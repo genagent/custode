@@ -24,6 +24,7 @@ defmodule Custode.Operator.Actions do
   alias Custode.Agents
   alias Custode.Operations.Fleet.PauseAgent
   alias Custode.Operator.Authority
+  alias Custode.OperatorMessages
   alias Custode.Suggestions
   alias Custode.Workflow.Launch
 
@@ -50,31 +51,51 @@ defmodule Custode.Operator.Actions do
   @spec message(String.t(), String.t(), keyword()) ::
           {:ok, :delivered | :resumed | :started} | {:error, term()}
   def message(agent_id, text, opts \\ []) do
-    case String.trim(to_string(text)) do
-      "" -> {:error, :empty}
-      text -> deliver(agent_id, text, state_of(agent_id), opts)
+    case message_with_receipt(agent_id, text, opts) do
+      {:ok, message, _disposition} -> delivery_result(message)
+      {:error, {:refused, _message, reason}} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  defp deliver(agent_id, text, :offline, _opts) do
+  @doc "Send a message and return its durable exact-outcome receipt (#657)."
+  @spec message_with_receipt(String.t(), String.t(), keyword()) ::
+          {:ok, Custode.OperatorMessage.t(), :created | :duplicate}
+          | {:error, {:refused, Custode.OperatorMessage.t(), term()} | term()}
+  def message_with_receipt(agent_id, text, opts \\ []) do
+    case String.trim(to_string(text)) do
+      "" ->
+        {:error, :empty}
+
+      text ->
+        OperatorMessages.submit(agent_id, text, opts, fn correlation_id ->
+          deliver(agent_id, text, state_of(agent_id), opts, correlation_id)
+        end)
+    end
+  end
+
+  defp deliver(agent_id, text, :offline, _opts, correlation_id) do
     case Custode.Routine.get(agent_id) do
       nil ->
         {:error, :agent_not_running}
 
       routine ->
-        start_and_cast(routine, text)
+        start_and_cast(routine, text, correlation_id)
     end
   end
 
-  defp deliver(agent_id, text, :paused, opts) do
-    with :ok <- resume(agent_id, opts), do: cast(agent_id, text, :resumed)
+  defp deliver(agent_id, text, :paused, opts, correlation_id) do
+    with :ok <- resume(agent_id, opts), do: cast(agent_id, text, :resumed, correlation_id)
   end
 
   # An answer belongs to the arc that asked the question. Omitting arc_id
   # makes the wrapper keep its active arc while origin=:operator still marks
   # the response as human input.
-  defp deliver(agent_id, text, :waiting_for_user, _opts) do
-    case Agents.cast_prompt(agent_id, text, origin: :operator) do
+  defp deliver(agent_id, text, :waiting_for_user, _opts, correlation_id) do
+    case Agents.cast_prompt(agent_id, text,
+           origin: :operator,
+           correlation_id: correlation_id
+         ) do
       :ok ->
         Custode.Feed.record_prompted(agent_id, text)
         {:ok, :delivered}
@@ -84,13 +105,19 @@ defmodule Custode.Operator.Actions do
     end
   end
 
-  defp deliver(agent_id, text, _state, _opts), do: cast(agent_id, text, :delivered)
+  defp deliver(agent_id, text, _state, _opts, correlation_id),
+    do: cast(agent_id, text, :delivered, correlation_id)
 
   # `how` is what the caller is told happened (#472), so a surface can say
   # "resumed" or "started" and not only "sent".
-  defp cast(agent_id, text, how) do
+  defp cast(agent_id, text, how, correlation_id) do
     with {:ok, delivered_text, prompt_opts} <- operator_delivery(agent_id, text),
-         :ok <- Agents.cast_prompt(agent_id, delivered_text, prompt_opts) do
+         :ok <-
+           Agents.cast_prompt(
+             agent_id,
+             delivered_text,
+             Keyword.put(prompt_opts, :correlation_id, correlation_id)
+           ) do
       Custode.Feed.record_prompted(agent_id, text)
       {:ok, how}
     else
@@ -98,7 +125,7 @@ defmodule Custode.Operator.Actions do
     end
   end
 
-  defp start_and_cast(routine, text) do
+  defp start_and_cast(routine, text, correlation_id) do
     with {:ok, delivered_text, prompt_opts} <-
            Custode.ConversationArcs.operator_delivery(routine, text) do
       seeds = Custode.ConversationArcs.seed_map(routine)
@@ -106,10 +133,10 @@ defmodule Custode.Operator.Actions do
 
       case Agents.start_agent(routine.id, config) do
         {:ok, _pid} ->
-          deliver_started(routine.id, text, delivered_text, prompt_opts)
+          deliver_started(routine.id, text, delivered_text, prompt_opts, correlation_id)
 
         {:error, {:already_started, _pid}} ->
-          deliver_started(routine.id, text, delivered_text, prompt_opts)
+          deliver_started(routine.id, text, delivered_text, prompt_opts, correlation_id)
 
         {:error, reason} ->
           {:error, reason}
@@ -117,8 +144,12 @@ defmodule Custode.Operator.Actions do
     end
   end
 
-  defp deliver_started(agent_id, original, delivered, prompt_opts) do
-    case Agents.cast_prompt(agent_id, delivered, prompt_opts) do
+  defp deliver_started(agent_id, original, delivered, prompt_opts, correlation_id) do
+    case Agents.cast_prompt(
+           agent_id,
+           delivered,
+           Keyword.put(prompt_opts, :correlation_id, correlation_id)
+         ) do
       :ok ->
         Custode.Feed.record_prompted(agent_id, original)
         {:ok, :started}
@@ -137,6 +168,12 @@ defmodule Custode.Operator.Actions do
         Custode.ConversationArcs.operator_delivery(routine, text)
     end
   end
+
+  defp delivery_result(%{status: "refused", error: error}), do: {:error, error}
+  defp delivery_result(%{delivery: "delivered"}), do: {:ok, :delivered}
+  defp delivery_result(%{delivery: "resumed"}), do: {:ok, :resumed}
+  defp delivery_result(%{delivery: "started"}), do: {:ok, :started}
+  defp delivery_result(_message), do: {:ok, :delivered}
 
   # `status/1` always answers `{:ok, status}`; an agent with no process is
   # `{:ok, :offline}`, which is the case `deliver/4` branches on.

@@ -37,6 +37,7 @@ defmodule Custode.Application do
     Custode.NextBeat.attach()
     Custode.SubAgents.attach()
     Custode.ConversationArcs.attach()
+    Custode.OperatorMessages.attach()
     Barrier.attach()
     Custode.WorktreeBreadcrumb.attach()
     Custode.RunClock.attach()
@@ -61,6 +62,12 @@ defmodule Custode.Application do
       # two servers never poll one db and double-run jobs during a restart's
       # graceful-shutdown overlap. CUSTODE_TAKEOVER=1 seizes a wedged one.
       Custode.Instance,
+      # Provider prompt queues live in the agent process, while provider jobs
+      # live in Oban. Reconcile their durable message rows before accepting new
+      # operator traffic after a restart (#657).
+      Supervisor.child_spec({Task, &Custode.OperatorMessages.reconcile!/0},
+        id: :operator_messages_reconcile
+      ),
       Supervisor.child_spec({Task, &Custode.Missions.bootstrap!/0}, id: :mission_bootstrap),
       Supervisor.child_spec(
         {Task,

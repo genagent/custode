@@ -321,22 +321,23 @@ Ask a non-blocking question whose answer will arrive later.
 
 ### Tool: await_agent
 
-Wait for an agent to become idle, blocked, paused or offline.
+Wait for one exact message, or use legacy agent-level waiting.
 
 **Endpoints:** /mcp. **Category:** read.
 
 | Argument | Type | Schema required | Description | Other schema constraints |
 | --- | --- | --- | --- | --- |
 | agent_id | string | yes |  |  |
+| message_id | string | no | exact prompt_agent message to await; omit for legacy agent-level waiting |  |
 | timeout_ms | integer | no | max wait, default 60000, capped at 180000 |  |
 
-**Result:** agent_id, state, detail, timed_out boolean, last_result (object, up to 400 characters of result text, or null).
+**Result:** With message_id: the exact durable message receipt (message_id, target, caller provenance, status, delivery, provider turn identity, continuation link, detail, result, error and timestamps), plus agent_id and timed_out. Without it: agent_id, state, detail, timed_out and last_result.
 
 **Side effects:** None; blocks the request while waiting.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may await only a temporary agent whose durable spawn record names it as parent; the operator may await any target. Missing or reconciled records do not widen access.
 
-**Behavior, defaults and errors:** timeout_ms defaults to 60000 and is capped at 180000; no lower bound is enforced here. Settled states include idle, awaiting_permission, waiting_for_user, paused and offline. A timeout returns current state with timed_out=true rather than a tool error. last_result can belong to an earlier turn; neither settled state nor this result is a per-request completion guarantee.
+**Behavior, defaults and errors:** message_id is optional during migration and is authoritative for new clients. With message_id, timeout_ms defaults to 60000, is clamped to 0..180000, and waits only for that durable message to reach waiting_for_input, waiting_for_approval, completed, failed or refused. The message must belong to the named agent and authenticated caller, except that the operator may inspect every caller. A timeout returns the current durable message with timed_out=true. Without message_id, legacy agent-level waiting remains: settled states include idle, awaiting_permission, waiting_for_user, paused and offline, and last_result may belong to an earlier turn.
 
 ### Tool: beat
 
@@ -1044,22 +1045,23 @@ Preview a change to an existing routine.
 
 ### Tool: prompt_agent
 
-Send work or an answer to an agent.
+Send one durable, idempotent message or answer to an agent.
 
 **Endpoints:** /mcp. **Category:** delegate.
 
 | Argument | Type | Schema required | Description | Other schema constraints |
 | --- | --- | --- | --- | --- |
 | agent_id | string | yes |  |  |
+| idempotency_key | string | no | deduplicate this caller's delivery to this agent |  |
 | prompt | string | yes |  |  |
 
-**Result:** agent_id, delivered=true, how describing the accepted delivery path.
+**Result:** The durable message receipt: message_id, target and caller provenance, status, delivery path, provider and exact turn identity when known, continuation link, detail, result, error and timestamps; plus agent_id, delivered, how and duplicate.
 
-**Side effects:** Sends or queues work. For an operator, can resume a paused agent or start an offline configured routine and records activity.
+**Side effects:** Creates a durable operator-message record, then sends or queues work exactly once for a new caller/target/idempotency tuple. For an operator, can resume a paused agent or start an offline configured routine and records activity.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may prompt only a temporary agent whose durable spawn record names it as parent; the operator may message any target through the shared operator action. Missing or reconciled records do not widen access.
 
-**Behavior, defaults and errors:** agent_id and prompt are required. Waiting-for-user input answers the question; busy input queues. Operator how='started' means a startup tick was queued, not that execution began. The agent path reports how='delivered' after a cast is accepted; this is not a delivery receipt and paused delegation can be dropped. No idempotency key; retry can submit duplicate input.
+**Behavior, defaults and errors:** agent_id and prompt are required. idempotency_key is optional; omission creates a new logical message, while retrying the same caller, target and key with the same prompt returns the existing receipt and duplicate=true. Reusing the key with different text is a tool error. Waiting-for-user input creates a new public message linked to the question while retaining its provider correlation; busy input queues. Operator how='started' means startup was accepted, not that execution began. A refusal before enqueue returns a durable refused receipt with delivered=false rather than losing the attempt. New clients should pass the returned message_id to await_agent.
 
 ### Tool: provision_owned_checkout
 

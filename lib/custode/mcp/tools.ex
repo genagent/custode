@@ -366,24 +366,29 @@ defmodule Custode.MCP.Tools.PromptAgent do
   import Custode.MCP.Tools
 
   alias Custode.Operator.Actions
+  alias Custode.OperatorMessages
 
   schema do
     field(:agent_id, :string, required: true)
     field(:prompt, :string, required: true)
+
+    field(:idempotency_key, :string,
+      description: "deduplicate this caller's delivery to this agent"
+    )
   end
 
   @impl true
-  def execute(%{agent_id: agent_id, prompt: prompt}, frame) do
+  def execute(%{agent_id: agent_id, prompt: prompt} = params, frame) do
     case check_delegated_target(frame, agent_id, :manage) do
-      :ok -> prompt(agent_id, prompt, frame)
+      :ok -> prompt(agent_id, prompt, params, frame)
       {:error, message} -> fail(frame, message)
     end
   end
 
-  defp prompt(agent_id, prompt, frame) do
+  defp prompt(agent_id, prompt, params, frame) do
     case Custode.MCP.caller(frame) do
-      %{kind: :operator} -> operator_prompt(agent_id, prompt, frame)
-      _routine -> delegated_prompt(agent_id, prompt, frame)
+      %{kind: :operator} -> operator_prompt(agent_id, prompt, params, frame)
+      _routine -> delegated_prompt(agent_id, prompt, params, frame)
     end
   end
 
@@ -391,9 +396,17 @@ defmodule Custode.MCP.Tools.PromptAgent do
   # resumed first and an offline routine is started with the prompt. `how`
   # says which, because "delivered" used to be reported for a prompt the
   # engine had dropped. The prompt lands in the activity too (#187).
-  defp operator_prompt(agent_id, prompt, frame) do
-    case Actions.message(agent_id, prompt, decided(frame)) do
-      {:ok, how} -> reply(frame, %{agent_id: agent_id, delivered: true, how: how})
+  defp operator_prompt(agent_id, prompt, params, frame) do
+    opts =
+      decided(frame) ++
+        [
+          actor: Custode.MCP.caller(frame),
+          idempotency_key: params[:idempotency_key]
+        ]
+
+    case Actions.message_with_receipt(agent_id, prompt, opts) do
+      {:ok, message, disposition} -> reply_message(message, disposition, frame)
+      {:error, {:refused, message, _reason}} -> reply_message(message, :created, frame)
       {:error, reason} -> fail(frame, "prompt failed: #{inspect(reason)}")
     end
   end
@@ -401,11 +414,46 @@ defmodule Custode.MCP.Tools.PromptAgent do
   # An agent prompting its own sub-agent is delegation: it stays out of the
   # activity, and it keeps the direct cast. A sub-agent has no routine to
   # start, and a parent must not resume what the operator paused.
-  defp delegated_prompt(agent_id, prompt, frame) do
-    case Custode.Agents.cast_prompt(agent_id, prompt) do
-      :ok -> reply(frame, %{agent_id: agent_id, delivered: true, how: :delivered})
+  defp delegated_prompt(agent_id, prompt, params, frame) do
+    opts = [
+      actor: Custode.MCP.caller(frame),
+      via: Custode.MCP.origin_transport(frame),
+      idempotency_key: params[:idempotency_key]
+    ]
+
+    case OperatorMessages.submit(agent_id, prompt, opts, fn correlation_id ->
+           delegated_delivery(agent_id, prompt, correlation_id)
+         end) do
+      {:ok, message, disposition} -> reply_message(message, disposition, frame)
+      {:error, {:refused, message, _reason}} -> reply_message(message, :created, frame)
       {:error, reason} -> fail(frame, "prompt failed: #{inspect(reason)}")
     end
+  end
+
+  defp delegated_delivery(agent_id, prompt, correlation_id) do
+    case Custode.Agents.status(agent_id) do
+      {:ok, :paused} -> {:error, :agent_paused}
+      {:ok, _state} -> cast_delegated(agent_id, prompt, correlation_id)
+    end
+  end
+
+  defp cast_delegated(agent_id, prompt, correlation_id) do
+    case Custode.Agents.cast_prompt(agent_id, prompt, correlation_id: correlation_id) do
+      :ok -> {:ok, :delivered}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp reply_message(message, disposition, frame) do
+    payload =
+      message
+      |> OperatorMessages.public()
+      |> Map.put(:agent_id, message.target_agent_id)
+      |> Map.put(:delivered, message.status != "refused")
+      |> Map.put(:how, message.delivery)
+      |> Map.put(:duplicate, disposition == :duplicate)
+
+    reply(frame, payload)
   end
 end
 
@@ -419,10 +467,17 @@ defmodule Custode.MCP.Tools.AwaitAgent do
 
   import Custode.MCP.Tools
 
+  alias Custode.OperatorMessages
+
   @settled [:idle, :awaiting_permission, :waiting_for_user, :paused, :offline]
 
   schema do
     field(:agent_id, :string, required: true)
+
+    field(:message_id, :string,
+      description: "exact prompt_agent message to await; omit for legacy agent-level waiting"
+    )
+
     field(:timeout_ms, :integer, description: "max wait, default 60000, capped at 180000")
   end
 
@@ -435,6 +490,32 @@ defmodule Custode.MCP.Tools.AwaitAgent do
   end
 
   defp await(agent_id, params, frame) do
+    case params[:message_id] do
+      message_id when is_binary(message_id) -> await_message(agent_id, message_id, params, frame)
+      _omitted -> await_agent(agent_id, params, frame)
+    end
+  end
+
+  defp await_message(agent_id, message_id, params, frame) do
+    timeout = params |> Map.get(:timeout_ms, 60_000) |> max(0) |> min(180_000)
+
+    with %{} = message <- OperatorMessages.get(message_id),
+         true <- message.target_agent_id == agent_id,
+         true <- OperatorMessages.visible_to?(message, Custode.MCP.caller(frame)),
+         {:ok, settled, timed_out} <- OperatorMessages.await(message_id, timeout) do
+      settled
+      |> OperatorMessages.public()
+      |> Map.put(:agent_id, agent_id)
+      |> Map.put(:timed_out, timed_out)
+      |> then(&reply(frame, &1))
+    else
+      nil -> fail(frame, "message not found: #{message_id}")
+      false -> fail(frame, "message #{message_id} does not belong to this caller and target")
+      {:error, reason} -> fail(frame, "message wait failed: #{inspect(reason)}")
+    end
+  end
+
+  defp await_agent(agent_id, params, frame) do
     timeout = params |> Map.get(:timeout_ms, 60_000) |> min(180_000)
 
     {timed_out, status} =

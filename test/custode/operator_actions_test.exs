@@ -74,9 +74,14 @@ defmodule Custode.Operator.ActionsTest do
 
       assert {:ok, :started} = Actions.message(routine.id, "prepare issue 42")
 
-      assert [turn] =
-               jobs_for("ObanClaude.Agent.Job")
-               |> Enum.filter(&(&1.meta["agent_id"] == routine.id))
+      [turn] =
+        eventually(fn ->
+          assert [turn] =
+                   jobs_for("ObanClaude.Agent.Job")
+                   |> Enum.filter(&(&1.meta["agent_id"] == routine.id))
+
+          [turn]
+        end)
 
       :ok =
         finish_agent_turn(

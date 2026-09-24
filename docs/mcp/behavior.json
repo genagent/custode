@@ -152,9 +152,9 @@
     "await_agent": {
       "access": "Main endpoint capability: operator, caretaker, or specialist routine. A routine may await only a temporary agent whose durable spawn record names it as parent; the operator may await any target. Missing or reconciled records do not widen access.",
       "effects": "None; blocks the request while waiting.",
-      "notes": "timeout_ms defaults to 60000 and is capped at 180000; no lower bound is enforced here. Settled states include idle, awaiting_permission, waiting_for_user, paused and offline. A timeout returns current state with timed_out=true rather than a tool error. last_result can belong to an earlier turn; neither settled state nor this result is a per-request completion guarantee.",
-      "result": "agent_id, state, detail, timed_out boolean, last_result (object, up to 400 characters of result text, or null).",
-      "summary": "Wait for an agent to become idle, blocked, paused or offline."
+      "notes": "message_id is optional during migration and is authoritative for new clients. With message_id, timeout_ms defaults to 60000, is clamped to 0..180000, and waits only for that durable message to reach waiting_for_input, waiting_for_approval, completed, failed or refused. The message must belong to the named agent and authenticated caller, except that the operator may inspect every caller. A timeout returns the current durable message with timed_out=true. Without message_id, legacy agent-level waiting remains: settled states include idle, awaiting_permission, waiting_for_user, paused and offline, and last_result may belong to an earlier turn.",
+      "result": "With message_id: the exact durable message receipt (message_id, target, caller provenance, status, delivery, provider turn identity, continuation link, detail, result, error and timestamps), plus agent_id and timed_out. Without it: agent_id, state, detail, timed_out and last_result.",
+      "summary": "Wait for one exact message, or use legacy agent-level waiting."
     },
     "beat": {
       "access": "Main endpoint capability: operator or caretaker routine. The shared operator action repeats that boundary, so specialists, temporary agents and alternate clients are refused before a tick is queued.",
@@ -389,10 +389,10 @@
     },
     "prompt_agent": {
       "access": "Main endpoint capability: operator, caretaker, or specialist routine. A routine may prompt only a temporary agent whose durable spawn record names it as parent; the operator may message any target through the shared operator action. Missing or reconciled records do not widen access.",
-      "effects": "Sends or queues work. For an operator, can resume a paused agent or start an offline configured routine and records activity.",
-      "notes": "agent_id and prompt are required. Waiting-for-user input answers the question; busy input queues. Operator how='started' means a startup tick was queued, not that execution began. The agent path reports how='delivered' after a cast is accepted; this is not a delivery receipt and paused delegation can be dropped. No idempotency key; retry can submit duplicate input.",
-      "result": "agent_id, delivered=true, how describing the accepted delivery path.",
-      "summary": "Send work or an answer to an agent."
+      "effects": "Creates a durable operator-message record, then sends or queues work exactly once for a new caller/target/idempotency tuple. For an operator, can resume a paused agent or start an offline configured routine and records activity.",
+      "notes": "agent_id and prompt are required. idempotency_key is optional; omission creates a new logical message, while retrying the same caller, target and key with the same prompt returns the existing receipt and duplicate=true. Reusing the key with different text is a tool error. Waiting-for-user input creates a new public message linked to the question while retaining its provider correlation; busy input queues. Operator how='started' means startup was accepted, not that execution began. A refusal before enqueue returns a durable refused receipt with delivered=false rather than losing the attempt. New clients should pass the returned message_id to await_agent.",
+      "result": "The durable message receipt: message_id, target and caller provenance, status, delivery path, provider and exact turn identity when known, continuation link, detail, result, error and timestamps; plus agent_id, delivered, how and duplicate.",
+      "summary": "Send one durable, idempotent message or answer to an agent."
     },
     "recall": {
       "access": "Main endpoint capability: operator, caretaker, or specialist routine; memory endpoint capability: temporary agent. Any authenticated caller reaching this tool may read another identity's memories by ID. No self-only read guard.",
