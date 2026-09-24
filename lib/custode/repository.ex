@@ -558,17 +558,63 @@ defmodule Custode.Repository.Ops do
     end
   end
 
+  # A repository that disables merge commits rejects a bare merge call with
+  # 405, so the method is chosen from the repository's allowed methods (#674).
+  @merge_methods [
+    {"allow_merge_commit", "merge"},
+    {"allow_squash_merge", "squash"},
+    {"allow_rebase_merge", "rebase"}
+  ]
+
+  @doc """
+  Picks the merge method a repository allows from the `allow_*` flags on its
+  GitHub representation (string keys): merge commit, then squash, then rebase.
+
+  When none of the flags are present the token cannot see them, so this
+  returns `"merge"`, the method used before the flags were consulted. When
+  they are present and all false there is no method to use.
+  """
+  def merge_method(repository) when is_map(repository) do
+    if Enum.all?(@merge_methods, fn {key, _method} -> is_nil(repository[key]) end) do
+      {:ok, "merge"}
+    else
+      case Enum.find(@merge_methods, fn {key, _method} -> repository[key] == true end) do
+        {_key, method} -> {:ok, method}
+        nil -> {:error, :no_allowed_merge_method}
+      end
+    end
+  end
+
   def merge_pr(owner, repo, number) do
-    with {:ok, client} <- client() do
-      unwrap(GhEx.PullRequests.merge(client, owner, repo, number))
+    with {:ok, client} <- client(),
+         {:ok, method} <- repo_merge_method(client, owner, repo) do
+      client
+      |> GhEx.PullRequests.merge(owner, repo, number, %{merge_method: method})
+      |> unwrap()
+      |> tag_merge_method(method)
     end
   end
 
   def merge_pr_at_head(owner, repo, number, head_sha) do
-    with {:ok, client} <- client() do
-      unwrap(GhEx.PullRequests.merge(client, owner, repo, number, %{sha: head_sha}))
+    with {:ok, client} <- client(),
+         {:ok, method} <- repo_merge_method(client, owner, repo) do
+      client
+      |> GhEx.PullRequests.merge(owner, repo, number, %{merge_method: method, sha: head_sha})
+      |> unwrap()
+      |> tag_merge_method(method)
     end
   end
+
+  defp repo_merge_method(client, owner, repo) do
+    with {:ok, repository} <- unwrap(GhEx.Repositories.get(client, owner, repo)) do
+      merge_method(repository)
+    end
+  end
+
+  defp tag_merge_method({:ok, %{} = result}, method),
+    do: {:ok, Map.put(result, "merge_method", method)}
+
+  defp tag_merge_method(other, _method), do: other
 
   # ---------------------------------------------------------------------------
   # reads (issue #129): shaped down to what a sweep needs, not the raw payload

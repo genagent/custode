@@ -295,6 +295,53 @@ defmodule Custode.RepositoryTest do
     refute tail =~ "\e["
   end
 
+  describe "merge_method/1" do
+    test "prefers a merge commit when the repository allows it" do
+      repository = %{
+        "allow_merge_commit" => true,
+        "allow_squash_merge" => true,
+        "allow_rebase_merge" => true
+      }
+
+      assert {:ok, "merge"} = Ops.merge_method(repository)
+    end
+
+    test "falls back to squash when merge commits are disabled" do
+      repository = %{
+        "allow_merge_commit" => false,
+        "allow_squash_merge" => true,
+        "allow_rebase_merge" => true
+      }
+
+      assert {:ok, "squash"} = Ops.merge_method(repository)
+    end
+
+    test "falls back to rebase when it is the only method allowed" do
+      repository = %{
+        "allow_merge_commit" => false,
+        "allow_squash_merge" => false,
+        "allow_rebase_merge" => true
+      }
+
+      assert {:ok, "rebase"} = Ops.merge_method(repository)
+    end
+
+    test "refuses when every method is disabled" do
+      repository = %{
+        "allow_merge_commit" => false,
+        "allow_squash_merge" => false,
+        "allow_rebase_merge" => false
+      }
+
+      assert {:error, :no_allowed_merge_method} = Ops.merge_method(repository)
+    end
+
+    test "keeps the merge default when the flags are not visible to the token" do
+      assert {:ok, "merge"} = Ops.merge_method(%{"id" => 1})
+      assert {:ok, "merge"} = Ops.merge_method(%{"allow_merge_commit" => nil})
+    end
+  end
+
   test "reads do NOT record a feed entry (only writes do)", %{repo: repo} do
     {:ok, _} = Repository.list_issues(repo)
     {:ok, _} = Repository.view_pr(repo, 9)
