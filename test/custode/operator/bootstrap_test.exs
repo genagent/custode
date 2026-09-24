@@ -43,6 +43,11 @@ defmodule Custode.Operator.BootstrapTest do
     assert %{transport: "cli", verified: false} = result.caller
   end
 
+  test "host/1 returns the hostname on success and nil when the lookup fails" do
+    assert Bootstrap.host(fn -> {:ok, ~c"example-host"} end) == "example-host"
+    assert Bootstrap.host(fn -> {:error, :enotsup} end) == nil
+  end
+
   test "every expand entry names a tool in the policy table" do
     %{expand: expand} = Bootstrap.build(@operator)
     policy = ToolPolicy.all()

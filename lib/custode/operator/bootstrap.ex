@@ -80,9 +80,15 @@ defmodule Custode.Operator.Bootstrap do
     }
   end
 
-  defp host do
-    {:ok, name} = :inet.gethostname()
-    to_string(name)
+  @doc false
+  # The lookup is injected so a test can reach the error branch. A failed
+  # hostname lookup is reported as a null host, never raised.
+  @spec host((-> {:ok, charlist()} | {:error, term()})) :: String.t() | nil
+  def host(lookup \\ &:inet.gethostname/0) do
+    case lookup.() do
+      {:ok, name} -> to_string(name)
+      {:error, _reason} -> nil
+    end
   end
 
   defp fleet do
