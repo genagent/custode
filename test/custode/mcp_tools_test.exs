@@ -616,19 +616,27 @@ defmodule Custode.MCPToolsTest do
         Tools.RunJob.execute(%{prompt: "x", report_inbox: inbox, max_turns: turns}, frame)
       end
 
-      # exact: the approved cap itself, and anything between it and the default
+      # exact: only the approved cap itself, so the gate detail names the
+      # resolved cap
       gate = approved_gate!(routine.id, "implement", "fix #9: slice one; max_turns=60; draft PR")
       assert tool_json(run.(60))["max_turns"] == 60
-      assert tool_json(run.(40))["max_turns"] == 40
 
-      # too low an approval: the request is above the approved cap
+      # a raise that differs from the approved cap, below or above it
       before = length(jobs_for("Custode.OneShotJob"))
-      assert tool_error(run.(61)) =~ "max_turns 61 exceeds the max_turns=60 that gate #{gate.id}"
+
+      assert tool_error(run.(40)) =~
+               "max_turns 40 is not the max_turns=60 that gate #{gate.id} approved; " <>
+                 "request exactly 60"
+
+      assert tool_error(run.(61)) =~ "max_turns 61 is not the max_turns=60 that gate #{gate.id}"
       refute_job_inserted(before)
+      # the default and below still need no marker
+      assert tool_json(run.(15))["max_turns"] == 15
       Custode.Repo.delete!(gate)
 
       # missing: a shell-class approval that never named a cap
       gate = approved_gate!(routine.id, "pr_maintain", "fix CI on #9; push to the same branch")
+      before = length(jobs_for("Custode.OneShotJob"))
       assert tool_error(run.(40)) =~ "gate #{gate.id} names no max_turns=<N>"
       refute_job_inserted(before)
       # the default and below still need no marker

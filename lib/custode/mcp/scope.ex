@@ -40,10 +40,10 @@ defmodule Custode.MCP.Scope do
   routine's while an approved action of a shell class is in flight, the same
   `Custode.Gates.Class.shell?/1` rule that gates elevated jobs. That approval
   must also name the cap it sized: its detail carries one stable
-  `max_turns=<N>` marker, and the request may not exceed `N`. The resolved
-  cap is then part of what the operator read and approved rather than a
-  prose convention, and neither an unapproved sweep nor an unrelated
-  approval (a comment, a ready_pr) can buy a longer job.
+  `max_turns=<N>` marker, and the request must be exactly `N`. The resolved
+  cap is then the number the operator read and approved, not a ceiling under
+  it, and neither an unapproved sweep nor an unrelated approval (a comment,
+  a ready_pr) can buy a longer job.
 
   Both configured bounds are checked first: a non-positive or non-integer
   value, or a default above the ceiling, is an error for every request,
@@ -166,13 +166,13 @@ defmodule Custode.MCP.Scope do
 
   defp within_approved_cap(%{gate_id: gate_id, detail: detail}, requested, default) do
     case approved_turn_cap(detail) do
-      {:ok, cap} when requested <= cap ->
+      {:ok, ^requested} ->
         {:ok, requested}
 
       {:ok, cap} ->
         {:error,
-         "gate grant: max_turns #{requested} exceeds the max_turns=#{cap} " <>
-           "that gate #{gate_id} approved"}
+         "gate grant: max_turns #{requested} is not the max_turns=#{cap} " <>
+           "that gate #{gate_id} approved; request exactly #{cap}"}
 
       :missing ->
         {:error,
