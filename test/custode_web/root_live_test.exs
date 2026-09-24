@@ -84,6 +84,30 @@ defmodule CustodeWeb.RootLiveTest do
     refute has_element?(view, "#custode-will")
   end
 
+  test "the primary application header is identical across operator surfaces", %{conn: conn} do
+    {:ok, root, root_html} = live(conn, "/custode")
+    {:ok, console, console_html} = live(conn, "/console")
+    {:ok, repos, repos_html} = live(conn, "/repos")
+
+    expected = [
+      {"console", "/console"},
+      {"custode", "/custode"},
+      {"inbox", "/inbox"},
+      {"repos", "/repos"},
+      {"suggestions", "/suggestions"},
+      {"workflows", "/workflows"},
+      {"metrics", "/metrics"}
+    ]
+
+    assert primary_nav(root_html) == expected
+    assert primary_nav(console_html) == expected
+    assert primary_nav(repos_html) == expected
+    assert has_element?(root, "#application-header a[aria-current=page]", "custode")
+    assert has_element?(console, "#application-header a[aria-current=page]", "console")
+    assert has_element?(repos, "#application-header a[aria-current=page]", "repos")
+    assert has_element?(root, "#custode-root.max-w-4xl")
+  end
+
   test "a sentence to try fills the box and does not send", %{conn: conn} do
     {:ok, view, html} = live(conn, "/custode")
     assert html =~ "also try"
@@ -154,5 +178,15 @@ defmodule CustodeWeb.RootLiveTest do
     {:ok, view, html} = live(conn, "/custode")
     assert html =~ "there is no custode to talk to"
     refute has_element?(view, "form[phx-submit=tell]")
+  end
+
+  defp primary_nav(html) do
+    html
+    |> LazyHTML.from_document()
+    |> LazyHTML.query("#application-header nav[aria-label=primary] a")
+    |> Enum.map(fn link ->
+      {link |> LazyHTML.text() |> String.trim(),
+       link |> LazyHTML.attribute("href") |> List.first()}
+    end)
   end
 end

@@ -600,9 +600,9 @@ defmodule CustodeWeb.ConsoleLive do
       <.console_header
         caretaker={@caretaker}
         tell_gen={@tell_gen}
-        needs_you={@needs_you}
         presence={@presence}
         usage={@usage}
+        attention_signals={@attention_signals}
         fleet_today={@fleet_today}
         notice={@fleet_notice}
         selected={@selected}
@@ -743,7 +743,8 @@ defmodule CustodeWeb.ConsoleLive do
 
     # The host signal (#443) has no agent of its own and is drawn as the
     # banner, so it stays out of a rail of subjects.
-    signals = Enum.reject(Attention.Fleet.signals(), &(&1.kind == :host_down))
+    attention_signals = Attention.Fleet.signals()
+    signals = Enum.reject(attention_signals, &(&1.kind == :host_down))
 
     groups =
       signals
@@ -758,13 +759,13 @@ defmodule CustodeWeb.ConsoleLive do
     assign(socket,
       groups: groups,
       signals: signals,
+      attention_signals: attention_signals,
       selected: selected,
       signal: signal,
       subject:
         signal &&
           load_subject(selected, signal, socket.assigns.feed_limit, socket.assigns.journal_limit),
       in_flight: Custode.RunClock.running(),
-      needs_you: Enum.count(signals, &Signal.needs_you?/1),
       roster_empty: Custode.Routine.all() == [],
       caretaker_missing: not Enum.any?(Custode.Routine.all(), &(&1.role == :caretaker)),
       # already ranked by the resolver, so the first one that is not on screen

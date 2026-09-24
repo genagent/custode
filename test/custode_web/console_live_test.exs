@@ -54,7 +54,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ sleeper.id
     # opened on the agent with the question, without being told to
     assert html =~ "is the uncommitted diff yours?"
-    assert html =~ "1 need you"
+    assert html =~ "#{asker.id} asked you"
   end
 
   test "the selected running agent shows a live elapsed strip", %{conn: conn, sleeper: sleeper} do
@@ -431,7 +431,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert %{status: "dismissed", dismissal_reason: nil, answer: nil} = Asks.get(ask.id)
     refute has_element?(view, ~s(form[id^="dismiss-ask-"]))
     refute has_element?(view, ~s(form[id^="reply-answer_ask-"]))
-    refute html =~ "1 need you"
+    refute html =~ "#{asker.id} asked you"
   end
 
   test "a dismissal can record a reason without sending an answer",
@@ -816,7 +816,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
     {:ok, _proposal} = Launch.propose(workflow.name, "owner/repo")
 
     {:ok, view, html} = live(conn, "/console/#{sleeper.id}")
-    assert html =~ "1 need you"
+    assert html =~ "awaits your launch approval"
 
     # the subject holds a slash, so the rail link has to encode it to stay one
     # path segment
@@ -1467,7 +1467,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
 
     test "nothing observed draws nothing: unknown is not zero percent", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/console")
-      header = view |> element("header") |> render()
+      header = view |> element("#console-controls") |> render()
 
       refute header =~ "5h"
       refute header =~ "7d"
@@ -1516,7 +1516,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
       })
 
       {:ok, view, _html} = live(conn, "/console")
-      header = view |> element("header") |> render()
+      header = view |> element("#console-controls") |> render()
 
       assert header =~ "held until"
       assert header =~ "(from a reading 40m old)"

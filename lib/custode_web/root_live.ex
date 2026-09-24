@@ -15,7 +15,7 @@ defmodule CustodeWeb.RootLive do
   use Phoenix.LiveView
 
   import CustodeWeb.Components,
-    only: [ago: 1, feed_entry: 1, host_banner: 1, markdown: 1, reject_form: 1, theme_toggle: 1]
+    only: [ago: 1, app_header: 1, feed_entry: 1, host_banner: 1, markdown: 1, reject_form: 1]
 
   alias Custode.Operator.Actions
 
@@ -104,20 +104,19 @@ defmodule CustodeWeb.RootLive do
   @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
-    <div id="custode-root" class="mx-auto flex min-h-screen max-w-4xl flex-col px-6 py-5">
-      <header class="flex items-baseline gap-4 border-b border-base-300 pb-4">
-        <.link navigate="/" class="text-xl font-bold hover:opacity-70">custode</.link>
+    <div class="min-h-screen">
+      <.app_header active={:custode} fleet_today={@fleet_today} />
+      <main id="custode-root" class="mx-auto flex max-w-4xl flex-col px-6 py-5">
+        <div class="flex items-baseline gap-4 border-b border-base-300 pb-4">
         <span class="font-mono text-sm text-base-content/50">
           root &middot; sees every agent &middot; speaks for you
         </span>
-        <span class="ml-auto"></span>
-        <.theme_toggle />
-        <.link navigate="/" class="font-mono text-xs text-base-content/40 hover:text-base-content">
-          esc to close
-        </.link>
-      </header>
+          <.link navigate="/" class="ml-auto font-mono text-xs text-base-content/40 hover:text-base-content">
+            esc to close
+          </.link>
+        </div>
 
-      <div class="pt-4 empty:hidden"><.host_banner /></div>
+        <div class="pt-4 empty:hidden"><.host_banner /></div>
 
       <p :if={@caretaker == nil} class="mt-8 text-sm text-warning">
         No routine is tagged <span class="font-mono">meta</span>, so there is no custode to talk to.
@@ -178,14 +177,15 @@ defmodule CustodeWeb.RootLive do
         </button>
       </section>
 
-      <section id="custode-did" class="mt-8 border-t border-base-300 pt-6">
-        <.label>what custode did {@did_since}</.label>
-        <p :if={@did == []} class="text-sm text-base-content/50">nothing but its sweeps</p>
-        <div :for={entry <- @did} class="flex gap-4 py-1 font-mono text-sm">
-          <span class="w-16 shrink-0 text-base-content/40"><.ago at={entry["at"]} /></span>
-          <span class="min-w-0 text-base-content/80">{entry["summary"] || entry["event"]}</span>
-        </div>
-      </section>
+        <section id="custode-did" class="mt-8 border-t border-base-300 pt-6">
+          <.label>what custode did {@did_since}</.label>
+          <p :if={@did == []} class="text-sm text-base-content/50">nothing but its sweeps</p>
+          <div :for={entry <- @did} class="flex gap-4 py-1 font-mono text-sm">
+            <span class="w-16 shrink-0 text-base-content/40"><.ago at={entry["at"]} /></span>
+            <span class="min-w-0 text-base-content/80">{entry["summary"] || entry["event"]}</span>
+          </div>
+        </section>
+      </main>
     </div>
     """
   end
@@ -213,7 +213,8 @@ defmodule CustodeWeb.RootLive do
       plan: caretaker && plan(caretaker),
       said: feed |> Custode.Feed.said() |> Enum.reject(&gate_event?/1) |> Enum.take(3),
       did: did(feed, since),
-      did_since: since_words
+      did_since: since_words,
+      fleet_today: Custode.SpendLedger.fleet_today()
     )
   end
 

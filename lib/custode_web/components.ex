@@ -204,10 +204,10 @@ defmodule CustodeWeb.Components do
     """
   end
 
-  slot(:inner_block, required: true)
-  attr(:fleet_today, :float, required: true)
-  attr(:active, :atom, default: :fleet)
+  attr(:fleet_today, :any, required: true)
+  attr(:active, :atom, default: :console)
   attr(:readouts, :boolean, default: true)
+  attr(:attention_signals, :any, default: nil)
   # Passed by the pages that already hold the data rather than computed here
   # (#301): the count comes from a resolver pass, and running a second one on
   # every page render to decorate a nav link is not worth it. Pages that do
@@ -219,44 +219,111 @@ defmodule CustodeWeb.Components do
   attr(:launch_gates, :integer, default: 0)
 
   @doc """
-  The shared page chrome: header with nav, the attention chip, the fleet spend.
+  The application header shared by every operator surface.
 
-  `readouts={false}` leaves the header plain because the page carries the
-  fleet-level readouts itself -- the fleet page's meta rail (#178) owns them.
+  The first row is deliberately stable: product, primary navigation, attention,
+  spend and theme always occupy the same places. A dense surface such as the
+  console puts its local controls below this component instead of inventing a
+  second application header.
   """
-  def page(assigns) do
+  def app_header(assigns) do
     ~H"""
-    <div class="mx-auto max-w-7xl p-6">
-      <header class="mb-6 flex items-baseline gap-4">
-        <.link navigate="/" class="text-3xl font-bold hover:opacity-70">custode</.link>
-        <nav class="flex gap-3 text-sm">
-          <.link navigate="/" class={nav_class(@active == :fleet)}>console</.link>
-          <.link navigate="/console" class={nav_class(false)}>console</.link>
-          <.link navigate="/custode" class={nav_class(false)} title="Cmd/Ctrl+K">custode</.link>
-          <.link navigate="/inbox" class={nav_class(@active == :inbox)}>
+    <header id="application-header" class="border-b border-base-300 bg-base-100">
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3">
+        <.link navigate="/" class="text-xl font-bold hover:opacity-70">custode</.link>
+        <nav
+          aria-label="primary"
+          class="order-3 flex w-full gap-3 overflow-x-auto text-sm sm:order-none sm:w-auto"
+        >
+          <.link
+            navigate="/console"
+            class={nav_class(@active in [:console, :fleet])}
+            aria-current={if @active in [:console, :fleet], do: "page"}
+          >
+            console
+          </.link>
+          <.link
+            navigate="/custode"
+            class={nav_class(@active == :custode)}
+            aria-current={if @active == :custode, do: "page"}
+            title="Shift+Cmd/Ctrl+K"
+          >
+            custode
+          </.link>
+          <.link
+            navigate="/inbox"
+            class={nav_class(@active == :inbox)}
+            aria-current={if @active == :inbox, do: "page"}
+          >
             inbox<span :if={@unread > 0} class="ml-1 font-mono text-warning">{@unread}</span>
           </.link>
-          <.link navigate="/repos" class={nav_class(@active == :repos)}>repos</.link>
-          <.link navigate="/suggestions" class={nav_class(@active == :suggestions)}>
+          <.link
+            navigate="/repos"
+            class={nav_class(@active == :repos)}
+            aria-current={if @active == :repos, do: "page"}
+          >
+            repos
+          </.link>
+          <.link
+            navigate="/suggestions"
+            class={nav_class(@active == :suggestions)}
+            aria-current={if @active == :suggestions, do: "page"}
+          >
             suggestions
           </.link>
-          <.link navigate="/workflows" class={nav_class(@active == :workflows)}>
+          <.link
+            navigate="/workflows"
+            class={nav_class(@active == :workflows)}
+            aria-current={if @active == :workflows, do: "page"}
+          >
             workflows<span :if={@launch_gates > 0} class="ml-1 font-mono text-warning">
               {@launch_gates}
             </span>
           </.link>
           <%!-- /feed leaves the top nav (#301) and keeps its route: a firehose
                 is genuinely useful per-agent and useless as a destination. --%>
-          <.link navigate="/metrics" class={nav_class(@active == :metrics)}>metrics</.link>
+          <.link
+            navigate="/metrics"
+            class={nav_class(@active == :metrics)}
+            aria-current={if @active == :metrics, do: "page"}
+          >
+            metrics
+          </.link>
         </nav>
-        <.attention_chip :if={@readouts} />
-        <span :if={@readouts} class="ml-auto font-mono text-sm text-base-content/70">
-          fleet today ${usd(@fleet_today)}
-        </span>
-        <.theme_toggle />
-      </header>
-      <.host_banner />
-      {render_slot(@inner_block)}
+        <div class="ml-auto flex items-center gap-3">
+          <.attention_chip :if={@readouts} signals={@attention_signals} />
+          <span :if={@readouts} class="whitespace-nowrap font-mono text-sm text-base-content/70">
+            fleet today ${usd(@fleet_today)}
+          </span>
+          <.theme_toggle />
+        </div>
+      </div>
+    </header>
+    """
+  end
+
+  slot(:inner_block, required: true)
+  attr(:fleet_today, :any, required: true)
+  attr(:active, :atom, default: :console)
+  attr(:readouts, :boolean, default: true)
+  attr(:unread, :integer, default: 0)
+  attr(:launch_gates, :integer, default: 0)
+
+  @doc "The shared application header and ordinary-page content frame."
+  def page(assigns) do
+    ~H"""
+    <div class="min-h-screen">
+      <.app_header
+        fleet_today={@fleet_today}
+        active={@active}
+        readouts={@readouts}
+        unread={@unread}
+        launch_gates={@launch_gates}
+      />
+      <main class="mx-auto max-w-7xl p-6">
+        <.host_banner />
+        {render_slot(@inner_block)}
+      </main>
     </div>
     """
   end
@@ -382,9 +449,11 @@ defmodule CustodeWeb.Components do
   the chip counts and opens on the one that most needs the operator.
   """
   attr(:wrap, :boolean, default: false)
+  attr(:signals, :any, default: nil)
 
   def attention_chip(assigns) do
-    assigns = assign(assigns, :attention, attention())
+    signals = assigns.signals || Attention.Fleet.signals()
+    assigns = assign(assigns, :attention, attention(signals))
 
     ~H"""
     <.link
@@ -895,8 +964,8 @@ defmodule CustodeWeb.Components do
   # change: a PAUSED agent stops being counted. `needs_attention?/1` still
   # includes it, and still should -- it also decides which feed message a tile
   # shows -- but a deliberate stop is not something waiting on a human.
-  defp attention do
-    for signal <- Attention.Fleet.signals(), Signal.needs_you?(signal) do
+  defp attention(signals) do
+    for signal <- signals, Signal.needs_you?(signal) do
       {signal.subject, chip_word(signal.kind)}
     end
   end
