@@ -384,6 +384,95 @@ defmodule Custode.RepositoryTest do
     end
   end
 
+  describe "the merge method sent to GitHub" do
+    @stub __MODULE__.GitHubStub
+    @all_allowed %{
+      "allow_merge_commit" => true,
+      "allow_squash_merge" => true,
+      "allow_rebase_merge" => true
+    }
+    @squash_only %{
+      "allow_merge_commit" => false,
+      "allow_squash_merge" => true,
+      "allow_rebase_merge" => false
+    }
+    @none_allowed %{
+      "allow_merge_commit" => false,
+      "allow_squash_merge" => false,
+      "allow_rebase_merge" => false
+    }
+
+    setup do
+      previous_token = System.get_env("GITHUB_TOKEN")
+      System.put_env("GITHUB_TOKEN", "test-token")
+      Application.put_env(:custode, :github_req_options, plug: {Req.Test, @stub})
+
+      on_exit(fn ->
+        Application.delete_env(:custode, :github_req_options)
+
+        if previous_token,
+          do: System.put_env("GITHUB_TOKEN", previous_token),
+          else: System.delete_env("GITHUB_TOKEN")
+      end)
+
+      :ok
+    end
+
+    defp stub_github(flags) do
+      test_pid = self()
+
+      Req.Test.stub(@stub, fn conn ->
+        case {conn.method, conn.request_path} do
+          {"GET", "/repos/o/r"} ->
+            Req.Test.json(conn, Map.merge(%{"full_name" => "o/r"}, flags))
+
+          {"PUT", "/repos/o/r/pulls/1/merge"} ->
+            {:ok, raw, conn} = Plug.Conn.read_body(conn)
+            send(test_pid, {:merge_request, Jason.decode!(raw)})
+            Req.Test.json(conn, %{"merged" => true, "sha" => "abc"})
+        end
+      end)
+    end
+
+    test "merge_pr sends squash to a squash-only repository" do
+      stub_github(@squash_only)
+
+      assert {:ok, %{"merged" => true, "merge_method" => "squash"}} = Ops.merge_pr("o", "r", 1)
+      assert_received {:merge_request, %{"merge_method" => "squash"} = body}
+      refute Map.has_key?(body, "sha")
+    end
+
+    test "merge_pr sends merge to a repository that allows every method" do
+      stub_github(@all_allowed)
+
+      assert {:ok, %{"merged" => true, "merge_method" => "merge"}} = Ops.merge_pr("o", "r", 1)
+      assert_received {:merge_request, %{"merge_method" => "merge"}}
+    end
+
+    test "merge_pr_at_head sends squash and the head sha to a squash-only repository" do
+      stub_github(@squash_only)
+
+      assert {:ok, %{"merged" => true, "merge_method" => "squash"}} =
+               Ops.merge_pr_at_head("o", "r", 1, "deadbeef")
+
+      assert_received {:merge_request, %{"merge_method" => "squash", "sha" => "deadbeef"}}
+    end
+
+    test "merge_pr makes no merge request when every method is disabled" do
+      stub_github(@none_allowed)
+
+      assert {:error, :no_allowed_merge_method} = Ops.merge_pr("o", "r", 1)
+      refute_received {:merge_request, _body}
+    end
+
+    test "merge_pr_at_head makes no merge request when every method is disabled" do
+      stub_github(@none_allowed)
+
+      assert {:error, :no_allowed_merge_method} = Ops.merge_pr_at_head("o", "r", 1, "deadbeef")
+      refute_received {:merge_request, _body}
+    end
+  end
+
   test "reads do NOT record a feed entry (only writes do)", %{repo: repo} do
     {:ok, _} = Repository.list_issues(repo)
     {:ok, _} = Repository.view_pr(repo, 9)

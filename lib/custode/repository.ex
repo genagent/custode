@@ -851,10 +851,14 @@ defmodule Custode.Repository.Ops do
 
   defp client do
     case token() do
-      {:ok, token} -> {:ok, GhEx.new(auth: {:token, token})}
+      {:ok, token} -> {:ok, GhEx.new(auth: {:token, token}, req_options: req_options())}
       error -> error
     end
   end
+
+  # Test seam: a test installs a Req.Test plug here to see the requests sent to
+  # GitHub. It is not set in any config file.
+  defp req_options, do: Application.get_env(:custode, :github_req_options, [])
 
   defp token do
     case System.get_env("GITHUB_TOKEN") do
