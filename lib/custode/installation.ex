@@ -35,13 +35,41 @@ defmodule Custode.Installation do
 
   @doc false
   # The file logic with the path injected, so a test can use a temporary one.
-  # Reads a valid id, otherwise writes a new one atomically and returns what is
-  # on disk afterwards, so two racing first callers agree on one id.
+  # Local callers serialize per path. Publication uses a same-directory hard
+  # link, which creates the destination without replacing a concurrent winner.
   @spec id_at(Path.t()) :: String.t()
   def id_at(path) do
+    path = Path.expand(path)
+    lock_id = {{__MODULE__, path}, self()}
+
+    case :global.trans(lock_id, fn -> id_at_locked(path) end) do
+      {:aborted, reason} -> unpersisted_id({:lock_aborted, reason})
+      id -> id
+    end
+  end
+
+  @doc false
+  @spec create_at(Path.t(), (Path.t(), Path.t() -> :ok | {:error, term()})) :: String.t()
+  def create_at(path, publish \\ &File.ln/2) when is_function(publish, 2) do
+    id = generate()
+    temp = path <> ".tmp-" <> Base.encode16(:crypto.strong_rand_bytes(4))
+
+    with_temp_file(temp, fn ->
+      with :ok <- File.mkdir_p(Path.dirname(path)),
+           :ok <- File.write(temp, id <> "\n") do
+        resolve_publication(path, id, publish.(temp, path))
+      else
+        {:error, reason} -> unpersisted_id(reason, id)
+      end
+    end)
+  end
+
+  defp id_at_locked(path) do
     case read(path) do
       {:ok, id} -> id
-      :error -> create(path)
+      {:error, :enoent} -> create_at(path)
+      {:error, :malformed} -> replace_malformed(path)
+      {:error, reason} -> unpersisted_id(reason)
     end
   end
 
@@ -51,32 +79,46 @@ defmodule Custode.Installation do
          true <- valid?(id) do
       {:ok, id}
     else
-      _missing_or_malformed -> :error
+      false -> {:error, :malformed}
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  defp create(path) do
-    id = generate()
-    temp = path <> ".tmp-" <> Base.encode16(:crypto.strong_rand_bytes(4))
+  defp replace_malformed(path) do
+    Logger.warning("installation id file is malformed; replacing it")
 
-    with :ok <- File.mkdir_p(Path.dirname(path)),
-         :ok <- File.write(temp, id <> "\n"),
-         :ok <- File.rename(temp, path) do
-      case read(path) do
-        {:ok, on_disk} -> on_disk
-        :error -> id
-      end
-    else
-      {:error, reason} ->
-        File.rm(temp)
-
-        Logger.warning(
-          "installation id could not be persisted (#{inspect(reason)}); " <>
-            "it is stable only until restart"
-        )
-
-        id
+    case File.rm(path) do
+      :ok -> create_at(path)
+      {:error, :enoent} -> create_at(path)
+      {:error, reason} -> unpersisted_id(reason)
     end
+  end
+
+  defp resolve_publication(path, id, result) when result in [:ok, {:error, :eexist}] do
+    case read(path) do
+      {:ok, on_disk} -> on_disk
+      {:error, reason} -> unpersisted_id(reason, id)
+    end
+  end
+
+  defp resolve_publication(_path, id, {:error, reason}), do: unpersisted_id(reason, id)
+
+  defp resolve_publication(_path, id, unexpected),
+    do: unpersisted_id({:unexpected_publish_result, unexpected}, id)
+
+  defp with_temp_file(temp, fun) do
+    fun.()
+  after
+    File.rm(temp)
+  end
+
+  defp unpersisted_id(reason, id \\ generate()) do
+    Logger.warning(
+      "installation id could not be persisted (#{inspect(reason, limit: 3, printable_limit: 128)}); " <>
+        "it is stable only until restart"
+    )
+
+    id
   end
 
   defp generate,

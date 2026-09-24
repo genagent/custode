@@ -17,9 +17,10 @@ defmodule Custode.Operator.Bootstrap do
   surface that invokes it does, through `Custode.Operator.Authority.human/1`.
   """
 
-  alias Custode.{Asks, Gates, Installation, Routine}
+  alias Custode.{Agents, Asks, Gates, Installation, Routine}
   alias Custode.Attention.Fleet
   alias Custode.MCP.ToolPolicy
+  alias Custode.Operator.Actions
 
   @schema_version "custode.operator_bootstrap.v1"
 
@@ -80,10 +81,8 @@ defmodule Custode.Operator.Bootstrap do
   end
 
   defp host do
-    case :inet.gethostname() do
-      {:ok, name} -> to_string(name)
-      _error -> nil
-    end
+    {:ok, name} = :inet.gethostname()
+    to_string(name)
   end
 
   defp fleet do
@@ -100,7 +99,7 @@ defmodule Custode.Operator.Bootstrap do
   end
 
   defp caretaker do
-    case Custode.Operator.Actions.caretaker() do
+    case Actions.caretaker() do
       nil -> nil
       id -> %{id: id, state: state(id)}
     end
@@ -113,7 +112,7 @@ defmodule Custode.Operator.Bootstrap do
   end
 
   defp state(routine_id) do
-    case Custode.Agents.status(routine_id) do
+    case Agents.status(routine_id) do
       {:ok, status} -> Custode.state_of(status)
       _error -> :unknown
     end
