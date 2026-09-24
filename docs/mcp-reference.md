@@ -1389,13 +1389,13 @@ Request a pull-request merge subject to repository policy.
 | number | integer | yes | the PR number |  |
 | repo | string | yes | owner/name of a SERVED repo |  |
 
-**Result:** repo, number, state='merged' on accepted success.
+**Result:** repo, number, state='merged' and merge_method (the method sent to GitHub) on accepted success.
 
 **Side effects:** Requests a GitHub merge and records repository-write activity if repository policy and the review floor permit it.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
 
-**Behavior, defaults and errors:** repo and number are required. Shipped manual merge policy normally refuses this tool. Review evidence is also required, and a latest needs-human marker blocks it. This tool does not accept an expected head SHA or expose the separate head-checked merge-gate path.
+**Behavior, defaults and errors:** repo and number are required. Shipped manual merge policy normally refuses this tool. Review evidence is also required, and a latest needs-human marker blocks it. This tool does not accept an expected head SHA or expose the separate head-checked merge-gate path. The merge method is selected from the repository's allow_merge_commit, allow_squash_merge and allow_rebase_merge flags, preferring merge, then squash, then rebase; when all three flags are absent it sends "merge". A repository that allows none of them is refused with a typed "policy merge_method: ..." error before any merge request. Selection happens after the merge-policy and review-floor checks.
 
 ### Tool: repo_open_issue
 
