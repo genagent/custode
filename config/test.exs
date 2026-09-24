@@ -39,7 +39,12 @@ config :custode,
   # boot fails with :eaddrinuse). A second worktree sets this to its own port.
   mcp_port: String.to_integer(System.get_env("CUSTODE_TEST_MCP_PORT", "6171")),
   # test-owned MCP config files: the suite must never touch a live server's
-  mcp_config_dir: "tmp/test/mcp"
+  mcp_config_dir: "tmp/test/mcp",
+  # doctor's managed settings read: never the real ~/.claude or system policy
+  claude_managed_settings: [
+    config_dir: "tmp/test/claude-config",
+    system_dir: "tmp/test/claude-managed"
+  ]
 
 config :custode, CustodeWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4647],

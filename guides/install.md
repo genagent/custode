@@ -45,9 +45,13 @@ lives beside the code (the dev-loop default).
 mix custode doctor
 ```
 
-Six checks, no paid calls, non-zero exit on any failure: the claude binary
-and its auth, gh and its auth, the configured timezone resolving, the home
-being writable, and the roster parsing. Fix what it names and run it again.
+No paid calls, non-zero exit on any failure: the claude binary and its auth,
+gh and its auth, the configured timezone resolving, the home being writable,
+the roster parsing, migration versions, and the checkout against its
+upstream. Two more lines read the organization's managed Claude Code settings
+and say `warning:` without failing when they drop Custode's MCP allowlist or
+disable bypass permissions mode; the README's troubleshooting section says
+what to ask the administrator for. Fix what it names and run it again.
 Set your timezone first if it is not the default -- schedules AND daily
 spend rails both roll on it:
 
