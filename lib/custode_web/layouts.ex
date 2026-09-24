@@ -46,6 +46,17 @@ defmodule CustodeWeb.Layouts do
           window.addEventListener("DOMContentLoaded", () => {
             const csrf = document.querySelector("meta[name='csrf-token']").content;
             const draftKey = subject => `custode-subject-draft:${encodeURIComponent(subject)}`;
+            const setDraftInput = (subject, text) => {
+              const form = document.querySelector(
+                `[data-subject-draft][data-subject="${CSS.escape(subject)}"]`
+              );
+              if (!form) return;
+
+              const input = form.querySelector("[data-draft-input]");
+              input.value = text;
+              input.dispatchEvent(new Event("input", {bubbles: true}));
+              input.focus();
+            };
 
             const Hooks = {
               SubjectRail: {
@@ -190,18 +201,11 @@ defmodule CustodeWeb.Layouts do
             // reloads and reconnects until an accepted send or explicit discard.
             window.addEventListener("phx:draft:clear", event => {
               localStorage.removeItem(draftKey(event.detail.subject));
+              setDraftInput(event.detail.subject, "");
             });
 
             window.addEventListener("phx:draft:restore", event => {
-              const form = document.querySelector(
-                `[data-subject-draft][data-subject="${CSS.escape(event.detail.subject)}"]`
-              );
-              if (!form) return;
-
-              const input = form.querySelector("[data-draft-input]");
-              input.value = event.detail.text;
-              input.dispatchEvent(new Event("input", {bubbles: true}));
-              input.focus();
+              setDraftInput(event.detail.subject, event.detail.text);
             });
 
             const liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {

@@ -393,13 +393,16 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ "started a turn with your message"
   end
 
-  test "draft storage is browser-local, per subject, and retained until send or discard",
+  test "browser drafts persist per subject and accepted sends clear the visible composer",
        %{conn: conn} do
     html = conn |> get("/console") |> html_response(200)
 
     assert html =~ "custode-subject-draft:${encodeURIComponent(subject)}"
     assert html =~ "localStorage.setItem(draftKey(this.subject), this.input.value)"
     assert html =~ "localStorage.getItem(draftKey(this.subject))"
+    assert html =~ ~s|setDraftInput(event.detail.subject, "")|
+    assert html =~ ~s|input.dispatchEvent(new Event("input", {bubbles: true}))|
+    assert html =~ "input.focus()"
     assert html =~ "Drafts belong to this browser profile"
   end
 
