@@ -188,7 +188,7 @@ defmodule CustodeWeb.Components do
             ${usd(@entry["cost_usd"])}<span :if={@entry["tokens"]} class="text-base-content/50"> &middot; {tok(@entry["tokens"])}</span>
           </span>
         </div>
-        <p class="text-base-content/80">{feed_text(@entry)}</p>
+        <.foldable_text text={feed_text(@entry)} class="text-base-content/80" />
         <.prompt_answer entry={@entry} />
         <button
           :if={@restore_prompt && restore_text(@entry)}
@@ -202,6 +202,70 @@ defmodule CustodeWeb.Components do
       </div>
     </div>
     """
+  end
+
+  @fold_text_chars 360
+  @fold_text_lines 5
+  @fold_preview_chars 280
+
+  attr(:text, :string, required: true)
+  attr(:class, :any, default: nil)
+  attr(:id, :string, default: nil)
+
+  @doc """
+  Plain text that stays inline when short and becomes a native disclosure
+  when it would dominate its surrounding view.
+  """
+  def foldable_text(assigns) do
+    text = assigns.text || ""
+
+    assigns =
+      assigns
+      |> assign(:text, text)
+      |> assign(:fold?, fold_text?(text))
+      |> assign(:preview, fold_preview(text))
+
+    ~H"""
+    <p
+      :if={!@fold?}
+      id={@id}
+      data-foldable-text
+      class={["whitespace-pre-wrap break-words", @class]}
+    >
+      {@text}
+    </p>
+    <details
+      :if={@fold?}
+      id={@id}
+      data-foldable-text
+      class={["group", @class]}
+    >
+      <summary class="cursor-pointer list-none">
+        <span class="line-clamp-3 whitespace-pre-wrap break-words group-open:hidden">
+          {@preview}
+        </span>
+        <span class="link mt-1 inline-block text-xs group-open:hidden">show more</span>
+        <span class="link hidden text-xs group-open:inline">show less</span>
+      </summary>
+      <p class="mt-1 whitespace-pre-wrap break-words">{@text}</p>
+    </details>
+    """
+  end
+
+  defp fold_text?(text) do
+    String.length(text) > @fold_text_chars or
+      length(String.split(text, "\n")) > @fold_text_lines
+  end
+
+  defp fold_preview(text) do
+    if String.length(text) > @fold_preview_chars do
+      text
+      |> String.slice(0, @fold_preview_chars)
+      |> String.trim_trailing()
+      |> Kernel.<>("…")
+    else
+      text
+    end
   end
 
   attr(:fleet_today, :any, required: true)
@@ -598,7 +662,7 @@ defmodule CustodeWeb.Components do
             ${usd(@entry["cost_usd"])}<span :if={@entry["tokens"]}> &middot; {tok(@entry["tokens"])}</span>
           </span>
         </div>
-        <p class="whitespace-pre-wrap text-base-content/80">{feed_text(@entry)}</p>
+        <.foldable_text text={feed_text(@entry)} class="text-base-content/80" />
         <.prompt_answer entry={@entry} />
       </div>
       <hr />
@@ -885,14 +949,11 @@ defmodule CustodeWeb.Components do
           dismiss
         </button>
       </p>
-      <details :if={@suggestion["evidence"]} class="group mt-1 text-base-content/50">
-        <summary
-          class="line-clamp-3 cursor-pointer list-none group-open:line-clamp-none"
-          title="click to expand the advisor's full reasoning"
-        >
-          {@suggestion["evidence"]}
-        </summary>
-      </details>
+      <.foldable_text
+        :if={@suggestion["evidence"]}
+        text={@suggestion["evidence"]}
+        class="mt-1 text-base-content/50"
+      />
     </div>
     """
   end

@@ -173,9 +173,11 @@ defmodule CustodeWeb.Console.Subject do
           drawn here when it does not --%>
     <div class={["rounded-xl border p-4 xl:hidden", signal_frame(@signal)]}>
       <p class="font-semibold">{@signal.headline}</p>
-      <p :if={@signal.detail} class="mt-1 whitespace-pre-line text-sm text-base-content/70">
-        {@signal.detail}
-      </p>
+      <.foldable_text
+        :if={@signal.detail}
+        text={@signal.detail}
+        class="mt-1 text-sm text-base-content/70"
+      />
       <p :if={@signal.raised_at} class="mt-2 font-mono text-xs text-base-content/40">
         raised <.ago at={@signal.raised_at} />
       </p>
@@ -408,9 +410,13 @@ defmodule CustodeWeb.Console.Subject do
       memory <span class="font-normal">{length(@subject.memories)}</span>
     </h3>
     <p :if={@subject.memories == []} class="text-sm text-base-content/50">nothing remembered</p>
-    <div :for={memory <- @subject.memories} class="group mb-1 flex items-baseline gap-1 text-sm">
+    <div :for={memory <- @subject.memories} class="group mb-2 flex items-start gap-1 text-sm">
       <span class="font-mono text-xs text-base-content/50">{memory.key}:</span>
-      <span class="min-w-0 break-words">{memory.value}</span>
+      <.foldable_text
+        id={"memory-#{memory.id}"}
+        text={memory.value}
+        class="min-w-0 flex-1"
+      />
       <button
         class="btn btn-ghost btn-xs text-base-content/30 opacity-0 group-hover:opacity-100"
         title={"forget #{memory.key}"}

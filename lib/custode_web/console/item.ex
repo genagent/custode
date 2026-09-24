@@ -7,7 +7,7 @@ defmodule CustodeWeb.Console.Item do
 
   use Phoenix.Component
 
-  import CustodeWeb.Components, only: [reject_form: 1]
+  import CustodeWeb.Components, only: [foldable_text: 1, reject_form: 1]
 
   alias Custode.Operator.Actions
   alias Custode.Signal
@@ -30,9 +30,11 @@ defmodule CustodeWeb.Console.Item do
       {if Signal.needs_you?(@signal), do: "needs you", else: "state"}
     </h2>
     <p class="mt-2 font-semibold">{@signal.headline}</p>
-    <p :if={@signal.detail} class="mt-2 whitespace-pre-line text-sm text-base-content/70">
-      {@signal.detail}
-    </p>
+    <.foldable_text
+      :if={@signal.detail}
+      text={@signal.detail}
+      class="mt-2 text-sm text-base-content/70"
+    />
 
     <%!-- what the agent was doing when the question came up --%>
     <p

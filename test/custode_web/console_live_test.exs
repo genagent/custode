@@ -393,13 +393,16 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ "started a turn with your message"
   end
 
-  test "draft storage is browser-local, per subject, and retained until send or discard",
+  test "browser drafts persist per subject and accepted sends clear the visible composer",
        %{conn: conn} do
     html = conn |> get("/console") |> html_response(200)
 
     assert html =~ "custode-subject-draft:${encodeURIComponent(subject)}"
     assert html =~ "localStorage.setItem(draftKey(this.subject), this.input.value)"
     assert html =~ "localStorage.getItem(draftKey(this.subject))"
+    assert html =~ ~s|setDraftInput(event.detail.subject, "")|
+    assert html =~ ~s|input.dispatchEvent(new Event("input", {bubbles: true}))|
+    assert html =~ "input.focus()"
     assert html =~ "Drafts belong to this browser profile"
   end
 
@@ -952,6 +955,22 @@ defmodule CustodeWeb.ConsoleLiveTest do
 
     html = view |> element("button[phx-click=forget_memory]") |> render_click()
     refute html =~ "pool flakes on macOS CI"
+  end
+
+  test "a long notebook memory folds behind an explicit disclosure", %{
+    conn: conn,
+    sleeper: sleeper
+  } do
+    value = String.duplicate("bounded context stays readable. ", 20)
+    Custode.Memory.remember(sleeper.id, "long-context", value)
+
+    {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+    view |> element("button[phx-value-tab=notebook]") |> render_click()
+
+    disclosure = view |> element("details[data-foldable-text]") |> render()
+    assert disclosure =~ "show more"
+    assert disclosure =~ "show less"
+    assert disclosure =~ value
   end
 
   # seeing many things at once is the point: a rail of bare names made every
