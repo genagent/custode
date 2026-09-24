@@ -9,8 +9,12 @@ second machine, phone access and uninstalling, see
 ## What 0.1.0 is
 
 - A single Elixir node you run on your own machine. It keeps a roster of
-  **routines**: long-lived agents, each a `claude` or `codex` session run on a
-  schedule, usually one per GitHub repository.
+  **routines**, usually one per GitHub repository. A routine is a persistent
+  identity: its roster entry, notebook, gates and feed outlive any single
+  run. The work itself runs as turns in `claude` or `codex` provider
+  sessions: each scheduled beat starts a fresh session, and operator
+  messages continue a resumable conversation (see
+  [Known limitations](#known-limitations)).
 - One human operator. Agents have no standing write permission: anything
   write-shaped is a **gate** that waits for your approval. Nothing merges
   without a human.
