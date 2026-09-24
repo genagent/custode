@@ -26,15 +26,15 @@ defmodule Custode.Attention.VerifyTest do
     def open_issue(_owner, _repo, _attrs), do: {:error, :unused}
     def comment(_owner, _repo, _number, _body), do: {:error, :unused}
     def ready_pr(_owner, _repo, _number), do: {:error, :unused}
-    def merge_pr(_owner, _repo, _number), do: {:error, :unused}
-    def merge_pr_at_head(_owner, _repo, _number, _head_sha), do: {:error, :unused}
+    def merge_pr(_owner, _repo, _number, _merge_method), do: {:error, :unused}
+    def merge_pr_at_head(_owner, _repo, _number, _head_sha, _merge_method), do: {:error, :unused}
     def list_issues(_owner, _repo, _opts), do: {:error, :unused}
     def view_issue(_owner, _repo, _number), do: {:error, :unused}
     def list_prs(_owner, _repo, _opts), do: {:error, :unused}
     def view_pr(_owner, _repo, _number), do: {:error, :unused}
     def job_log_tail(_owner, _repo, _job_id), do: {:error, :unused}
     def pr_diff(_owner, _repo, _number), do: {:error, :unused}
-    def review_snapshot(_owner, _repo, _number), do: {:error, :unused}
+    def review_snapshot(_owner, _repo, _number, _merge_method), do: {:error, :unused}
     def review_state(_owner, _repo, _number), do: :unreviewed
   end
 

@@ -24,7 +24,7 @@ defmodule Custode.GitHubReview.Observation do
     :item_tokens,
     :external_identity
   ]
-  defstruct @enforce_keys ++ [:delivery_id, :pull_request]
+  defstruct @enforce_keys ++ [:delivery_id, :pull_request, :merge_method]
 
   @type t :: %__MODULE__{}
 
@@ -52,7 +52,8 @@ defmodule Custode.GitHubReview.Observation do
       comments: value(snapshot, :comments, []),
       reviews: reviews,
       checks: value(snapshot, :checks, []),
-      conflict: conflict(pull_request)
+      conflict: conflict(pull_request),
+      merge_method: value(snapshot, :merge_method)
     }
 
     new(attrs)
@@ -83,7 +84,8 @@ defmodule Custode.GitHubReview.Observation do
       comments: comments,
       reviews: reviews,
       checks: checks,
-      conflict: normalize_conflict(value(attrs, :conflict), value(attrs, :base_sha))
+      conflict: normalize_conflict(value(attrs, :conflict), value(attrs, :base_sha)),
+      merge_method: value(attrs, :merge_method)
     }
 
     with :ok <- validate(observation) do
@@ -152,6 +154,7 @@ defmodule Custode.GitHubReview.Observation do
       "pull_request_number" => observation.pull_request_number,
       "head_sha" => observation.head_sha,
       "base_sha" => observation.conflict[:base_sha],
+      "merge_method" => observation.merge_method,
       "pull_request" => %{
         "state" => value(pull_request, :state),
         "draft" => value(pull_request, :draft),

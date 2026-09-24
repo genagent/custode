@@ -127,6 +127,7 @@ defmodule Custode.GitHubReview.ObservationTest do
              Observation.new(
                Map.merge(@base, %{
                  kind: "snapshot",
+                 merge_method: "squash",
                  pull_request: %{
                    state: "open",
                    draft: false,
@@ -177,6 +178,7 @@ defmodule Custode.GitHubReview.ObservationTest do
     assert pinned["base_sha"] == "base-371"
     assert pinned["review_state"]["status"] == "approved"
     assert pinned["review_state"]["id"] == 71
+    assert pinned["merge_method"] == "squash"
     assert Enum.map(pinned["required_checks"], & &1["name"]) == ["format", "test"]
     assert Enum.map(pinned["approvals"], & &1["id"]) == [71]
   end

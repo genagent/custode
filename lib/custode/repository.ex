@@ -183,9 +183,12 @@ defmodule Custode.Repository do
   @doc "Merge a PR. Refused wherever the merge policy is :manual."
   def merge_pr(name, number), do: call(name, {:merge_pr, number})
 
+  # The exact-head seam behind the merge Gate (#674): the method is the one the
+  # Gate pinned, re-checked against the repository and sent exactly, never
+  # reselected.
   @doc false
-  def merge_pr_at_head(name, number, head_sha),
-    do: call(name, {:merge_pr_at_head, number, head_sha})
+  def merge_pr_at_head(name, number, head_sha, merge_method),
+    do: call(name, {:merge_pr_at_head, number, head_sha, merge_method})
 
   # ---------------------------------------------------------------------------
   # read verbs (issue #129): scoped GitHub reads through the bound server
@@ -317,22 +320,21 @@ defmodule Custode.Repository do
 
   def handle_call({:merge_pr, number}, _from, state) do
     with :ok <- check(state, :merge_pr, number),
-         :ok <- review_floor(state, number) do
-      state |> ops_result(:merge_pr, [state.owner, state.repo, number]) |> reply(state)
+         :ok <- review_floor(state, number),
+         {:ok, preferred} <- configured_merge_method(state) do
+      state |> ops_result(:merge_pr, [state.owner, state.repo, number, preferred]) |> reply(state)
     else
       refusal -> reply(refusal, state)
     end
   end
 
-  def handle_call({:merge_pr_at_head, number, head_sha}, _from, state) do
-    case review_floor(state, number) do
-      :ok ->
-        state
-        |> ops_result(:merge_pr_at_head, [state.owner, state.repo, number, head_sha])
-        |> reply(state)
-
-      refusal ->
-        reply(refusal, state)
+  def handle_call({:merge_pr_at_head, number, head_sha, merge_method}, _from, state) do
+    with :ok <- pinned_merge_method(state, number, merge_method),
+         :ok <- review_floor(state, number) do
+      args = [state.owner, state.repo, number, head_sha, merge_method]
+      state |> ops_result(:merge_pr_at_head, args) |> reply(state)
+    else
+      refusal -> reply(refusal, state)
     end
   end
 
@@ -365,7 +367,14 @@ defmodule Custode.Repository do
   end
 
   def handle_call({:review_snapshot, number}, _from, state) do
-    read_op(:review_snapshot, [state.owner, state.repo, number]) |> reply(state)
+    case configured_merge_method(state) do
+      {:ok, preferred} ->
+        read_repo_op(state, :review_snapshot, [state.owner, state.repo, number, preferred])
+        |> reply(state)
+
+      refusal ->
+        reply(refusal, state)
+    end
   end
 
   # The workflow's review stage (#86) is mechanical law regardless of who
@@ -418,25 +427,35 @@ defmodule Custode.Repository do
   defp ops_result(state, verb, args) do
     case apply(ops(), verb, args) do
       {:ok, data} ->
-        Custode.Feed.record(%{
-          event: "repo_verb",
-          agent: state.routine_id,
-          # Structured, not just prose in the summary: without the verb, the
-          # repo and the number as fields, nothing can later ask "which PRs did
-          # this agent open, and did they land?" -- which is the measurement
-          # #339's aggregate framing needs and custode cannot currently make.
-          verb: to_string(verb),
-          repo: state.name,
-          number: verb_number(args, data),
-          summary: "#{verb} on #{state.name}: ok"
-        })
+        Custode.Feed.record(
+          %{
+            event: "repo_verb",
+            agent: state.routine_id,
+            # Structured, not just prose in the summary: without the verb, the
+            # repo and the number as fields, nothing can later ask "which PRs did
+            # this agent open, and did they land?" -- which is the measurement
+            # #339's aggregate framing needs and custode cannot currently make.
+            verb: to_string(verb),
+            repo: state.name,
+            number: verb_number(args, data),
+            summary: "#{verb} on #{state.name}: ok"
+          }
+          |> put_merge_method(data)
+        )
 
         {:ok, data}
 
       {:error, reason} ->
-        {:error, "github: #{inspect(reason)}"}
+        repo_error(state, reason)
     end
   end
+
+  # A merge verb's result names the method the repository allowed; record it so
+  # "how did this land" is a field, not something read back off GitHub.
+  defp put_merge_method(entry, %{"merge_method" => method}) when not is_nil(method),
+    do: Map.put(entry, :merge_method, method)
+
+  defp put_merge_method(entry, _data), do: entry
 
   # Reads take the same ops seam but no feed record (see the read-verbs note).
   defp read_op(verb, args) do
@@ -445,6 +464,31 @@ defmodule Custode.Repository do
       {:error, reason} -> {:error, "github: #{inspect(reason)}"}
     end
   end
+
+  # Repository capability failures are policy evidence even when discovered
+  # while building a read-only review snapshot. Preserve that typed refusal so
+  # the reconciler does not reduce it to a generic GitHub error or a silent
+  # "not merge ready" result.
+  defp read_repo_op(state, verb, args) do
+    case apply(ops(), verb, args) do
+      {:ok, data} -> {:ok, data}
+      {:error, reason} -> repo_error(state, reason)
+    end
+  end
+
+  defp repo_error(state, :no_allowed_merge_method) do
+    {:error,
+     "policy merge_method: #{state.name} allows no supported merge method " <>
+       "(merge, squash, rebase); nothing was merged"}
+  end
+
+  defp repo_error(state, {:merge_method_not_allowed, method}) do
+    {:error,
+     "policy merge_method: #{state.name} does not allow the #{method} merge method; " <>
+       "nothing was merged"}
+  end
+
+  defp repo_error(_state, reason), do: {:error, "github: #{inspect(reason)}"}
 
   # ---------------------------------------------------------------------------
   # policy checks (the mechanical third of #50)
@@ -474,6 +518,33 @@ defmodule Custode.Repository do
     Enum.any?(policies, &(&1.id == :merge and &1.value == :manual))
   end
 
+  # A repo-scoped :merge_method policy (#674) names the method merges on this
+  # repository use; nil leaves the choice to GitHub's allow_* flag order.
+  defp configured_merge_method(state) do
+    case Custode.Policy.merge_method(state.name) do
+      nil ->
+        {:ok, nil}
+
+      {:ok, method} ->
+        {:ok, method}
+
+      {:error, {:invalid_merge_method, value}} ->
+        {:error,
+         "policy merge_method: #{inspect(value)} configured for #{state.name} is not one of " <>
+           "merge, squash, rebase"}
+    end
+  end
+
+  # A merge Gate that pinned no supported method has nothing to send (#674).
+  defp pinned_merge_method(_state, _number, method) when method in ~w(merge squash rebase),
+    do: :ok
+
+  defp pinned_merge_method(state, number, method) do
+    {:error,
+     "policy merge_method: the merge Gate for PR ##{number} on #{state.name} pins " <>
+       "#{inspect(method)}, not one of merge, squash, rebase; nothing was merged"}
+  end
+
   @conventional ~r/^(feat|fix|docs|test|chore|refactor|perf|ci|build)(\(.+\))?!?: .+/
 
   defp conventional?(title), do: Regex.match?(@conventional, title)
@@ -501,8 +572,14 @@ defmodule Custode.Repository.OpsBehaviour do
   @callback open_issue(owner, repo, map()) :: result
   @callback comment(owner, repo, pos_integer(), String.t()) :: result
   @callback ready_pr(owner, repo, pos_integer()) :: result
-  @callback merge_pr(owner, repo, pos_integer()) :: result
-  @callback merge_pr_at_head(owner, repo, pos_integer(), String.t()) :: result
+  @callback merge_pr(owner, repo, pos_integer(), merge_method :: String.t() | nil) :: result
+  @callback merge_pr_at_head(
+              owner,
+              repo,
+              pos_integer(),
+              head_sha :: String.t(),
+              merge_method :: String.t()
+            ) :: result
   @callback list_issues(owner, repo, keyword() | map()) :: result
   @callback view_issue(owner, repo, pos_integer()) :: result
   @callback list_prs(owner, repo, keyword() | map()) :: result
@@ -510,7 +587,8 @@ defmodule Custode.Repository.OpsBehaviour do
   @callback pr_checks(owner, repo, pos_integer()) :: result
   @callback job_log_tail(owner, repo, pos_integer()) :: result
   @callback pr_diff(owner, repo, pos_integer()) :: result
-  @callback review_snapshot(owner, repo, pos_integer()) :: result
+  @callback review_snapshot(owner, repo, pos_integer(), merge_method :: String.t() | nil) ::
+              result
   @callback review_state(owner, repo, pos_integer()) :: result
 end
 
@@ -558,17 +636,87 @@ defmodule Custode.Repository.Ops do
     end
   end
 
-  def merge_pr(owner, repo, number) do
-    with {:ok, client} <- client() do
-      unwrap(GhEx.PullRequests.merge(client, owner, repo, number))
+  # A repository that disables merge commits rejects a bare merge call with
+  # 405, so the method is chosen from the repository's allowed methods (#674).
+  @merge_methods [
+    {"allow_merge_commit", "merge"},
+    {"allow_squash_merge", "squash"},
+    {"allow_rebase_merge", "rebase"}
+  ]
+
+  @doc """
+  Picks the merge method for a repository from the `allow_*` flags on its
+  GitHub representation (string keys).
+
+  `preferred` is the method a served repository's `:merge_method` policy
+  names (`Custode.Policy.merge_method/1`), or nil. A preferred method wins
+  over the flag order but must still be allowed: when the flags are visible
+  and it is not, the result is `{:error, {:merge_method_not_allowed, method}}`
+  rather than a silent fallback. Without a preference the order is merge
+  commit, then squash, then rebase.
+
+  When none of the flags are present the token cannot see them, so this
+  returns the preferred method, or `"merge"`, the method used before the
+  flags were consulted. When they are present and all false there is no
+  method to use.
+  """
+  def merge_method(repository, preferred \\ nil)
+
+  def merge_method(repository, preferred) when is_map(repository) do
+    cond do
+      flags_hidden?(repository) -> {:ok, preferred || "merge"}
+      is_nil(preferred) -> first_allowed_merge_method(repository)
+      merge_method_allowed?(repository, preferred) -> {:ok, preferred}
+      true -> {:error, {:merge_method_not_allowed, preferred}}
     end
   end
 
-  def merge_pr_at_head(owner, repo, number, head_sha) do
-    with {:ok, client} <- client() do
-      unwrap(GhEx.PullRequests.merge(client, owner, repo, number, %{sha: head_sha}))
+  defp flags_hidden?(repository),
+    do: Enum.all?(@merge_methods, fn {key, _method} -> is_nil(repository[key]) end)
+
+  defp merge_method_allowed?(repository, method),
+    do: Enum.any?(@merge_methods, fn {key, m} -> m == method and repository[key] == true end)
+
+  defp first_allowed_merge_method(repository) do
+    case Enum.find(@merge_methods, fn {key, _method} -> repository[key] == true end) do
+      {_key, method} -> {:ok, method}
+      nil -> {:error, :no_allowed_merge_method}
     end
   end
+
+  def merge_pr(owner, repo, number, preferred) do
+    with {:ok, client} <- client(),
+         {:ok, repository} <- unwrap(GhEx.Repositories.get(client, owner, repo)),
+         {:ok, method} <- merge_method(repository, preferred) do
+      send_merge(client, owner, repo, number, %{merge_method: method})
+    end
+  end
+
+  @doc """
+  Merges at `head_sha` with exactly `method`, the method a merge Gate pinned
+  (#674). The repository is re-read immediately before the request, and a
+  method it no longer allows is refused without a merge request; nothing is
+  reselected.
+  """
+  def merge_pr_at_head(owner, repo, number, head_sha, method) do
+    with {:ok, client} <- client(),
+         {:ok, repository} <- unwrap(GhEx.Repositories.get(client, owner, repo)),
+         {:ok, ^method} <- merge_method(repository, method) do
+      send_merge(client, owner, repo, number, %{merge_method: method, sha: head_sha})
+    end
+  end
+
+  defp send_merge(client, owner, repo, number, params) do
+    client
+    |> GhEx.PullRequests.merge(owner, repo, number, params)
+    |> unwrap()
+    |> tag_merge_method(params.merge_method)
+  end
+
+  defp tag_merge_method({:ok, %{} = result}, method),
+    do: {:ok, Map.put(result, "merge_method", method)}
+
+  defp tag_merge_method(other, _method), do: other
 
   # ---------------------------------------------------------------------------
   # reads (issue #129): shaped down to what a sweep needs, not the raw payload
@@ -645,11 +793,13 @@ defmodule Custode.Repository.Ops do
     end
   end
 
-  def review_snapshot(owner, repo, number) do
+  def review_snapshot(owner, repo, number, preferred) do
     with {:ok, client} <- client(),
          {:ok, pr} <- unwrap(GhEx.PullRequests.get(client, owner, repo, number)),
          {:ok, reviews} <- unwrap(GhEx.PullRequests.list_reviews(client, owner, repo, number)),
          {:ok, comments} <- unwrap(GhEx.Issues.list_comments(client, owner, repo, number)),
+         {:ok, repository} <- unwrap(GhEx.Repositories.get(client, owner, repo)),
+         {:ok, merge_method} <- merge_method(repository, preferred),
          sha = get_in(pr, ["head", "sha"]),
          {:ok, result} <- unwrap(GhEx.Checks.list_for_ref(client, owner, repo, sha)) do
       {:ok,
@@ -657,7 +807,8 @@ defmodule Custode.Repository.Ops do
          pull_request: pr_row(pr) |> Map.put(:body, pr["body"]),
          reviews: Enum.map(reviews, &review_row/1),
          comments: comment_rows(comments),
-         checks: Enum.map(result["check_runs"] || [], &check_row/1)
+         checks: Enum.map(result["check_runs"] || [], &check_row/1),
+         merge_method: merge_method
        }}
     end
   end
@@ -790,10 +941,14 @@ defmodule Custode.Repository.Ops do
 
   defp client do
     case token() do
-      {:ok, token} -> {:ok, GhEx.new(auth: {:token, token})}
+      {:ok, token} -> {:ok, GhEx.new(auth: {:token, token}, req_options: req_options())}
       error -> error
     end
   end
+
+  # Test seam: a test installs a Req.Test plug here to see the requests sent to
+  # GitHub. It is not set in any config file.
+  defp req_options, do: Application.get_env(:custode, :github_req_options, [])
 
   defp token do
     case System.get_env("GITHUB_TOKEN") do

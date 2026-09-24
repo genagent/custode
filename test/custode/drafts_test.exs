@@ -22,8 +22,8 @@ defmodule Custode.DraftsTest do
     def open_pr(_owner, _repo, _attrs), do: {:ok, %{}}
     def comment(_owner, _repo, _number, _body), do: {:ok, %{}}
     def ready_pr(_owner, _repo, _number), do: {:ok, %{}}
-    def merge_pr(_owner, _repo, _number), do: {:ok, %{}}
-    def merge_pr_at_head(_owner, _repo, _number, _head_sha), do: {:ok, %{}}
+    def merge_pr(_owner, _repo, _number, _merge_method), do: {:ok, %{}}
+    def merge_pr_at_head(_owner, _repo, _number, _head_sha, _merge_method), do: {:ok, %{}}
     def review_state(_owner, _repo, _number), do: :unreviewed
     def list_issues(_owner, _repo, _opts), do: {:ok, []}
     def view_issue(_owner, _repo, number), do: {:ok, %{number: number}}
@@ -32,7 +32,7 @@ defmodule Custode.DraftsTest do
     def pr_checks(_owner, _repo, number), do: {:ok, %{sha: "abc", checks: [], number: number}}
     def job_log_tail(_owner, _repo, _job_id), do: {:error, :unused}
     def pr_diff(_owner, _repo, _number), do: {:ok, %{files: []}}
-    def review_snapshot(_owner, _repo, _number), do: {:error, :unused}
+    def review_snapshot(_owner, _repo, _number, _merge_method), do: {:error, :unused}
 
     defp pid, do: Application.fetch_env!(:custode, :repo_ops_test_pid)
   end
