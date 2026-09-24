@@ -695,8 +695,8 @@ defmodule Custode.MCP.Tools.RunJob do
     field(:max_turns, :integer,
       description:
         "agentic turn cap for the job. Omitted keeps the default (15). " <>
-          "Lowering it is always allowed; raising it needs an approved action " <>
-          "in flight, and no value may exceed the configured hard ceiling"
+          "Lowering it is always allowed; raising it needs a shell-class approved " <>
+          "action in flight, and no value may exceed the configured hard ceiling"
     )
   end
 

@@ -538,6 +538,32 @@ defmodule Custode.MCPToolsTest do
       assert json["max_turns"] == 5
     end
 
+    test "an unrelated active grant cannot raise max_turns" do
+      workspace = tmp_workspace!()
+      routine = routine_fixture!(workspace)
+      frame = routine_frame(routine.id)
+      inbox = Path.join(workspace, "inbox")
+
+      for class <- ["comment", "ready_pr"] do
+        gate = approved_gate!(routine.id, class)
+        before = length(jobs_for("Custode.OneShotJob"))
+
+        assert tool_error(
+                 Tools.RunJob.execute(%{prompt: "x", report_inbox: inbox, max_turns: 150}, frame)
+               ) =~ "outside gate #{gate.id} (class #{class})"
+
+        refute_job_inserted(before)
+
+        json =
+          tool_json(
+            Tools.RunJob.execute(%{prompt: "x", report_inbox: inbox, max_turns: 15}, frame)
+          )
+
+        assert json["max_turns"] == 15
+        Custode.Repo.delete!(gate)
+      end
+    end
+
     test "an approved specialist job may exceed the routine's own sweep cap" do
       workspace = tmp_workspace!()
       id = uid("job-specialist")

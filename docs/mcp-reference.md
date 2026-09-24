@@ -1603,7 +1603,7 @@ Queue a bounded one-shot task with an inbox completion report.
 | --- | --- | --- | --- | --- |
 | elevated | boolean | no | run with full permissions (git, gh, shell). Use ONLY for work a human already approved via a request_permission gate; default is edit-only |  |
 | max_budget_usd | number | no | per-run spend cap. Defaults to the shared config default, which is sized for small tasks -- pass your own routine's cap when dispatching implementation work |  |
-| max_turns | integer | no | agentic turn cap for the job. Omitted keeps the default (15). Lowering it is always allowed; raising it needs an approved action in flight, and no value may exceed the configured hard ceiling |  |
+| max_turns | integer | no | agentic turn cap for the job. Omitted keeps the default (15). Lowering it is always allowed; raising it needs a shell-class approved action in flight, and no value may exceed the configured hard ceiling |  |
 | model | string | no | claude model (defaults to the configured default) |  |
 | prompt | string | yes |  |  |
 | report_inbox | string | yes | absolute path of the directory the completion note is written to |  |
@@ -1614,7 +1614,7 @@ Queue a bounded one-shot task with an inbox completion report.
 
 **Side effects:** Enqueues a one-shot Claude run that can edit files, spend model budget, and write a completion note. Elevated jobs have full shell/Git/GitHub permissions.
 
-**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. A routine is limited to its configured working directory or deterministic owned checkout and its own notebook inbox. Elevated routine jobs require a live approved continuation whose action class permits shell work. The human operator may use any existing directories and run elevated jobs directly. Any caller may lower max_turns; raising it above the default requires the operator or a routine with a live approved continuation of any action class.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. A routine is limited to its configured working directory or deterministic owned checkout and its own notebook inbox. Elevated routine jobs require a live approved continuation whose action class permits shell work. The human operator may use any existing directories and run elevated jobs directly. Any caller may lower max_turns; raising it above the default requires the operator or a routine with a live approved continuation whose action class permits shell work, the same rule as elevated jobs.
 
 **Behavior, defaults and errors:** prompt and report_inbox are required; report_inbox and any workspace must already be directories. A routine that omits workspace uses its configured working directory. Lexical and physical path containment prevent traversal and symlink escapes. Path and elevation checks occur before a job is inserted. model and max_budget_usd default to configuration; tag defaults to 'job'. max_turns defaults to run_job_max_turns (15). A named max_turns must be a positive integer no greater than run_job_max_turns_ceiling (150); invalid, zero, over-ceiling or unauthorized values are tool errors and no job is inserted. Runs have a 200000 ms timeout, or 900000 ms when elevated. The completion note's custode-report header carries the resolved max_turns, and a failure note names the turn cap. Acceptance is asynchronous and not idempotent. Final report requires status and summary, with optional artifacts array and cost_note.
 

@@ -37,8 +37,10 @@ defmodule Custode.MCP.Scope do
   value must be a positive integer no greater than the hard ceiling
   (`:run_job_max_turns_ceiling`), whoever asks. Lowering the cap is always
   allowed. Raising it above the default is the operator's call, or a
-  routine's while an approved action is in flight: the approval is what sized
-  the work, so an unapproved sweep cannot buy itself a longer job.
+  routine's while an approved action of a shell class is in flight, the same
+  `Custode.Gates.Class.shell?/1` rule that gates elevated jobs: the approval
+  is what sized the work, so neither an unapproved sweep nor an unrelated
+  approval (a comment, a ready_pr) can buy a longer job.
   """
   @spec authorize_job_turns(Anubis.Server.Frame.t(), term()) ::
           {:ok, pos_integer()} | {:error, String.t()}
@@ -75,9 +77,18 @@ defmodule Custode.MCP.Scope do
   defp authorize_raised_turns(%{kind: :operator}, requested, _default), do: {:ok, requested}
 
   defp authorize_raised_turns(%{kind: :routine, id: id}, requested, default) do
+    # the same rule as elevation: only a shell-class approval (implement,
+    # pr_maintain, or an unbounded other/undeclared class) sizes a long job
     case Custode.Gates.active_grant(id) do
-      %{} ->
-        {:ok, requested}
+      %{class: class, gate_id: gate_id} ->
+        if Class.shell?(class) do
+          {:ok, requested}
+        else
+          {:error,
+           "gate grant: max_turns #{requested} is above the default of #{default} " <>
+             "and outside gate #{gate_id} (class #{class}); " <>
+             "raise request_permission for shell work first"}
+        end
 
       nil ->
         {:error,
