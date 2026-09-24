@@ -164,7 +164,10 @@ defmodule Custode.Application do
 
     [
       repo: Custode.Repo,
-      engine: Oban.Engines.Lite,
+      engine: Custode.ObanEngine,
+      # Oban infers this only when the engine module is exactly Lite. Our
+      # wrapper delegates to Lite, so keep SQLite's no-prefix contract explicit.
+      prefix: nil,
       notifier: Oban.Notifiers.PG,
       peer: Oban.Peers.Isolated,
       plugins:
