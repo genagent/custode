@@ -369,7 +369,8 @@ defmodule Custode.Repository do
   def handle_call({:review_snapshot, number}, _from, state) do
     case configured_merge_method(state) do
       {:ok, preferred} ->
-        read_op(:review_snapshot, [state.owner, state.repo, number, preferred]) |> reply(state)
+        read_repo_op(state, :review_snapshot, [state.owner, state.repo, number, preferred])
+        |> reply(state)
 
       refusal ->
         reply(refusal, state)
@@ -444,18 +445,8 @@ defmodule Custode.Repository do
 
         {:ok, data}
 
-      {:error, :no_allowed_merge_method} ->
-        {:error,
-         "policy merge_method: #{state.name} allows no supported merge method " <>
-           "(merge, squash, rebase); nothing was merged"}
-
-      {:error, {:merge_method_not_allowed, method}} ->
-        {:error,
-         "policy merge_method: #{state.name} does not allow the #{method} merge method; " <>
-           "nothing was merged"}
-
       {:error, reason} ->
-        {:error, "github: #{inspect(reason)}"}
+        repo_error(state, reason)
     end
   end
 
@@ -473,6 +464,31 @@ defmodule Custode.Repository do
       {:error, reason} -> {:error, "github: #{inspect(reason)}"}
     end
   end
+
+  # Repository capability failures are policy evidence even when discovered
+  # while building a read-only review snapshot. Preserve that typed refusal so
+  # the reconciler does not reduce it to a generic GitHub error or a silent
+  # "not merge ready" result.
+  defp read_repo_op(state, verb, args) do
+    case apply(ops(), verb, args) do
+      {:ok, data} -> {:ok, data}
+      {:error, reason} -> repo_error(state, reason)
+    end
+  end
+
+  defp repo_error(state, :no_allowed_merge_method) do
+    {:error,
+     "policy merge_method: #{state.name} allows no supported merge method " <>
+       "(merge, squash, rebase); nothing was merged"}
+  end
+
+  defp repo_error(state, {:merge_method_not_allowed, method}) do
+    {:error,
+     "policy merge_method: #{state.name} does not allow the #{method} merge method; " <>
+       "nothing was merged"}
+  end
+
+  defp repo_error(_state, reason), do: {:error, "github: #{inspect(reason)}"}
 
   # ---------------------------------------------------------------------------
   # policy checks (the mechanical third of #50)
@@ -697,15 +713,6 @@ defmodule Custode.Repository.Ops do
     |> tag_merge_method(params.merge_method)
   end
 
-  # The method is pinned by the exact-head merge gate (#674); nil means the
-  # repository allows none, or not the one its policy names.
-  defp snapshot_merge_method(repository, preferred) do
-    case merge_method(repository, preferred) do
-      {:ok, method} -> method
-      {:error, _reason} -> nil
-    end
-  end
-
   defp tag_merge_method({:ok, %{} = result}, method),
     do: {:ok, Map.put(result, "merge_method", method)}
 
@@ -792,6 +799,7 @@ defmodule Custode.Repository.Ops do
          {:ok, reviews} <- unwrap(GhEx.PullRequests.list_reviews(client, owner, repo, number)),
          {:ok, comments} <- unwrap(GhEx.Issues.list_comments(client, owner, repo, number)),
          {:ok, repository} <- unwrap(GhEx.Repositories.get(client, owner, repo)),
+         {:ok, merge_method} <- merge_method(repository, preferred),
          sha = get_in(pr, ["head", "sha"]),
          {:ok, result} <- unwrap(GhEx.Checks.list_for_ref(client, owner, repo, sha)) do
       {:ok,
@@ -800,7 +808,7 @@ defmodule Custode.Repository.Ops do
          reviews: Enum.map(reviews, &review_row/1),
          comments: comment_rows(comments),
          checks: Enum.map(result["check_runs"] || [], &check_row/1),
-         merge_method: snapshot_merge_method(repository, preferred)
+         merge_method: merge_method
        }}
     end
   end

@@ -634,7 +634,7 @@ defmodule Custode.GitHubMerge do
     pinned = pinned_merge_method(arguments)
 
     case value(merged, :merge_method) do
-      sent when sent in [nil, pinned] -> :ok
+      ^pinned -> :ok
       sent -> {:error, {:github_merge_method_mismatch, %{pinned: pinned, sent: sent}}}
     end
   end

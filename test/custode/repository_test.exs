@@ -620,12 +620,19 @@ defmodule Custode.RepositoryTest do
       refute_received {:merge_request, _body}
     end
 
-    test "review_snapshot pins the selected method, and nil when the preferred one is disallowed" do
+    test "review_snapshot pins the selected method and types a disallowed preference" do
       stub_github(@squash_only)
 
       assert {:ok, %{merge_method: "squash"}} = Ops.review_snapshot("o", "r", 1, nil)
       assert {:ok, %{merge_method: "squash"}} = Ops.review_snapshot("o", "r", 1, "squash")
-      assert {:ok, %{merge_method: nil}} = Ops.review_snapshot("o", "r", 1, "rebase")
+
+      assert {:error, {:merge_method_not_allowed, "rebase"}} =
+               Ops.review_snapshot("o", "r", 1, "rebase")
+    end
+
+    test "review_snapshot types a repository with no supported merge method" do
+      stub_github(@none_allowed)
+      assert {:error, :no_allowed_merge_method} = Ops.review_snapshot("o", "r", 1, nil)
     end
 
     test "merge_pr makes no merge request when every method is disabled" do
