@@ -802,6 +802,7 @@ defmodule Custode.GitHubIssueVerticalTest do
     assert gate.arguments["expected_head_sha"] == pull_request.head_sha
     assert gate.arguments["expected_version"] == waiting.version + 1
     assert gate.external_preconditions["review_state"]["status"] == "approved"
+    assert gate.external_preconditions["merge_method"] == "squash"
     assert gate.grant_decision["work_policy"]["posture"] == "ask"
     assert gate.grant_decision["work_policy"]["version"] == waiting.policy_ref
     refute_receive {:merge_pr_at_head, _number, _head}, 50
@@ -815,6 +816,7 @@ defmodule Custode.GitHubIssueVerticalTest do
 
     assert approved.status == "approved", inspect(%{gate: approved, response: response})
     assert response.status == :succeeded
+    assert response.result.pull_request.merge_method == "squash"
     assert approved.operation_call_id == response.call_id
     assert_receive {:merge_pr_at_head, number, head_sha}
     assert number == pull_request.number
@@ -882,6 +884,17 @@ defmodule Custode.GitHubIssueVerticalTest do
   test "a failed check makes the exact merge Gate stale", fixture do
     {waiting, pull_request, gate} = prepare_merge_gate!(fixture)
     put_env!(:publication_review_snapshot, failed_merge_snapshot(pull_request))
+    assert_stale_merge_gate!(waiting, gate)
+  end
+
+  test "a changed merge method makes the exact merge Gate stale", fixture do
+    {waiting, pull_request, gate} = prepare_merge_gate!(fixture)
+
+    put_env!(
+      :publication_review_snapshot,
+      %{clean_merge_snapshot(pull_request) | merge_method: "merge"}
+    )
+
     assert_stale_merge_gate!(waiting, gate)
   end
 
@@ -2430,6 +2443,7 @@ defmodule Custode.GitHubIssueVerticalTest do
 
   defp clean_merge_snapshot(pull_request) do
     %{
+      merge_method: "squash",
       reviews: [
         %{
           id: 9_100,
