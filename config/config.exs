@@ -5,6 +5,11 @@ config :claude_wrapper, runner: ClaudeWrapper.Runner.Forcola
 
 config :custode,
   ecto_repos: [Custode.Repo],
+  # Exqlite's connection busy timeout handles ordinary lock contention. SQLite
+  # may still return SQLITE_BUSY immediately to avoid a lock-upgrade deadlock.
+  # Oban acknowledgement retries happen after provider work and repeat only
+  # the terminal job-state update, with these bounded backoff delays.
+  oban_ack_retry_delays: [50, 100, 200, 400],
   # Each entry is one always-on agent: a cron schedule + a workspace + a beat
   # prompt. The crontab entry that Custode builds from it is the WHOLE agent
   # spec (the provider Agent Tick with if_offline: "start"), so agents cold-start

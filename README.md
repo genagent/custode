@@ -128,6 +128,18 @@ the denial text and inspect Claude's effective permission sources above. If
 it cannot connect or authenticate, run `mix custode doctor` and inspect the
 turn's MCP startup error.
 
+### SQLite reports `Database busy` after a turn finishes
+
+Custode configures a five-second SQLite busy timeout for ordinary lock
+contention. SQLite can still return `SQLITE_BUSY` immediately when waiting
+would create a lock-upgrade deadlock. Custode's Oban engine retries the final
+job-state update after 50, 100, 200 and 400 milliseconds. Those retries happen
+after the provider turn and do not run the agent again.
+
+No setup change is normally required. Repeated exhaustion means another
+process is holding a long write transaction or two Custode instances are
+using the same database. Stop the extra process and run `mix custode doctor`.
+
 ### Claude plan usage is blank or stale
 
 Every ten minutes Custode reads Claude plan usage from Anthropic's OAuth usage
