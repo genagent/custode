@@ -157,8 +157,10 @@ defmodule Custode.GitHubMerge do
            Repository.merge_pr_at_head(
              value(arguments, :repository),
              value(arguments, :pull_request_number),
-             value(arguments, :expected_head_sha)
+             value(arguments, :expected_head_sha),
+             pinned_merge_method(arguments)
            ),
+         :ok <- sent_pinned_method(merged, arguments),
          {:ok, merge_commit_sha} <- merge_commit(merged),
          finalization <- finalize(arguments, envelope, merge_commit_sha, "merged") do
       case finalization do
@@ -625,6 +627,17 @@ defmodule Custode.GitHubMerge do
 
   defp pinned_merge_method(arguments),
     do: arguments |> value(:external_preconditions) |> value(:merge_method)
+
+  # The evidence records the pinned method, so the method sent must be that one
+  # (#674). The seam sends it exactly; this refuses to record anything else.
+  defp sent_pinned_method(merged, arguments) do
+    pinned = pinned_merge_method(arguments)
+
+    case value(merged, :merge_method) do
+      sent when sent in [nil, pinned] -> :ok
+      sent -> {:error, {:github_merge_method_mismatch, %{pinned: pinned, sent: sent}}}
+    end
+  end
 
   defp effects(result) do
     base = [

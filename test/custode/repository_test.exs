@@ -28,8 +28,9 @@ defmodule Custode.RepositoryTest do
       {:ok, %{"number" => number, "draft" => false}}
     end
 
-    def merge_pr(owner, repo, number) do
+    def merge_pr(owner, repo, number, preferred) do
       send(pid(), {:merge_pr, owner, repo, number})
+      send(pid(), {:merge_pr_preferred, preferred})
 
       case Application.get_env(:custode, :fake_merge_error) do
         nil -> {:ok, %{"merged" => true, "merge_method" => "squash"}}
@@ -37,11 +38,12 @@ defmodule Custode.RepositoryTest do
       end
     end
 
-    def merge_pr_at_head(owner, repo, number, head_sha) do
+    def merge_pr_at_head(owner, repo, number, head_sha, merge_method) do
       send(pid(), {:merge_pr_at_head, owner, repo, number, head_sha})
+      send(pid(), {:merge_pr_at_head_method, merge_method})
 
       case Application.get_env(:custode, :fake_merge_error) do
-        nil -> {:ok, %{"merged" => true, "sha" => "merge-sha"}}
+        nil -> {:ok, %{"merged" => true, "sha" => "merge-sha", "merge_method" => merge_method}}
         reason -> {:error, reason}
       end
     end
@@ -85,8 +87,9 @@ defmodule Custode.RepositoryTest do
       {:ok, %{files: [%{filename: "lib/x.ex", status: "modified", patch: "@@ -1 +1 @@"}]}}
     end
 
-    def review_snapshot(owner, repo, number) do
+    def review_snapshot(owner, repo, number, preferred) do
       send(pid(), {:review_snapshot, owner, repo, number})
+      send(pid(), {:review_snapshot_preferred, preferred})
 
       {:ok,
        %{
@@ -214,14 +217,14 @@ defmodule Custode.RepositoryTest do
   test "the gated seam preserves the review floor and pins the expected head", %{repo: repo} do
     put_env!(:fake_review_state, :unreviewed)
 
-    assert {:error, message} = Repository.merge_pr_at_head(repo, 7, "head-7")
+    assert {:error, message} = Repository.merge_pr_at_head(repo, 7, "head-7", "squash")
     assert message =~ "workflow review"
     refute_receive {:merge_pr_at_head, _owner, _repo, _number, _head}, 50
 
     put_env!(:fake_review_state, {:reviewed, "approving review"})
 
     assert {:ok, %{"merged" => true, "sha" => "merge-sha"}} =
-             Repository.merge_pr_at_head(repo, 7, "head-7")
+             Repository.merge_pr_at_head(repo, 7, "head-7", "squash")
 
     assert_receive {:merge_pr_at_head, "acme", _bare, 7, "head-7"}
   end
@@ -250,7 +253,7 @@ defmodule Custode.RepositoryTest do
     assert message =~ "(merge, squash, rebase); nothing was merged"
     refute message =~ "github:"
 
-    assert {:error, gated} = Repository.merge_pr_at_head(repo, 7, "head-7")
+    assert {:error, gated} = Repository.merge_pr_at_head(repo, 7, "head-7", "squash")
     assert gated =~ "policy merge_method: #{repo} allows no supported merge method"
 
     refute Enum.any?(
@@ -258,6 +261,75 @@ defmodule Custode.RepositoryTest do
              &(&1["event"] == "repo_verb" and &1["repo"] == repo and
                  &1["verb"] in ["merge_pr", "merge_pr_at_head"])
            )
+  end
+
+  test "a served repository's merge_method policy reaches the merge and snapshot seams",
+       %{repo: repo} do
+    put_env!(:policies, [
+      %{id: :merge_method, applies: [repo: repo], value: :rebase, text: "rebase here"}
+    ])
+
+    put_env!(:fake_review_state, {:reviewed, "review: lgtm"})
+
+    assert {:ok, _merged} = Repository.merge_pr(repo, 7)
+    assert_receive {:merge_pr_preferred, "rebase"}
+
+    assert {:ok, _snapshot} = Repository.review_snapshot(repo, 9)
+    assert_receive {:review_snapshot_preferred, "rebase"}
+  end
+
+  test "without a binding merge_method policy the flag order decides", %{repo: repo} do
+    put_env!(:policies, [
+      %{id: :merge_method, applies: [repo: "acme/elsewhere"], value: "rebase", text: "x"}
+    ])
+
+    put_env!(:fake_review_state, {:reviewed, "review: lgtm"})
+
+    assert {:ok, _merged} = Repository.merge_pr(repo, 7)
+    assert_receive {:merge_pr_preferred, nil}
+
+    assert {:ok, _snapshot} = Repository.review_snapshot(repo, 9)
+    assert_receive {:review_snapshot_preferred, nil}
+  end
+
+  test "an invalid merge_method policy value is refused with the policy named", %{repo: repo} do
+    put_env!(:policies, [
+      %{id: :merge_method, applies: [repo: repo], value: "fast-forward", text: "x"}
+    ])
+
+    put_env!(:fake_review_state, {:reviewed, "review: lgtm"})
+
+    assert {:error, message} = Repository.merge_pr(repo, 7)
+    assert message =~ "policy merge_method: \"fast-forward\" configured for #{repo}"
+    refute_receive {:merge_pr, _owner, _repo, _number}, 50
+
+    assert {:error, snapshot_refusal} = Repository.review_snapshot(repo, 9)
+    assert snapshot_refusal =~ "policy merge_method"
+  end
+
+  test "the exact-head seam sends the pinned method and refuses one GitHub disallows",
+       %{repo: repo} do
+    put_env!(:policies, [])
+    put_env!(:fake_review_state, {:reviewed, "approving review"})
+
+    assert {:ok, %{"merge_method" => "rebase"}} =
+             Repository.merge_pr_at_head(repo, 7, "head-7", "rebase")
+
+    assert_receive {:merge_pr_at_head_method, "rebase"}
+
+    put_env!(:fake_merge_error, {:merge_method_not_allowed, "rebase"})
+    assert {:error, message} = Repository.merge_pr_at_head(repo, 7, "head-7", "rebase")
+    assert message =~ "policy merge_method: #{repo} does not allow the rebase merge method"
+    refute message =~ "github:"
+  end
+
+  test "the exact-head seam refuses a Gate that pinned no method", %{repo: repo} do
+    put_env!(:policies, [])
+    put_env!(:fake_review_state, {:reviewed, "approving review"})
+
+    assert {:error, message} = Repository.merge_pr_at_head(repo, 7, "head-7", nil)
+    assert message =~ "policy merge_method: the merge Gate for PR #7"
+    refute_receive {:merge_pr_at_head, _owner, _repo, _number, _head}, 50
   end
 
   test "comment and ready_pr pass through", %{repo: repo} do
@@ -337,6 +409,23 @@ defmodule Custode.RepositoryTest do
     refute tail =~ "\e["
   end
 
+  describe "Custode.Policy.merge_method/1" do
+    test "binds by repository and normalizes the value" do
+      put_env!(:policies, [
+        %{id: :merge_method, applies: [repo: "acme/one"], value: :squash, text: "squash one"},
+        %{id: :merge_method, applies: [tag: :repo], value: "rebase", text: "tags do not bind"}
+      ])
+
+      assert {:ok, "squash"} = Custode.Policy.merge_method("acme/one")
+      assert is_nil(Custode.Policy.merge_method("acme/two"))
+    end
+
+    test "a value outside merge, squash, rebase is an error" do
+      put_env!(:policies, [%{id: :merge_method, applies: :all, value: "ff", text: "x"}])
+      assert {:error, {:invalid_merge_method, "ff"}} = Custode.Policy.merge_method("acme/one")
+    end
+  end
+
   describe "merge_method/1" do
     test "prefers a merge commit when the repository allows it" do
       repository = %{
@@ -376,6 +465,31 @@ defmodule Custode.RepositoryTest do
       }
 
       assert {:error, :no_allowed_merge_method} = Ops.merge_method(repository)
+    end
+
+    test "a preferred method wins over the flag order when the repository allows it" do
+      repository = %{
+        "allow_merge_commit" => true,
+        "allow_squash_merge" => true,
+        "allow_rebase_merge" => true
+      }
+
+      assert {:ok, "rebase"} = Ops.merge_method(repository, "rebase")
+    end
+
+    test "a preferred method the repository disallows is refused, not replaced" do
+      repository = %{
+        "allow_merge_commit" => true,
+        "allow_squash_merge" => false,
+        "allow_rebase_merge" => true
+      }
+
+      assert {:error, {:merge_method_not_allowed, "squash"}} =
+               Ops.merge_method(repository, "squash")
+    end
+
+    test "a preferred method is kept when the flags are not visible to the token" do
+      assert {:ok, "squash"} = Ops.merge_method(%{"id" => 1}, "squash")
     end
 
     test "keeps the merge default when the flags are not visible to the token" do
@@ -430,6 +544,18 @@ defmodule Custode.RepositoryTest do
             {:ok, raw, conn} = Plug.Conn.read_body(conn)
             send(test_pid, {:merge_request, Jason.decode!(raw)})
             Req.Test.json(conn, %{"merged" => true, "sha" => "abc"})
+
+          {"GET", "/repos/o/r/pulls/1"} ->
+            Req.Test.json(conn, %{"number" => 1, "head" => %{"sha" => "abc"}})
+
+          {"GET", "/repos/o/r/pulls/1/reviews"} ->
+            Req.Test.json(conn, [])
+
+          {"GET", "/repos/o/r/issues/1/comments"} ->
+            Req.Test.json(conn, [])
+
+          {"GET", "/repos/o/r/commits/abc/check-runs"} ->
+            Req.Test.json(conn, %{"total_count" => 0, "check_runs" => []})
         end
       end)
     end
@@ -437,7 +563,9 @@ defmodule Custode.RepositoryTest do
     test "merge_pr sends squash to a squash-only repository" do
       stub_github(@squash_only)
 
-      assert {:ok, %{"merged" => true, "merge_method" => "squash"}} = Ops.merge_pr("o", "r", 1)
+      assert {:ok, %{"merged" => true, "merge_method" => "squash"}} =
+               Ops.merge_pr("o", "r", 1, nil)
+
       assert_received {:merge_request, %{"merge_method" => "squash"} = body}
       refute Map.has_key?(body, "sha")
     end
@@ -445,7 +573,9 @@ defmodule Custode.RepositoryTest do
     test "merge_pr sends merge to a repository that allows every method" do
       stub_github(@all_allowed)
 
-      assert {:ok, %{"merged" => true, "merge_method" => "merge"}} = Ops.merge_pr("o", "r", 1)
+      assert {:ok, %{"merged" => true, "merge_method" => "merge"}} =
+               Ops.merge_pr("o", "r", 1, nil)
+
       assert_received {:merge_request, %{"merge_method" => "merge"}}
     end
 
@@ -453,22 +583,64 @@ defmodule Custode.RepositoryTest do
       stub_github(@squash_only)
 
       assert {:ok, %{"merged" => true, "merge_method" => "squash"}} =
-               Ops.merge_pr_at_head("o", "r", 1, "deadbeef")
+               Ops.merge_pr_at_head("o", "r", 1, "deadbeef", "squash")
 
       assert_received {:merge_request, %{"merge_method" => "squash", "sha" => "deadbeef"}}
+    end
+
+    test "merge_pr sends a policy-preferred method the repository allows" do
+      stub_github(@all_allowed)
+
+      assert {:ok, %{"merge_method" => "rebase"}} = Ops.merge_pr("o", "r", 1, "rebase")
+      assert_received {:merge_request, %{"merge_method" => "rebase"}}
+    end
+
+    test "merge_pr refuses a policy-preferred method the repository disallows" do
+      stub_github(@squash_only)
+
+      assert {:error, {:merge_method_not_allowed, "rebase"}} = Ops.merge_pr("o", "r", 1, "rebase")
+      refute_received {:merge_request, _body}
+    end
+
+    test "merge_pr_at_head sends exactly the pinned method, not the flag-order choice" do
+      stub_github(@all_allowed)
+
+      assert {:ok, %{"merge_method" => "squash"}} =
+               Ops.merge_pr_at_head("o", "r", 1, "deadbeef", "squash")
+
+      assert_received {:merge_request, %{"merge_method" => "squash", "sha" => "deadbeef"}}
+    end
+
+    test "merge_pr_at_head refuses a pinned method the repository no longer allows" do
+      stub_github(%{@all_allowed | "allow_rebase_merge" => false})
+
+      assert {:error, {:merge_method_not_allowed, "rebase"}} =
+               Ops.merge_pr_at_head("o", "r", 1, "deadbeef", "rebase")
+
+      refute_received {:merge_request, _body}
+    end
+
+    test "review_snapshot pins the selected method, and nil when the preferred one is disallowed" do
+      stub_github(@squash_only)
+
+      assert {:ok, %{merge_method: "squash"}} = Ops.review_snapshot("o", "r", 1, nil)
+      assert {:ok, %{merge_method: "squash"}} = Ops.review_snapshot("o", "r", 1, "squash")
+      assert {:ok, %{merge_method: nil}} = Ops.review_snapshot("o", "r", 1, "rebase")
     end
 
     test "merge_pr makes no merge request when every method is disabled" do
       stub_github(@none_allowed)
 
-      assert {:error, :no_allowed_merge_method} = Ops.merge_pr("o", "r", 1)
+      assert {:error, :no_allowed_merge_method} = Ops.merge_pr("o", "r", 1, nil)
       refute_received {:merge_request, _body}
     end
 
     test "merge_pr_at_head makes no merge request when every method is disabled" do
       stub_github(@none_allowed)
 
-      assert {:error, :no_allowed_merge_method} = Ops.merge_pr_at_head("o", "r", 1, "deadbeef")
+      assert {:error, {:merge_method_not_allowed, "squash"}} =
+               Ops.merge_pr_at_head("o", "r", 1, "deadbeef", "squash")
+
       refute_received {:merge_request, _body}
     end
   end

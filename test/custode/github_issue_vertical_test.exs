@@ -91,13 +91,20 @@ defmodule Custode.GitHubIssueVerticalTest do
     def open_issue(_owner, _repo, _attrs), do: {:error, :unsupported}
     def comment(_owner, _repo, _number, _body), do: {:error, :unsupported}
     def ready_pr(_owner, _repo, _number), do: {:error, :unsupported}
-    def merge_pr(_owner, _repo, _number), do: {:error, :unsupported}
+    def merge_pr(_owner, _repo, _number, _merge_method), do: {:error, :unsupported}
 
-    def merge_pr_at_head(_owner, _repo, number, head_sha) do
+    def merge_pr_at_head(_owner, _repo, number, head_sha, merge_method) do
       if hook = Application.get_env(:custode, :publication_before_merge) do
         hook.(number, head_sha)
       end
 
+      case Application.get_env(:custode, :publication_merge_refusal) do
+        nil -> merge_at_head(number, head_sha, merge_method)
+        reason -> {:error, reason}
+      end
+    end
+
+    defp merge_at_head(number, head_sha, merge_method) do
       pull_request =
         Agent.get_and_update(state().pid, fn data ->
           {current, rest} = Enum.split_with(data.pull_requests, &(&1.number == number))
@@ -125,7 +132,10 @@ defmodule Custode.GitHubIssueVerticalTest do
 
         merged ->
           send(state().test_pid, {:merge_pr_at_head, number, head_sha})
-          {:ok, %{"merged" => true, "sha" => merged.merge_commit_sha}}
+          send(state().test_pid, {:merge_method_sent, number, merge_method})
+
+          {:ok,
+           %{"merged" => true, "sha" => merged.merge_commit_sha, "merge_method" => merge_method}}
       end
     end
 
@@ -135,17 +145,21 @@ defmodule Custode.GitHubIssueVerticalTest do
     def job_log_tail(_owner, _repo, _job_id), do: {:error, :unsupported}
     def pr_diff(_owner, _repo, _number), do: {:ok, %{files: []}}
 
-    def review_snapshot(_owner, _repo, number) do
+    def review_snapshot(_owner, _repo, number, preferred) do
       with snapshot when is_map(snapshot) <-
              Application.get_env(:custode, :publication_review_snapshot),
            pull_request when not is_nil(pull_request) <-
              Enum.find(Agent.get(state().pid, & &1.pull_requests), &(&1.number == number)) do
         send(state().test_pid, {:review_snapshot, number})
-        {:ok, Map.put(snapshot, :pull_request, pull_request)}
+        {:ok, snapshot |> Map.put(:pull_request, pull_request) |> prefer_method(preferred)}
       else
         nil -> {:error, :unused}
       end
     end
+
+    # Mirrors Ops: a policy-preferred method replaces the flag-order choice.
+    defp prefer_method(snapshot, nil), do: snapshot
+    defp prefer_method(snapshot, method), do: Map.put(snapshot, :merge_method, method)
 
     def review_state(_owner, _repo, _number) do
       Application.get_env(:custode, :publication_review_state, :unreviewed)
@@ -821,6 +835,7 @@ defmodule Custode.GitHubIssueVerticalTest do
     assert_receive {:merge_pr_at_head, number, head_sha}
     assert number == pull_request.number
     assert head_sha == pull_request.head_sha
+    assert_receive {:merge_method_sent, ^number, "squash"}
 
     landed = WorkItems.get(waiting.work_item_id)
     assert landed.state == "completed"
@@ -896,6 +911,51 @@ defmodule Custode.GitHubIssueVerticalTest do
     )
 
     assert_stale_merge_gate!(waiting, gate)
+  end
+
+  test "a served repository's merge_method policy is pinned by the Gate and sent", fixture do
+    put_merge_method_policy!(:rebase)
+    {_waiting, pull_request, gate} = prepare_merge_gate!(fixture)
+    assert gate.external_preconditions["merge_method"] == "rebase"
+
+    assert {:ok, approved, response} =
+             GitHubMerge.approve(
+               gate.gate_id,
+               actor: %{kind: :operator, id: "maintainer"},
+               transport: :cli
+             )
+
+    assert approved.status == "approved"
+    assert response.result.pull_request.merge_method == "rebase"
+    number = pull_request.number
+    assert_receive {:merge_method_sent, ^number, "rebase"}
+  end
+
+  test "a changed merge_method policy makes the exact merge Gate stale", fixture do
+    {waiting, _pull_request, gate} = prepare_merge_gate!(fixture)
+    assert gate.external_preconditions["merge_method"] == "squash"
+    put_merge_method_policy!("rebase")
+    assert_stale_merge_gate!(waiting, gate)
+  end
+
+  test "a pinned method GitHub no longer allows is refused without merging", fixture do
+    {waiting, _pull_request, gate} = prepare_merge_gate!(fixture)
+    put_env!(:publication_merge_refusal, {:merge_method_not_allowed, "squash"})
+
+    result =
+      GitHubMerge.approve(
+        gate.gate_id,
+        actor: %{kind: :operator, id: "maintainer"},
+        transport: :cli
+      )
+
+    refute match?({:ok, _gate, %{status: :succeeded}}, result)
+
+    assert inspect(result, limit: :infinity, printable_limit: :infinity) =~
+             "policy merge_method: #{@repository} does not allow the squash merge method"
+
+    refute_receive {:merge_method_sent, _number, _method}, 50
+    refute WorkItems.get(waiting.work_item_id).phase == "landed"
   end
 
   test "a resolver without the operator grant makes the exact merge Gate stale", fixture do
@@ -2439,6 +2499,17 @@ defmodule Custode.GitHubIssueVerticalTest do
     assert merge_ready.waiting_condition["gate_id"] == gate.gate_id
 
     {waiting, pull_request, gate}
+  end
+
+  defp put_merge_method_policy!(method) do
+    policy = %{
+      id: :merge_method,
+      applies: [repo: @repository],
+      value: method,
+      text: "merge #{@repository} by #{method}"
+    }
+
+    put_env!(:policies, [policy | Application.get_env(:custode, :policies, [])])
   end
 
   defp clean_merge_snapshot(pull_request) do
