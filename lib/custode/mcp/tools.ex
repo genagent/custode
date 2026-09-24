@@ -691,11 +691,19 @@ defmodule Custode.MCP.Tools.RunJob do
           "sized for small tasks -- pass your own routine's cap when " <>
           "dispatching implementation work"
     )
+
+    field(:max_turns, :integer,
+      description:
+        "agentic turn cap for the job. Omitted keeps the default (15). " <>
+          "Lowering it is always allowed; raising it needs an approved action " <>
+          "in flight, and no value may exceed the configured hard ceiling"
+    )
   end
 
   @impl true
   def execute(%{prompt: prompt, report_inbox: report_inbox} = params, frame) do
-    with {:ok, paths} <-
+    with {:ok, max_turns} <- Scope.authorize_job_turns(frame, params[:max_turns]),
+         {:ok, paths} <-
            Scope.authorize_job(
              frame,
              params[:workspace],
@@ -704,8 +712,8 @@ defmodule Custode.MCP.Tools.RunJob do
            ),
          :ok <- existing_directory(paths.report_inbox, "report_inbox"),
          :ok <- existing_optional_directory(paths.workspace, "workspace") do
-      {:ok, job} = params |> job_args(prompt, paths) |> enqueue()
-      reply(frame, %{job_id: job.id, reports_to: paths.report_inbox})
+      {:ok, job} = params |> job_args(prompt, paths, max_turns) |> enqueue()
+      reply(frame, %{job_id: job.id, reports_to: paths.report_inbox, max_turns: max_turns})
     else
       {:error, message} -> fail(frame, message)
     end
@@ -715,11 +723,11 @@ defmodule Custode.MCP.Tools.RunJob do
   # human-approved work that needs git/gh) runs bypass_permissions with a
   # suite-length timeout -- otherwise the first `git fetch` dies asking a
   # question nobody can answer non-interactively
-  defp job_args(params, prompt, paths) do
+  defp job_args(params, prompt, paths, max_turns) do
     [
       prompt: prompt,
       model: params[:model] || Application.fetch_env!(:custode, :model),
-      max_turns: 15,
+      max_turns: max_turns,
       max_budget_usd:
         params[:max_budget_usd] || Application.fetch_env!(:custode, :max_budget_usd),
       timeout: if(params[:elevated], do: 900_000, else: 200_000),

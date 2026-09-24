@@ -191,6 +191,11 @@ config :custode,
   # every cap here is sized as an "obviously wrong" threshold rather than
   # a spend target. Token-based accounting is the truer measure long-term.
   max_budget_usd: 2.0,
+  # run_job's turn cap (#673): what a one-shot job gets when the caller names
+  # none, and the hard ceiling no request may exceed. Raising a job above the
+  # default needs the operator or an approved action in flight.
+  run_job_max_turns: 15,
+  run_job_max_turns_ceiling: 150,
   # Daily (UTC) cap per routine: crossing it auto-pauses the routine
   # (resume is a human override; a restart leaks at most one turn). nil
   # disables. Per-routine override: daily_budget_usd in the routine map.

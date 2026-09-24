@@ -31,6 +31,67 @@ defmodule Custode.MCP.Scope do
   end
 
   @doc """
+  Resolve and authorize a one-shot job's turn cap (#673).
+
+  Omitted keeps the configured default (`:run_job_max_turns`, 15). Any named
+  value must be a positive integer no greater than the hard ceiling
+  (`:run_job_max_turns_ceiling`), whoever asks. Lowering the cap is always
+  allowed. Raising it above the default is the operator's call, or a
+  routine's while an approved action is in flight: the approval is what sized
+  the work, so an unapproved sweep cannot buy itself a longer job.
+  """
+  @spec authorize_job_turns(Anubis.Server.Frame.t(), term()) ::
+          {:ok, pos_integer()} | {:error, String.t()}
+  def authorize_job_turns(frame, requested) do
+    default = job_turns_default()
+    ceiling = job_turns_ceiling()
+
+    cond do
+      is_nil(requested) ->
+        {:ok, default}
+
+      not is_integer(requested) or requested < 1 ->
+        {:error, "max_turns: must be a positive integer, got #{inspect(requested)}"}
+
+      requested > ceiling ->
+        {:error, "max_turns: #{requested} exceeds the hard ceiling of #{ceiling}"}
+
+      requested <= default ->
+        {:ok, requested}
+
+      true ->
+        authorize_raised_turns(MCP.caller(frame), requested, default)
+    end
+  end
+
+  @doc "The turn cap a one-shot job gets when the caller names none."
+  @spec job_turns_default() :: pos_integer()
+  def job_turns_default, do: Application.get_env(:custode, :run_job_max_turns, 15)
+
+  @doc "The turn cap no one-shot job may exceed, whoever asks."
+  @spec job_turns_ceiling() :: pos_integer()
+  def job_turns_ceiling, do: Application.get_env(:custode, :run_job_max_turns_ceiling, 150)
+
+  defp authorize_raised_turns(%{kind: :operator}, requested, _default), do: {:ok, requested}
+
+  defp authorize_raised_turns(%{kind: :routine, id: id}, requested, default) do
+    case Custode.Gates.active_grant(id) do
+      %{} ->
+        {:ok, requested}
+
+      nil ->
+        {:error,
+         "gate grant: max_turns #{requested} is above the default of #{default} " <>
+           "with no approved action in flight; raise request_permission first"}
+    end
+  end
+
+  defp authorize_raised_turns(%{id: id}, requested, default) do
+    {:error,
+     "identity: #{id} may not raise max_turns to #{requested} above the default of #{default}"}
+  end
+
+  @doc """
   Authorize a mutable fact tied to one served repository.
 
   Operators may act on any served repository. A routine may mutate local facts
