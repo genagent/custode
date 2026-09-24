@@ -212,7 +212,7 @@ defmodule Custode.GatesTest do
       assert length(Path.wildcard(Path.join([workspace, "inbox", "restart-gate-*.md"]))) == 2
     end
 
-    test "a provider crash during approval becomes a recoverable domain error" do
+    test "a provider start exception during approval leaves the gate retryable" do
       workspace = tmp_workspace!()
       routine = routine_fixture!(workspace, %{on_note: :ignore})
       test_pid = self()
@@ -250,18 +250,19 @@ defmodule Custode.GatesTest do
 
       log =
         capture_log(fn ->
-          assert {:error, {:decision_failed, :requeued, :provider_exited}} =
+          assert {:error,
+                  {:decision_retryable, {:error, {:enqueue_failed, :turn_start_exception}}}} =
                    Custode.approve_action(routine.id, action_id, via: :mcp)
         end)
 
-      assert log =~ "queue unavailable"
+      assert log =~ "turn start raised RuntimeError"
 
-      assert %{status: "requeued", outcome: nil, decided_by: nil} =
+      assert {:ok, {:awaiting_permission, %{id: ^action_id}}} = Agent.status(routine.id)
+
+      assert %{status: "open", outcome: nil, decided_by: nil, decided_via: nil} =
                Custode.Repo.get_by!(Gates.Gate, action_id: action_id)
 
-      assert File.read!(
-               Path.join([workspace, "inbox", "restart-gate-#{gate_for(routine.id).id}.md"])
-             ) =~ "ship it"
+      assert Path.wildcard(Path.join([workspace, "inbox", "restart-gate-*.md"])) == []
     end
 
     test "an enqueue refusal keeps the live gate open and retryable" do
