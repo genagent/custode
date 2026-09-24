@@ -49,6 +49,7 @@ defmodule Custode.Operations.GitHub.MergePr do
        repository: arguments.repository,
        pull_request_number: arguments.pull_request_number,
        expected_head_sha: arguments.expected_head_sha,
+       merge_method: merge_method(arguments),
        gate_id: arguments.gate_id
      }}
   end
@@ -57,6 +58,14 @@ defmodule Custode.Operations.GitHub.MergePr do
 
   defp audit(arguments) do
     "merge PR ##{arguments.pull_request_number} on #{arguments.repository} " <>
-      "at #{arguments.expected_head_sha}"
+      "at #{arguments.expected_head_sha}" <> by_method(merge_method(arguments))
   end
+
+  defp by_method(nil), do: ""
+  defp by_method(method), do: " by #{method}"
+
+  defp merge_method(%{external_preconditions: %{} = external}),
+    do: Map.get(external, "merge_method") || Map.get(external, :merge_method)
+
+  defp merge_method(_arguments), do: nil
 end

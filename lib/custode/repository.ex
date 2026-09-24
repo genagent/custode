@@ -630,6 +630,15 @@ defmodule Custode.Repository.Ops do
     end
   end
 
+  # The method is pinned by the exact-head merge gate (#674); nil means the
+  # repository allows none.
+  defp snapshot_merge_method(repository) do
+    case merge_method(repository) do
+      {:ok, method} -> method
+      {:error, :no_allowed_merge_method} -> nil
+    end
+  end
+
   defp tag_merge_method({:ok, %{} = result}, method),
     do: {:ok, Map.put(result, "merge_method", method)}
 
@@ -715,6 +724,7 @@ defmodule Custode.Repository.Ops do
          {:ok, pr} <- unwrap(GhEx.PullRequests.get(client, owner, repo, number)),
          {:ok, reviews} <- unwrap(GhEx.PullRequests.list_reviews(client, owner, repo, number)),
          {:ok, comments} <- unwrap(GhEx.Issues.list_comments(client, owner, repo, number)),
+         {:ok, repository} <- unwrap(GhEx.Repositories.get(client, owner, repo)),
          sha = get_in(pr, ["head", "sha"]),
          {:ok, result} <- unwrap(GhEx.Checks.list_for_ref(client, owner, repo, sha)) do
       {:ok,
@@ -722,7 +732,8 @@ defmodule Custode.Repository.Ops do
          pull_request: pr_row(pr) |> Map.put(:body, pr["body"]),
          reviews: Enum.map(reviews, &review_row/1),
          comments: comment_rows(comments),
-         checks: Enum.map(result["check_runs"] || [], &check_row/1)
+         checks: Enum.map(result["check_runs"] || [], &check_row/1),
+         merge_method: snapshot_merge_method(repository)
        }}
     end
   end
