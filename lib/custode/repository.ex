@@ -418,25 +418,40 @@ defmodule Custode.Repository do
   defp ops_result(state, verb, args) do
     case apply(ops(), verb, args) do
       {:ok, data} ->
-        Custode.Feed.record(%{
-          event: "repo_verb",
-          agent: state.routine_id,
-          # Structured, not just prose in the summary: without the verb, the
-          # repo and the number as fields, nothing can later ask "which PRs did
-          # this agent open, and did they land?" -- which is the measurement
-          # #339's aggregate framing needs and custode cannot currently make.
-          verb: to_string(verb),
-          repo: state.name,
-          number: verb_number(args, data),
-          summary: "#{verb} on #{state.name}: ok"
-        })
+        Custode.Feed.record(
+          %{
+            event: "repo_verb",
+            agent: state.routine_id,
+            # Structured, not just prose in the summary: without the verb, the
+            # repo and the number as fields, nothing can later ask "which PRs did
+            # this agent open, and did they land?" -- which is the measurement
+            # #339's aggregate framing needs and custode cannot currently make.
+            verb: to_string(verb),
+            repo: state.name,
+            number: verb_number(args, data),
+            summary: "#{verb} on #{state.name}: ok"
+          }
+          |> put_merge_method(data)
+        )
 
         {:ok, data}
+
+      {:error, :no_allowed_merge_method} ->
+        {:error,
+         "policy merge_method: #{state.name} allows no supported merge method " <>
+           "(merge, squash, rebase); nothing was merged"}
 
       {:error, reason} ->
         {:error, "github: #{inspect(reason)}"}
     end
   end
+
+  # A merge verb's result names the method the repository allowed; record it so
+  # "how did this land" is a field, not something read back off GitHub.
+  defp put_merge_method(entry, %{"merge_method" => method}) when not is_nil(method),
+    do: Map.put(entry, :merge_method, method)
+
+  defp put_merge_method(entry, _data), do: entry
 
   # Reads take the same ops seam but no feed record (see the read-verbs note).
   defp read_op(verb, args) do

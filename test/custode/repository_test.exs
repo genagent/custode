@@ -30,12 +30,20 @@ defmodule Custode.RepositoryTest do
 
     def merge_pr(owner, repo, number) do
       send(pid(), {:merge_pr, owner, repo, number})
-      {:ok, %{"merged" => true}}
+
+      case Application.get_env(:custode, :fake_merge_error) do
+        nil -> {:ok, %{"merged" => true, "merge_method" => "squash"}}
+        reason -> {:error, reason}
+      end
     end
 
     def merge_pr_at_head(owner, repo, number, head_sha) do
       send(pid(), {:merge_pr_at_head, owner, repo, number, head_sha})
-      {:ok, %{"merged" => true, "sha" => "merge-sha"}}
+
+      case Application.get_env(:custode, :fake_merge_error) do
+        nil -> {:ok, %{"merged" => true, "sha" => "merge-sha"}}
+        reason -> {:error, reason}
+      end
     end
 
     def review_state(_owner, _repo, _number) do
@@ -216,6 +224,40 @@ defmodule Custode.RepositoryTest do
              Repository.merge_pr_at_head(repo, 7, "head-7")
 
     assert_receive {:merge_pr_at_head, "acme", _bare, 7, "head-7"}
+  end
+
+  test "a policy-allowed merge records the chosen method on the feed entry", %{repo: repo} do
+    put_env!(:policies, [])
+    put_env!(:fake_review_state, {:reviewed, "review: lgtm"})
+
+    assert {:ok, %{"merged" => true, "merge_method" => "squash"}} =
+             Repository.merge_pr(repo, 7)
+
+    assert Enum.any?(
+             Custode.Feed.tail(50),
+             &(&1["event"] == "repo_verb" and &1["verb"] == "merge_pr" and
+                 &1["repo"] == repo and &1["number"] == 7 and &1["merge_method"] == "squash")
+           )
+  end
+
+  test "a repository allowing no merge method refuses with the policy named", %{repo: repo} do
+    put_env!(:policies, [])
+    put_env!(:fake_review_state, {:reviewed, "review: lgtm"})
+    put_env!(:fake_merge_error, :no_allowed_merge_method)
+
+    assert {:error, message} = Repository.merge_pr(repo, 7)
+    assert message =~ "policy merge_method: #{repo} allows no supported merge method"
+    assert message =~ "(merge, squash, rebase); nothing was merged"
+    refute message =~ "github:"
+
+    assert {:error, gated} = Repository.merge_pr_at_head(repo, 7, "head-7")
+    assert gated =~ "policy merge_method: #{repo} allows no supported merge method"
+
+    refute Enum.any?(
+             Custode.Feed.tail(50),
+             &(&1["event"] == "repo_verb" and &1["repo"] == repo and
+                 &1["verb"] in ["merge_pr", "merge_pr_at_head"])
+           )
   end
 
   test "comment and ready_pr pass through", %{repo: repo} do
