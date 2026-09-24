@@ -621,6 +621,7 @@ defmodule CustodeWeb.ConsoleLive do
         <.rail
           groups={@groups}
           selected={@selected}
+          caretaker={@caretaker}
           filter={@filter}
           in_flight={@in_flight}
           quiet_open={@quiet_open}

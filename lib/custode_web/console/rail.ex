@@ -23,6 +23,7 @@ defmodule CustodeWeb.Console.Rail do
 
   attr(:groups, :list, required: true)
   attr(:selected, :string, default: nil)
+  attr(:caretaker, :string, default: nil)
   attr(:filter, :string, required: true)
   attr(:in_flight, :map, required: true)
   attr(:quiet_open, :boolean, required: true)
@@ -74,6 +75,7 @@ defmodule CustodeWeb.Console.Rail do
             id="quiet-subject-list"
             signals={signals}
             selected={@selected}
+            caretaker={@caretaker}
             group={group}
             in_flight={@in_flight}
           />
@@ -87,6 +89,7 @@ defmodule CustodeWeb.Console.Rail do
           <.subject_list
             signals={signals}
             selected={@selected}
+            caretaker={@caretaker}
             group={group}
             in_flight={@in_flight}
           />
@@ -98,6 +101,7 @@ defmodule CustodeWeb.Console.Rail do
 
   attr(:signals, :list, required: true)
   attr(:selected, :string, default: nil)
+  attr(:caretaker, :string, default: nil)
   attr(:group, :atom, required: true)
   attr(:in_flight, :map, required: true)
   attr(:id, :string, default: nil)
@@ -109,16 +113,26 @@ defmodule CustodeWeb.Console.Rail do
         <.link
           patch={subject_path(signal.subject)}
           data-rail-subject
+          data-rail-caretaker={signal.subject == @caretaker && "true"}
           aria-current={signal.subject == @selected && "page"}
           class={[
             "flex items-center gap-2 rounded px-2 py-1.5 font-mono text-sm hover:bg-base-200",
             signal.subject == @selected && "bg-base-200 font-bold",
+            signal.subject == @caretaker && "ring-1 ring-inset ring-primary/40",
             @group in [:scheduled, :quiet] && "text-base-content/60"
           ]}
         >
           <span class={["inline-block size-2 shrink-0 rounded-full", dot(signal)]}></span>
           <span class="min-w-0 flex-1">
-            <span class="block truncate">{signal.subject}</span>
+            <span class="flex min-w-0 items-center gap-1.5">
+              <span class="truncate">{signal.subject}</span>
+              <span
+                :if={signal.subject == @caretaker}
+                class="badge badge-primary badge-outline badge-xs shrink-0 font-sans"
+              >
+                caretaker
+              </span>
+            </span>
             <%!-- Seeing many things at once is the point: a rail of bare
                   names made every one of them a click. Only the groups
                   that mean something is wrong pay the second line. --%>
