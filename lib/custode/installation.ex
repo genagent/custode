@@ -19,6 +19,22 @@ defmodule Custode.Installation do
 
   The file lives beside the database, so a backup or a move of the database
   directory carries the identity with it, and two homes get two identities.
+
+  Concurrent provisioning is safe within a node and across OS processes.
+  Callers on one node are serialized with `:global.trans/4`. Creation from a
+  missing file writes a temporary file and publishes it with a same-directory
+  hard link, which fails with `:eexist` when another process won; the loser
+  reads the winner's file. Replacing a malformed file is two steps (remove,
+  then link), which two processes could interleave into two identities, so
+  only that recovery takes an OS-level exclusive lock file (`<file>.lock`,
+  created with `O_CREAT|O_EXCL`). The file is read again once the lock is
+  held: a valid id is returned unchanged, a missing file is created, and only
+  a still-malformed file is removed and replaced. The lock is released
+  afterwards. A lock file is never broken automatically, because breaking one
+  would reintroduce the race. If it stays held past a bounded wait,
+  `provision/0` returns `{:error, :recovery_locked}` and logs a warning, and a
+  leftover installation lock file beside the database has to be removed by
+  hand. Neither the error nor the log names the path.
   """
 
   require Logger
@@ -26,6 +42,8 @@ defmodule Custode.Installation do
   @key {__MODULE__, :id}
   @prefix "inst_"
   @random_bytes 16
+  @lock_wait_ms 5_000
+  @lock_poll_ms 50
 
   @doc """
   Read the file beside the configured database, creating it when it is missing
@@ -75,15 +93,32 @@ defmodule Custode.Installation do
 
   @doc false
   # The file logic with the path injected, so a test can use a temporary one.
-  # Local callers serialize per path. Publication uses a same-directory hard
-  # link, which creates the destination without replacing a concurrent winner.
-  # `retries` bounds the wait for that lock; production waits indefinitely.
-  @spec id_at(Path.t(), non_neg_integer() | :infinity) :: {:ok, String.t()} | {:error, term()}
-  def id_at(path, retries \\ :infinity) do
+  # Local callers serialize per path with `:global.trans/4`; `retries` bounds
+  # the wait for that lock and production waits indefinitely. `:global` only
+  # covers one node, so recovery of a malformed file also takes an OS-level
+  # exclusive lock file, re-reads under it, and never breaks it (see the
+  # moduledoc). Creation from a missing file needs no lock: publication uses a
+  # same-directory hard link, which creates the destination without replacing a
+  # concurrent winner.
+  #
+  # `opts` are test seams:
+  #   * `:lock_wait_ms` / `:lock_poll_ms` - bound and interval of the wait for
+  #     the recovery lock file
+  #   * `:before_lock` - a function run after the first malformed read and
+  #     before the recovery lock is requested
+  #   * `:publish` - the publish function used during recovery
+  @spec id_at(Path.t(), non_neg_integer() | :infinity, keyword()) ::
+          {:ok, String.t()} | {:error, term()}
+  def id_at(path, retries \\ :infinity, opts \\ []) do
     path = Path.expand(path)
     lock_id = {{__MODULE__, path}, self()}
 
-    case :global.trans(lock_id, fn -> id_at_locked(path) end, [node() | Node.list()], retries) do
+    case :global.trans(
+           lock_id,
+           fn -> id_at_locked(path, opts) end,
+           [node() | Node.list()],
+           retries
+         ) do
       :aborted -> {:error, {:lock_aborted, :aborted}}
       result -> result
     end
@@ -103,11 +138,11 @@ defmodule Custode.Installation do
     end)
   end
 
-  defp id_at_locked(path) do
+  defp id_at_locked(path, opts) do
     case read(path) do
       {:ok, id} -> {:ok, id}
       {:error, :enoent} -> create_at(path)
-      {:error, :malformed} -> replace_malformed(path)
+      {:error, :malformed} -> recover_malformed(path, opts)
       {:error, reason} -> {:error, reason}
     end
   end
@@ -123,13 +158,79 @@ defmodule Custode.Installation do
     end
   end
 
-  defp replace_malformed(path) do
+  # Another OS process may be recovering the same file, so the remove and the
+  # link happen under an exclusive lock file, and the file is read again once
+  # the lock is held: whoever got there first has already fixed it.
+  defp recover_malformed(path, opts) do
+    publish = Keyword.get(opts, :publish, &File.ln/2)
+    Keyword.get(opts, :before_lock, fn -> :ok end).()
+
+    with_recovery_lock(path, opts, fn ->
+      case read(path) do
+        {:ok, id} -> {:ok, id}
+        {:error, :enoent} -> create_at(path, publish)
+        {:error, :malformed} -> replace_malformed(path, publish)
+        {:error, reason} -> {:error, reason}
+      end
+    end)
+  end
+
+  defp replace_malformed(path, publish) do
     Logger.warning("installation id file is malformed; replacing it")
 
     case File.rm(path) do
-      :ok -> create_at(path)
-      {:error, :enoent} -> create_at(path)
+      :ok -> create_at(path, publish)
+      {:error, :enoent} -> create_at(path, publish)
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # The lock is a file created with O_CREAT|O_EXCL. It is never broken here: a
+  # holder that died leaves it behind and it has to be removed by hand, because
+  # breaking it automatically would let two recoveries run at once. Neither the
+  # error nor the log carries the path.
+  defp with_recovery_lock(path, opts, fun) do
+    lock = path <> ".lock"
+    wait = Keyword.get(opts, :lock_wait_ms, @lock_wait_ms)
+    poll = Keyword.get(opts, :lock_poll_ms, @lock_poll_ms)
+
+    case acquire_lock(lock, System.monotonic_time(:millisecond) + wait, poll) do
+      {:ok, io} ->
+        try do
+          fun.()
+        after
+          File.close(io)
+          File.rm(lock)
+        end
+
+      :timeout ->
+        Logger.warning(
+          "installation recovery lock is still held; a leftover installation " <>
+            "lock file beside the database must be removed by hand"
+        )
+
+        {:error, :recovery_locked}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp acquire_lock(lock, deadline, poll) do
+    case File.open(lock, [:write, :exclusive]) do
+      {:ok, io} ->
+        {:ok, io}
+
+      {:error, :eexist} ->
+        if System.monotonic_time(:millisecond) >= deadline do
+          :timeout
+        else
+          Process.sleep(poll)
+          acquire_lock(lock, deadline, poll)
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

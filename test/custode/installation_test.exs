@@ -127,6 +127,74 @@ defmodule Custode.InstallationTest do
       end
     end
 
+    test "a valid id installed by another process before the lock is kept, not replaced", %{
+      path: path
+    } do
+      File.write!(path, "garbage\n")
+      external = "inst_EXTERNAL"
+
+      before_lock = fn ->
+        temp = path <> ".external"
+        File.write!(temp, external <> "\n")
+        File.rename!(temp, path)
+      end
+
+      {result, log} =
+        capture_result_and_log(fn ->
+          Installation.id_at(path, :infinity, before_lock: before_lock)
+        end)
+
+      assert result == {:ok, external}
+      assert File.read!(path) == external <> "\n"
+      refute log =~ "replacing"
+      assert File.ls!(Path.dirname(path)) == [Path.basename(path)]
+    end
+
+    test "a publisher that wins during recovery is returned, not overwritten", %{path: path} do
+      File.write!(path, "garbage\n")
+      external = "inst_EXTERNAL"
+
+      publish = fn temp, dest ->
+        winner = dest <> ".external"
+        File.write!(winner, external <> "\n")
+        :ok = File.ln(winner, dest)
+        File.rm!(winner)
+        File.ln(temp, dest)
+      end
+
+      assert {:ok, ^external} =
+               capture_log_result(fn -> Installation.id_at(path, :infinity, publish: publish) end)
+
+      assert File.read!(path) == external <> "\n"
+      assert File.ls!(Path.dirname(path)) == [Path.basename(path)]
+    end
+
+    test "a recovery lock held by someone else is never broken", %{path: path} do
+      File.write!(path, "garbage\n")
+      lock = path <> ".lock"
+      File.write!(lock, "held")
+
+      {result, log} =
+        capture_result_and_log(fn ->
+          Installation.id_at(path, :infinity, lock_wait_ms: 30, lock_poll_ms: 5)
+        end)
+
+      assert result == {:error, :recovery_locked}
+      assert File.read!(path) == "garbage\n"
+      assert File.read!(lock) == "held"
+      assert log =~ "removed by hand"
+      refute log =~ Path.dirname(path)
+    end
+
+    test "leaves no lock file behind after a recovery", %{path: path} do
+      File.write!(path, "garbage\n")
+
+      assert {:ok, id} = capture_log_result(fn -> Installation.id_at(path) end)
+
+      assert File.read!(path) == id <> "\n"
+      assert File.ls!(Path.dirname(path)) == [Path.basename(path)]
+    end
+
     test "returns an error when the path is a directory, and leaves it alone", %{path: path} do
       File.mkdir_p!(path)
 
@@ -251,11 +319,16 @@ defmodule Custode.InstallationTest do
   # Runs `fun` under capture_log and returns its value, for a call whose log
   # is expected noise rather than the subject of the test.
   defp capture_log_result(fun) do
+    {result, _log} = capture_result_and_log(fun)
+    result
+  end
+
+  defp capture_result_and_log(fun) do
     parent = self()
-    capture_log(fn -> send(parent, {:result, fun.()}) end)
+    log = capture_log(fn -> send(parent, {:result, fun.()}) end)
 
     receive do
-      {:result, result} -> result
+      {:result, result} -> {result, log}
     end
   end
 
