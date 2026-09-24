@@ -18,6 +18,7 @@ for table <- [
       "next_beats",
       "conversation_arc_events",
       "conversation_arcs",
+      "operator_messages",
       "disowned_prs",
       "asks",
       "observations",
