@@ -50,3 +50,8 @@ dev-workspace/
 # preparations). Runtime output, not source. It resolves under CUSTODE_HOME
 # when that is set and lands here otherwise.
 /artifacts/
+
+# Routine-owned clones (Custode.OwnedCheckout), checkouts/<routine-id> under
+# the data root. Runtime state, not source. They land here when CUSTODE_HOME
+# is unset.
+/checkouts/

@@ -1,10 +1,41 @@
 # Roadmap
 
 Open work is tracked in
-[GitHub issues](https://github.com/genagent/custode/issues). The plan is
+[GitHub issues](https://github.com/genagent/custode/issues), and #599 is the
+backlog index. The last plan was
 [design/010-back-to-the-dashboard.md](design/010-back-to-the-dashboard.md),
-tracked by #453. This file keeps the standing architectural positions, the
+tracked by #453, which closed on 2026-09-24 once rungs 0 to 4 had shipped.
+This file keeps the current status, the standing architectural positions, the
 rungs, and the shipped-milestone history.
+
+## Status: paused (2026-09-26)
+
+Work on custode is paused. The last release is v0.1.0 (2026-09-24), and
+`main` carries fixes after it through #698. No issue is claimed. The only
+open pull request is #700, the design/013 spike, which is not merged and waits
+on the operator. Its ideas continue as a separate, standalone project; custode
+stays as it is so work can resume here.
+
+To resume:
+
+1. In the checkout the fleet runs from, `git pull`, then `mix deps.get`.
+   `mcp_ex_plug` comes from the private `joshrotenberg/mcp_ex` repository at
+   a pinned commit, so it needs SSH access to it or `MCP_EX_PATH`. That
+   library is being reworked and renamed. The pinned commit keeps resolving
+   through GitHub's rename redirect; moving the pin will need the new package
+   and module names.
+2. `mix custode doctor`, then `mix phx.server`. A normal boot schedules
+   every routine in the local `routines.toml` on its cron, and `@reboot`
+   routines fire once. For a quiet start, use "pause all" in the console
+   header's fleet menu as soon as the node is up, then resume routines one at
+   a time with `mix custode resume <agent_id>`.
+3. GitHub Actions has not run since 2026-09-24: every job fails before its
+   first step because the account's Actions spending limit is exhausted.
+   Merges since then rest on the five local gates in AGENTS.md. Check that CI
+   runs again before relying on it.
+4. Pick up from #599. #554 and #555 are the operator's decisions, #499 and
+   #556 are blocked, and the work kernel stays frozen (#423, #424, #439,
+   #630).
 
 ## Labels
 
@@ -23,9 +54,9 @@ Each is used before the next starts.
 |---|---|---|
 | 0 | Running again | done |
 | 1 | Attention that cannot be missed | done |
-| 2 | The console | done: it is the home page. Display gaps on #450 |
-| 3 | custode as the operator's right hand | in progress (#451): gates record class and risk, grants bound an approved turn, `/custode` exists. Next: a second opinion on the diff (#522), then the operator lists which classes custode may approve |
-| 4 | A routine can run on Codex | not started (#452, #522, #523) |
+| 2 | The console | done: it is the home page (#450, #552, #594) |
+| 3 | custode as the operator's right hand | mechanisms merged: gates record class and risk, grants bound an approved turn (observe mode), `/custode`, a cross-provider review on gates (#522). Left for the operator: #554, #555. The design stays open as #451 |
+| 4 | A routine can run on Codex | done (#452, #522, #523) |
 | later | Agent mesh (#461), missions (#459) | design only |
 
 Deferred by the operator: remote access, headless operation, MCP parity as a
@@ -67,3 +98,14 @@ tree, not running, deleted only when a fix touches it.
   themes, suggested replies on asks, agent-set cadence, failure
   classification and backoff, rate-limit holds, the tool policy table,
   markdown through a sanitizing renderer, the roster made local.
+- 2026-09-21 to 2026-09-24: Codex routines (#452), cross-provider gate
+  review (#522) and portable handoff context (#523); the HTTP transport moved
+  to mcp_ex; MCP identity and authority enforced at the endpoints, with a
+  written authorization matrix; routine-owned checkouts that custode
+  provisions and refreshes; guided agent onboarding; conversation arcs and
+  operator messages correlated with their outcomes; Claude plan usage read
+  over OAuth; the wrapper packages consumed from Hex; recovery fixes for
+  SQLite busy acknowledgements, durable gate decisions and the scheduler's
+  beat handoff.
+- 2026-09-24: v0.1.0, a private, source-installed, single-operator local
+  alpha. [guides/demo.md](guides/demo.md) is its quickstart.
