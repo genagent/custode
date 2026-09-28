@@ -96,13 +96,21 @@ defmodule Custode.Feed.Ingest do
     case {meta.from, meta.to} do
       {_from, :awaiting_permission} ->
         Custode.Feed.record(
-          %{event: "needs_approval", agent: meta.agent_id, action: gated(meta.agent_id)},
+          %{
+            event: "needs_approval",
+            agent: meta.agent_id,
+            action: gated(meta.agent_id, provider)
+          },
           notify: true
         )
 
       {_from, :waiting_for_user} ->
         Custode.Feed.record(
-          %{event: "needs_input", agent: meta.agent_id, question: gated(meta.agent_id)},
+          %{
+            event: "needs_input",
+            agent: meta.agent_id,
+            question: gated(meta.agent_id, provider)
+          },
           notify: true
         )
 
@@ -270,8 +278,8 @@ defmodule Custode.Feed.Ingest do
   defp inspect_reason(nil), do: nil
   defp inspect_reason(reason), do: reason |> inspect(printable_limit: 300) |> String.slice(0, 300)
 
-  defp gated(agent_id) do
-    case Custode.Agents.status(agent_id) do
+  defp gated(agent_id, provider) do
+    case Custode.Agents.status(agent_id, provider) do
       {:ok, {:awaiting_permission, %{description: description}}} -> description
       {:ok, {:waiting_for_user, question}} -> question
       _other -> nil

@@ -10,7 +10,9 @@ defmodule Custode.Agents do
 
   @providers %{
     claude: ObanClaude.Agent,
-    codex: ObanCodex.Agent
+    codex: ObanCodex.Agent,
+    oban_claude: ObanClaude.Agent,
+    oban_codex: ObanCodex.Agent
   }
 
   @doc "The configured provider for an agent id, defaulting to Claude."
@@ -34,6 +36,9 @@ defmodule Custode.Agents do
   def stop_agent(agent_id, provider), do: module(provider).stop_agent(agent_id)
 
   def status(agent_id), do: call_provider(agent_id, :status, [agent_id])
+
+  @doc "Read status through an explicitly captured provider."
+  def status(agent_id, provider), do: module(provider).status(agent_id)
 
   @doc "Every live agent from both engines, in stable id order."
   def list do
@@ -65,6 +70,16 @@ defmodule Custode.Agents do
 
   def reject_action(agent_id, action_id, reason \\ "denied"),
     do: call_provider(agent_id, :reject_action, [agent_id, action_id, reason])
+
+  @doc "Arm the active provider turn to pause at its next safe boundary."
+  def pause_after_turn(agent_id, reason, turn_meta),
+    do: call_provider(agent_id, :pause_after_turn, [agent_id, reason, turn_meta])
+
+  @doc "Arm a turn through its explicitly captured provider."
+  def pause_after_turn(agent_id, provider, reason, turn_meta) do
+    provider_module = module(provider)
+    provider_module.pause_after_turn(agent_id, reason, turn_meta)
+  end
 
   def emergency_pause(agent_id), do: call_provider(agent_id, :emergency_pause, [agent_id])
   def resume_agent(agent_id), do: call_provider(agent_id, :resume_agent, [agent_id])
