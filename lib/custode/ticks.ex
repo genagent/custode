@@ -2,20 +2,21 @@ defmodule Custode.Ticks do
   @moduledoc """
   Staleness for the `:ticks` queue (#442).
 
-  A tick is a point-in-time beat. Every producer (`Custode.Scheduler`,
-  `Custode.Inbox.drop/3`, `Custode.beat/0`) only INSERTS; whether a tick may
-  run is decided by the queue, which `Custode.MCP.Probe` withholds when the
-  boot doctor fails and `Custode.drain/1` pauses for a restart. Nothing
-  stopped insertion in the meantime, so a node that sat with a withheld queue
-  accumulated one job per routine per matching minute and ran all of them at
-  the next healthy boot: 704 after the 2026-09-14 run, each with a prompt and
-  presence line frozen days earlier.
+  A routine tick is a point-in-time beat. Its producers (`Custode.Scheduler`
+  and `Custode.beat/0`) only INSERT; whether a tick may run is decided by the
+  queue, which `Custode.MCP.Probe` withholds when the boot doctor fails and
+  `Custode.drain/1` pauses for a restart. Nothing stopped insertion in the
+  meantime, so a node that sat with a withheld queue accumulated one job per
+  routine per matching minute and ran all of them at the next healthy boot:
+  704 after the 2026-09-14 run, each with a prompt and presence line frozen
+  days earlier.
 
-  The rule here is about the consumer rather than the producers, so it covers
-  every one of them: a tick that was due longer ago than the window is
-  discarded, not replayed. "A missed beat is simply missed" was already the
-  stated doctrine for a failed attempt (`max_attempts: 1`); this extends it to
-  the beat that never got an attempt.
+  A routine tick that was due longer ago than the window is discarded, not
+  replayed. "A missed beat is simply missed" was already the stated doctrine
+  for a failed attempt (`max_attempts: 1`); this extends it to the beat that
+  never got an attempt. Durable work may share the queue but is excluded by
+  worker. In particular, an `InboxWakeJob` represents unseen inbox work and
+  must survive an outage.
 
   The window is `:stale_tick_seconds` (default 600). It is deliberately much
   longer than the wait for the concurrency-1 slot, which is seconds, and much
@@ -63,6 +64,10 @@ defmodule Custode.Ticks do
     query =
       from(j in Oban.Job,
         where: j.queue == @queue,
+        # Inbox wakes are durable work, not point-in-time beats. Their row
+        # remains the source of truth across an outage, and their kickoff job
+        # must still be available when the ticks queue returns.
+        where: j.worker != "Custode.InboxWakeJob",
         where: j.state in ["available", "scheduled"],
         where: j.scheduled_at < ^cutoff
       )

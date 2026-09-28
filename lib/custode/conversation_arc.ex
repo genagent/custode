@@ -8,7 +8,7 @@ defmodule Custode.ConversationArc do
   alias Custode.ConversationArcEvent
 
   @states ~w(active completed rotated)
-  @kinds ~w(operator scheduled specialist job attempt)
+  @kinds ~w(operator scheduled specialist job attempt inbox)
 
   schema "conversation_arcs" do
     field(:routine_id, :string)

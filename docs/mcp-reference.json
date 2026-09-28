@@ -631,10 +631,10 @@
     {
       "behavior": {
         "access": "Main endpoint capability: operator, caretaker, or specialist routine. A routine may inspect only a temporary agent whose durable spawn record names it as parent; the operator may inspect any target. Missing or reconciled records do not widen access.",
-        "effects": "None; reads agent lifecycle and Custode-owned conversation-arc state.",
-        "notes": "agent_id is required. detail is diagnostic text and can carry pending gate information; no structured action object is guaranteed. conversation is the durable read model shared with LiveView. Provider session ids are opaque, host-local acceleration handles and may be null.",
-        "result": "All states: agent_id, state and conversation with current plus active arcs. A current arc names its logical and provider arc ids, kind, provider, optional provider_session_id, host/workspace/config identity, decision, reason, outcome and timestamps. Running agents also return detail, turns, cost_usd, legacy default session_id, active_arc_id and the wrapper's current or latest continuation.",
-        "summary": "Inspect one agent and its durable conversation arc."
+        "effects": "None; reads agent lifecycle, pending inbox wake and Custode-owned conversation-arc state.",
+        "notes": "agent_id is required. detail is diagnostic text and can carry pending gate information; no structured action object is guaranteed. pending_wake is null when no durable inbox wake remains. When present it explains the coalesced note count, delivery state, timing and current blocker; reading it does not deliver or clear the wake. pending_wake.spend_override is true when a manual resume authorized that wake past the daily spend rail. It does not replace blocked_by, which continues to report the current delivery blocker. conversation is the durable read model shared with LiveView. Provider session ids are opaque, host-local acceleration handles and may be null.",
+        "result": "All states: agent_id, state, pending_wake and conversation with current plus active arcs. pending_wake is null or contains wake_id, reason, state, note_count, first_note_at, last_note_at, due_at, blocked_by, spend_override and claimed_at. A current conversation arc names its logical and provider arc ids, kind, provider, optional provider_session_id, host/workspace/config identity, decision, reason, outcome and timestamps. Running agents also return detail, turns, cost_usd, legacy default session_id, active_arc_id and the wrapper's current or latest continuation.",
+        "summary": "Inspect one agent, its pending inbox wake and durable conversation arc."
       },
       "category": "read",
       "definition": {

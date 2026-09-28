@@ -14,11 +14,17 @@ defmodule Custode.TicksTest do
   defp job!(marker, opts) do
     queue = Keyword.get(opts, :queue, "ticks")
     state = Keyword.get(opts, :state, "available")
+    worker = Keyword.get(opts, :worker, "Custode.RoutineTick")
     due = DateTime.add(@now, -Keyword.fetch!(opts, :due_ago), :second)
 
     %{"routine_id" => marker}
     |> Custode.RoutineTick.new(queue: queue)
-    |> Ecto.Changeset.change(state: state, scheduled_at: due, inserted_at: due)
+    |> Ecto.Changeset.change(
+      state: state,
+      worker: worker,
+      scheduled_at: due,
+      inserted_at: due
+    )
     |> Repo.insert!()
   end
 
@@ -61,6 +67,13 @@ defmodule Custode.TicksTest do
       other_queue = job!(marker, due_ago: 3 * 86_400, queue: "sensors")
       already_done = job!(marker, due_ago: 3 * 86_400, state: "completed")
 
+      durable_wake =
+        job!(marker,
+          due_ago: 3 * 86_400,
+          state: "scheduled",
+          worker: "Custode.InboxWakeJob"
+        )
+
       assert Ticks.discard_stale(@now) >= 2
 
       assert state_of(days_old) == "cancelled"
@@ -68,6 +81,7 @@ defmodule Custode.TicksTest do
       assert state_of(fresh) == "available"
       assert state_of(other_queue) == "available"
       assert state_of(already_done) == "completed"
+      assert state_of(durable_wake) == "scheduled"
     end
 
     test "is a no-op on a clean queue" do

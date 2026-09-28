@@ -16,6 +16,7 @@ for table <- [
       "gates",
       "gate_reviews",
       "next_beats",
+      "inbox_wakes",
       "conversation_arc_events",
       "conversation_arcs",
       "operator_messages",

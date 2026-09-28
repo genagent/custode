@@ -3,7 +3,7 @@ defmodule Custode.InboxTest do
 
   import Custode.TestHelpers
 
-  alias Custode.Inbox
+  alias Custode.{Inbox, InboxWakes}
 
   setup do
     workspace = tmp_workspace!()
@@ -11,11 +11,15 @@ defmodule Custode.InboxTest do
     %{workspace: workspace, routine: routine}
   end
 
-  defp beats_for(routine_id) do
-    jobs_for("ObanClaude.Agent.Tick") |> Enum.filter(&(&1.args["agent_id"] == routine_id))
+  defp wake_jobs_for(routine_id) do
+    jobs_for("Custode.InboxWakeJob")
+    |> Enum.filter(
+      &(&1.args["routine_id"] == routine_id and
+          &1.state in ~w(available scheduled retryable executing))
+    )
   end
 
-  test "drop writes the note and schedules ONE debounced beat for a burst",
+  test "drop writes the note and retains one debounced wake for a burst",
        %{workspace: workspace, routine: routine} do
     {:ok, path} = Inbox.drop(routine.id, "a.md", "note a\n")
     assert File.read!(path) == "note a\n"
@@ -24,22 +28,24 @@ defmodule Custode.InboxTest do
     {:ok, _path} = Inbox.drop(routine.id, "b.md", "note b\n")
     {:ok, _path} = Inbox.drop(routine.id, "c.md", "note c\n")
 
-    # three drops, one scheduled beat (Oban uniqueness on the agent id)
-    assert [beat] = beats_for(routine.id)
-    assert beat.state == "scheduled"
-    assert beat.args["if_offline"] == "start"
+    assert %{
+             wake_id: wake_id,
+             reason: "inbox_activity",
+             state: "pending",
+             note_count: 3,
+             blocked_by: "debounce"
+           } = InboxWakes.get(routine.id)
 
-    assert [%{kind: "scheduled"}] =
-             routine.id
-             |> Custode.ConversationArcs.read_model()
-             |> Map.fetch!(:arcs)
-             |> Enum.filter(&(&1.kind == "scheduled"))
+    assert [job] = wake_jobs_for(routine.id)
+    assert job.queue == "ticks"
+    assert job.args == %{"routine_id" => routine.id, "wake_id" => wake_id}
   end
 
-  test "on_note: :ignore drops the note without a beat", %{workspace: workspace} do
+  test "on_note: :ignore drops the note without a wake", %{workspace: workspace} do
     quiet = routine_fixture!(workspace, %{on_note: :ignore})
     {:ok, _path} = Inbox.drop(quiet.id, "a.md", "quiet\n")
-    assert beats_for(quiet.id) == []
+    assert InboxWakes.get(quiet.id) == nil
+    assert wake_jobs_for(quiet.id) == []
   end
 
   test "unknown routines are refused" do
@@ -51,12 +57,14 @@ defmodule Custode.InboxTest do
     inbox = Path.join(workspace, "inbox")
     {:ok, path} = Inbox.drop_path(inbox, "job-9-report.md", "report\n")
     assert File.exists?(path)
-    assert [_beat] = beats_for(routine.id)
+    assert %{wake_id: wake_id, note_count: 1} = InboxWakes.get(routine.id)
+    assert [%{args: %{"wake_id" => ^wake_id}}] = wake_jobs_for(routine.id)
 
-    # a foreign directory still gets the file, no beat anywhere
+    # A foreign directory still gets the file and does not add a wake.
     outside = Path.join(System.tmp_dir!(), uid("elsewhere"))
     on_exit(fn -> File.rm_rf!(outside) end)
     {:ok, _path} = Inbox.drop_path(outside, "x.md", "y")
+    assert [%{args: %{"wake_id" => ^wake_id}}] = wake_jobs_for(routine.id)
   end
 
   describe "the inbox_note feed entry (#261)" do

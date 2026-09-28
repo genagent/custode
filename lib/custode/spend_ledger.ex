@@ -319,7 +319,8 @@ defmodule Custode.SpendLedger do
     :ok
   end
 
-  defp over_rail?(routine) do
+  @doc "Whether a routine has crossed either configured daily spend rail."
+  def over_rail?(routine) do
     (is_number(routine.daily_budget_usd) and today(routine.id) > routine.daily_budget_usd) or
       (is_integer(routine.daily_budget_tokens) and
          today_tokens(routine.id) > routine.daily_budget_tokens)

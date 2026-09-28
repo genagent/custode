@@ -8,10 +8,9 @@ defmodule Custode.Inbox do
     2. records an `inbox_note` feed entry (#261): a dropped note is a fleet
        event, and until this it left no trace but a file on disk, so the
        Digest and every advisor reading the feed were blind to inbox volume
-    3. fires the EVENT KICKOFF: for a routine with `on_note: :beat` (the
-       default), a debounced Tick is scheduled (~20s out, Oban-unique per
-       agent), so a burst of notes wakes the agent exactly once, shortly
-       after the last one lands
+    3. requests the durable EVENT KICKOFF: for a routine with `on_note: :beat`
+       (the default), inbox activity is coalesced into one durable wake after
+       the latest note's debounce window
 
   That closes the sensor loop (mechanical detection -> note -> beat -> LLM
   judgment) and makes job reports and restart notices wake their agents
@@ -19,9 +18,6 @@ defmodule Custode.Inbox do
   (files created outside the BEAM) are not detected -- beat manually, or
   wait for the schedule, and no feed entry is recorded for them either.
   """
-
-  @debounce_seconds 20
-  @unique_period 120
 
   @doc """
   Drop a note into a routine's inbox and fire the event kickoff.
@@ -41,43 +37,21 @@ defmodule Custode.Inbox do
   end
 
   @doc """
-  Schedule the debounced event beat for a routine (public so callers that
+  Request the debounced event wake for a routine (public so callers that
   write files themselves -- or want to wake an agent without a note -- can
   reuse the debounce).
   """
   def maybe_beat(%{on_note: :ignore}), do: :ok
 
   def maybe_beat(routine) do
-    tick = Custode.Routine.tick_worker(routine)
+    case Custode.InboxWakes.request(routine) do
+      {:ok, _wake} ->
+        :ok
 
-    with {:ok, args, prepared} <- Custode.ConversationArcs.tick_args(routine, :scheduled) do
-      changeset =
-        tick.new(
-          args,
-          queue: :ticks,
-          schedule_in: @debounce_seconds,
-          unique: [
-            period: @unique_period,
-            fields: [:worker, :queue, :args],
-            keys: [:agent_id],
-            states: [:available, :scheduled]
-          ]
-        )
-
-      case Oban.insert(changeset) do
-        {:ok, %Oban.Job{conflict?: false}} ->
-          :ok
-
-        {:ok, %Oban.Job{conflict?: true}} ->
-          Custode.ConversationArcs.abandon(prepared, :duplicate_beat)
-          :ok
-
-        {:error, reason} ->
-          Custode.ConversationArcs.abandon(prepared, :enqueue_failed)
-          require Logger
-          Logger.warning("event beat insert failed for #{routine.id}: #{inspect(reason)}")
-          :ok
-      end
+      {:error, reason} ->
+        require Logger
+        Logger.warning("inbox wake request failed for #{routine.id}: #{inspect(reason)}")
+        :ok
     end
   end
 

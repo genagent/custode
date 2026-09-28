@@ -272,6 +272,7 @@ defmodule Custode.MCP.Tools.AgentStatus do
         reply(frame, %{
           agent_id: agent_id,
           state: "offline",
+          pending_wake: Custode.InboxWakes.read_model(agent_id),
           conversation: Custode.ConversationArcs.read_model(agent_id)
         })
 
@@ -287,6 +288,7 @@ defmodule Custode.MCP.Tools.AgentStatus do
           session_id: info.session_id,
           active_arc_id: info.active_arc_id,
           continuation: info.continuation,
+          pending_wake: Custode.InboxWakes.read_model(agent_id),
           conversation: Custode.ConversationArcs.read_model(agent_id)
         })
     end

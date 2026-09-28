@@ -131,6 +131,16 @@ defmodule Custode.Gates do
     |> Repo.preload(:review)
   end
 
+  @doc "Recover every open gate whose provider process no longer retains it."
+  @spec recover_open(String.t()) :: [
+          :requeued | :orphaned | {:already, String.t(), String.t() | nil}
+        ]
+  def recover_open(agent_id) do
+    agent_id
+    |> open_gates()
+    |> Enum.map(&recover!/1)
+  end
+
   @doc """
   Every open gate, newest first, grouped by agent id (#296).
 

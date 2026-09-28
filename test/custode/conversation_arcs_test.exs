@@ -195,6 +195,23 @@ defmodule Custode.ConversationArcsTest do
     assert second_job.decision == :fresh
   end
 
+  test "inbox arcs are fresh and close after the delivery turn" do
+    routine = routine_fixture!(tmp_workspace!(), %{model: "haiku"})
+
+    assert {:ok, args, prepared} =
+             ConversationArcs.tick_args(routine, :inbox, arc_id: "inbox:wake-1")
+
+    assert args["session"] == "fresh"
+    assert prepared.arc.kind == "inbox"
+    assert prepared.arc.state == "active"
+
+    complete(prepared, :completed, "inbox-session")
+
+    assert [arc] = ConversationArcs.history(routine.id, "inbox:wake-1")
+    assert arc.state == "completed"
+    assert arc.last_outcome == "completed"
+  end
+
   defp latest_turn(agent_id, after_id \\ 0) do
     eventually(fn ->
       job =

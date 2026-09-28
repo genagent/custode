@@ -109,6 +109,80 @@ defmodule CustodeWeb.ConsoleLiveTest do
     refute has_element?(view, "#working-state")
   end
 
+  test "the selected agent explains its pending inbox wake", %{conn: conn, sleeper: sleeper} do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    assert {:ok, _wake} =
+             Custode.InboxWakes.request(sleeper,
+               now: now,
+               debounce_seconds: 30
+             )
+
+    assert {:ok, _wake} =
+             Custode.InboxWakes.request(sleeper,
+               now: DateTime.add(now, 5, :second),
+               debounce_seconds: 30
+             )
+
+    {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+
+    assert has_element?(view, "#pending-inbox-wake", "inbox activity")
+    assert has_element?(view, "#pending-inbox-wake", "2 notes pending")
+    assert has_element?(view, "#pending-inbox-wake", "debouncing")
+
+    Custode.Repo.query!(
+      "UPDATE inbox_wakes SET blocked_by = 'running' WHERE routine_id = ?",
+      [sleeper.id]
+    )
+
+    send(view.pid, {:status_changed, sleeper.id})
+
+    assert has_element?(view, "#pending-inbox-wake", "held -- waiting for the current turn")
+
+    Custode.Repo.query!(
+      "UPDATE inbox_wakes SET blocked_by = 'provider_job' WHERE routine_id = ?",
+      [sleeper.id]
+    )
+
+    send(view.pid, {:status_changed, sleeper.id})
+
+    assert has_element?(
+             view,
+             "#pending-inbox-wake",
+             "held -- waiting for the previous turn to finish"
+           )
+
+    refute render(view) =~ "provider job"
+
+    Custode.Repo.query!(
+      "UPDATE inbox_wakes SET spend_override = 1 WHERE routine_id = ?",
+      [sleeper.id]
+    )
+
+    send(view.pid, {:status_changed, sleeper.id})
+
+    assert has_element?(
+             view,
+             "#pending-inbox-wake",
+             "held -- waiting for the previous turn to finish"
+           )
+
+    assert has_element?(view, "#pending-inbox-wake", "manual spend override granted")
+
+    Custode.Repo.query!(
+      "UPDATE inbox_wakes SET blocked_by = 'delivery_failed', spend_override = 0 WHERE routine_id = ?",
+      [sleeper.id]
+    )
+
+    send(view.pid, {:status_changed, sleeper.id})
+
+    assert has_element?(
+             view,
+             "#pending-inbox-wake",
+             "held -- delivery failed; waiting for new activity or restart"
+           )
+  end
+
   # the design session's visual language (design/ui/2026-07-25-design-session)
   test "the page wears the custode themes, chosen before first paint, with a toggle",
        %{conn: conn} do

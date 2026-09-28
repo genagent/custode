@@ -42,6 +42,20 @@ defmodule Custode.Sensors.CiStatusTest do
     Path.wildcard(Path.join([workspace, "inbox", "sensor-*"]))
   end
 
+  defp assert_pending_wake!(routine_id) do
+    assert %{wake_id: wake_id, reason: "inbox_activity", blocked_by: "debounce"} =
+             Custode.InboxWakes.get(routine_id)
+
+    assert [job] =
+             jobs_for("Custode.InboxWakeJob")
+             |> Enum.filter(
+               &(&1.args["routine_id"] == routine_id and
+                   &1.state in ~w(available scheduled retryable executing))
+             )
+
+    assert job.args["wake_id"] == wake_id
+  end
+
   defp fake_branch!(repo, state, extra_prs \\ []) do
     overviews = Application.get_env(:custode, :fake_repo_overviews, %{})
 
@@ -76,7 +90,7 @@ defmodule Custode.Sensors.CiStatusTest do
       # it may not be the agent's to fix, and a duplicate fix is worse than none
       assert content =~ "duplicate fix is worse than none"
 
-      assert Enum.any?(jobs_for("ObanClaude.Agent.Tick"), &(&1.args["agent_id"] == routine.id))
+      assert_pending_wake!(routine.id)
     end
 
     test "a green default branch is not news", %{workspace: workspace, repo: repo, args: args} do
@@ -142,8 +156,7 @@ defmodule Custode.Sensors.CiStatusTest do
     assert content =~ repo
     refute content =~ "PR #7"
 
-    # the funnel scheduled the beat
-    assert Enum.any?(jobs_for("ObanClaude.Agent.Tick"), &(&1.args["agent_id"] == routine.id))
+    assert_pending_wake!(routine.id)
   end
 
   test "a persistently failing PR notes once; breaking again notes again",
