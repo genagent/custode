@@ -81,6 +81,23 @@ defmodule Custode.FeedTest do
     end
   end
 
+  test "an inbox delivery turn records why the agent woke" do
+    agent = uid("feed-inbox")
+
+    {:ok, _} =
+      ObanClaude.run(%{"prompt" => "x"},
+        job: %Oban.Job{
+          meta: %{
+            "agent_id" => agent,
+            "correlation_id" => "inbox:wake-id:claim-token"
+          }
+        },
+        query_fun: respond(structured_result(%{"directive" => "none", "summary" => "read inbox"}))
+      )
+
+    assert [%{"wake_reason" => "inbox_activity"}] = Custode.Feed.for_agent(agent)
+  end
+
   test "a cross-provider gate review is not recorded as a standing-agent turn" do
     result =
       ObanCodex.Testing.structured_result(%{

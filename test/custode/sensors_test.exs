@@ -41,7 +41,15 @@ defmodule Custode.SensorsTest do
     sensor_id
   end
 
-  test "first run baselines silently; new items drop ONE note and schedule a debounced beat",
+  defp wake_jobs_for(routine_id) do
+    jobs_for("Custode.InboxWakeJob")
+    |> Enum.filter(
+      &(&1.args["routine_id"] == routine_id and
+          &1.state in ~w(available scheduled retryable executing))
+    )
+  end
+
+  test "first run baselines silently; new items drop one note and retain one wake",
        %{workspace: workspace, routine: routine} do
     put_env!(:fake_gh_results, %{
       "issues" => [gh_item("o/r", 1, "alice"), gh_item("o/r", 2, "dependabot[bot]")],
@@ -50,13 +58,12 @@ defmodule Custode.SensorsTest do
 
     sensor_id = run_sensor!(routine)
 
-    # baseline: bot filtered, alice remembered, NO note, NO beat
+    # baseline: bot filtered, alice remembered, no note and no wake
     assert [] == Path.wildcard(Path.join([workspace, "inbox", "sensor-*.md"]))
     {:ok, seen} = Custode.Memory.recall("sensor:" <> sensor_id, "seen")
     assert Jason.decode!(seen) == ["o/r#1"]
-
-    assert jobs_for("ObanClaude.Agent.Tick") |> Enum.filter(&(&1.args["agent_id"] == routine.id)) ==
-             []
+    assert Custode.InboxWakes.get(routine.id) == nil
+    assert wake_jobs_for(routine.id) == []
 
     # second run with one genuinely new item
     put_env!(:fake_gh_results, %{
@@ -71,18 +78,16 @@ defmodule Custode.SensorsTest do
     assert content =~ "o/r#7 by bob: new thing"
     refute content =~ "o/r#1"
 
-    [beat] =
-      jobs_for("ObanClaude.Agent.Tick") |> Enum.filter(&(&1.args["agent_id"] == routine.id))
+    assert %{wake_id: wake_id, note_count: 1, blocked_by: "debounce"} =
+             Custode.InboxWakes.get(routine.id)
 
-    assert beat.state == "scheduled"
+    assert [%{args: %{"wake_id" => ^wake_id}}] = wake_jobs_for(routine.id)
 
-    # third run: same world, nothing new, no second note, no second beat
+    # third run: same world, nothing new, no second note or wake
     run_sensor!(routine)
     assert [_one] = Path.wildcard(Path.join([workspace, "inbox", "sensor-*.md"]))
-
-    assert [_one_beat] =
-             jobs_for("ObanClaude.Agent.Tick")
-             |> Enum.filter(&(&1.args["agent_id"] == routine.id))
+    assert %{wake_id: ^wake_id, note_count: 1} = Custode.InboxWakes.get(routine.id)
+    assert [%{args: %{"wake_id" => ^wake_id}}] = wake_jobs_for(routine.id)
   end
 
   test "closed items age out of the seen set", %{routine: routine} do

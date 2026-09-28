@@ -40,6 +40,7 @@ defmodule Custode.Application do
     Custode.SubAgents.attach()
     Custode.ConversationArcs.attach()
     Custode.OperatorMessages.attach()
+    Custode.InboxWakes.attach()
     Barrier.attach()
     Custode.WorktreeBreadcrumb.attach()
     Custode.RunClock.attach()
@@ -86,6 +87,7 @@ defmodule Custode.Application do
       {Oban, oban_config()},
       ObanClaude.Agent.Supervisor,
       ObanCodex.Agent.Supervisor,
+      Custode.InboxWakes.Monitor,
       # identity before configs: tokens are minted into the per-agent
       # config files the boot task writes next (#1/#2)
       Custode.MCP.Identity,
@@ -122,9 +124,7 @@ defmodule Custode.Application do
         id: :sub_agents_reconcile
       ),
       # over-budget routines boot paused instead of leaking one turn (#6)
-      Supervisor.child_spec({Task, &Custode.SpendLedger.reconcile_pauses!/0},
-        id: :budget_reconcile
-      ),
+      Custode.InboxWakes.BootReconciler,
       # a workflow run whose last node landed while the app was down has
       # nothing to call it forward (#271). Slice 1b left this unwired on the
       # grounds that an enqueue-on-boot side effect belongs with the rail that

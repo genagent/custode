@@ -50,9 +50,10 @@ defmodule Custode.ConversationArcs do
   def tick_args(routine, kind, opts \\ []) do
     with {:ok, prepared} <- prepare(routine, kind, opts) do
       tick_session =
-        if kind in [:scheduled, :job, :attempt] or prepared.session == :fresh_fallback,
-          do: :fresh,
-          else: prepared.session
+        if kind in [:scheduled, :job, :attempt, :inbox] or
+             prepared.session == :fresh_fallback,
+           do: :fresh,
+           else: prepared.session
 
       args =
         routine
@@ -415,7 +416,7 @@ defmodule Custode.ConversationArcs do
       details: %{"outcome_reason" => inspect(meta.outcome_reason, limit: 10)}
     })
 
-    if arc.kind in ["scheduled", "job", "attempt"] do
+    if arc.kind in ["scheduled", "job", "attempt", "inbox"] do
       close!(arc, "completed", "turn_#{outcome}", "completed")
     end
   end

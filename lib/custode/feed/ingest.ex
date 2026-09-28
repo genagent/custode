@@ -79,6 +79,7 @@ defmodule Custode.Feed.Ingest do
     |> put_touched(out)
     |> put_action_class(out)
     |> put_repo(out)
+    |> put_wake_reason(meta)
     |> put_hydration(meta)
     |> Custode.Feed.record()
   end
@@ -131,6 +132,7 @@ defmodule Custode.Feed.Ingest do
         category: category,
         retryable: Custode.TurnFailure.retryable?(category)
       }
+      |> put_wake_reason(meta)
       |> put_hydration(meta)
 
     Custode.Feed.record(
@@ -178,6 +180,11 @@ defmodule Custode.Feed.Ingest do
   defp maybe_put(entry, key, numbers), do: Map.put(entry, key, numbers)
 
   defp put_hydration(entry, meta), do: Map.put(entry, :hydration, hydration(meta))
+
+  defp put_wake_reason(entry, %{job: %{meta: %{"correlation_id" => "inbox:" <> _rest}}}),
+    do: Map.put(entry, :wake_reason, "inbox_activity")
+
+  defp put_wake_reason(entry, _meta), do: entry
 
   defp hydration(%{job: %{meta: meta}} = run_meta) when is_map(meta) do
     case meta["continuation_decision"] do

@@ -6,9 +6,9 @@ defmodule Custode.OperatorToolsTest do
   import ObanClaude.Testing
 
   alias Custode.Gates.{Gate, Review}
+  alias Custode.{InboxWakes, OperationCall, OperationRegistry, Repo}
   alias Custode.MCP.OperatorTools
   alias Custode.MCP.OwnedCheckoutTools
-  alias Custode.{OperationCall, OperationRegistry, Repo}
   alias ObanClaude.Agent
 
   @frame %Anubis.Server.Frame{}
@@ -39,7 +39,7 @@ defmodule Custode.OperatorToolsTest do
   end
 
   describe "drop_note" do
-    test "writes the note and fires the event kickoff", %{workspace: workspace, routine: routine} do
+    test "writes the note and creates the durable wake", %{workspace: workspace, routine: routine} do
       reply =
         OperatorTools.DropNote.execute(
           %{agent_id: routine.id, name: "ci.md", content: "PR red\n"},
@@ -50,8 +50,17 @@ defmodule Custode.OperatorToolsTest do
       assert json["path"] == Path.join([workspace, "inbox", "ci.md"])
       assert File.read!(json["path"]) == "PR red\n"
 
-      # the funnel scheduled the debounced beat
-      assert Enum.any?(jobs_for("ObanClaude.Agent.Tick"), &(&1.args["agent_id"] == routine.id))
+      assert %{wake_id: wake_id, note_count: 1, blocked_by: "debounce"} =
+               InboxWakes.get(routine.id)
+
+      assert [job] =
+               jobs_for("Custode.InboxWakeJob")
+               |> Enum.filter(
+                 &(&1.args["routine_id"] == routine.id and
+                     &1.state in ~w(available scheduled retryable executing))
+               )
+
+      assert job.args["wake_id"] == wake_id
     end
 
     test "defaults the filename and refuses unknown routines", %{routine: routine} do

@@ -62,6 +62,22 @@ defmodule CustodeWeb.Console.Subject do
     </p>
 
     <div
+      :if={@subject.pending_wake}
+      id="pending-inbox-wake"
+      class="mt-3 flex flex-wrap items-center gap-2 rounded-box bg-base-200 px-3 py-2 text-xs text-base-content/70"
+    >
+      <span class="badge badge-outline badge-sm">{wake_reason(@subject.pending_wake.reason)}</span>
+      <span>{note_count(@subject.pending_wake)} pending</span>
+      <span>{wake_status(@subject.pending_wake)}</span>
+      <span :if={@subject.pending_wake.spend_override} class="text-base-content/50">
+        manual spend override granted
+      </span>
+      <span class="ml-auto font-mono text-base-content/50">
+        last note <.ago at={@subject.pending_wake.last_note_at} />
+      </span>
+    </div>
+
+    <div
       :if={@running_since}
       id="working-state"
       class="mt-3 flex items-center gap-2 rounded-lg bg-info/5 px-3 py-2 text-xs text-base-content/70"
@@ -704,6 +720,42 @@ defmodule CustodeWeb.Console.Subject do
       seconds < 3_600 -> "#{div(seconds, 60)}m#{rem(seconds, 60)}s elapsed"
       true -> "#{div(seconds, 3_600)}h#{div(rem(seconds, 3_600), 60)}m elapsed"
     end
+  end
+
+  defp note_count(%{note_count: 1}), do: "1 note"
+  defp note_count(%{note_count: count}), do: "#{count} notes"
+
+  defp wake_status(%{blocked_by: "debounce"}), do: "debouncing"
+
+  defp wake_status(%{blocked_by: blocked_by}) when blocked_by not in [nil, ""],
+    do: "held -- #{wake_blocker(blocked_by)}"
+
+  defp wake_status(%{state: "dispatching"}), do: "dispatching"
+
+  defp wake_status(%{due_at: %DateTime{} = due_at}) do
+    if DateTime.compare(due_at, DateTime.utc_now()) == :gt,
+      do: "debouncing",
+      else: "ready"
+  end
+
+  defp wake_status(_wake), do: "ready"
+
+  defp wake_reason("inbox_activity"), do: "inbox activity"
+  defp wake_reason(reason), do: reason |> to_string() |> String.replace("_", " ")
+
+  defp wake_blocker("running"), do: "waiting for the current turn"
+  defp wake_blocker("awaiting_permission"), do: "approval gate"
+  defp wake_blocker("waiting_for_user"), do: "question gate"
+  defp wake_blocker("paused"), do: "agent paused"
+  defp wake_blocker("spend_rail"), do: "daily spend rail"
+  defp wake_blocker("provider_job"), do: "waiting for the previous turn to finish"
+  defp wake_blocker("delivery_failed"), do: "delivery failed; waiting for new activity or restart"
+  defp wake_blocker("offline"), do: "agent offline"
+
+  defp wake_blocker(blocked_by) do
+    blocked_by
+    |> to_string()
+    |> String.replace("_", " ")
   end
 
   defp upload_error_text(:too_large), do: "too large (10MB max)"

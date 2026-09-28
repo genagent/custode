@@ -63,7 +63,17 @@ defmodule Custode.Sensors.UsgsQuakesTest do
     # below threshold: mechanically filtered, never wakes the brain
     refute content =~ "q2"
 
-    assert Enum.any?(jobs_for("ObanClaude.Agent.Tick"), &(&1.args["agent_id"] == routine.id))
+    assert %{wake_id: wake_id, reason: "inbox_activity", blocked_by: "debounce"} =
+             Custode.InboxWakes.get(routine.id)
+
+    assert [job] =
+             jobs_for("Custode.InboxWakeJob")
+             |> Enum.filter(
+               &(&1.args["routine_id"] == routine.id and
+                   &1.state in ~w(available scheduled retryable executing))
+             )
+
+    assert job.args["wake_id"] == wake_id
   end
 
   test "already-seen events never re-note; new ones do",

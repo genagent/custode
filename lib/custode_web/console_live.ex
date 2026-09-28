@@ -890,6 +890,7 @@ defmodule CustodeWeb.ConsoleLive do
       history: history(id),
       sensors: Enum.filter(Custode.Routine.sensors(), &(&1.notify == id)),
       policies: (routine && Custode.Policy.ids_for(routine)) || [],
+      pending_wake: Custode.InboxWakes.read_model(id),
       conversation: Custode.ConversationArcs.read_model(id)
     }
   end

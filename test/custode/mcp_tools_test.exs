@@ -34,6 +34,7 @@ defmodule Custode.MCPToolsTest do
     test "agent_status: offline vs running with the bookkeeping" do
       json = tool_json(Tools.AgentStatus.execute(%{agent_id: "ghost"}, @frame))
       assert json["state"] == "offline"
+      assert is_nil(json["pending_wake"])
 
       id = start_stub_agent!()
       :processing = Agent.submit_prompt(id, "x")
@@ -53,6 +54,55 @@ defmodule Custode.MCPToolsTest do
       assert json["conversation"]["current"]["arc_id"] == prepared.arc_id
       assert json["conversation"]["current"]["logical_id"] == "operator"
       assert json["conversation"]["current"]["decision"] == "fresh"
+    end
+
+    test "agent_status exposes a coalesced pending inbox wake while offline" do
+      routine = routine_fixture!(tmp_workspace!())
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      assert {:ok, _wake} =
+               Custode.InboxWakes.request(routine,
+                 now: now,
+                 debounce_seconds: 30
+               )
+
+      assert {:ok, _wake} =
+               Custode.InboxWakes.request(routine,
+                 now: DateTime.add(now, 5, :second),
+                 debounce_seconds: 30
+               )
+
+      json = tool_json(Tools.AgentStatus.execute(%{agent_id: routine.id}, @frame))
+
+      assert json["state"] == "offline"
+
+      assert %{
+               "reason" => "inbox_activity",
+               "state" => "pending",
+               "note_count" => 2,
+               "blocked_by" => "debounce",
+               "spend_override" => false
+             } = json["pending_wake"]
+
+      assert {:ok, first_note_at, 0} =
+               DateTime.from_iso8601(json["pending_wake"]["first_note_at"])
+
+      assert {:ok, last_note_at, 0} =
+               DateTime.from_iso8601(json["pending_wake"]["last_note_at"])
+
+      assert {:ok, due_at, 0} = DateTime.from_iso8601(json["pending_wake"]["due_at"])
+      assert DateTime.compare(first_note_at, now) == :eq
+      assert DateTime.compare(last_note_at, DateTime.add(now, 5, :second)) == :eq
+      assert DateTime.compare(due_at, DateTime.add(now, 35, :second)) == :eq
+
+      Custode.Repo.query!(
+        "UPDATE inbox_wakes SET spend_override = 1 WHERE routine_id = ?",
+        [routine.id]
+      )
+
+      json = tool_json(Tools.AgentStatus.execute(%{agent_id: routine.id}, @frame))
+      assert json["pending_wake"]["spend_override"] == true
+      assert json["pending_wake"]["blocked_by"] == "debounce"
     end
   end
 
