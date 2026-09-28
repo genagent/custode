@@ -73,8 +73,8 @@ defmodule Custode.Operations.GitHub.OpenPr do
     )
   end
 
-  defp handle(arguments, _envelope) do
-    case GitHub.open(arguments) do
+  defp handle(arguments, envelope) do
+    case GitHub.open(arguments, envelope.actor) do
       {:ok, result, effects} -> {:ok, result, effects}
       {:error, reason} -> {:error, reason}
     end

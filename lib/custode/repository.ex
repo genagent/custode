@@ -12,7 +12,7 @@ defmodule Custode.Repository do
   between implicit agent action and gating every step -- policy-safe verbs
   act directly; everything else still gates.
 
-  Write verbs: `open_pr/2`, `comment/3`, `ready_pr/2`, `merge_pr/2`.
+  Write verbs: `open_pr/3`, `comment/4`, `ready_pr/3`, `merge_pr/3`.
   Read verbs (#129): `list_issues/2`, `view_issue/2`, `list_prs/2`,
   `view_pr/2`, `pr_checks/2`, `job_log_tail/2`, `pr_diff/2`,
   `review_snapshot/2` -- scoped
@@ -24,6 +24,8 @@ defmodule Custode.Repository do
   use GenServer
 
   @registry Custode.Repository.Registry
+
+  @type actor :: %{required(:kind) => atom(), required(:id) => String.t()}
 
   # ---------------------------------------------------------------------------
   # supervision
@@ -142,53 +144,59 @@ defmodule Custode.Repository do
   Policy: conventional title enforced; draft forced when draft_pr_first
   binds (which it should).
   """
-  def open_pr(name, attrs), do: call(name, {:open_pr, attrs})
+  @spec open_pr(String.t(), map(), actor()) :: {:ok, term()} | {:error, term()}
+  def open_pr(name, attrs, actor), do: write_call(name, actor, {:open_pr, attrs})
 
   @doc """
   Open an ISSUE (#235): the fleet's "create a backlog" primitive, not just
   comment on one. `attrs`: title (conventional-commit style, enforced),
   body, labels (list). Policy-checked like open_pr.
   """
-  def open_issue(name, attrs), do: call(name, {:open_issue, attrs})
+  @spec open_issue(String.t(), map(), actor()) :: {:ok, term()} | {:error, term()}
+  def open_issue(name, attrs, actor), do: write_call(name, actor, {:open_issue, attrs})
 
   @doc "Comment on an issue or PR by number."
-  def comment(name, number, body), do: call(name, {:comment, number, body})
+  @spec comment(String.t(), pos_integer(), String.t(), actor()) ::
+          {:ok, term()} | {:error, term()}
+  def comment(name, number, body, actor), do: write_call(name, actor, {:comment, number, body})
 
   @doc "Mark a draft PR ready for review."
-  def ready_pr(name, number), do: call(name, {:ready_pr, number})
+  @spec ready_pr(String.t(), pos_integer(), actor()) :: {:ok, term()} | {:error, term()}
+  def ready_pr(name, number, actor), do: write_call(name, actor, {:ready_pr, number})
 
   @doc "The issue's ready transition (#86): posts a `ready: <plan>` comment."
-  def mark_issue_ready(name, number, plan),
-    do: call(name, {:comment, number, "ready: " <> plan})
+  def mark_issue_ready(name, number, plan, actor),
+    do: comment(name, number, "ready: " <> plan, actor)
 
   @doc "The issue's blocked transition (#86): posts a `blocked: <reason>` comment."
-  def mark_issue_blocked(name, number, reason),
-    do: call(name, {:comment, number, "blocked: " <> reason})
+  def mark_issue_blocked(name, number, reason, actor),
+    do: comment(name, number, "blocked: " <> reason, actor)
 
   @doc """
   The review transition (#86): posts a `review:` marker the merge floor
   reads. `verdict` is "lgtm" (or any ok text) or "needs-human"; the body
   carries findings.
   """
-  def review_pr(name, number, verdict, body) do
+  def review_pr(name, number, verdict, body, actor) do
     prefix =
       case verdict do
         "needs-human" -> "review: needs-human -- "
         other -> "review: #{other} -- "
       end
 
-    call(name, {:comment, number, prefix <> body})
+    comment(name, number, prefix <> body, actor)
   end
 
   @doc "Merge a PR. Refused wherever the merge policy is :manual."
-  def merge_pr(name, number), do: call(name, {:merge_pr, number})
+  @spec merge_pr(String.t(), pos_integer(), actor()) :: {:ok, term()} | {:error, term()}
+  def merge_pr(name, number, actor), do: write_call(name, actor, {:merge_pr, number})
 
   # The exact-head seam behind the merge Gate (#674): the method is the one the
   # Gate pinned, re-checked against the repository and sent exactly, never
   # reselected.
   @doc false
-  def merge_pr_at_head(name, number, head_sha, merge_method),
-    do: call(name, {:merge_pr_at_head, number, head_sha, merge_method})
+  def merge_pr_at_head(name, number, head_sha, merge_method, actor),
+    do: write_call(name, actor, {:merge_pr_at_head, number, head_sha, merge_method})
 
   # ---------------------------------------------------------------------------
   # read verbs (issue #129): scoped GitHub reads through the bound server
@@ -254,6 +262,14 @@ defmodule Custode.Repository do
   @doc "Identifier-rich PR, review, comment, and check evidence for reconciliation."
   def review_snapshot(name, number), do: call(name, {:review_snapshot, number})
 
+  defp write_call(name, %{kind: kind, id: id} = actor, request)
+       when is_atom(kind) and is_binary(id) and id != "" do
+    call(name, {:write, actor, request})
+  end
+
+  defp write_call(_name, _actor, _request),
+    do: {:error, "repository mutation requires an actor with kind and id"}
+
   defp call(name, request) do
     if served?(name) do
       GenServer.call(via(name), request, 30_000)
@@ -273,7 +289,7 @@ defmodule Custode.Repository do
   end
 
   @impl GenServer
-  def handle_call({:open_pr, attrs}, _from, state) do
+  def handle_call({:write, actor, {:open_pr, attrs}}, _from, state) do
     title = to_string(get(attrs, :title) || "")
 
     case check(state, :open_pr, title) do
@@ -287,14 +303,14 @@ defmodule Custode.Repository do
           draft: true
         }
 
-        state |> ops_result(:open_pr, [state.owner, state.repo, pr_attrs]) |> reply(state)
+        state |> ops_result(actor, :open_pr, [state.owner, state.repo, pr_attrs]) |> reply(state)
 
       refusal ->
         reply(refusal, state)
     end
   end
 
-  def handle_call({:open_issue, attrs}, _from, state) do
+  def handle_call({:write, actor, {:open_issue, attrs}}, _from, state) do
     title = to_string(get(attrs, :title) || "")
 
     case check(state, :open_issue, title) do
@@ -303,36 +319,46 @@ defmodule Custode.Repository do
           %{title: title, body: get(attrs, :body) || ""}
           |> maybe_labels(get(attrs, :labels))
 
-        state |> ops_result(:open_issue, [state.owner, state.repo, issue_attrs]) |> reply(state)
+        state
+        |> ops_result(actor, :open_issue, [state.owner, state.repo, issue_attrs])
+        |> reply(state)
 
       refusal ->
         reply(refusal, state)
     end
   end
 
-  def handle_call({:comment, number, body}, _from, state) do
-    state |> ops_result(:comment, [state.owner, state.repo, number, body]) |> reply(state)
+  def handle_call({:write, actor, {:comment, number, body}}, _from, state) do
+    state
+    |> ops_result(actor, :comment, [state.owner, state.repo, number, body])
+    |> reply(state)
   end
 
-  def handle_call({:ready_pr, number}, _from, state) do
-    state |> ops_result(:ready_pr, [state.owner, state.repo, number]) |> reply(state)
+  def handle_call({:write, actor, {:ready_pr, number}}, _from, state) do
+    state |> ops_result(actor, :ready_pr, [state.owner, state.repo, number]) |> reply(state)
   end
 
-  def handle_call({:merge_pr, number}, _from, state) do
+  def handle_call({:write, actor, {:merge_pr, number}}, _from, state) do
     with :ok <- check(state, :merge_pr, number),
          :ok <- review_floor(state, number),
          {:ok, preferred} <- configured_merge_method(state) do
-      state |> ops_result(:merge_pr, [state.owner, state.repo, number, preferred]) |> reply(state)
+      state
+      |> ops_result(actor, :merge_pr, [state.owner, state.repo, number, preferred])
+      |> reply(state)
     else
       refusal -> reply(refusal, state)
     end
   end
 
-  def handle_call({:merge_pr_at_head, number, head_sha, merge_method}, _from, state) do
+  def handle_call(
+        {:write, actor, {:merge_pr_at_head, number, head_sha, merge_method}},
+        _from,
+        state
+      ) do
     with :ok <- pinned_merge_method(state, number, merge_method),
          :ok <- review_floor(state, number) do
       args = [state.owner, state.repo, number, head_sha, merge_method]
-      state |> ops_result(:merge_pr_at_head, args) |> reply(state)
+      state |> ops_result(actor, :merge_pr_at_head, args) |> reply(state)
     else
       refusal -> reply(refusal, state)
     end
@@ -424,13 +450,13 @@ defmodule Custode.Repository do
   defp from_data(%{} = data), do: data[:number] || data["number"]
   defp from_data(_other), do: nil
 
-  defp ops_result(state, verb, args) do
+  defp ops_result(state, actor, verb, args) do
     case apply(ops(), verb, args) do
       {:ok, data} ->
         Custode.Feed.record(
           %{
             event: "repo_verb",
-            agent: state.routine_id,
+            agent: actor.id,
             # Structured, not just prose in the summary: without the verb, the
             # repo and the number as fields, nothing can later ask "which PRs did
             # this agent open, and did they land?" -- which is the measurement

@@ -2,7 +2,7 @@ defmodule Custode.GitHubMerge do
   @moduledoc """
   Exact, operator-gated completion of the GitHub issue-to-merge vertical.
 
-  The legacy `Repository.merge_pr/2` policy remains unchanged. This module is
+  The legacy `Repository.merge_pr/3` policy remains unchanged. This module is
   the narrower work-first seam: it pins the WorkItem version, policy, pull
   request head, checks, review evidence, and the merge method the repository
   allows (#674); activates the merge OperationCall; reconciles an
@@ -158,7 +158,8 @@ defmodule Custode.GitHubMerge do
              value(arguments, :repository),
              value(arguments, :pull_request_number),
              value(arguments, :expected_head_sha),
-             pinned_merge_method(arguments)
+             pinned_merge_method(arguments),
+             envelope.actor
            ),
          :ok <- sent_pinned_method(merged, arguments),
          {:ok, merge_commit_sha} <- merge_commit(merged),

@@ -73,6 +73,10 @@ defmodule Custode.DraftsTest do
     batch
   end
 
+  defp file(routine_id, batch_id) do
+    Drafts.file(routine_id, batch_id, %{kind: :routine, id: routine_id})
+  end
+
   test "drafting writes rows and files nothing", %{repo: repo, id: id} do
     batch = three(repo, id)
 
@@ -91,7 +95,7 @@ defmodule Custode.DraftsTest do
     {:ok, dropped} = Drafts.drop(second.id)
     assert dropped.status == "dropped"
 
-    {:ok, result} = Drafts.file(id, batch.batch_id)
+    {:ok, result} = file(id, batch.batch_id)
 
     assert result.dropped == ["fix: flaky pool test"]
     assert Enum.map(result.filed, & &1.title) == ["chore: bump deps", "docs: dead link in README"]
@@ -113,7 +117,7 @@ defmodule Custode.DraftsTest do
     {:ok, restored} = Drafts.restore(first.id)
     assert restored.status == "drafted"
 
-    {:ok, result} = Drafts.file(id, batch.batch_id)
+    {:ok, result} = file(id, batch.batch_id)
     assert length(result.filed) == 3
 
     # once filed, a late click cannot rewrite what happened
@@ -123,10 +127,10 @@ defmodule Custode.DraftsTest do
   test "filing twice files nothing twice", %{repo: repo, id: id} do
     batch = three(repo, id)
 
-    {:ok, first} = Drafts.file(id, batch.batch_id)
+    {:ok, first} = file(id, batch.batch_id)
     assert length(first.filed) == 3
 
-    {:ok, second} = Drafts.file(id, batch.batch_id)
+    {:ok, second} = file(id, batch.batch_id)
     assert second.filed == []
     assert second.failed == []
   end
@@ -138,7 +142,7 @@ defmodule Custode.DraftsTest do
         %{title: "chore: bump deps"}
       ])
 
-    {:ok, result} = Drafts.file(id, batch.batch_id)
+    {:ok, result} = file(id, batch.batch_id)
 
     assert [%{title: "make the tests pass", error: message}] = result.failed
     assert message =~ "policy conventional_commits"
@@ -153,15 +157,15 @@ defmodule Custode.DraftsTest do
     batch = three(repo, id)
     assert Enum.map(Drafts.pending_batch(id), & &1.id) == Enum.map(batch.entries, & &1.id)
 
-    {:ok, _} = Drafts.file(id, batch.batch_id)
+    {:ok, _} = file(id, batch.batch_id)
     assert Drafts.pending_batch(id) == nil
   end
 
   test "another routine's batch is not yours to file", %{repo: repo, id: id} do
     batch = three(repo, id)
 
-    assert Drafts.file("someone-else", batch.batch_id) == {:error, :not_yours}
-    assert Drafts.file(id, "batch-nope") == {:error, :unknown_batch}
+    assert file("someone-else", batch.batch_id) == {:error, :not_yours}
+    assert file(id, "batch-nope") == {:error, :unknown_batch}
     refute_receive {:open_issue, _owner, _repo, _attrs}, 50
   end
 
