@@ -40,7 +40,7 @@ defmodule Custode.MixProject do
       {:jason, "~> 1.4"},
       # The MCP server: agents running here can drive sibling agents/jobs.
       {:anubis_mcp, "~> 2.0"},
-      mcp_ex_dep(),
+      {:snodo_plug, "~> 0.3.0"},
       # Typed GitHub client: repo panels on agent pages (reads); verb tools later.
       {:gh_ex, "~> 0.3"},
       # HTTP client (also a gh_ex dep): the boot MCP probe and CLI transport.
@@ -71,19 +71,6 @@ defmodule Custode.MixProject do
     case System.get_env(path_variable) do
       path when is_binary(path) and path != "" -> {application, path: path}
       _unset -> {application, requirement}
-    end
-  end
-
-  defp mcp_ex_dep do
-    case System.get_env("MCP_EX_PATH") do
-      path when is_binary(path) and path != "" ->
-        {:mcp_ex_plug, path: Path.join(path, "integrations/plug")}
-
-      _unset ->
-        {:mcp_ex_plug,
-         git: "git@github.com:joshrotenberg/mcp_ex.git",
-         ref: "6e357655210f7f146c967f702e46be7f724866d5",
-         subdir: "integrations/plug"}
     end
   end
 end

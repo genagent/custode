@@ -34,8 +34,6 @@ nothing until you add a routine.
   logged in, for Codex routines. `mix custode doctor` checks only `claude`;
   on a Codex-only host see [the demo guide's preflight](guides/demo.md#3-migrate-preflight-boot)
 - the `gh` CLI, authenticated
-- SSH read access to the private `joshrotenberg/mcp_ex` dependency, or
-  `MCP_EX_PATH` pointing at a local checkout of it
 - local checkouts for agents configured to use an existing checkout; the
   dashboard can provision routine-owned clones instead
 
@@ -48,9 +46,10 @@ mix custode doctor                        # preflight: claude, gh, migrations, c
 mix phx.server                            # dashboard :4646, MCP 127.0.0.1:6161
 ```
 
-Custode installs `oban_claude` and `oban_codex` from Hex. To test unreleased
-wrapper changes, set `OBAN_CLAUDE_PATH` or `OBAN_CODEX_PATH` to the matching
-local checkout before running `mix deps.get`. Each override is independent.
+Custode installs Snodo, `oban_claude` and `oban_codex` from Hex. To test
+unreleased wrapper changes, set `OBAN_CLAUDE_PATH` or `OBAN_CODEX_PATH` to the
+matching local checkout before running `mix deps.get`. Each override is
+independent.
 
 The roster lives in `routines.toml`, which is gitignored: a routine names a
 repository and a working directory on one machine. With no `routines.toml`

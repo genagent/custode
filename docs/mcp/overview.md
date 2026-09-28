@@ -12,9 +12,9 @@ The resources describe the work-kernel data model, whose workflow intake is curr
 
 Every HTTP request requires `Authorization: Bearer <token>`. The token identifies an operator, routine, or sub-agent. Missing or invalid tokens receive HTTP 401. The main endpoint admits operator and routine identities; the memory endpoint admits only sub-agents. A valid identity at the wrong endpoint receives HTTP 403. Tokens expire across a server restart, and issuing a new token for an identity revokes its previous token. Operator clients can use the local operator token file or the `CUSTODE_OPERATOR_TOKEN` environment override; do not put a real token in shared examples or saved discovery output.
 
-Start with an `initialize` request, inspect the returned protocol version and capabilities, then send `notifications/initialized`. Retain the returned `mcp-session-id` header for subsequent requests. Clients should accept both `application/json` and `text/event-stream` responses.
+Start with an `initialize` request, inspect the returned protocol version and capabilities, then send `notifications/initialized`. Custode's HTTP surface is stateless and returns no `mcp-session-id`; send the negotiated version in `mcp-protocol-version` on later requests. Clients should accept both `application/json` and `text/event-stream` responses.
 
-Use one of the supported protocol versions in the generated endpoint inventory and verify the server's negotiated version. The example below requests `2025-06-18`. A future transport-library migration does not change this reference until the deployed contract changes.
+Use one of the supported protocol versions in the generated endpoint inventory and verify the server's negotiated version. The example below requests `2025-06-18`. A transport-library upgrade changes this reference only when the deployed contract changes.
 
 ```json
 {
@@ -48,7 +48,7 @@ Invoke a tool with its public name and JSON arguments:
 
 Tool successes generally contain JSON encoded inside a text content block. Parse that text to obtain the operation result. The surface does not currently declare tool output schemas or use MCP task augmentation. An accepted request can schedule work that completes later; the tool's behavior notes identify the return channel and what its immediate success means.
 
-Tool failures generally use `isError: true` and a text explanation. Invalid arguments or unknown names can instead return a JSON-RPC `error`. Check both forms; HTTP success alone does not mean the operation succeeded. After a transport timeout, a write may already have happened. Use an operation's documented idempotency or reconciliation behavior before retrying.
+Tool failures generally use `isError: true` and a text explanation. A call that omits a field listed in the tool schema's `required` array also returns `isError: true`, so the model can correct its arguments. Invalid field values, unknown names, and malformed requests can instead return a JSON-RPC `error`; authenticated JSON-RPC errors are carried in an HTTP 200 response. Check both result forms because HTTP success alone does not mean the operation succeeded. After a transport timeout, a write may already have happened. Use an operation's documented idempotency or reconciliation behavior before retrying.
 
 Read resources through `resources/read`:
 

@@ -37,11 +37,6 @@ work is in [ROADMAP.md](../ROADMAP.md) and
   credentials (Custode does not use API keys):
   - **Claude**: the `claude` CLI, logged in (`claude auth status`).
   - **Codex**: the `codex` CLI, logged in (`codex login`).
-- Read access to the private `joshrotenberg/mcp_ex` repository. `mix deps.get`
-  fetches it over SSH (`git@github.com:joshrotenberg/mcp_ex.git`), so your SSH
-  key must be able to read it. Without SSH access, set `MCP_EX_PATH` to a
-  local checkout of that repository (the repository root, not a
-  subdirectory) at the revision pinned in `mix.exs` before fetching.
 - A GitHub repository you are willing to let an agent open a draft pull
   request against. A small sandbox repository is best for the demonstration.
 
@@ -279,7 +274,6 @@ log.
 - One node, one operator, localhost. There is no application-level
   authentication; see [install.md](install.md) before exposing the
   dashboard.
-- `mcp_ex` is a private Git dependency; see prerequisites.
 - `mix custode doctor` does not check the Codex CLI, and on a Codex-only host
   it exits non-zero on its Claude checks. The boot check behind it also
   withholds scheduled beats on such a host; see section 3.

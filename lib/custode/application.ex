@@ -14,7 +14,7 @@ defmodule Custode.Application do
   require Logger
 
   alias Custode.Feed
-  alias Custode.MCP.MCPEx
+  alias Custode.MCP.Snodo
   alias Custode.OwnedCheckout.Barrier
   alias Custode.Workflow
 
@@ -133,7 +133,7 @@ defmodule Custode.Application do
       Supervisor.child_spec({Task, fn -> Workflow.Runner.resume_all() end},
         id: :workflow_resume
       ),
-      MCPEx.executor_child_spec(),
+      Snodo.executor_child_spec(),
       {Bandit, plug: Custode.MCP.Router, port: Custode.MCP.port(), ip: {127, 0, 0, 1}},
       # the ticks queue starts only after this loopback probe confirms the
       # MCP surface answers -- the first-sweep-after-restart tool blackout

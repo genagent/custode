@@ -1,10 +1,10 @@
-defmodule Custode.MCP.MCPEx.Adapter do
+defmodule Custode.MCP.Snodo.Adapter do
   @moduledoc false
 
   alias Anubis.MCP.Error, as: AnubisError
   alias Anubis.Server.{Frame, Response}
   alias Custode.MCP.{Server, WorkResources}
-  alias MCP.Error
+  alias Snodo.Error
 
   @spec tool(String.t()) :: Anubis.Server.Component.Tool.t()
   def tool(name) do
@@ -16,8 +16,8 @@ defmodule Custode.MCP.MCPEx.Adapter do
   def wire(nil), do: nil
   def wire(value), do: value |> JSON.encode!() |> Jason.decode!()
 
-  @spec call_tool(String.t(), map(), MCP.Context.t()) ::
-          {:ok, MCP.Result.t()} | {:error, Error.t()}
+  @spec call_tool(String.t(), map(), Snodo.Context.t()) ::
+          {:ok, Snodo.Result.t()} | {:error, Error.t()}
   def call_tool(name, params, context) do
     component = tool(name)
 
@@ -25,7 +25,7 @@ defmodule Custode.MCP.MCPEx.Adapter do
          {:ok, arguments} <- validate(component, params) do
       case component.handler.execute(arguments, frame) do
         {:reply, response, _frame} ->
-          {:ok, MCP.Result.raw(Response.to_protocol(response))}
+          {:ok, Snodo.Result.raw(Response.to_protocol(response))}
 
         {:error, error, _frame} ->
           {:error, error(error)}
@@ -36,14 +36,14 @@ defmodule Custode.MCP.MCPEx.Adapter do
     end
   end
 
-  @spec read_resource(String.t(), String.t(), MCP.Context.t()) ::
-          {:ok, MCP.Result.t()} | {:error, Error.t()}
+  @spec read_resource(String.t(), String.t(), Snodo.Context.t()) ::
+          {:ok, Snodo.Result.t()} | {:error, Error.t()}
   def read_resource(uri, mime_type, context) do
     with {:ok, frame} <- frame(context) do
       case WorkResources.read(uri, frame) do
         {:reply, response, _frame} ->
           content = Response.to_protocol(response, uri, mime_type)
-          {:ok, MCP.Result.resource_read(content)}
+          {:ok, Snodo.Result.resource_read(content)}
 
         {:error, error, _frame} ->
           {:error, error(error)}
@@ -51,7 +51,7 @@ defmodule Custode.MCP.MCPEx.Adapter do
     end
   end
 
-  defp frame(%MCP.Context{auth: %{identity: identity, origin: origin}})
+  defp frame(%Snodo.Context{auth: %{identity: identity, origin: origin}})
        when is_map(identity) and origin in [:cli, :mcp] do
     {:ok,
      Frame.new(%{
@@ -86,7 +86,7 @@ defmodule Custode.MCP.MCPEx.Adapter do
   defp error_kind(_code), do: :execution
 end
 
-defmodule Custode.MCP.MCPEx.Tools do
+defmodule Custode.MCP.Snodo.Tools do
   @moduledoc false
 
   @names Custode.MCP.ToolPolicy.all() |> Map.keys() |> Enum.sort()
@@ -99,47 +99,47 @@ defmodule Custode.MCP.MCPEx.Tools do
     do: Module.concat(__MODULE__, Macro.camelize(name))
 end
 
-for name <- Custode.MCP.MCPEx.Tools.names() do
-  module = Custode.MCP.MCPEx.Tools.module(name)
+for name <- Custode.MCP.Snodo.Tools.names() do
+  module = Custode.MCP.Snodo.Tools.module(name)
 
   contents =
     quote bind_quoted: [name: name] do
       @moduledoc false
-      @behaviour MCP.Tool
+      @behaviour Snodo.Tool
 
       @name name
 
-      @impl MCP.Tool
+      @impl Snodo.Tool
       def name, do: @name
 
-      @impl MCP.Tool
-      def description, do: Custode.MCP.MCPEx.Adapter.tool(@name).description
+      @impl Snodo.Tool
+      def description, do: Custode.MCP.Snodo.Adapter.tool(@name).description
 
-      @impl MCP.Tool
+      @impl Snodo.Tool
       def input_schema,
-        do: @name |> Custode.MCP.MCPEx.Adapter.tool() |> Map.fetch!(:input_schema)
+        do: @name |> Custode.MCP.Snodo.Adapter.tool() |> Map.fetch!(:input_schema)
 
-      @impl MCP.Tool
+      @impl Snodo.Tool
       def output_schema,
-        do: @name |> Custode.MCP.MCPEx.Adapter.tool() |> Map.fetch!(:output_schema)
+        do: @name |> Custode.MCP.Snodo.Adapter.tool() |> Map.fetch!(:output_schema)
 
-      @impl MCP.Tool
+      @impl Snodo.Tool
       def annotations do
         @name
-        |> Custode.MCP.MCPEx.Adapter.tool()
+        |> Custode.MCP.Snodo.Adapter.tool()
         |> Map.fetch!(:annotations)
         |> Kernel.||(%{})
-        |> Custode.MCP.MCPEx.Adapter.wire()
+        |> Custode.MCP.Snodo.Adapter.wire()
       end
 
-      @impl MCP.Tool
-      def call(params, context), do: Custode.MCP.MCPEx.Adapter.call_tool(@name, params, context)
+      @impl Snodo.Tool
+      def call(params, context), do: Custode.MCP.Snodo.Adapter.call_tool(@name, params, context)
     end
 
   Module.create(module, contents, Macro.Env.location(__ENV__))
 end
 
-defmodule Custode.MCP.MCPEx.Resources do
+defmodule Custode.MCP.Snodo.Resources do
   @moduledoc false
 
   alias Custode.MCP.WorkResources
@@ -157,8 +157,8 @@ defmodule Custode.MCP.MCPEx.Resources do
   def modules, do: Enum.map(@definitions, &module(&1.name))
 end
 
-for definition <- Custode.MCP.MCPEx.Resources.definitions() do
-  module = Custode.MCP.MCPEx.Resources.module(definition.name)
+for definition <- Custode.MCP.Snodo.Resources.definitions() do
+  module = Custode.MCP.Snodo.Resources.module(definition.name)
 
   location =
     case definition.kind do
@@ -178,11 +178,11 @@ for definition <- Custode.MCP.MCPEx.Resources.definitions() do
   contents =
     quote do
       @moduledoc false
-      use MCP.Resource, unquote(Macro.escape(opts))
+      use Snodo.Resource, unquote(Macro.escape(opts))
 
-      @impl MCP.Resource
+      @impl Snodo.Resource
       def read(%{"uri" => uri}, context) do
-        Custode.MCP.MCPEx.Adapter.read_resource(uri, "application/json", context)
+        Custode.MCP.Snodo.Adapter.read_resource(uri, "application/json", context)
       end
     end
 

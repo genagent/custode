@@ -46,5 +46,5 @@ shared name with conflicting endpoint definitions instead of silently choosing
 one. New endpoints or new runtime registration paths require updating the small
 extraction adapter in `Custode.MCP.Reference`.
 
-Keep runtime-library details inside that adapter when moving to mcp_ex. The
+Keep runtime-library details inside the Snodo adapter. The
 public reference, JSON catalog and semantic metadata remain client-facing.

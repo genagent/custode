@@ -9,13 +9,13 @@ defmodule Custode.MCP.Capabilities do
 
   require Logger
 
-  @behaviour MCP.Authorization
+  @behaviour Snodo.Authorization
 
   alias Anubis.MCP.Error, as: AnubisError
   alias Anubis.Server.Handlers
   alias Custode.Routine
-  alias MCP.Authorization.Component
-  alias MCP.Error, as: MCPError
+  alias Snodo.Authorization.Component
+  alias Snodo.Error, as: SnodoError
 
   @memory_tools ~w(journal_read remember recall forget)
 
@@ -103,7 +103,7 @@ defmodule Custode.MCP.Capabilities do
   def authorized_tool_names(:memory, %{kind: :sub_agent}), do: @memory_tools
   def authorized_tool_names(_endpoint, _identity), do: []
 
-  @impl MCP.Authorization
+  @impl Snodo.Authorization
   def authorize(phase, %Component{} = component, context, endpoint)
       when phase in [:discovery, :invocation] and endpoint in [:main, :memory] do
     identity = get_in(context.auth, [:identity])
@@ -218,7 +218,7 @@ defmodule Custode.MCP.Capabilities do
   defp component_allowed?(_endpoint, _identity, _component), do: false
 
   defp refuse_component(:discovery, _endpoint, _identity, _component, _reason),
-    do: {:error, MCPError.authorization(-32_003, "Not authorized")}
+    do: {:error, SnodoError.authorization(-32_003, "Not authorized")}
 
   defp refuse_component(:invocation, endpoint, identity, component, reason) do
     capability = component.uri || component.name
@@ -230,7 +230,7 @@ defmodule Custode.MCP.Capabilities do
     )
 
     {:error,
-     MCPError.authorization(-32_003, "MCP capability refused: #{reason}", %{
+     SnodoError.authorization(-32_003, "MCP capability refused: #{reason}", %{
        "endpoint" => Atom.to_string(endpoint),
        "capability" => capability
      })}

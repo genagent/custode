@@ -287,7 +287,9 @@ defmodule Custode.MCPJournalReadTest do
         params: params
       })
 
-    assert response.status == 400
+    # Snodo carries an authenticated JSON-RPC error in a successful HTTP
+    # exchange. Admission failures still use their transport-level 4xx status.
+    assert response.status == 200
     decode(response.body)
   end
 

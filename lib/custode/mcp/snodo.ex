@@ -1,16 +1,16 @@
-defmodule Custode.MCP.MCPEx do
+defmodule Custode.MCP.Snodo do
   @moduledoc false
 
-  alias Custode.MCP.{Capabilities, MCPEx.Resources, MCPEx.Tools, MemoryServer, Server}
-  alias MCP.{Router, Server.Runtime}
-  alias MCP.Transport.Plug, as: MCPPlug
+  alias Custode.MCP.{Capabilities, MemoryServer, Server, Snodo.Resources, Snodo.Tools}
+  alias Snodo.{Router, Server.Runtime}
+  alias Snodo.Transport.Plug, as: SnodoPlug
 
-  @executor Custode.MCP.MCPEx.Executor
+  @executor Custode.MCP.Snodo.Executor
   @request_timeout :timer.minutes(16)
   @protocols [
-    MCP.Protocol.V2026_07_28,
-    MCP.Protocol.V2025_11_25,
-    MCP.Protocol.V2025_06_18
+    Snodo.Protocol.V2026_07_28,
+    Snodo.Protocol.V2025_11_25,
+    Snodo.Protocol.V2025_06_18
   ]
 
   @spec executor() :: module()
@@ -21,7 +21,7 @@ defmodule Custode.MCP.MCPEx do
 
   @spec executor_child_spec() :: {module(), keyword()}
   def executor_child_spec do
-    {MCP.Server.Executor,
+    {Snodo.Server.Executor,
      name: @executor, max_concurrency: 16, max_queue: 64, default_timeout: @request_timeout}
   end
 
@@ -37,7 +37,7 @@ defmodule Custode.MCP.MCPEx do
         ],
         into: %{} do
       {path,
-       MCPPlug.init(
+       SnodoPlug.init(
          runtime: configured_runtime,
          executor: @executor,
          path: path,
