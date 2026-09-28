@@ -92,7 +92,7 @@ defmodule Custode.Gates do
   defp do_handle_event([provider, :agent, :transition], _measurements, meta, _config)
        when provider in [:oban_claude, :oban_codex] do
     if meta.from in @gated do
-      outcome = resolution(meta.from, meta.to)
+      outcome = resolution(meta)
       resolve_open(meta.agent_id, meta.from, outcome)
       Custode.Feed.mark_gate_resolved(meta.agent_id, outcome)
     end
@@ -102,7 +102,7 @@ defmodule Custode.Gates do
     # closes the grant it just opened.
     if meta.from == :running, do: end_continuations(meta.agent_id)
 
-    if meta.to in @gated, do: open(meta.agent_id, meta.to)
+    if meta.to in @gated, do: open(meta.agent_id, meta.to, provider)
     :ok
   end
 
@@ -118,11 +118,12 @@ defmodule Custode.Gates do
   end
 
   # what actually happened to the gated item, for the feed card's chip
-  defp resolution(:awaiting_permission, :running), do: "approved"
-  defp resolution(:awaiting_permission, :idle), do: "rejected"
-  defp resolution(:waiting_for_user, _to), do: "answered"
-  defp resolution(_from, :paused), do: "cleared by pause"
-  defp resolution(_from, _to), do: "resolved"
+  defp resolution(%{gate_outcome: :rejected}), do: "rejected"
+  defp resolution(%{from: :awaiting_permission, to: :running}), do: "approved"
+  defp resolution(%{from: :awaiting_permission, to: :idle}), do: "rejected"
+  defp resolution(%{from: :waiting_for_user}), do: "answered"
+  defp resolution(%{to: :paused}), do: "cleared by pause"
+  defp resolution(_meta), do: "resolved"
 
   @doc "Open gates for an agent."
   def open_gates(agent_id) do
@@ -447,9 +448,9 @@ defmodule Custode.Gates do
     :ok
   end
 
-  defp open(agent_id, state) do
+  defp open(agent_id, state, provider) do
     {kind, action_id, detail} =
-      case Custode.Agents.status(agent_id) do
+      case Custode.Agents.status(agent_id, provider) do
         {:ok, {:awaiting_permission, %{id: id, description: description}}} ->
           {"approval", id, description}
 

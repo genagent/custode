@@ -4,16 +4,17 @@ defmodule Custode.SpendLedger do
   both carry spend), written from the same run telemetry the feed uses --
   so spend survives restarts, unlike the in-process `info/1` counters.
 
-  Budgets: a routine with `:daily_budget_usd` (per-entry, or the shared
-  `config :custode, :daily_budget_usd` default) is auto-paused the moment its
-  UTC-day total crosses the cap -- `emergency_pause` through the ordinary
-  facade, with a `budget_paused` feed entry (and desktop notification).
-  Resuming is an explicit human override; the next turn's spend re-pauses if
-  still over.
+  Budgets: a routine may cap its local-day dollars or throughput tokens. When
+  run telemetry crosses a cap, the ledger synchronously arms that correlated
+  provider turn to pause at its next safe boundary. An ordinary result lands
+  directly in `:paused`; a permission or question remains visible until the
+  operator rejects it or grants its one continuation. The `budget_paused`
+  feed entry and notification are emitted when the pause is actually applied.
 
-  Honest limitation: a restart clears the pause (agents cold-start from the
-  crontab), so an over-budget routine leaks at most ONE more turn after a
-  restart before its spend re-triggers the pause.
+  Direct records without a live turn still use the emergency brake, and boot
+  reconciliation starts every over-rail routine paused. Resuming is an
+  explicit human override; the next reported turn re-arms the rail while the
+  total remains over its cap.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -99,8 +100,10 @@ defmodule Custode.SpendLedger do
   @events [
     [:oban_claude, :run, :stop],
     [:oban_claude, :run, :exception],
+    [:oban_claude, :agent, :transition],
     [:oban_codex, :run, :stop],
-    [:oban_codex, :run, :exception]
+    [:oban_codex, :run, :exception],
+    [:oban_codex, :agent, :transition]
   ]
 
   def attach do
@@ -131,7 +134,10 @@ defmodule Custode.SpendLedger do
           usage_of(meta) ++
             [model: model_of(meta), provider: provider(integration)] ++
             dimensions_of(meta) ++
-            [ingestion_key: telemetry_ingestion_key(job, outcome)]
+            [
+              ingestion_key: telemetry_ingestion_key(job, outcome),
+              enforcement: {:after_turn, agent_provider(integration), job.meta}
+            ]
 
         record_telemetry(agent_id, measurements.cost_usd, outcome, options)
 
@@ -139,6 +145,35 @@ defmodule Custode.SpendLedger do
         :ok
     end
   end
+
+  defp do_handle_event(
+         [integration, :agent, :transition],
+         _measurements,
+         %{
+           agent_id: agent_id,
+           to: :paused,
+           cause: :pause_after_turn,
+           pause_action: :applied,
+           pause_reason: reason
+         },
+         _config
+       )
+       when integration in [:oban_claude, :oban_codex] do
+    Custode.Feed.record(
+      %{
+        event: "budget_paused",
+        agent: agent_id,
+        action:
+          to_string(reason) <>
+            " -- paused at the turn boundary; resume is a human override"
+      },
+      notify: true
+    )
+  end
+
+  defp do_handle_event([integration, :agent, :transition], _measurements, _meta, _config)
+       when integration in [:oban_claude, :oban_codex],
+       do: :ok
 
   # error results carry no usage; nil columns are the honest record
   defp usage_of(%{result: %ClaudeWrapper.Result{} = result}) do
@@ -170,6 +205,9 @@ defmodule Custode.SpendLedger do
   defp provider(:oban_claude), do: "claude"
   defp provider(:oban_codex), do: "codex"
 
+  defp agent_provider(:oban_claude), do: :claude
+  defp agent_provider(:oban_codex), do: :codex
+
   defp model_of(%{args: %{"model" => model}}), do: model
   defp model_of(_meta), do: nil
 
@@ -180,7 +218,9 @@ defmodule Custode.SpendLedger do
   WorkItem, Mission, RoleBinding, executor, provider, and workflow phase.
   Missing Attempt IDs remain supported only as explicitly labeled legacy
   attribution. A repeated non-nil `:ingestion_key` returns `:ok` without
-  inserting or enforcing the same charge twice.
+  inserting the same charge twice. Correlated turn-boundary enforcement may
+  be retried because the provider latch is itself identity-checked and
+  idempotent.
   """
   def record(agent_id, cost_usd, outcome \\ "turn", opts \\ []) when is_number(cost_usd) do
     usage = opts[:usage] || %{}
@@ -200,7 +240,7 @@ defmodule Custode.SpendLedger do
 
     with {:ok, attrs} <- attribute(base, opts),
          {:ok, inserted?} <- insert_once(attrs) do
-      if inserted?, do: enforce(agent_id)
+      enforce_record(agent_id, inserted?, Keyword.get(opts, :enforcement, :immediate))
       :ok
     end
   end
@@ -354,6 +394,19 @@ defmodule Custode.SpendLedger do
     case Custode.Routine.get(agent_id) do
       nil -> :ok
       routine -> enforce_rails(routine, agent_id)
+    end
+  end
+
+  defp enforce_record(agent_id, true, :immediate), do: enforce(agent_id)
+  defp enforce_record(_agent_id, false, :immediate), do: :ok
+
+  # A replayed run event may be the retry after an earlier handler inserted
+  # spend but failed before arming the provider. The provider latch is
+  # correlated and idempotent, so every delivery may safely try again.
+  defp enforce_record(agent_id, _inserted?, {:after_turn, provider, turn_meta}) do
+    case Custode.Routine.get(agent_id) do
+      nil -> :ok
+      routine -> enforce_after_turn(routine, agent_id, provider, turn_meta)
     end
   end
 
@@ -543,11 +596,47 @@ defmodule Custode.SpendLedger do
   end
 
   defp enforce_rails(routine, agent_id) do
-    cond do
-      over = usd_overage(routine, agent_id) -> pause(agent_id, over)
-      over = token_overage(routine, agent_id) -> pause(agent_id, over)
-      true -> :ok
+    case overage(routine, agent_id) do
+      nil -> :ok
+      reason -> pause(agent_id, reason)
     end
+  end
+
+  defp enforce_after_turn(routine, agent_id, provider, turn_meta) do
+    case overage(routine, agent_id) do
+      reason when is_binary(reason) ->
+        case request_deferred_pause(agent_id, provider, reason, turn_meta) do
+          :ok -> :ok
+          {:error, reason} -> log_deferred_pause_error(agent_id, reason)
+        end
+
+      nil ->
+        :ok
+    end
+  end
+
+  # Registry lookup and the synchronous state-machine call are intentionally
+  # one provider operation. A process can still stop between those two steps,
+  # so contain that exit here rather than letting telemetry detach this
+  # handler and silently drop every later spend event.
+  defp request_deferred_pause(agent_id, provider, reason, turn_meta) do
+    Custode.Agents.pause_after_turn(agent_id, provider, reason, turn_meta)
+  catch
+    :exit, exit_reason -> {:error, {:provider_exit, exit_reason}}
+  end
+
+  defp overage(routine, agent_id) do
+    usd_overage(routine, agent_id) || token_overage(routine, agent_id)
+  end
+
+  defp log_deferred_pause_error(agent_id, reason) do
+    require Logger
+
+    Logger.warning(
+      "Custode.SpendLedger could not arm a turn-boundary pause for #{agent_id}: #{inspect(reason)}"
+    )
+
+    :ok
   end
 
   defp usd_overage(%{daily_budget_usd: budget}, agent_id) when is_number(budget) do

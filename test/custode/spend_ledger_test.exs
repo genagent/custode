@@ -24,6 +24,34 @@ defmodule Custode.SpendLedgerTest do
     :ok
   end
 
+  defp run_active_claude_turn!(routine, cost) do
+    :processing = Agent.submit_prompt(routine.id, "x")
+    assert_receive {:enqueued, %{"prompt" => "x"}, %{"agent_id" => id} = turn_meta}
+    assert id == routine.id
+
+    result = result(result: "done", cost_usd: cost)
+
+    {:ok, ^result} =
+      ObanClaude.run(%{"prompt" => "x"},
+        job: job(turn_meta),
+        query_fun: respond(result)
+      )
+
+    # The rail is armed while the provider still owns the turn. It is applied
+    # only when the correlated result reaches the state machine.
+    assert {:ok, :running} = Agent.status(routine.id)
+    :ok = finish_agent_turn(turn_meta, result)
+    result
+  end
+
+  defp job(meta),
+    do: %Oban.Job{
+      id: System.unique_integer([:positive]),
+      attempt: 1,
+      max_attempts: 1,
+      meta: meta
+    }
+
   test "successful and failed runs both land in the ledger" do
     id = uid("spender")
     run!(id, 0.25)
@@ -52,14 +80,12 @@ defmodule Custode.SpendLedgerTest do
     routine = routine_fixture!(workspace, %{daily_budget_usd: 0.5})
     stub_routine!(routine)
 
-    run!(routine.id, 0.3)
-    assert {:ok, :idle} = Agent.status(routine.id)
+    run_active_claude_turn!(routine, 0.3)
+    assert {:ok, :idle} = Agent.await(routine.id, :idle, 1_000)
 
-    run!(routine.id, 0.3)
+    run_active_claude_turn!(routine, 0.3)
     assert {:ok, :paused} = Agent.await(routine.id, :paused, 1_000)
 
-    # SpendLedger casts the pause and THEN records the entry, so :paused can
-    # be visible before the feed row exists (#257)
     entry =
       eventually(fn ->
         assert [entry] =
@@ -74,7 +100,7 @@ defmodule Custode.SpendLedgerTest do
 
     # resume is a human override; the next spend re-pauses
     :resumed = Agent.resume_agent(routine.id)
-    run!(routine.id, 0.1)
+    run_active_claude_turn!(routine, 0.1)
     assert {:ok, :paused} = Agent.await(routine.id, :paused, 1_000)
   end
 
@@ -86,7 +112,16 @@ defmodule Custode.SpendLedgerTest do
   end
 
   defp stub_routine!(routine) do
-    {:ok, _pid} = Agent.start_agent(routine.id, enqueue_fun: fn _a, _m -> {:ok, :queued} end)
+    test_pid = self()
+
+    {:ok, _pid} =
+      Agent.start_agent(routine.id,
+        enqueue_fun: fn args, meta ->
+          send(test_pid, {:enqueued, args, meta})
+          {:ok, :queued}
+        end
+      )
+
     on_exit(fn -> Agent.stop_agent(routine.id) end)
     :ok
   end
@@ -171,10 +206,22 @@ defmodule Custode.SpendLedgerTest do
         daily_budget_usd: nil
       })
 
+    test_pid = self()
+
     {:ok, _pid} =
-      Custode.Agents.start_agent(routine.id, enqueue_fun: fn _args, _meta -> {:ok, :queued} end)
+      Custode.Agents.start_agent(routine.id,
+        enqueue_fun: fn args, meta ->
+          send(test_pid, {:codex_enqueued, args, meta})
+          {:ok, :queued}
+        end
+      )
 
     on_exit(fn -> Custode.Agents.stop_agent(routine.id, :codex) end)
+
+    :processing = Custode.Agents.submit_prompt(routine.id, "x")
+
+    assert_receive {:codex_enqueued, %{"prompt" => "x"}, %{"agent_id" => id} = turn_meta}
+    assert id == routine.id
 
     result =
       ObanCodex.Testing.result(
@@ -187,11 +234,14 @@ defmodule Custode.SpendLedgerTest do
 
     {:ok, _} =
       ObanCodex.run(%{"prompt" => "x"},
-        job: %Oban.Job{meta: %{"agent_id" => routine.id}},
+        job: job(turn_meta),
         query_fun: ObanCodex.Testing.respond(result)
       )
 
     assert SpendLedger.today_tokens(routine.id) == 1_300
+    assert {:ok, :running} = Custode.Agents.status(routine.id)
+
+    :ok = ObanCodex.Agent.Job.handle_result(result, job(turn_meta))
     assert {:ok, :paused} = Custode.Agents.await(routine.id, :paused, 1_000)
 
     [[provider]] =
@@ -201,6 +251,44 @@ defmodule Custode.SpendLedgerTest do
       ).rows
 
     assert provider == "codex"
+  end
+
+  test "an agent exit during latch installation stays contained" do
+    routine =
+      routine_fixture!(tmp_workspace!(), %{
+        daily_budget_tokens: 1_000,
+        daily_budget_usd: nil
+      })
+
+    stub_routine!(routine)
+    :processing = Agent.submit_prompt(routine.id, "x")
+    assert_receive {:enqueued, %{"prompt" => "x"}, turn_meta}
+
+    [{pid, _state}] = Registry.lookup(ObanClaude.Agent.Registry, routine.id)
+    :ok = :sys.suspend(pid)
+
+    record =
+      Task.async(fn ->
+        SpendLedger.record(routine.id, 0.01, "turn",
+          usage: %{input: 900, output: 400, cache_creation: 0, cache_read: 0},
+          enforcement: {:after_turn, :claude, turn_meta}
+        )
+      end)
+
+    eventually(fn ->
+      assert {:current_stacktrace, stacktrace} =
+               Process.info(record.pid, :current_stacktrace)
+
+      assert Enum.any?(stacktrace, fn
+               {:gen, :do_call, _arity, _location} -> true
+               _frame -> false
+             end)
+    end)
+
+    Process.exit(pid, :kill)
+
+    assert :ok = Task.await(record, 1_000)
+    assert SpendLedger.today_tokens(routine.id) == 1_300
   end
 end
 
