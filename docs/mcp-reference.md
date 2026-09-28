@@ -1237,7 +1237,7 @@ Post a comment on an issue or pull request.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
 
-**Behavior, defaults and errors:** repo, number and body are required. Each successful repeat can create another comment; there is no deduplication key.
+**Behavior, defaults and errors:** repo, number and body are required. Each successful repeat can create another comment; there is no deduplication key. Successful repo_verb activity is attributed to the authenticated MCP caller, independent of the routine that supplies the shared repository process and policy.
 
 ### Tool: repo_disown_pr
 
@@ -1298,7 +1298,7 @@ File the kept issues from a reviewed local batch.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Authenticated agents may write only their own records; the operator may name any identity. The file_drafts grant check also applies, and each remote issue creation uses served-repository policy.
 
-**Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. batch_id is required. Unknown or foreign batches fail. Already-filed and already-failed entries are skipped on subsequent calls; results describe newly filed/failed entries plus dropped entries, not the full batch history. This is retry-safe for recorded completion, not a guarantee against an uncertain remote write before local persistence.
+**Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. batch_id is required. Unknown or foreign batches fail. Already-filed and already-failed entries are skipped on subsequent calls; results describe newly filed/failed entries plus dropped entries, not the full batch history. This is retry-safe for recorded completion, not a guarantee against an uncertain remote write before local persistence. Each successful per-issue repo_verb and the batch summary are attributed to the authenticated MCP caller, independent of the routine that owns the batch or supplies the shared repository process and policy. An operator filing a routine-owned batch is therefore recorded as operator.
 
 ### Tool: repo_list_issues
 
@@ -1356,7 +1356,7 @@ Post an issue blockage marker with its reason.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
 
-**Behavior, defaults and errors:** repo, number and reason are required. Uses mark_issue, outside every bounded approval class; enforce mode therefore requires an unbounded grant. Repeats create additional comments.
+**Behavior, defaults and errors:** repo, number and reason are required. Uses mark_issue, outside every bounded approval class; enforce mode therefore requires an unbounded grant. Repeats create additional comments. Successful repo_verb activity is attributed to the authenticated MCP caller, independent of the routine that supplies the shared repository process and policy.
 
 ### Tool: repo_mark_issue_ready
 
@@ -1376,7 +1376,7 @@ Post an issue readiness marker with its plan.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
 
-**Behavior, defaults and errors:** repo, number and plan are required. Uses the mark_issue grant verb, which belongs to no bounded approval class; enforce mode therefore requires an unbounded grant. Repeats create additional comments.
+**Behavior, defaults and errors:** repo, number and plan are required. Uses the mark_issue grant verb, which belongs to no bounded approval class; enforce mode therefore requires an unbounded grant. Repeats create additional comments. Successful repo_verb activity is attributed to the authenticated MCP caller, independent of the routine that supplies the shared repository process and policy.
 
 ### Tool: repo_merge_pr
 
@@ -1395,7 +1395,7 @@ Request a pull-request merge subject to repository policy.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
 
-**Behavior, defaults and errors:** repo and number are required. Shipped manual merge policy normally refuses this tool. Review evidence is also required, and a latest needs-human marker blocks it. This tool does not accept an expected head SHA or expose the separate head-checked merge-gate path. An explicit :merge_method Custode policy scoped to the served repository selects merge, squash or rebase and takes precedence over the default flag order, but GitHub must still allow that method. Without one, the repository's allow_merge_commit, allow_squash_merge and allow_rebase_merge flags select merge, then squash, then rebase; when all three flags are absent it sends the configured method or "merge". A repository that allows none of them, or disallows the configured method, is refused with a typed "policy merge_method: ..." error before any merge request. Selection happens after the merge-policy and review-floor checks. The separate exact-head merge Gate pins this selection, rechecks that exact method immediately before mutation, and records the method actually sent.
+**Behavior, defaults and errors:** repo and number are required. Shipped manual merge policy normally refuses this tool. Review evidence is also required, and a latest needs-human marker blocks it. This tool does not accept an expected head SHA or expose the separate head-checked merge-gate path. An explicit :merge_method Custode policy scoped to the served repository selects merge, squash or rebase and takes precedence over the default flag order, but GitHub must still allow that method. Without one, the repository's allow_merge_commit, allow_squash_merge and allow_rebase_merge flags select merge, then squash, then rebase; when all three flags are absent it sends the configured method or "merge". A repository that allows none of them, or disallows the configured method, is refused with a typed "policy merge_method: ..." error before any merge request. Selection happens after the merge-policy and review-floor checks. The separate exact-head merge Gate pins this selection, rechecks that exact method immediately before mutation, and records the method actually sent. Successful repo_verb activity is attributed to the authenticated MCP caller, independent of the routine that supplies the shared repository process and policy.
 
 ### Tool: repo_open_issue
 
@@ -1416,7 +1416,7 @@ Create an issue in a served repository.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
 
-**Behavior, defaults and errors:** repo and title are required. body defaults to empty; labels pass through. Conventional title policy is checked. No idempotency key; an uncertain response can require checking GitHub before retry.
+**Behavior, defaults and errors:** repo and title are required. body defaults to empty; labels pass through. Conventional title policy is checked. No idempotency key; an uncertain response can require checking GitHub before retry. Successful repo_verb activity is attributed to the authenticated MCP caller, independent of the routine that supplies the shared repository process and policy.
 
 ### Tool: repo_open_pr
 
@@ -1438,7 +1438,7 @@ Create a draft pull request in a served repository.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
 
-**Behavior, defaults and errors:** repo, title and head are required. base defaults to main; body defaults to empty. Conventional title policy is checked. Does not create or push the head branch. No idempotency key; do not blindly retry after an uncertain remote result.
+**Behavior, defaults and errors:** repo, title and head are required. base defaults to main; body defaults to empty. Conventional title policy is checked. Does not create or push the head branch. No idempotency key; do not blindly retry after an uncertain remote result. Successful repo_verb activity is attributed to the authenticated MCP caller, independent of the routine that supplies the shared repository process and policy.
 
 ### Tool: repo_pr_checks
 
@@ -1495,7 +1495,7 @@ Mark a draft pull request ready for review.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
 
-**Behavior, defaults and errors:** repo and number are required. Uses GitHub's ready-for-review operation; this is not a merge or an approval review. Remote refusal is a tool error.
+**Behavior, defaults and errors:** repo and number are required. Uses GitHub's ready-for-review operation; this is not a merge or an approval review. Remote refusal is a tool error. Successful repo_verb activity is attributed to the authenticated MCP caller, independent of the routine that supplies the shared repository process and policy.
 
 ### Tool: repo_reclaim_pr
 
@@ -1535,7 +1535,7 @@ Record a review marker used by the merge policy.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Served repositories only. Repository writes check the caller's active grant; observe mode logs violations, enforce mode refuses them. Operators bypass this grant check. Repository policy still applies.
 
-**Behavior, defaults and errors:** repo, number, verdict and body are required. Schema prose suggests lgtm or needs-human, but the implementation accepts other verdict strings. Exact needs-human blocks merging until superseded by later qualifying review evidence; other marker text counts as reviewed. Repeats create comments.
+**Behavior, defaults and errors:** repo, number, verdict and body are required. Schema prose suggests lgtm or needs-human, but the implementation accepts other verdict strings. Exact needs-human blocks merging until superseded by later qualifying review evidence; other marker text counts as reviewed. Repeats create comments. Successful repo_verb activity is attributed to the authenticated MCP caller, independent of the routine that supplies the shared repository process and policy.
 
 ### Tool: repo_view_issue
 

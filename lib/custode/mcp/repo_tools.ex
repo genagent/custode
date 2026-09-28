@@ -26,7 +26,9 @@ defmodule Custode.MCP.RepoTools.OpenPr do
 
   @impl true
   def execute(%{repo: repo} = params, frame) do
-    case granted(frame, :open_pr, fn -> Custode.Repository.open_pr(repo, params) end) do
+    case granted(frame, :open_pr, fn ->
+           Custode.Repository.open_pr(repo, params, Custode.MCP.caller(frame))
+         end) do
       {:ok, pr} -> reply(frame, %{repo: repo, number: pr["number"], url: pr["html_url"]})
       {:error, message} -> fail(frame, to_string(message))
     end
@@ -52,7 +54,9 @@ defmodule Custode.MCP.RepoTools.OpenIssue do
 
   @impl true
   def execute(%{repo: repo} = params, frame) do
-    case granted(frame, :open_issue, fn -> Custode.Repository.open_issue(repo, params) end) do
+    case granted(frame, :open_issue, fn ->
+           Custode.Repository.open_issue(repo, params, Custode.MCP.caller(frame))
+         end) do
       {:ok, issue} -> reply(frame, %{repo: repo, number: issue["number"], url: issue["html_url"]})
       {:error, message} -> fail(frame, to_string(message))
     end
@@ -138,7 +142,8 @@ defmodule Custode.MCP.RepoTools.FileDrafts do
     with {:ok, routine_id} <- fetch_self(params, frame),
          :ok <- check_self(frame, routine_id),
          :ok <- check_grant(frame, :file_drafts),
-         {:ok, result} <- Custode.Drafts.file(routine_id, batch_id) do
+         {:ok, result} <-
+           Custode.Drafts.file(routine_id, batch_id, Custode.MCP.caller(frame)) do
       reply(frame, result)
     else
       {:error, :unknown_batch} -> fail(frame, "no such batch: #{batch_id}")
@@ -162,7 +167,9 @@ defmodule Custode.MCP.RepoTools.Comment do
 
   @impl true
   def execute(%{repo: repo, number: number, body: body}, frame) do
-    case granted(frame, :comment, fn -> Custode.Repository.comment(repo, number, body) end) do
+    case granted(frame, :comment, fn ->
+           Custode.Repository.comment(repo, number, body, Custode.MCP.caller(frame))
+         end) do
       {:ok, comment} -> reply(frame, %{repo: repo, number: number, url: comment["html_url"]})
       {:error, message} -> fail(frame, to_string(message))
     end
@@ -182,7 +189,9 @@ defmodule Custode.MCP.RepoTools.ReadyPr do
 
   @impl true
   def execute(%{repo: repo, number: number}, frame) do
-    case granted(frame, :ready_pr, fn -> Custode.Repository.ready_pr(repo, number) end) do
+    case granted(frame, :ready_pr, fn ->
+           Custode.Repository.ready_pr(repo, number, Custode.MCP.caller(frame))
+         end) do
       {:ok, _pr} -> reply(frame, %{repo: repo, number: number, state: "ready_for_review"})
       {:error, message} -> fail(frame, to_string(message))
     end
@@ -208,7 +217,9 @@ defmodule Custode.MCP.RepoTools.MergePr do
 
   @impl true
   def execute(%{repo: repo, number: number}, frame) do
-    case granted(frame, :merge_pr, fn -> Custode.Repository.merge_pr(repo, number) end) do
+    case granted(frame, :merge_pr, fn ->
+           Custode.Repository.merge_pr(repo, number, Custode.MCP.caller(frame))
+         end) do
       {:ok, result} ->
         reply(frame, %{
           repo: repo,
@@ -238,7 +249,12 @@ defmodule Custode.MCP.RepoTools.MarkIssueReady do
   @impl true
   def execute(%{repo: repo, number: number, plan: plan}, frame) do
     case granted(frame, :mark_issue, fn ->
-           Custode.Repository.mark_issue_ready(repo, number, plan)
+           Custode.Repository.mark_issue_ready(
+             repo,
+             number,
+             plan,
+             Custode.MCP.caller(frame)
+           )
          end) do
       {:ok, comment} -> reply(frame, %{repo: repo, number: number, url: comment["html_url"]})
       {:error, message} -> fail(frame, to_string(message))
@@ -261,7 +277,12 @@ defmodule Custode.MCP.RepoTools.MarkIssueBlocked do
   @impl true
   def execute(%{repo: repo, number: number, reason: reason}, frame) do
     case granted(frame, :mark_issue, fn ->
-           Custode.Repository.mark_issue_blocked(repo, number, reason)
+           Custode.Repository.mark_issue_blocked(
+             repo,
+             number,
+             reason,
+             Custode.MCP.caller(frame)
+           )
          end) do
       {:ok, comment} -> reply(frame, %{repo: repo, number: number, url: comment["html_url"]})
       {:error, message} -> fail(frame, to_string(message))
@@ -289,7 +310,13 @@ defmodule Custode.MCP.RepoTools.ReviewPr do
   @impl true
   def execute(%{repo: repo, number: number, verdict: verdict, body: body}, frame) do
     case granted(frame, :review_pr, fn ->
-           Custode.Repository.review_pr(repo, number, verdict, body)
+           Custode.Repository.review_pr(
+             repo,
+             number,
+             verdict,
+             body,
+             Custode.MCP.caller(frame)
+           )
          end) do
       {:ok, comment} ->
         reply(frame, %{repo: repo, number: number, verdict: verdict, url: comment["html_url"]})

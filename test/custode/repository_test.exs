@@ -3,8 +3,11 @@ defmodule Custode.RepositoryTest do
 
   import Custode.TestHelpers
 
+  alias Custode.MCP.RepoTools
   alias Custode.Repository
   alias Custode.Repository.Ops
+
+  @actor %{kind: :routine, id: "repository-test"}
 
   defmodule FakeOps do
     @behaviour Custode.Repository.OpsBehaviour
@@ -133,16 +136,34 @@ defmodule Custode.RepositoryTest do
       )
     )
 
-    %{repo: repo_name}
+    %{repo: repo_name, routine: routine}
   end
 
+  defp repo_open_pr(repo, attrs), do: Repository.open_pr(repo, attrs, @actor)
+  defp repo_open_issue(repo, attrs), do: Repository.open_issue(repo, attrs, @actor)
+  defp repo_comment(repo, number, body), do: Repository.comment(repo, number, body, @actor)
+  defp repo_ready_pr(repo, number), do: Repository.ready_pr(repo, number, @actor)
+  defp repo_merge_pr(repo, number), do: Repository.merge_pr(repo, number, @actor)
+
+  defp repo_merge_pr_at_head(repo, number, head_sha, method),
+    do: Repository.merge_pr_at_head(repo, number, head_sha, method, @actor)
+
+  defp repo_mark_issue_ready(repo, number, plan),
+    do: Repository.mark_issue_ready(repo, number, plan, @actor)
+
+  defp repo_mark_issue_blocked(repo, number, reason),
+    do: Repository.mark_issue_blocked(repo, number, reason, @actor)
+
+  defp repo_review_pr(repo, number, verdict, body),
+    do: Repository.review_pr(repo, number, verdict, body, @actor)
+
   test "open_pr enforces conventional titles and forces draft", %{repo: repo} do
-    assert {:error, message} = Repository.open_pr(repo, %{title: "add stuff", head: "b"})
+    assert {:error, message} = repo_open_pr(repo, %{title: "add stuff", head: "b"})
     assert message =~ "policy conventional_commits"
     refute_receive {:open_pr, _owner, _repo, _attrs}, 50
 
     assert {:ok, pr} =
-             Repository.open_pr(repo, %{
+             repo_open_pr(repo, %{
                title: "feat: add stuff",
                head: "feat/stuff",
                draft: false
@@ -156,12 +177,12 @@ defmodule Custode.RepositoryTest do
   end
 
   test "open_issue enforces conventional titles and passes labels through", %{repo: repo} do
-    assert {:error, message} = Repository.open_issue(repo, %{title: "do a thing"})
+    assert {:error, message} = repo_open_issue(repo, %{title: "do a thing"})
     assert message =~ "policy conventional_commits"
     refute_receive {:open_issue, _owner, _repo, _attrs}, 50
 
     assert {:ok, issue} =
-             Repository.open_issue(repo, %{
+             repo_open_issue(repo, %{
                title: "feat: do a thing",
                body: "the details",
                labels: ["workable"]
@@ -175,13 +196,13 @@ defmodule Custode.RepositoryTest do
   end
 
   test "open_issue omits labels when none are given", %{repo: repo} do
-    assert {:ok, _issue} = Repository.open_issue(repo, %{title: "fix: a bug"})
+    assert {:ok, _issue} = repo_open_issue(repo, %{title: "fix: a bug"})
     assert_receive {:open_issue, "acme", _bare, attrs}
     refute Map.has_key?(attrs, :labels)
   end
 
   test "merge_pr refuses with the policy named; nothing reaches GitHub", %{repo: repo} do
-    assert {:error, message} = Repository.merge_pr(repo, 7)
+    assert {:error, message} = repo_merge_pr(repo, 7)
     assert message =~ "policy merge: humans merge"
     refute_receive {:merge_pr, _owner, _repo, _number}, 50
   end
@@ -192,7 +213,7 @@ defmodule Custode.RepositoryTest do
     put_env!(:policies, [])
     put_env!(:fake_review_state, :unreviewed)
 
-    assert {:error, message} = Repository.merge_pr(repo, 7)
+    assert {:error, message} = repo_merge_pr(repo, 7)
     assert message =~ "workflow review"
     assert message =~ "even just lgtm"
     refute_receive {:merge_pr, _owner, _repo, _number}, 50
@@ -203,28 +224,28 @@ defmodule Custode.RepositoryTest do
       {:needs_human, "review: needs-human -- auth surface, human eyes please"}
     )
 
-    assert {:error, blocked} = Repository.merge_pr(repo, 7)
+    assert {:error, blocked} = repo_merge_pr(repo, 7)
     assert blocked =~ "flagged PR #7"
     assert blocked =~ "auth surface, human eyes please"
     refute_receive {:merge_pr, _owner, _repo, _number}, 50
 
     # a later ok review opens the door
     put_env!(:fake_review_state, {:reviewed, "review: lgtm"})
-    assert {:ok, %{"merged" => true}} = Repository.merge_pr(repo, 7)
+    assert {:ok, %{"merged" => true}} = repo_merge_pr(repo, 7)
     assert_receive {:merge_pr, "acme", _bare, 7}
   end
 
   test "the gated seam preserves the review floor and pins the expected head", %{repo: repo} do
     put_env!(:fake_review_state, :unreviewed)
 
-    assert {:error, message} = Repository.merge_pr_at_head(repo, 7, "head-7", "squash")
+    assert {:error, message} = repo_merge_pr_at_head(repo, 7, "head-7", "squash")
     assert message =~ "workflow review"
     refute_receive {:merge_pr_at_head, _owner, _repo, _number, _head}, 50
 
     put_env!(:fake_review_state, {:reviewed, "approving review"})
 
     assert {:ok, %{"merged" => true, "sha" => "merge-sha"}} =
-             Repository.merge_pr_at_head(repo, 7, "head-7", "squash")
+             repo_merge_pr_at_head(repo, 7, "head-7", "squash")
 
     assert_receive {:merge_pr_at_head, "acme", _bare, 7, "head-7"}
   end
@@ -234,7 +255,7 @@ defmodule Custode.RepositoryTest do
     put_env!(:fake_review_state, {:reviewed, "review: lgtm"})
 
     assert {:ok, %{"merged" => true, "merge_method" => "squash"}} =
-             Repository.merge_pr(repo, 7)
+             repo_merge_pr(repo, 7)
 
     assert Enum.any?(
              Custode.Feed.tail(50),
@@ -248,12 +269,12 @@ defmodule Custode.RepositoryTest do
     put_env!(:fake_review_state, {:reviewed, "review: lgtm"})
     put_env!(:fake_merge_error, :no_allowed_merge_method)
 
-    assert {:error, message} = Repository.merge_pr(repo, 7)
+    assert {:error, message} = repo_merge_pr(repo, 7)
     assert message =~ "policy merge_method: #{repo} allows no supported merge method"
     assert message =~ "(merge, squash, rebase); nothing was merged"
     refute message =~ "github:"
 
-    assert {:error, gated} = Repository.merge_pr_at_head(repo, 7, "head-7", "squash")
+    assert {:error, gated} = repo_merge_pr_at_head(repo, 7, "head-7", "squash")
     assert gated =~ "policy merge_method: #{repo} allows no supported merge method"
 
     refute Enum.any?(
@@ -271,7 +292,7 @@ defmodule Custode.RepositoryTest do
 
     put_env!(:fake_review_state, {:reviewed, "review: lgtm"})
 
-    assert {:ok, _merged} = Repository.merge_pr(repo, 7)
+    assert {:ok, _merged} = repo_merge_pr(repo, 7)
     assert_receive {:merge_pr_preferred, "rebase"}
 
     assert {:ok, _snapshot} = Repository.review_snapshot(repo, 9)
@@ -285,7 +306,7 @@ defmodule Custode.RepositoryTest do
 
     put_env!(:fake_review_state, {:reviewed, "review: lgtm"})
 
-    assert {:ok, _merged} = Repository.merge_pr(repo, 7)
+    assert {:ok, _merged} = repo_merge_pr(repo, 7)
     assert_receive {:merge_pr_preferred, nil}
 
     assert {:ok, _snapshot} = Repository.review_snapshot(repo, 9)
@@ -299,7 +320,7 @@ defmodule Custode.RepositoryTest do
 
     put_env!(:fake_review_state, {:reviewed, "review: lgtm"})
 
-    assert {:error, message} = Repository.merge_pr(repo, 7)
+    assert {:error, message} = repo_merge_pr(repo, 7)
     assert message =~ "policy merge_method: \"fast-forward\" configured for #{repo}"
     refute_receive {:merge_pr, _owner, _repo, _number}, 50
 
@@ -313,12 +334,12 @@ defmodule Custode.RepositoryTest do
     put_env!(:fake_review_state, {:reviewed, "approving review"})
 
     assert {:ok, %{"merge_method" => "rebase"}} =
-             Repository.merge_pr_at_head(repo, 7, "head-7", "rebase")
+             repo_merge_pr_at_head(repo, 7, "head-7", "rebase")
 
     assert_receive {:merge_pr_at_head_method, "rebase"}
 
     put_env!(:fake_merge_error, {:merge_method_not_allowed, "rebase"})
-    assert {:error, message} = Repository.merge_pr_at_head(repo, 7, "head-7", "rebase")
+    assert {:error, message} = repo_merge_pr_at_head(repo, 7, "head-7", "rebase")
     assert message =~ "policy merge_method: #{repo} does not allow the rebase merge method"
     refute message =~ "github:"
   end
@@ -327,40 +348,78 @@ defmodule Custode.RepositoryTest do
     put_env!(:policies, [])
     put_env!(:fake_review_state, {:reviewed, "approving review"})
 
-    assert {:error, message} = Repository.merge_pr_at_head(repo, 7, "head-7", nil)
+    assert {:error, message} = repo_merge_pr_at_head(repo, 7, "head-7", nil)
     assert message =~ "policy merge_method: the merge Gate for PR #7"
     refute_receive {:merge_pr_at_head, _owner, _repo, _number, _head}, 50
   end
 
   test "comment and ready_pr pass through", %{repo: repo} do
-    assert {:ok, _comment} = Repository.comment(repo, 5, "looks right")
+    assert {:ok, _comment} = repo_comment(repo, 5, "looks right")
     assert_receive {:comment, "acme", _bare, 5, "looks right"}
 
-    assert {:ok, _pr} = Repository.ready_pr(repo, 9)
+    assert {:ok, _pr} = repo_ready_pr(repo, 9)
     assert_receive {:ready_pr, "acme", _bare, 9}
   end
 
   test "workflow markers format the conventions mechanically (#86)", %{repo: repo} do
-    {:ok, _c} = Repository.mark_issue_ready(repo, 12, "drop the vestigial bound")
+    {:ok, _c} = repo_mark_issue_ready(repo, 12, "drop the vestigial bound")
     assert_receive {:comment, "acme", _bare, 12, "ready: drop the vestigial bound"}
 
-    {:ok, _c} = Repository.mark_issue_blocked(repo, 13, "needs maintainer design input")
+    {:ok, _c} = repo_mark_issue_blocked(repo, 13, "needs maintainer design input")
     assert_receive {:comment, "acme", _bare, 13, "blocked: needs maintainer design input"}
 
-    {:ok, _c} = Repository.review_pr(repo, 14, "lgtm", "small and clean")
+    {:ok, _c} = repo_review_pr(repo, 14, "lgtm", "small and clean")
     assert_receive {:comment, "acme", _bare, 14, "review: lgtm -- small and clean"}
 
-    {:ok, _c} = Repository.review_pr(repo, 15, "needs-human", "auth surface")
+    {:ok, _c} = repo_review_pr(repo, 15, "needs-human", "auth surface")
     assert_receive {:comment, "acme", _bare, 15, "review: needs-human -- auth surface"}
   end
 
   test "verbs feed the record", %{repo: repo} do
-    {:ok, _comment} = Repository.comment(repo, 5, "note")
+    {:ok, _comment} = repo_comment(repo, 5, "note")
 
     assert Enum.any?(
              Custode.Feed.tail(50),
-             &(&1["event"] == "repo_verb" and &1["summary"] =~ "comment on #{repo}")
+             &(&1["event"] == "repo_verb" and &1["agent"] == @actor.id and
+                 &1["summary"] =~ "comment on #{repo}")
            )
+  end
+
+  test "two MCP callers sharing one repository keep their own feed attribution", %{
+    repo: repo,
+    routine: first
+  } do
+    [first_config] = Application.fetch_env!(:custode, :routines)
+    second_id = uid("routine")
+    put_env!(:routines, [first_config, Map.put(first_config, :id, second_id)])
+
+    first_frame =
+      %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :routine, id: first.id}}}
+
+    second_frame =
+      %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :routine, id: second_id}}}
+
+    assert %{"number" => 41} =
+             RepoTools.Comment.execute(
+               %{repo: repo, number: 41, body: "from the first routine"},
+               first_frame
+             )
+             |> tool_json()
+
+    assert %{"number" => 42} =
+             RepoTools.Comment.execute(
+               %{repo: repo, number: 42, body: "from the second routine"},
+               second_frame
+             )
+             |> tool_json()
+
+    assert [%{"agent" => first_id, "number" => 41, "repo" => ^repo, "verb" => "comment"}] =
+             Custode.Feed.recent_by_event("repo_verb", agent: first.id, limit: 1)
+
+    assert first_id == first.id
+
+    assert [%{"agent" => ^second_id, "number" => 42, "repo" => ^repo, "verb" => "comment"}] =
+             Custode.Feed.recent_by_event("repo_verb", agent: second_id, limit: 1)
   end
 
   test "read verbs pass through, scoped to the bound repo (#129)", %{repo: repo} do
@@ -663,7 +722,7 @@ defmodule Custode.RepositoryTest do
   end
 
   test "an unserved repo is refused outright" do
-    assert {:error, message} = Repository.merge_pr("evil/other", 1)
+    assert {:error, message} = repo_merge_pr("evil/other", 1)
     assert message =~ "not served"
 
     # reads are scoped the same way -- an unserved repo cannot be read

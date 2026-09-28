@@ -29,13 +29,13 @@ defmodule Custode.Publication.GitHub do
     end
   end
 
-  def open(arguments) do
+  def open(arguments, actor) do
     case find(arguments) do
       {:ok, pull_request} ->
         success(arguments, pull_request, "existing")
 
       :missing ->
-        create(arguments)
+        create(arguments, actor)
 
       {:stale, reason, observed} ->
         {:error, {:stale, reason, observed}}
@@ -62,7 +62,7 @@ defmodule Custode.Publication.GitHub do
     end
   end
 
-  defp create(arguments) do
+  defp create(arguments, actor) do
     attrs = %{
       title: value(arguments, :title),
       head: value(arguments, :head_branch),
@@ -70,7 +70,7 @@ defmodule Custode.Publication.GitHub do
       body: value(arguments, :body)
     }
 
-    with {:ok, created} <- Repository.open_pr(value(arguments, :repository), attrs),
+    with {:ok, created} <- Repository.open_pr(value(arguments, :repository), attrs, actor),
          {:ok, pull_request} <- created_pull_request(arguments, created) do
       success(arguments, pull_request, "created")
     end

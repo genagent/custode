@@ -18,7 +18,7 @@ defmodule Custode.Drafts do
   2. it raises ONE `request_permission` listing them;
   3. while that gate is open the operator drops individual entries on the
      agent page (`drop/2`, reversible with `restore/2`);
-  4. the approved continuation calls `file/2`, which files exactly the rows
+  4. the approved continuation calls `file/3`, which files exactly the rows
      still marked `drafted` and skips every dropped one.
 
   Dropping is therefore a decision on the record rather than on the gate,
@@ -30,7 +30,7 @@ defmodule Custode.Drafts do
 
   Whether a title is conventional and whether the repo is served stays with
   `Custode.Repository`, which is where every other GitHub write is checked.
-  `file/2` therefore reports per-entry outcomes: a refusal marks that one
+  `file/3` therefore reports per-entry outcomes: a refusal marks that one
   row `failed` with the policy message and the rest of the batch still
   files. Drafting deliberately does not pre-check, so there is exactly one
   place where a filing policy lives.
@@ -65,7 +65,7 @@ defmodule Custode.Drafts do
 
   @doc """
   Draft a batch of issues for one repo. Writes rows only -- nothing reaches
-  GitHub until `file/2` runs on an approved continuation.
+  GitHub until `file/3` runs on an approved continuation.
 
   `entries` is a list of maps with `:title` (required), `:body` and
   `:labels`. Returns `{:ok, %{batch_id: id, entries: rows}}`.
@@ -138,7 +138,7 @@ defmodule Custode.Drafts do
   File the kept entries of a batch -- the approved continuation's verb.
 
   Files every row still marked `drafted`, in order, through
-  `Custode.Repository.open_issue/2` (so policy applies exactly as it does to
+  `Custode.Repository.open_issue/3` (so policy applies exactly as it does to
   a hand-written `repo_open_issue`). Dropped rows are skipped and stay
   dropped. A row that GitHub or policy refuses is marked `failed` with the
   message and the rest of the batch still files.
@@ -146,7 +146,8 @@ defmodule Custode.Drafts do
   Idempotent by construction: a filed row is no longer `drafted`, so a
   re-run of the same batch files nothing twice.
   """
-  def file(routine_id, batch_id) do
+  def file(routine_id, batch_id, %{kind: kind, id: actor_id} = actor)
+      when is_atom(kind) and is_binary(actor_id) and actor_id != "" do
     case entries(batch_id) do
       [] ->
         {:error, :unknown_batch}
@@ -155,8 +156,8 @@ defmodule Custode.Drafts do
         {:error, :not_yours}
 
       rows ->
-        results = Enum.map(rows, &file_one/1)
-        summarize(routine_id, batch_id, results)
+        results = Enum.map(rows, &file_one(&1, actor))
+        summarize(actor_id, batch_id, results)
     end
   end
 
@@ -164,12 +165,12 @@ defmodule Custode.Drafts do
   def labels(%Draft{labels: nil}), do: []
   def labels(%Draft{labels: json}), do: Jason.decode!(json)
 
-  defp file_one(%Draft{status: "dropped"} = row), do: {:dropped, row}
+  defp file_one(%Draft{status: "dropped"} = row, _actor), do: {:dropped, row}
 
-  defp file_one(%Draft{status: "drafted"} = row) do
+  defp file_one(%Draft{status: "drafted"} = row, actor) do
     attrs = %{title: row.title, body: row.body, labels: labels(row)}
 
-    case Custode.Repository.open_issue(row.repo, attrs) do
+    case Custode.Repository.open_issue(row.repo, attrs, actor) do
       {:ok, issue} ->
         {:filed, update!(row, status: "filed", issue_url: issue["html_url"])}
 
@@ -179,16 +180,16 @@ defmodule Custode.Drafts do
   end
 
   # already filed or already failed: a re-run leaves it exactly as it is
-  defp file_one(%Draft{} = row), do: {:already, row}
+  defp file_one(%Draft{} = row, _actor), do: {:already, row}
 
-  defp summarize(routine_id, batch_id, results) do
+  defp summarize(actor_id, batch_id, results) do
     filed = for {:filed, row} <- results, do: %{title: row.title, url: row.issue_url}
     failed = for {:failed, row} <- results, do: %{title: row.title, error: row.note}
     dropped = for {:dropped, row} <- results, do: row.title
 
     Custode.Feed.record(%{
       event: "repo_verb",
-      agent: routine_id,
+      agent: actor_id,
       summary:
         "filed #{length(filed)} of #{length(results)} drafted issue(s)" <>
           droppage(dropped) <> failure(failed)
