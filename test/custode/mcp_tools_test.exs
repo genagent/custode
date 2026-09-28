@@ -9,14 +9,14 @@ defmodule Custode.MCPToolsTest do
   import Ecto.Query, only: [from: 2]
   import ObanClaude.Testing
 
-  alias Custode.MCP.{MCPEx, ReadTools, Scope, Tools}
+  alias Custode.MCP.{ReadTools, Scope, Snodo, Tools}
   alias ObanClaude.Agent
 
   @frame %Anubis.Server.Frame{}
 
   describe "server boot" do
-    test "the bounded mcp_ex request executor is running" do
-      executor = Process.whereis(MCPEx.executor())
+    test "the bounded Snodo request executor is running" do
+      executor = Process.whereis(Snodo.executor())
       assert is_pid(executor)
       assert Process.alive?(executor)
     end

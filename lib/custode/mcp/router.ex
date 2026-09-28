@@ -3,11 +3,12 @@ defmodule Custode.MCP.Router do
 
   @behaviour Plug
 
-  alias Custode.MCP.{Capabilities, Identity, MCPEx}
-  alias MCP.Transport.Plug, as: MCPPlug
+  alias Custode.MCP.{Capabilities, Identity}
+  alias Custode.MCP.Snodo, as: SnodoTransport
+  alias Snodo.Transport.Plug, as: SnodoPlug
 
   @impl Plug
-  def init(_opts), do: MCPEx.plug_options()
+  def init(_opts), do: SnodoTransport.plug_options()
 
   @impl Plug
   def call(conn, catalogs) do
@@ -54,7 +55,7 @@ defmodule Custode.MCP.Router do
 
     case Capabilities.authorize_endpoint(endpoint, conn.assigns.custode_identity) do
       :ok ->
-        MCPPlug.call(conn, Map.fetch!(catalogs, path))
+        SnodoPlug.call(conn, Map.fetch!(catalogs, path))
 
       {:error, reason} ->
         conn

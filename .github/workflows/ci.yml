@@ -13,17 +13,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/checkout@v7
-        with:
-          repository: joshrotenberg/mcp_ex
-          ref: 6e357655210f7f146c967f702e46be7f724866d5
-          path: .mcp_ex
-          ssh-key: ${{ secrets.MCP_EX_DEPLOY_KEY }}
-      - name: Point the private dependency at its CI checkout
-        run: |
-          echo "MCP_EX_PATH=$GITHUB_WORKSPACE/.mcp_ex" >> "$GITHUB_ENV"
-          echo "MCP_EX_REV=$(git -C .mcp_ex rev-parse --short HEAD)" >> "$GITHUB_ENV"
-
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: "1.20"
@@ -34,7 +23,7 @@ jobs:
           path: |
             deps
             _build
-          key: mix-${{ runner.os }}-${{ hashFiles('mix.lock') }}-${{ env.MCP_EX_REV }}
+          key: mix-${{ runner.os }}-${{ hashFiles('mix.lock') }}
           restore-keys: mix-${{ runner.os }}-
 
       - run: mix deps.get
@@ -54,17 +43,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/checkout@v7
-        with:
-          repository: joshrotenberg/mcp_ex
-          ref: 6e357655210f7f146c967f702e46be7f724866d5
-          path: .mcp_ex
-          ssh-key: ${{ secrets.MCP_EX_DEPLOY_KEY }}
-      - name: Point the private dependency at its CI checkout
-        run: |
-          echo "MCP_EX_PATH=$GITHUB_WORKSPACE/.mcp_ex" >> "$GITHUB_ENV"
-          echo "MCP_EX_REV=$(git -C .mcp_ex rev-parse --short HEAD)" >> "$GITHUB_ENV"
-
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: "1.20"
@@ -75,7 +53,7 @@ jobs:
           path: |
             deps
             _build
-          key: mix-dialyzer-${{ runner.os }}-${{ hashFiles('mix.lock') }}-${{ env.MCP_EX_REV }}
+          key: mix-dialyzer-${{ runner.os }}-${{ hashFiles('mix.lock') }}
           restore-keys: mix-dialyzer-${{ runner.os }}-${{ hashFiles('mix.lock') }}-
 
       # The PLT is expensive to build; cache it on the toolchain and the lock
@@ -83,7 +61,7 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: priv/plts
-          key: plt-${{ runner.os }}-otp29-elixir1.20-${{ hashFiles('mix.lock') }}-${{ env.MCP_EX_REV }}
+          key: plt-${{ runner.os }}-otp29-elixir1.20-${{ hashFiles('mix.lock') }}
 
       - run: mix deps.get
       - run: mix dialyzer

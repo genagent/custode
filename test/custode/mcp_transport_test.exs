@@ -111,6 +111,24 @@ defmodule Custode.MCPTransportTest do
     assert Jason.decode!(encoded)["value"] == value
   end
 
+  test "missing schema-required arguments are correctable tool errors" do
+    {:ok, token} = Identity.operator_token()
+
+    for version <- @versions do
+      initialize("/mcp", token, version)
+
+      assert %{"isError" => true, "content" => [%{"text" => message} | _rest]} =
+               result(
+                 rpc("/mcp", token, version, 4, "tools/call", %{
+                   "name" => "agent_status",
+                   "arguments" => %{}
+                 })
+               )
+
+      assert message == "Missing required arguments: agent_id"
+    end
+  end
+
   test "a stale approval is an HTTP 200 tool error and recovers its durable gate", ctx do
     {:ok, operator} = Identity.operator_token()
     version = "2025-11-25"

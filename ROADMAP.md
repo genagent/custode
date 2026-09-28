@@ -8,22 +8,19 @@ tracked by #453, which closed on 2026-09-24 once rungs 0 to 4 had shipped.
 This file keeps the current status, the standing architectural positions, the
 rungs, and the shipped-milestone history.
 
-## Status: paused (2026-09-26)
+## Status: fleet paused; development resumed (2026-09-28)
 
-Work on custode is paused. The last release is v0.1.0 (2026-09-24), and
-`main` carries fixes after it through #698. No issue is claimed. The only
-open pull request is #700, the design/013 spike, which is not merged and waits
-on the operator. Its ideas continue as a separate, standalone project; custode
-stays as it is so work can resume here.
+The running fleet remains stopped. Development resumed with the bounded Snodo
+dependency migration in #704. The last release is v0.1.0 (2026-09-24), and
+`main` carries fixes after it through #701. The design/013 spike in #700 still
+waits on the operator; its ideas continue as a separate, standalone project.
+Custode stays resumable as the dashboard and fleet product.
 
 To resume:
 
 1. In the checkout the fleet runs from, `git pull`, then `mix deps.get`.
-   `mcp_ex_plug` comes from the private `joshrotenberg/mcp_ex` repository at
-   a pinned commit, so it needs SSH access to it or `MCP_EX_PATH`. That
-   library is being reworked and renamed. The pinned commit keeps resolving
-   through GitHub's rename redirect; moving the pin will need the new package
-   and module names.
+   The MCP transport is the released `snodo_plug` package from Hex, so a fresh
+   checkout needs no private dependency credential or source override.
 2. `mix custode doctor`, then `mix phx.server`. A normal boot schedules
    every routine in the local `routines.toml` on its cron, and `@reboot`
    routines fire once. For a quiet start, use "pause all" in the console
@@ -100,7 +97,7 @@ tree, not running, deleted only when a fix touches it.
   markdown through a sanitizing renderer, the roster made local.
 - 2026-09-21 to 2026-09-24: Codex routines (#452), cross-provider gate
   review (#522) and portable handoff context (#523); the HTTP transport moved
-  to mcp_ex; MCP identity and authority enforced at the endpoints, with a
+  to Snodo; MCP identity and authority enforced at the endpoints, with a
   written authorization matrix; routine-owned checkouts that custode
   provisions and refreshes; guided agent onboarding; conversation arcs and
   operator messages correlated with their outcomes; Claude plan usage read
