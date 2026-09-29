@@ -27,20 +27,149 @@ defmodule Custode.Sensors.CiStatus do
 
   use Custode.Sensor
 
+  alias Custode.Sensors.CiStatus.Infrastructure
+
   @failing ~w(FAILURE ERROR)
+  @quiet_conclusions ~w(success neutral skipped)
+  @default_infrastructure_failure_seconds 5
 
   @impl Custode.Sensor
   def fetch(args) do
     repo = Map.fetch!(args, "repo")
+    observed_at = DateTime.utc_now()
 
     with {:ok, overview} <- Custode.GitHub.fetcher().fetch(repo) do
+      max_seconds = infrastructure_failure_seconds(args)
+
       failing_prs =
         overview.open_prs.items
         |> Enum.filter(&(&1.checks in @failing))
         |> Enum.map(&Map.put(&1, :kind, :pr))
 
-      {:ok, branch_items(overview) ++ failing_prs}
+      {blocked, failing} =
+        overview
+        |> branch_items()
+        |> Kernel.++(failing_prs)
+        |> classify(repo, max_seconds)
+
+      :ok = Infrastructure.replace(args, blocked, max_seconds, observed_at)
+
+      {:ok, failing}
     end
+  end
+
+  defp classify(items, repo, max_seconds) do
+    Enum.split_with(items, &infrastructure_blocked?(&1, repo, max_seconds))
+  end
+
+  defp infrastructure_blocked?(item, repo, max_seconds) do
+    with true <- blockable_item?(item),
+         {:ok, runs} <- check_runs(repo, item) do
+      infrastructure_failure?(runs, max_seconds)
+    else
+      _not_blocked -> false
+    end
+  end
+
+  defp blockable_item?(%{kind: :pr, number: number, head_sha: ref}),
+    do: is_integer(number) and number > 0 and is_binary(ref) and ref != ""
+
+  defp blockable_item?(%{kind: :branch, name: name, oid: ref}),
+    do: is_binary(name) and name != "" and is_binary(ref) and ref != ""
+
+  defp blockable_item?(_item), do: false
+
+  defp check_runs(repo, %{kind: :pr, head_sha: ref}) when is_binary(ref) and ref != "",
+    do: Custode.Repository.checks_for_ref(repo, ref)
+
+  defp check_runs(repo, %{kind: :branch, oid: ref}) when is_binary(ref) and ref != "",
+    do: Custode.Repository.checks_for_ref(repo, ref)
+
+  defp check_runs(_repo, _item), do: {:error, :missing_ref}
+
+  # A failed rollup is infrastructure-blocked only with complete positive
+  # evidence: at least one ordinary failure, and no adverse run of any other
+  # kind. Any missing or malformed timestamp leaves the item failing. That
+  # conservative boundary keeps cancellations, timeouts, startup failures and
+  # future GitHub conclusions from turning a real red build quiet.
+  defp infrastructure_failure?(runs, max_seconds) when is_list(runs) do
+    adverse =
+      Enum.reject(runs, fn run ->
+        normalized_status(run) == "completed" and
+          normalized_conclusion(run) in @quiet_conclusions
+      end)
+
+    adverse != [] and
+      Enum.any?(adverse, &(normalized_conclusion(&1) == "failure")) and
+      Enum.all?(adverse, fn run ->
+        normalized_status(run) == "completed" and
+          normalized_conclusion(run) == "failure" and short_run?(run, max_seconds)
+      end)
+  end
+
+  defp infrastructure_failure?(_runs, _max_seconds), do: false
+
+  defp normalized_conclusion(run) when is_map(run) do
+    case Map.get(run, :conclusion, Map.get(run, "conclusion")) do
+      value when is_atom(value) -> value |> Atom.to_string() |> String.downcase()
+      value when is_binary(value) -> String.downcase(value)
+      _missing_or_unknown -> nil
+    end
+  end
+
+  defp normalized_conclusion(_run), do: nil
+
+  defp normalized_status(run) when is_map(run) do
+    case Map.get(run, :status, Map.get(run, "status")) do
+      value when is_atom(value) -> value |> Atom.to_string() |> String.downcase()
+      value when is_binary(value) -> String.downcase(value)
+      _missing_or_unknown -> nil
+    end
+  end
+
+  defp normalized_status(_run), do: nil
+
+  defp short_run?(run, max_seconds) do
+    with {:ok, started_at} <- timestamp(run, :started_at),
+         {:ok, completed_at} <- timestamp(run, :completed_at),
+         elapsed when elapsed >= 0 <- DateTime.diff(completed_at, started_at, :microsecond) do
+      elapsed <= max_seconds * 1_000_000
+    else
+      _invalid -> false
+    end
+  end
+
+  defp timestamp(run, key) when is_map(run) do
+    case Map.get(run, key, Map.get(run, Atom.to_string(key))) do
+      %DateTime{} = at ->
+        {:ok, at}
+
+      value when is_binary(value) ->
+        case DateTime.from_iso8601(value) do
+          {:ok, at, _offset} -> {:ok, at}
+          {:error, _reason} -> :error
+        end
+
+      _missing ->
+        :error
+    end
+  end
+
+  defp infrastructure_failure_seconds(args) do
+    configured =
+      Map.get(
+        args,
+        "infrastructure_failure_seconds",
+        Application.get_env(
+          :custode,
+          :ci_infrastructure_failure_seconds,
+          @default_infrastructure_failure_seconds
+        )
+      )
+
+    if is_integer(configured) and configured >= 0,
+      do: configured,
+      else: @default_infrastructure_failure_seconds
   end
 
   # nil covers both an empty repository and a rollup that has not reported.

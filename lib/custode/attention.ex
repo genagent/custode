@@ -45,7 +45,7 @@ defmodule Custode.Attention do
   | 4 | `:approval` | a gate is open that only the operator can pass |
   | 5 | `:disowned_check` | a red check the agent declared not its work (#313) |
   | 6 | `:red_check` | failing checks on the agent's own open PRs |
-  | 7 | `:sensor_failing` | one of the agent's sensors has failed N runs in a row (#444) |
+  | 7 | `:sensor_failing` | one of the agent's sensor fetches has failed N runs in a row (#444) |
   | 8 | `:rail_hit` | the daily rail is reached |
   | 9 | `:stalled` | scheduled, running, producing no outcome (NOT IMPLEMENTED) |
   | 10 | `:working` | a turn is executing right now |
@@ -72,12 +72,13 @@ defmodule Custode.Attention do
 
   ### Kinds with no agent
 
-  `:host_down`, `:workflow_launch` and `:workflow_rail` are absent from the
-  table because no agent's view resolves to them. A failed boot doctor belongs
-  to the host, and a workflow launch or a parked run belongs to a run that has
-  no gen_statem behind it. `host/1` and `workflows/1` build them from their
-  own facts; they share `@precedence` and `@groups` with everything else, so
-  ranking and grouping stay in this one module.
+  `:host_down`, `:ci_infrastructure`, `:workflow_launch` and
+  `:workflow_rail` are absent from the table because no agent's view resolves
+  to them. A failed boot doctor belongs to the host, a repository-wide Actions
+  block belongs to the repository, and a workflow launch or parked run
+  belongs to a run that has no gen_statem behind it. Their builders share
+  `@precedence` and `@groups` with everything else, so ranking and grouping
+  stay in this one module.
 
   ### Two deliberate departures from the design note
 
@@ -111,6 +112,7 @@ defmodule Custode.Attention do
   # precedence, so the table in the moduledoc and the ordering cannot drift.
   @precedence [
     :host_down,
+    :ci_infrastructure,
     :red_main,
     :turn_failing,
     :needs_answer,
@@ -130,6 +132,7 @@ defmodule Custode.Attention do
 
   @groups %{
     host_down: :needs_you,
+    ci_infrastructure: :needs_you,
     red_main: :needs_you,
     turn_failing: :needs_you,
     needs_answer: :needs_you,
@@ -213,6 +216,43 @@ defmodule Custode.Attention do
   end
 
   def host(_facts), do: nil
+
+  @doc "The one repository-scoped signal for a current GitHub Actions infrastructure block."
+  @spec ci_infrastructure(%{required(:repo) => String.t()}) :: Signal.t()
+  def ci_infrastructure(%{repo: repo} = condition) do
+    branches = Map.get(condition, :branches, [])
+    prs = Map.get(condition, :prs, [])
+    seconds = Map.get(condition, :max_seconds, 5)
+
+    %Signal{
+      subject: repo,
+      kind: :ci_infrastructure,
+      group: group_of(:ci_infrastructure),
+      urgency: :high,
+      headline: "GitHub Actions may be infrastructure-blocked",
+      detail:
+        "All failed jobs ended within #{seconds} seconds. This can happen before normal work runs. " <>
+          "Check Actions quota, billing, and runner availability. " <>
+          ci_affected(branches, prs),
+      item: {:ci_infrastructure, %{repo: repo, branches: branches, prs: prs}},
+      raised_at: Map.get(condition, :since),
+      resolving: []
+    }
+  end
+
+  defp ci_affected(branches, prs) do
+    parts =
+      [
+        if(branches == [], do: nil, else: "Branches: #{Enum.join(branches, ", ")}."),
+        if(prs == [], do: nil, else: "Pull requests: #{Enum.map_join(prs, ", ", &"##{&1}")}.")
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    case parts do
+      [] -> ""
+      _present -> "Affected: " <> Enum.join(parts, " ")
+    end
+  end
 
   @doc """
   The workflow signals: every launch proposal waiting on a decision and every

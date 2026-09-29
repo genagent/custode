@@ -22,6 +22,8 @@ defmodule Custode.Attention.VerifyTest do
       |> Map.get(number, {:error, :not_faked})
     end
 
+    def checks_for_ref(_owner, _repo, _ref), do: {:error, :unused}
+
     def open_pr(_owner, _repo, _attrs), do: {:error, :unused}
     def open_issue(_owner, _repo, _attrs), do: {:error, :unused}
     def comment(_owner, _repo, _number, _body), do: {:error, :unused}

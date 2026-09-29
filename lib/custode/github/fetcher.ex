@@ -37,7 +37,7 @@ defmodule Custode.GitHub.Fetcher do
         totalCount
         nodes {
           number title url isDraft updatedAt
-          commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+          commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }
         }
       }
       mergedPrs: pullRequests(states: MERGED, first: 5, orderBy: {field: UPDATED_AT, direction: DESC}) {
@@ -52,7 +52,7 @@ defmodule Custode.GitHub.Fetcher do
   def fetch(repo) do
     with [owner, name] <- String.split(repo, "/", parts: 2),
          {:ok, token} <- token(),
-         client = GhEx.new(auth: {:token, token}),
+         client = GhEx.new(auth: {:token, token}, req_options: req_options()),
          {:ok, %{"repository" => repository}, _meta} when is_map(repository) <-
            GhEx.GraphQL.query(client, @query, owner: owner, name: name) do
       {:ok, shape(repo, repository)}
@@ -137,12 +137,15 @@ defmodule Custode.GitHub.Fetcher do
   end
 
   defp pr_item(node) do
-    checks =
-      get_in(node, ["commits", "nodes", Access.at(0), "commit", "statusCheckRollup", "state"])
+    commit = get_in(node, ["commits", "nodes", Access.at(0), "commit"])
 
     node
     |> item("updatedAt")
-    |> Map.merge(%{draft: node["isDraft"] == true, checks: checks})
+    |> Map.merge(%{
+      draft: node["isDraft"] == true,
+      checks: commit && get_in(commit, ["statusCheckRollup", "state"]),
+      head_sha: commit && commit["oid"]
+    })
   end
 
   defp parse_at(iso) when is_binary(iso) do
@@ -153,6 +156,11 @@ defmodule Custode.GitHub.Fetcher do
   end
 
   defp parse_at(_missing), do: nil
+
+  # Test seam shared in spirit with `Custode.Repository.Ops`: production leaves
+  # this empty, while focused tests can install a `Req.Test` plug without a
+  # second HTTP abstraction around gh_ex.
+  defp req_options, do: Application.get_env(:custode, :github_req_options, [])
 
   defp token do
     case System.get_env("GITHUB_TOKEN") do

@@ -1032,6 +1032,7 @@ defmodule CustodeWeb.Components do
   end
 
   defp chip_word(:host_down), do: "cannot run turns"
+  defp chip_word(:ci_infrastructure), do: "has a GitHub Actions problem"
   defp chip_word(:needs_answer), do: "asked you"
   defp chip_word(:approval), do: "needs approval"
   defp chip_word(:workflow_launch), do: "awaits your launch approval"

@@ -137,6 +137,7 @@ defmodule CustodeWeb.Console.Header do
   defp item_label(%Signal{item: {:prs, [number]}}), do: "##{number}"
   defp item_label(%Signal{item: {:prs, numbers}}), do: "#{length(numbers)} PRs"
   defp item_label(%Signal{item: {:branch, branch}}), do: branch
+  defp item_label(%Signal{item: {:ci_infrastructure, _condition}}), do: "Actions"
   defp item_label(%Signal{item: {:proposal, _id}}), do: "launch"
   defp item_label(%Signal{item: {:run, _id}}), do: "run"
   defp item_label(%Signal{item: {:ask, _id}}), do: "question"

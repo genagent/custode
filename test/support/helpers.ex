@@ -87,6 +87,7 @@ defmodule Custode.TestHelpers do
     end
 
     Custode.Repo.query!("DELETE FROM feed_entries WHERE event LIKE 'workflow_%'")
+    Custode.Repo.query!("DELETE FROM memories WHERE key = 'ci_infrastructure'")
     Custode.Host.reset()
     :ok
   end

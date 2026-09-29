@@ -422,6 +422,55 @@ defmodule Custode.AttentionTest do
     end
   end
 
+  describe "ci_infrastructure (#716)" do
+    test "one repository-scoped condition names every affected ref without inventing a cause" do
+      since = ~U[2026-09-24 17:16:01Z]
+
+      signal =
+        Attention.ci_infrastructure(%{
+          repo: "genagent/custode",
+          branches: ["main"],
+          prs: [685, 696],
+          max_seconds: 5,
+          since: since
+        })
+
+      assert signal.subject == "genagent/custode"
+      assert signal.kind == :ci_infrastructure
+      assert signal.group == :needs_you
+      assert signal.urgency == :high
+      assert signal.headline == "GitHub Actions may be infrastructure-blocked"
+      assert signal.detail =~ "within 5 seconds"
+      assert signal.detail =~ "This can happen before normal work runs"
+      assert signal.detail =~ "quota, billing, and runner availability"
+      assert signal.detail =~ "Branches: main"
+      assert signal.detail =~ "Pull requests: #685, #696"
+      assert signal.raised_at == since
+      assert signal.resolving == []
+      assert Signal.needs_you?(signal)
+    end
+
+    test "it ranks below a failed host and above an actual red branch" do
+      host = Attention.host(%{doctor: {:failed, "doctor failed", @now}})
+
+      infrastructure =
+        Attention.ci_infrastructure(%{repo: "acme/widgets", prs: [9], since: @now})
+
+      red =
+        resolve(
+          view("red",
+            default_branch: %{name: "main", state: "FAILURE", headline: "broken change"}
+          )
+        )
+
+      assert Attention.rank([red, infrastructure, host]) |> Enum.map(& &1.kind) == [
+               :host_down,
+               :ci_infrastructure,
+               :red_main
+             ]
+    end
+  end
+
   describe "resolving ops a surface can perform (#449)" do
     # "Re-run checks" was offered on three signals and handled nowhere, so the
     # inbox drew it as a link to the agent page under a label that promised a

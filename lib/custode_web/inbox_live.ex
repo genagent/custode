@@ -397,7 +397,8 @@ defmodule CustodeWeb.InboxLive do
   defp subject_path(%{kind: kind}) when kind in [:workflow_launch, :workflow_rail],
     do: "/workflows"
 
-  defp subject_path(%{subject: subject}), do: "/console/#{subject}"
+  defp subject_path(%{subject: subject}),
+    do: "/console/" <> URI.encode(subject, &URI.char_unreserved?/1)
 
   defp replying?(replying_to, item), do: replying_to != nil and replying_to == ask_id(item)
 
@@ -425,6 +426,7 @@ defmodule CustodeWeb.InboxLive do
   end
 
   defp kind_label(:host_down), do: "host down"
+  defp kind_label(:ci_infrastructure), do: "GitHub Actions"
   defp kind_label(:red_main), do: "red branch"
   defp kind_label(:turn_failing), do: "turns failing"
   defp kind_label(:disowned_check), do: "not its work"
@@ -438,6 +440,7 @@ defmodule CustodeWeb.InboxLive do
 
   defp kind_class(:host_down), do: "badge-error"
   defp kind_class(:red_main), do: "badge-error"
+  defp kind_class(:ci_infrastructure), do: "badge-warning"
   defp kind_class(:turn_failing), do: "badge-error"
   defp kind_class(:disowned_check), do: "badge-warning"
   defp kind_class(:needs_answer), do: "badge-accent"

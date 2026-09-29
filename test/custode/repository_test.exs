@@ -80,6 +80,21 @@ defmodule Custode.RepositoryTest do
       {:ok, %{sha: "abc", checks: [%{name: "test", status: "completed", conclusion: "success"}]}}
     end
 
+    def checks_for_ref(owner, repo, ref) do
+      send(pid(), {:checks_for_ref, owner, repo, ref})
+
+      {:ok,
+       [
+         %{
+           name: "test",
+           status: "completed",
+           conclusion: "failure",
+           started_at: "2026-09-24T17:16:01Z",
+           completed_at: "2026-09-24T17:16:04Z"
+         }
+       ]}
+    end
+
     def job_log_tail(owner, repo, job_id) do
       send(pid(), {:job_log_tail, owner, repo, job_id})
       {:ok, "the failure"}
@@ -442,6 +457,11 @@ defmodule Custode.RepositoryTest do
     assert {:ok, %{checks: [%{conclusion: "success"}]}} = Repository.pr_checks(repo, 9)
     assert_receive {:pr_checks, "acme", _bare, 9}
 
+    assert {:ok, [%{conclusion: "failure", started_at: "2026-09-24T17:16:01Z"}]} =
+             Repository.checks_for_ref(repo, "main-sha")
+
+    assert_receive {:checks_for_ref, "acme", _bare, "main-sha"}
+
     assert {:ok, "the failure"} = Repository.job_log_tail(repo, 91)
     assert_receive {:job_log_tail, "acme", _bare, 91}
 
@@ -708,6 +728,146 @@ defmodule Custode.RepositoryTest do
                Ops.merge_pr_at_head("o", "r", 1, "deadbeef", "squash")
 
       refute_received {:merge_request, _body}
+    end
+  end
+
+  describe "checks for an exact ref" do
+    @checks_stub __MODULE__.ChecksGitHubStub
+
+    setup do
+      previous_token = System.get_env("GITHUB_TOKEN")
+      System.put_env("GITHUB_TOKEN", "test-token")
+      Application.put_env(:custode, :github_req_options, plug: {Req.Test, @checks_stub})
+
+      on_exit(fn ->
+        Application.delete_env(:custode, :github_req_options)
+
+        if previous_token,
+          do: System.put_env("GITHUB_TOKEN", previous_token),
+          else: System.delete_env("GITHUB_TOKEN")
+      end)
+
+      :ok
+    end
+
+    defp stub_ref_evidence(check_runs, statuses \\ %{"total_count" => 0, "statuses" => []}) do
+      test_pid = self()
+
+      Req.Test.stub(@checks_stub, fn conn ->
+        case conn.request_path do
+          "/repos/o/r/commits/deadbeef/check-runs" ->
+            send(test_pid, {:check_run_query, conn.request_path, conn.query_params})
+            Req.Test.json(conn, check_runs)
+
+          "/repos/o/r/commits/deadbeef/status" ->
+            send(test_pid, {:commit_status_query, conn.request_path, conn.query_params})
+            Req.Test.json(conn, statuses)
+        end
+      end)
+    end
+
+    test "requests the latest complete page and preserves timing evidence" do
+      stub_ref_evidence(%{
+        "total_count" => 1,
+        "check_runs" => [
+          %{
+            "id" => 71,
+            "name" => "test",
+            "status" => "completed",
+            "conclusion" => "failure",
+            "html_url" => "https://github.com/o/r/actions/runs/71",
+            "started_at" => "2026-09-24T17:16:01Z",
+            "completed_at" => "2026-09-24T17:16:04Z"
+          }
+        ]
+      })
+
+      assert {:ok,
+              [
+                %{
+                  id: 71,
+                  name: "test",
+                  status: "completed",
+                  conclusion: "failure",
+                  started_at: "2026-09-24T17:16:01Z",
+                  completed_at: "2026-09-24T17:16:04Z"
+                }
+              ]} = Ops.checks_for_ref("o", "r", "deadbeef")
+
+      assert_received {:check_run_query, "/repos/o/r/commits/deadbeef/check-runs",
+                       %{"filter" => "latest", "per_page" => "100"}}
+
+      assert_received {:commit_status_query, "/repos/o/r/commits/deadbeef/status",
+                       %{"per_page" => "100"}}
+    end
+
+    test "refuses an incomplete first page instead of classifying partial evidence" do
+      stub_ref_evidence(%{"total_count" => 2, "check_runs" => [%{"id" => 71}]})
+
+      assert {:error, {:incomplete_check_runs, 2, 1}} =
+               Ops.checks_for_ref("o", "r", "deadbeef")
+    end
+
+    test "refuses malformed check-run responses" do
+      stub_ref_evidence(%{"total_count" => 1})
+      assert {:error, :malformed_check_runs} = Ops.checks_for_ref("o", "r", "deadbeef")
+
+      stub_ref_evidence(%{"total_count" => 1, "check_runs" => ["not a check run"]})
+      assert {:error, :malformed_check_runs} = Ops.checks_for_ref("o", "r", "deadbeef")
+    end
+
+    test "includes the latest legacy status contexts in the rollup evidence" do
+      stub_ref_evidence(
+        %{
+          "total_count" => 1,
+          "check_runs" => [
+            %{
+              "id" => 71,
+              "name" => "test",
+              "status" => "completed",
+              "conclusion" => "failure",
+              "started_at" => "2026-09-24T17:16:01Z",
+              "completed_at" => "2026-09-24T17:16:03Z"
+            }
+          ]
+        },
+        %{
+          "total_count" => 1,
+          "statuses" => [
+            %{
+              "id" => 91,
+              "context" => "external/security",
+              "state" => "failure",
+              "target_url" => "https://ci.example/91"
+            }
+          ]
+        }
+      )
+
+      assert {:ok, [check, status]} = Ops.checks_for_ref("o", "r", "deadbeef")
+      assert %{name: "test", conclusion: "failure"} = check
+
+      assert %{
+               name: "external/security",
+               conclusion: "failure",
+               source: :commit_status,
+               started_at: nil,
+               completed_at: nil
+             } = status
+    end
+
+    test "refuses incomplete or malformed legacy status evidence" do
+      checks = %{"total_count" => 0, "check_runs" => []}
+
+      stub_ref_evidence(checks, %{"total_count" => 2, "statuses" => [%{"context" => "a"}]})
+
+      assert {:error, {:incomplete_commit_statuses, 2, 1}} =
+               Ops.checks_for_ref("o", "r", "deadbeef")
+
+      stub_ref_evidence(checks, %{"total_count" => 1, "statuses" => [%{"context" => "a"}]})
+
+      assert {:error, :malformed_commit_statuses} =
+               Ops.checks_for_ref("o", "r", "deadbeef")
     end
   end
 

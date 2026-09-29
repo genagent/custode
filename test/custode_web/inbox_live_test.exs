@@ -6,6 +6,8 @@ defmodule CustodeWeb.InboxLiveTest do
   import Phoenix.LiveViewTest
 
   alias Custode.Asks
+  alias Custode.Sensors.CiStatus
+  alias Custode.Sensors.CiStatus.Infrastructure
   alias Custode.Workflow
   alias Custode.Workflow.Launch
   alias Custode.Workflow.Run
@@ -30,12 +32,14 @@ defmodule CustodeWeb.InboxLiveTest do
     Custode.Repo.query!("DELETE FROM feed_entries WHERE event LIKE 'workflow_%'")
     Custode.Repo.query!("DELETE FROM workflow_node_results")
     Custode.Repo.query!("DELETE FROM workflow_runs")
+    Custode.Repo.query!("DELETE FROM memories WHERE key = 'ci_infrastructure'")
 
     on_exit(fn ->
       Custode.Repo.query!("DELETE FROM asks")
       Custode.Repo.query!("DELETE FROM feed_entries WHERE event LIKE 'workflow_%'")
       Custode.Repo.query!("DELETE FROM workflow_runs")
       Custode.Repo.query!("DELETE FROM oban_jobs WHERE worker = 'Custode.Workflow.NodeJob'")
+      Custode.Repo.query!("DELETE FROM memories WHERE key = 'ci_infrastructure'")
       Application.delete_env(:custode, :extra_workflows)
     end)
 
@@ -50,6 +54,32 @@ defmodule CustodeWeb.InboxLiveTest do
     assert html =~ "Nothing needs you"
     # and it points at where the fleet's state actually is
     assert html =~ "console"
+  end
+
+  test "a repository condition links to the encoded console subject",
+       %{conn: conn, routine: routine} do
+    repo = "acme/widgets"
+
+    put_env!(:sensors, [
+      %{
+        id: "ci-inbox",
+        cron: "@hourly",
+        module: CiStatus,
+        notify: routine.id,
+        args: %{repo: repo}
+      }
+    ])
+
+    :ok =
+      Infrastructure.replace(
+        %{"sensor_id" => "ci-inbox", "notify" => routine.id, "repo" => repo},
+        [%{kind: :pr, number: 9, head_sha: "head-9"}],
+        5
+      )
+
+    {:ok, view, _html} = live(conn, "/inbox")
+
+    assert has_element?(view, ~s(a[href="/console/acme%2Fwidgets"]))
   end
 
   test "an offline approval offers and performs truthful recovery", %{
