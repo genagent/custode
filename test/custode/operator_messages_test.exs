@@ -84,6 +84,74 @@ defmodule Custode.OperatorMessagesTest do
     assert current.status == "queued"
   end
 
+  test "caller-scoped listing filters durable messages and exposes only a compact summary" do
+    caller = %{kind: :operator, id: uid("listing-caller")}
+    other_caller = %{kind: :operator, id: uid("other-caller")}
+    first_target = uid("first-target")
+    second_target = uid("second-target")
+    long_prompt = String.duplicate("private context ", 20)
+
+    assert {:ok, first, :created} =
+             OperatorMessages.submit(
+               first_target,
+               long_prompt,
+               [actor: caller, idempotency_key: "private-idempotency-key"],
+               fn _message -> {:ok, :queued} end
+             )
+
+    completed_at = DateTime.utc_now()
+
+    first =
+      first
+      |> Ecto.Changeset.change(
+        status: "completed",
+        result: %{"output" => "private result"},
+        completed_at: completed_at
+      )
+      |> Repo.update!()
+
+    assert {:ok, second, :created} =
+             OperatorMessages.submit(
+               second_target,
+               "newer message",
+               [actor: caller, idempotency_key: "newer"],
+               fn _message -> {:ok, :queued} end
+             )
+
+    assert {:ok, _other, :created} =
+             OperatorMessages.submit(
+               first_target,
+               "another caller's message",
+               [actor: other_caller, idempotency_key: "other"],
+               fn _message -> {:ok, :queued} end
+             )
+
+    assert [^second, ^first] = OperatorMessages.list_for(caller)
+
+    assert [^first] =
+             OperatorMessages.list_for(caller,
+               agent_id: first_target,
+               status: "completed",
+               limit: 1
+             )
+
+    summary = OperatorMessages.public_summary(first)
+
+    assert summary.message_id == first.message_id
+    assert summary.agent_id == first_target
+    assert summary.status == "completed"
+    assert String.length(summary.prompt_preview) == 160
+    assert summary.completed_at == DateTime.to_iso8601(completed_at)
+
+    encoded = Jason.encode!(summary)
+    refute encoded =~ "private-idempotency-key"
+    refute encoded =~ "private result"
+    refute encoded =~ long_prompt
+    refute Map.has_key?(summary, :result)
+    refute Map.has_key?(summary, :error)
+    refute Map.has_key?(summary, :provider_turn)
+  end
+
   test "routine removal terminally refuses every undelivered row" do
     target = uid("removed-routine")
 

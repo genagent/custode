@@ -156,6 +156,71 @@ defmodule Custode.MCP.OperatorTools.FeedTail do
   end
 end
 
+defmodule Custode.MCP.OperatorTools.ListOperatorMessages do
+  @moduledoc """
+  Discover durable messages sent by this human operator so a fresh session can
+  recover an exact message id and continue with `await_agent`.
+
+  This is deliberately a compact index. It omits full prompts and idempotency
+  keys; exact results, errors and provider-session details remain available
+  through `await_agent`.
+  """
+  use Anubis.Server.Component, type: :tool
+
+  import Custode.MCP.Tools
+
+  alias Custode.Operator.Authority
+  alias Custode.OperatorMessages
+
+  schema do
+    field(:agent_id, :string, description: "restrict to one target agent")
+
+    field(:status, :string,
+      description:
+        "restrict to queued, executing, waiting_for_input, waiting_for_approval, completed, failed or refused"
+    )
+
+    field(:limit, :integer, description: "newest messages to return, default 20, capped at 100")
+  end
+
+  @impl true
+  def execute(params, frame) do
+    caller = Custode.MCP.caller(frame)
+
+    with :ok <- Authority.human(caller),
+         {:ok, options} <- options(params) do
+      messages =
+        caller
+        |> OperatorMessages.list_for(options)
+        |> Enum.map(&OperatorMessages.public_summary/1)
+
+      reply(frame, %{messages: messages})
+    else
+      {:error, message} -> fail(frame, message)
+    end
+  end
+
+  defp options(params) do
+    agent_id = params[:agent_id]
+    status = params[:status]
+    limit = Map.get(params, :limit, 20)
+
+    cond do
+      not is_nil(agent_id) and (not is_binary(agent_id) or String.trim(agent_id) == "") ->
+        {:error, "agent_id must be a nonblank string"}
+
+      not is_nil(status) and status not in OperatorMessages.statuses() ->
+        {:error, "unknown operator-message status: #{inspect(status)}"}
+
+      not is_integer(limit) or limit < 1 ->
+        {:error, "limit must be a positive integer"}
+
+      true ->
+        {:ok, [agent_id: agent_id, status: status, limit: limit]}
+    end
+  end
+end
+
 defmodule Custode.MCP.OperatorTools.PauseAgent do
   @moduledoc "Emergency-pause an agent: it finishes nothing further until resumed."
   use Anubis.Server.Component, type: :tool

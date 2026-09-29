@@ -97,6 +97,54 @@ wants goes through an approval gate; nothing merges without a human.
   executing turns, and the server stops itself; then boot again
 - The feed and each agent's page carry the story; gates are one click
 
+## 7. Give interactive agents the operator skill
+
+Claude Code and Codex can use the same thin operating contract when they
+connect to Custode as the human operator. Install it for either host or both:
+
+```sh
+mix custode.skill.install claude
+mix custode.skill.install codex
+mix custode.skill.install all
+```
+
+The command writes `custode-operator/SKILL.md` under each host's normal skills
+directory, respects `CLAUDE_CONFIG_DIR` and `CODEX_HOME`, and refuses to
+replace changed instructions unless you pass `--force`. Restart the host after
+installing so it discovers the skill.
+
+The skill does not configure MCP or copy a token. In the shell that will start
+Claude Code or Codex, read the current token and add the default main endpoint:
+
+```sh
+export CUSTODE_OPERATOR_TOKEN="$(cat "$CUSTODE_HOME/tmp/operator.token")"
+
+claude mcp add --transport http --scope user custode \
+  http://127.0.0.1:6161/mcp \
+  --header 'Authorization: Bearer ${CUSTODE_OPERATOR_TOKEN}'
+
+codex mcp add custode \
+  --url http://127.0.0.1:6161/mcp \
+  --bearer-token-env-var CUSTODE_OPERATOR_TOKEN
+```
+
+Both commands save only the environment variable name, not its value. The
+single quotes around Claude's header are required; double quotes would expand
+and save the secret. The host must inherit `CUSTODE_OPERATOR_TOKEN`; read it
+again and restart the host after every Custode restart because the token file
+is rewritten on boot. The loopback endpoint is available only on the Custode
+host. Use the configured MCP port instead of `6161` when it differs, and
+verify from the same shell with `claude mcp list` or `codex mcp list`.
+
+A fresh session starts with `operator_bootstrap`, uses live tool discovery for
+schemas, sends correlated durable messages, and relays gates and asks to the
+human instead of deciding them itself. If Claude reports that the server is
+connected but its tools are denied, follow the
+[managed-policy troubleshooting path](../README.md#a-claude-worker-says-its-custode-mcp-tools-are-denied);
+an organization policy cannot be relaxed in local configuration. The
+[MCP client reference](../docs/mcp-reference.md) remains the maintained catalog
+of arguments, effects, and access checks.
+
 ## From the phone (optional)
 
 The dashboard can ride your tailnet without leaving loopback -- tailscale
@@ -119,3 +167,11 @@ ntfy deep links point at the ts.net address automatically. Do NOT use
 
 Stop the server, delete `$CUSTODE_HOME`, delete the checkout. The worked
 repositories were never custode's to hold -- your checkouts stay yours.
+If you installed the operator skill, also remove its `custode-operator`
+directory under `${CLAUDE_CONFIG_DIR:-~/.claude}/skills` and
+`${CODEX_HOME:-~/.codex}/skills`, then remove the saved MCP registrations:
+
+```sh
+claude mcp remove custode --scope user
+codex mcp remove custode
+```

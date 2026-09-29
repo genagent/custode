@@ -40,6 +40,7 @@ defmodule Custode.Operator.Bootstrap do
     {"conversations", "agent_history"},
     {"gates", "list_gates"},
     {"questions", "list_asks"},
+    {"messages", "list_operator_messages"},
     {"spend", "spend_today"},
     {"recent_changes", "feed_tail"},
     {"executing_turns", "executing_turns"}

@@ -26,7 +26,9 @@ defmodule Custode.OperatorMessages do
   ]
 
   @active ~w(queued executing waiting_for_input waiting_for_approval)
+  @statuses ~w(queued executing waiting_for_input waiting_for_approval completed failed refused)
   @refused_delivery "refused"
+  @prompt_preview_length 160
 
   defmodule BootReconciler do
     @moduledoc false
@@ -102,6 +104,27 @@ defmodule Custode.OperatorMessages do
     Repo.one(from(m in OperatorMessage, where: m.message_id == ^message_id, limit: 1))
   end
 
+  @doc "The lifecycle statuses accepted by operator-message reads."
+  def statuses, do: @statuses
+
+  @doc "List one caller's newest durable messages, with optional target and status filters."
+  @spec list_for(%{required(:kind) => atom(), required(:id) => String.t()}, keyword()) ::
+          [OperatorMessage.t()]
+  def list_for(%{kind: kind, id: id}, opts \\ [])
+      when is_atom(kind) and is_binary(id) and id != "" do
+    limit = opts |> Keyword.get(:limit, 20) |> min(100)
+
+    query =
+      from(m in OperatorMessage,
+        where: m.caller_kind == ^to_string(kind) and m.caller_id == ^id,
+        order_by: [desc: m.id]
+      )
+      |> scope_target(opts[:agent_id])
+      |> scope_status(opts[:status])
+
+    Repo.all(from(m in query, limit: ^limit))
+  end
+
   @doc "Whether this authenticated caller may inspect the message."
   def visible_to?(_message, %{kind: :operator}), do: true
 
@@ -142,6 +165,22 @@ defmodule Custode.OperatorMessages do
       detail: message.detail,
       result: message.result,
       error: message.error,
+      inserted_at: iso8601(message.inserted_at),
+      started_at: iso8601(message.started_at),
+      completed_at: iso8601(message.completed_at)
+    }
+  end
+
+  @doc "A bounded discovery shape; exact results stay on `await_agent`."
+  def public_summary(%OperatorMessage{} = message) do
+    %{
+      message_id: message.message_id,
+      agent_id: message.target_agent_id,
+      status: message.status,
+      delivery: message.delivery,
+      provider: message.provider,
+      continues_message_id: message.continues_message_id,
+      prompt_preview: String.slice(message.prompt, 0, @prompt_preview_length),
       inserted_at: iso8601(message.inserted_at),
       started_at: iso8601(message.started_at),
       completed_at: iso8601(message.completed_at)
@@ -449,6 +488,14 @@ defmodule Custode.OperatorMessages do
         {:error, changeset}
     end
   end
+
+  defp scope_target(query, nil), do: query
+
+  defp scope_target(query, agent_id),
+    do: from(m in query, where: m.target_agent_id == ^agent_id)
+
+  defp scope_status(query, nil), do: query
+  defp scope_status(query, status), do: from(m in query, where: m.status == ^status)
 
   defp duplicate(attrs, prompt_hash) do
     existing =

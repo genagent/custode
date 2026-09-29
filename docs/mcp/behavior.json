@@ -296,6 +296,13 @@
       "result": "items array and last_read_at. Items contain kind, subject, headline, detail, at and actions (label, op, args).",
       "summary": "Read what the fleet has raised to the operator."
     },
+    "list_operator_messages": {
+      "access": "Main endpoint capability: human operator only. The tool is named in no routine's exposure list, so only the operator discovers it, and the handler repeats the human-only check.",
+      "effects": "None; reads existing durable operator-message records.",
+      "notes": "Returns only messages authored by the authenticated operator identity, newest first. agent_id and status are optional exact filters. status accepts queued, executing, waiting_for_input, waiting_for_approval, completed, failed or refused. limit defaults to 20, must be positive and is capped at 100. Each row carries only a 160-character prompt preview for disambiguation; full prompts, idempotency keys and hashes, claim fields, results, errors and provider-turn/session details are omitted. Use the recovered agent_id and message_id with await_agent for the authoritative exact receipt.",
+      "result": "messages array of message_id, agent_id, status, delivery, provider, continuation message id, prompt preview and inserted, started and completed timestamps.",
+      "summary": "Discover this operator's durable messages after a fresh session or reconnect."
+    },
     "list_policies": {
       "access": "Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.",
       "effects": "None.",

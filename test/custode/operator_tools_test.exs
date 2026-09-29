@@ -167,6 +167,62 @@ defmodule Custode.OperatorToolsTest do
     end
   end
 
+  describe "list_operator_messages" do
+    test "recovers this operator's newest exact message handles without full receipts", %{
+      routine: routine
+    } do
+      caller = %{kind: :operator, id: "operator"}
+
+      assert {:ok, older, :created} =
+               Custode.OperatorMessages.submit(
+                 routine.id,
+                 "first private prompt",
+                 [actor: caller, idempotency_key: uid("older-key")],
+                 fn _message -> {:ok, :queued} end
+               )
+
+      assert {:ok, newer, :created} =
+               Custode.OperatorMessages.submit(
+                 routine.id,
+                 "second private prompt",
+                 [actor: caller, idempotency_key: uid("newer-key")],
+                 fn _message -> {:ok, :queued} end
+               )
+
+      json =
+        OperatorTools.ListOperatorMessages.execute(
+          %{agent_id: routine.id, status: "queued", limit: 1},
+          @frame
+        )
+        |> tool_json()
+
+      assert [message] = json["messages"]
+      assert message["message_id"] == newer.message_id
+      assert message["message_id"] != older.message_id
+      assert message["agent_id"] == routine.id
+      assert message["prompt_preview"] == "second private prompt"
+      assert message["status"] == "queued"
+      refute Map.has_key?(message, "result")
+      refute Map.has_key?(message, "error")
+      refute Map.has_key?(message, "provider_turn")
+    end
+
+    test "validates filters and repeats the human-only boundary", %{routine: routine} do
+      assert tool_error(OperatorTools.ListOperatorMessages.execute(%{status: "mystery"}, @frame)) =~
+               "unknown operator-message status"
+
+      assert tool_error(OperatorTools.ListOperatorMessages.execute(%{limit: 0}, @frame)) =~
+               "limit must be a positive integer"
+
+      assert tool_error(
+               OperatorTools.ListOperatorMessages.execute(
+                 %{},
+                 frame_for(:routine, routine.id)
+               )
+             ) =~ "requires the human operator"
+    end
+  end
+
   describe "pause_agent / resume_agent" do
     test "projects the registered fleet.pause_agent definition" do
       assert {:ok, definition} =
