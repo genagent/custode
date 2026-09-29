@@ -143,6 +143,36 @@ defmodule CustodeWeb.Layouts do
                 }
               },
 
+              ConversationScroll: {
+                mounted() {
+                  this.previousHeight = 0;
+                  this.previousTop = 0;
+                  this.previousPrependGeneration = this.el.dataset.prependGeneration;
+                  this.nearBottom = true;
+
+                  requestAnimationFrame(() => {
+                    this.el.scrollTop = this.el.scrollHeight;
+                  });
+                },
+
+                beforeUpdate() {
+                  this.previousHeight = this.el.scrollHeight;
+                  this.previousTop = this.el.scrollTop;
+                  this.previousPrependGeneration = this.el.dataset.prependGeneration;
+                  this.nearBottom =
+                    this.el.scrollHeight - this.el.scrollTop - this.el.clientHeight < 80;
+                },
+
+                updated() {
+                  if (this.el.dataset.prependGeneration !== this.previousPrependGeneration) {
+                    this.el.scrollTop =
+                      this.previousTop + (this.el.scrollHeight - this.previousHeight);
+                  } else if (this.nearBottom) {
+                    this.el.scrollTop = this.el.scrollHeight;
+                  }
+                }
+              },
+
               CommandPalette: {
                 mounted() {
                   this.input = this.el.querySelector("[data-command-input]");

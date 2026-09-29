@@ -152,6 +152,171 @@ defmodule Custode.OperatorMessagesTest do
     refute Map.has_key?(summary, :provider_turn)
   end
 
+  describe "conversation/2" do
+    test "scopes direct operator exchanges to one target and returns them oldest first" do
+      target = uid("conversation-target")
+      other_target = uid("conversation-other")
+
+      older =
+        conversation_message!(target, "first operator prompt", %{
+          kind: :operator,
+          id: "operator-one"
+        })
+
+      _delegated =
+        conversation_message!(target, "delegated prompt must stay out", %{
+          kind: :routine,
+          id: "delegating-agent"
+        })
+
+      _other =
+        conversation_message!(other_target, "other target must stay out", %{
+          kind: :operator,
+          id: "operator-one"
+        })
+
+      newer =
+        conversation_message!(target, "second operator prompt", %{
+          kind: :operator,
+          id: "operator-two"
+        })
+
+      assert {:ok, %{exchanges: exchanges, before: nil, has_older: false}} =
+               OperatorMessages.conversation(target)
+
+      assert Enum.map(exchanges, & &1.id) == [
+               older.provider_correlation_id,
+               newer.provider_correlation_id
+             ]
+
+      assert Enum.map(exchanges, fn exchange ->
+               Enum.map(exchange.prompts, & &1.text)
+             end) == [["first operator prompt"], ["second operator prompt"]]
+    end
+
+    test "pages complete correlation groups without duplicates or gaps" do
+      target = uid("conversation-pages")
+      actor = %{kind: :operator, id: "operator"}
+
+      oldest = conversation_message!(target, "oldest exchange", actor)
+      question = conversation_message!(target, "question exchange", actor)
+
+      question
+      |> Ecto.Changeset.change(
+        status: "waiting_for_input",
+        detail: "which environment?"
+      )
+      |> Repo.update!()
+
+      continuation = conversation_message!(target, "staging", actor)
+      assert continuation.provider_correlation_id == question.provider_correlation_id
+      assert continuation.continues_message_id == question.message_id
+
+      completed_at = DateTime.utc_now()
+
+      for message <- [question, continuation] do
+        message
+        |> Ecto.Changeset.change(status: "completed", completed_at: completed_at)
+        |> Repo.update!()
+      end
+
+      newest = conversation_message!(target, "newest exchange", actor)
+
+      assert {:ok,
+              %{
+                exchanges: [%{id: newest_id}],
+                before: first_cursor,
+                has_older: true
+              }} = OperatorMessages.conversation(target, limit: 1)
+
+      assert newest_id == newest.provider_correlation_id
+      assert is_binary(first_cursor)
+
+      assert {:ok,
+              %{
+                exchanges: [continued_exchange],
+                before: second_cursor,
+                has_older: true
+              }} = OperatorMessages.conversation(target, limit: 1, before: first_cursor)
+
+      assert continued_exchange.id == question.provider_correlation_id
+      assert Enum.map(continued_exchange.prompts, & &1.text) == ["question exchange", "staging"]
+      assert is_binary(second_cursor)
+
+      assert {:ok,
+              %{
+                exchanges: [%{id: oldest_id}],
+                before: nil,
+                has_older: false
+              }} = OperatorMessages.conversation(target, limit: 1, before: second_cursor)
+
+      assert oldest_id == oldest.provider_correlation_id
+
+      assert Enum.uniq([oldest_id, continued_exchange.id, newest_id]) == [
+               oldest.provider_correlation_id,
+               question.provider_correlation_id,
+               newest.provider_correlation_id
+             ]
+    end
+
+    test "rejects malformed cursors and cursors scoped to another agent" do
+      first_target = uid("conversation-cursor-first")
+      second_target = uid("conversation-cursor-second")
+      actor = %{kind: :operator, id: "operator"}
+
+      _older = conversation_message!(first_target, "older", actor)
+      _newer = conversation_message!(first_target, "newer", actor)
+
+      assert {:ok, %{before: cursor, has_older: true}} =
+               OperatorMessages.conversation(first_target, limit: 1)
+
+      assert is_binary(cursor)
+
+      assert {:error, {:invalid_cursor, "not-a-cursor"}} =
+               OperatorMessages.conversation(first_target, before: "not-a-cursor")
+
+      assert {:error, {:invalid_cursor, ^cursor}} =
+               OperatorMessages.conversation(second_target, before: cursor)
+    end
+
+    test "a cursor snapshot does not skip an older exchange when a continuation arrives" do
+      target = uid("conversation-snapshot")
+      actor = %{kind: :operator, id: "operator"}
+
+      oldest = conversation_message!(target, "old question", actor)
+      middle = conversation_message!(target, "middle exchange", actor)
+      newest = conversation_message!(target, "newest exchange", actor)
+
+      oldest
+      |> Ecto.Changeset.change(status: "waiting_for_input", detail: "answer later?")
+      |> Repo.update!()
+
+      assert {:ok, %{exchanges: [%{id: newest_id}], before: cursor}} =
+               OperatorMessages.conversation(target, limit: 1)
+
+      assert newest_id == newest.provider_correlation_id
+
+      continuation = conversation_message!(target, "late answer", actor)
+      assert continuation.provider_correlation_id == oldest.provider_correlation_id
+
+      assert {:ok, %{exchanges: [%{id: middle_id}], before: older_cursor}} =
+               OperatorMessages.conversation(target, limit: 1, before: cursor)
+
+      assert middle_id == middle.provider_correlation_id
+
+      assert {:ok,
+              %{
+                exchanges: [%{id: oldest_id, prompts: [snapshot_prompt]}],
+                before: nil,
+                has_older: false
+              }} =
+               OperatorMessages.conversation(target, limit: 1, before: older_cursor)
+
+      assert oldest_id == oldest.provider_correlation_id
+      assert snapshot_prompt.text == "old question"
+    end
+  end
+
   test "routine removal terminally refuses every undelivered row" do
     target = uid("removed-routine")
 
@@ -289,6 +454,27 @@ defmodule Custode.OperatorMessagesTest do
                  OperatorMessages.get(message_id)
       end
     end)
+
+    assert {:ok, %{exchanges: [exchange], before: nil, has_older: false}} =
+             OperatorMessages.conversation(id)
+
+    assert exchange.id == request.provider_correlation_id
+    assert exchange.status == "completed"
+    assert exchange.detail == "staging or production?"
+    assert exchange.answer == "target recorded"
+
+    assert [request_prompt, answer_prompt] = exchange.prompts
+    assert request_prompt.text == "choose a target"
+    assert request_prompt.detail == "staging or production?"
+    assert answer_prompt.text == "staging"
+    assert answer_prompt.continued
+
+    # Correlated lifecycle projection updates both durable receipts. The
+    # conversation read model owns de-duplication and emits one final answer.
+    assert Enum.count(
+             Repo.all(OperatorMessage),
+             &(&1.target_agent_id == id and &1.result == %{"output" => "target recorded"})
+           ) == 2
   end
 
   test "an approval continuation retains the original message correlation" do
@@ -840,6 +1026,15 @@ defmodule Custode.OperatorMessagesTest do
         end
       end
     )
+  end
+
+  defp conversation_message!(target, prompt, actor) do
+    assert {:ok, message, :created} =
+             OperatorMessages.submit(target, prompt, [actor: actor], fn _message ->
+               {:ok, :delivered}
+             end)
+
+    message
   end
 
   defp queued_message(target) do
