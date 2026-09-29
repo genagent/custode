@@ -89,7 +89,7 @@ Routine instructions, prompt files, the `prompt_agent` tool, and an agent's stru
 
 | Endpoint | Server | Tools | Resources | Templates | Prompts |
 | --- | --- | ---: | ---: | ---: | ---: |
-| `/mcp` | custode 0.1.0 | 79 | 4 | 13 | 0 |
+| `/mcp` | custode 0.1.0 | 80 | 4 | 13 | 0 |
 | `/mcp/memory` | memory 0.1.0 | 4 | 0 | 0 | 0 |
 
 **`/mcp`**: protocol versions 2026-07-28, 2025-11-25, 2025-06-18; capabilities `{"resources":{},"tools":{}}`.
@@ -142,6 +142,7 @@ Categories are descriptive policy metadata, not an authorization guarantee.
 | [metrics](#tool-metrics) | read |
 | [operator_bootstrap](#tool-operator_bootstrap) | read |
 | [pause_agent](#tool-pause_agent) | operator |
+| [permission_decide](#tool-permission_decide) | self_write |
 | [preview_profile](#tool-preview_profile) | read |
 | [preview_profile_edit](#tool-preview_profile_edit) | read |
 | [preview_routine](#tool-preview_routine) | read |
@@ -429,7 +430,7 @@ Summarize fleet activity over a recent window.
 
 | Argument | Type | Schema required | Description | Other schema constraints |
 | --- | --- | --- | --- | --- |
-| days | integer | no | window in days (default 1) |  |
+| days | integer | no | window in days (default 1, range 1..365) |  |
 | markdown | boolean | no | render as markdown instead of the typed map |  |
 
 **Result:** Default: since, window_days, spend, sweeps, gates, failures, suggestions and anomalies. With markdown=true: an object containing markdown text.
@@ -438,7 +439,7 @@ Summarize fleet activity over a recent window.
 
 **Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
-**Behavior, defaults and errors:** days defaults to 1 at the MCP boundary and must be a positive integer for the underlying builder, despite no schema range. The window is based on UTC days. markdown defaults false. Summary includes observed records, not a guarantee of exhaustive external activity.
+**Behavior, defaults and errors:** days defaults to 1 and must be a whole number from 1 through 365. The window is based on UTC days. markdown defaults false. Summary includes observed records, not a guarantee of exhaustive external activity.
 
 ### Tool: dismiss_ask
 
@@ -522,7 +523,7 @@ Read recent fleet activity feed entries.
 | Argument | Type | Schema required | Description | Other schema constraints |
 | --- | --- | --- | --- | --- |
 | agent_id | string | no | restrict to one agent |  |
-| n | integer | no | how many entries (default 20) |  |
+| n | integer | no | how many entries (default 20, range 1..100) |  |
 
 **Result:** entries array of feed records.
 
@@ -530,7 +531,7 @@ Read recent fleet activity feed entries.
 
 **Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
-**Behavior, defaults and errors:** agent_id optionally filters; n defaults to 20 with no declared positive range. Feed records are event-specific and can carry different fields.
+**Behavior, defaults and errors:** agent_id optionally filters; n defaults to 20 and must be a whole number from 1 through 100. Feed records are event-specific and can carry different fields.
 
 ### Tool: forget
 
@@ -642,7 +643,7 @@ Compare advisor activity, recorded outcomes and cost.
 
 | Argument | Type | Schema required | Description | Other schema constraints |
 | --- | --- | --- | --- | --- |
-| days | integer | no | window in days (default 30) |  |
+| days | integer | no | window in days (default 30, range 1..365) |  |
 
 **Result:** advisors array: advisor, grade, standing, applied, settled, observing, reverted, superseded, dismissed, dismissed_by_reason, cost_usd and summary.
 
@@ -650,7 +651,7 @@ Compare advisor activity, recorded outcomes and cost.
 
 **Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
-**Behavior, defaults and errors:** days defaults to 30 through the advisor reader. No positive range is declared. grade distinguishes deterministic, judgment and unknown; records summarize proposal outcomes and cost.
+**Behavior, defaults and errors:** days defaults to 30 and must be a whole number from 1 through 365. grade distinguishes deterministic, judgment and unknown; records summarize proposal outcomes and cost.
 
 ### Tool: list_asks
 
@@ -714,7 +715,7 @@ Read recent blocking questions and approval gates.
 
 | Argument | Type | Schema required | Description | Other schema constraints |
 | --- | --- | --- | --- | --- |
-| limit | integer | no | max rows (default 20) |  |
+| limit | integer | no | max rows (default 20, range 1..100) |  |
 | status | string | no | filter: open &#124; resolved &#124; requeued &#124; orphaned |  |
 
 **Result:** gates array: agent_id, kind, action_id, detail, class, repo, pr_number, risk, review_state, review, status and opened_at. review is null or the other provider's head-pinned summary, typed findings and error.
@@ -723,7 +724,7 @@ Read recent blocking questions and approval gates.
 
 **Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
-**Behavior, defaults and errors:** status optionally filters open, resolved, requeued or orphaned; omission includes recent gates generally. limit defaults to 20 without a schema bound. Newest first. Use action_id, not the database row ID, for approve_action/reject_action. Eligible ready_pr and merge gates enqueue a sealed review by the other provider family. Reviews are reused for an unchanged PR head and capped at three rounds per PR by default.
+**Behavior, defaults and errors:** status optionally filters open, resolved, requeued or orphaned; omission includes recent gates generally. limit defaults to 20 and must be a whole number from 1 through 100. Newest first. Use action_id, not the database row ID, for approve_action/reject_action. Eligible ready_pr and merge gates enqueue a sealed review by the other provider family. Reviews are reused for an unchanged PR head and capped at three rounds per PR by default.
 
 ### Tool: list_inbox
 
@@ -821,7 +822,7 @@ Read what became of decisions about advisor proposals.
 
 | Argument | Type | Schema required | Description | Other schema constraints |
 | --- | --- | --- | --- | --- |
-| days | integer | no | window in days (default 30) |  |
+| days | integer | no | window in days (default 30, range 1..365) |  |
 
 **Result:** decisions array: agent, advisor, field, proposed, decision, status, reason, at, observed and summary.
 
@@ -829,7 +830,7 @@ Read what became of decisions about advisor proposals.
 
 **Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
-**Behavior, defaults and errors:** days defaults to 30 through the outcome reader. It is a trailing seconds-based window when supplied. No positive range is declared. Status describes recorded outcomes rather than proving that a proposal improved results.
+**Behavior, defaults and errors:** days defaults to 30 and must be a whole number from 1 through 365. It is a trailing seconds-based window. Status describes recorded outcomes rather than proving that a proposal improved results.
 
 ### Tool: list_suggestions
 
@@ -871,7 +872,7 @@ Read one category of fleet measurements.
 
 | Argument | Type | Schema required | Description | Other schema constraints |
 | --- | --- | --- | --- | --- |
-| days | integer | no | window in days (default 7) |  |
+| days | integer | no | window in days (default 7, range 1..365) |  |
 | kind | string | yes | one of: spend, turns, gate_latency, by_model, gate_outcomes, prs_opened |  |
 
 **Result:** kind, days and data. spend: date-to-agent maps of usd/tokens. turns: date maps of ok/failed. gate_latency: gates array plus integer median_minutes. by_model: model maps of usd/tokens/turns/failed. gate_outcomes: agent maps of outcome counts. prs_opened: agent arrays of repo/number.
@@ -880,7 +881,7 @@ Read one category of fleet measurements.
 
 **Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
-**Behavior, defaults and errors:** kind is required and runtime-validated against spend, turns, gate_latency, by_model, gate_outcomes and prs_opened. days defaults to 7. gate_latency always reads the 15 most recent non-open gates and does not apply days; its empty result is gates=[] and median_minutes=0. Positive day bounds are not declared.
+**Behavior, defaults and errors:** kind is required and runtime-validated against spend, turns, gate_latency, by_model, gate_outcomes and prs_opened. days defaults to 7 and must be a whole number from 1 through 365. gate_latency always reads the 15 most recent non-open gates and does not apply days; its empty result is gates=[] and median_minutes=0.
 
 ### Tool: operator_bootstrap
 
@@ -916,6 +917,26 @@ Emergency-pause an agent until it is resumed.
 **Access:** Main endpoint capability: operator or caretaker routine. The registered shared operation repeats that boundary and refuses specialists and temporary agents.
 
 **Behavior, defaults and errors:** agent_id is required. idempotency_key is optional at the MCP boundary; omission generates a new key. Reuse one key when retrying the same logical pause. Do not assume the response reverses already completed file or remote effects.
+
+### Tool: permission_decide
+
+Decide whether a Claude routine may call one read-only Custode MCP tool.
+
+**Endpoints:** /mcp. **Category:** self_write.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| input | object | yes | the original tool input; echoed unchanged only when allowed |  |
+| tool_name | string | yes | the exact Claude tool name requesting permission |  |
+| tool_use_id | string | no | optional Claude correlation id |  |
+
+**Result:** Claude permission decision object. Allow: behavior=allow and updatedInput equal to the requested input. Deny: behavior=deny and a bounded message.
+
+**Side effects:** Records one bounded permission-decision audit event. The event identifies the routine, requested tool, decision and stable reason plus available execution correlation, but never stores the requested input or bearer token. It does not invoke the requested tool or mutate its input.
+
+**Access:** Main endpoint registration. An authenticated routine identity is required for an allow decision. The requested tool must be a local Custode MCP tool in that routine's authorization snapshot and must have read-only ToolPolicy classification. An operator caller or unavailable routine authorization receives a deny decision. Missing or invalid bearer tokens and temporary-agent identities are refused by the transport before dispatch; a direct handler call without a routine identity fails closed with a deny decision. This broker cannot override Custode's own call-time authorization or an earlier Claude managed-policy denial.
+
+**Behavior, defaults and errors:** tool_name and input are required by Claude's permission-prompt contract; tool_use_id is optional correlation metadata. Schema-invalid calls fail at the authenticated MCP protocol boundary before the broker and do not create an audit record. Every well-formed request that reaches the handler returns a normal decision. An allow result echoes input unchanged as updatedInput. The broker denies itself, built-in Claude tools, external MCP tools, unknown Custode tools, tools outside the routine's captured role, and every Custode tool whose ToolPolicy category is not read. Denials are successful MCP tool results with behavior=deny and a bounded message so the permission host can fail closed. permission_decide is discoverable by authenticated routines for use as a permission prompt tool but is deliberately absent from ordinary Routine.mcp_tools provider allowlists.
 
 ### Tool: preview_profile
 
@@ -1079,7 +1100,7 @@ Preview a change to an existing routine.
 
 **Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
-**Behavior, defaults and errors:** id is required. provider is claude or codex. Omitted fields are unchanged; drop removes named overrides so inherited values can apply. Lists replace existing lists. Conflicting drop and supplied values resolve to removal. The routine ID is immutable.
+**Behavior, defaults and errors:** id is required. provider is claude or codex. Omitted fields are unchanged; drop removes named overrides so inherited values can apply. Lists replace existing lists. Conflicting drop and supplied values resolve to removal. The routine ID is immutable. Preview validates the envelope without opening system_prompt_file; update_routine resolves and validates that path before writing.
 
 ### Tool: prompt_agent
 

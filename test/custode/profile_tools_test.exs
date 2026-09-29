@@ -99,6 +99,28 @@ defmodule Custode.ProfileToolsTest do
     refute File.exists?(path)
   end
 
+  test "preview_profile does not intern open-vocabulary tags or sensors", %{path: path} do
+    tag = "tag-" <> Ecto.UUID.generate()
+    sensor = "sensor-" <> Ecto.UUID.generate()
+
+    assert_raise ArgumentError, fn -> String.to_existing_atom(tag) end
+    assert_raise ArgumentError, fn -> String.to_existing_atom(sensor) end
+
+    json =
+      tool_json(
+        PreviewProfile.execute(
+          %{name: "safe-vocabulary", tags: [tag], sensors: [sensor]},
+          @operator
+        )
+      )
+
+    assert json["toml"] =~ inspect(tag)
+    assert json["toml"] =~ inspect(sensor)
+    assert_raise ArgumentError, fn -> String.to_existing_atom(tag) end
+    assert_raise ArgumentError, fn -> String.to_existing_atom(sensor) end
+    refute File.exists?(path)
+  end
+
   test "provider is exposed by profile preview and define" do
     params = %{
       name: "codex-reviewer",

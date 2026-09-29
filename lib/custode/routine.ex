@@ -16,6 +16,7 @@ defmodule Custode.Routine do
   alias Custode.Routine.{Effort, Prompts}
 
   @instructions_contract_ref "<execution-contract.instructions>"
+  @permission_prompt_tool "mcp__custode__permission_decide"
 
   @doc "All configured routines, with profile and defaults applied."
   def all do
@@ -560,6 +561,14 @@ defmodule Custode.Routine do
         do: Keyword.put(extra, :agent, routine.agent),
         else: extra
 
+    extra =
+      if routine.permission_broker == :read_only,
+        do:
+          extra
+          |> Keyword.put(:permission_prompt_tool, @permission_prompt_tool)
+          |> Keyword.put(:hermetic, :full),
+        else: extra
+
     ObanClaude.Args.defaults(base ++ extra)
   end
 
@@ -722,11 +731,15 @@ defmodule Custode.Routine do
 
   defp normalize(routine, profiles) do
     profile = Map.get(routine, :profile)
+    validate_routine_only_permission_broker!(routine, profiles)
     routine = apply_profile(routine, profiles)
     id = Map.fetch!(routine, :id)
     provider = normalize_provider!(Map.get(routine, :provider, :claude))
     model = Map.get(routine, :model, default_model(provider))
     validate_model_provider!(profile, provider, model)
+    mcp = Map.get(routine, :mcp, false)
+    permission_broker = normalize_permission_broker!(Map.get(routine, :permission_broker))
+    validate_permission_broker!(permission_broker, provider, mcp, Map.get(routine, :agent))
     workspace = Map.get(routine, :workspace, "workspaces/" <> id)
     # Least privilege by default (#161): a roster entry that FORGETS role
     # gets the powerless :assistant, never the caretaker's operator verbs.
@@ -799,8 +812,53 @@ defmodule Custode.Routine do
       # implied sensors from the profile (e.g. [:ci] derives a ci-<id>
       # CiStatus poll for the routine's repo -- see derived_sensors/0)
       sensors: Map.get(routine, :sensors, []),
-      mcp: Map.get(routine, :mcp, false)
+      mcp: mcp,
+      # Explicit, per-routine opt-in for Claude's permission-prompt tool.
+      # Profiles cannot turn this authority-bearing path on for their wearers.
+      permission_broker: permission_broker
     }
+  end
+
+  defp validate_routine_only_permission_broker!(routine, profiles) do
+    profile_name = Map.get(routine, :profile)
+    profile = Map.get(profiles, profile_name, %{})
+    profile_provider = normalize_provider!(Map.get(profile, :provider, :claude))
+    provider = normalize_provider!(Map.get(routine, :provider, profile_provider))
+
+    provider_defaults =
+      profile_name
+      |> profile_provider_defaults()
+      |> Map.get(provider, %{})
+
+    if Map.has_key?(profile, :permission_broker) or
+         Map.has_key?(provider_defaults, :permission_broker) do
+      raise ArgumentError, "permission_broker is a routine-only setting"
+    end
+  end
+
+  defp normalize_permission_broker!(nil), do: nil
+  defp normalize_permission_broker!(:read_only), do: :read_only
+  defp normalize_permission_broker!("read_only"), do: :read_only
+
+  defp normalize_permission_broker!(value) do
+    raise ArgumentError,
+          "unknown permission_broker #{inspect(value)} (expected read_only or nil)"
+  end
+
+  defp validate_permission_broker!(nil, _provider, _mcp, _agent), do: :ok
+  defp validate_permission_broker!(:read_only, :claude, true, nil), do: :ok
+
+  defp validate_permission_broker!(:read_only, _provider, _mcp, agent)
+       when not is_nil(agent) do
+    raise ArgumentError,
+          "permission_broker read_only does not support agent; " <>
+            "use system_prompt or system_prompt_file for explicit standing instructions"
+  end
+
+  defp validate_permission_broker!(:read_only, provider, mcp, _agent) do
+    raise ArgumentError,
+          "permission_broker read_only requires provider claude and mcp true " <>
+            "(got provider #{inspect(provider)}, mcp #{inspect(mcp)})"
   end
 
   defp normalize_provider!(provider) when provider in [:claude, "claude"], do: :claude

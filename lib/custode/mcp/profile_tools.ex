@@ -49,8 +49,10 @@ defmodule Custode.MCP.ProfileTools do
     |> put_if(params, :daily_budget_tokens)
     |> put_if(params, :timeout_ms)
     |> put_if(params, :max_turns)
-    |> put_if(params, :tags, fn tags -> Enum.map(tags, &String.to_atom/1) end)
-    |> put_if(params, :sensors, fn sensors -> Enum.map(sensors, &String.to_atom/1) end)
+    # Tags and sensor names are open vocabularies. Keep untrusted MCP values
+    # as strings until the rendered TOML crosses the trusted loader boundary.
+    |> put_if(params, :tags)
+    |> put_if(params, :sensors)
     |> put_if(params, :system_prompt_file)
     |> put_if(params, :extra_allowed_tools)
     |> put_approved_args(params)

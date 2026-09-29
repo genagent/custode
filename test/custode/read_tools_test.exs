@@ -129,6 +129,22 @@ defmodule Custode.MCP.ReadToolsTest do
     end
   end
 
+  describe "bounded windows" do
+    test "every days-based read accepts only whole days from 1 through 365" do
+      tools = [
+        {ReadTools.SuggestionOutcomes, %{}},
+        {ReadTools.Advisors, %{}},
+        {ReadTools.Metrics, %{kind: "spend"}},
+        {ReadTools.Digest, %{}}
+      ]
+
+      for days <- [0, -1, 366], {module, base} <- tools do
+        error = module.execute(Map.put(base, :days, days), @frame) |> tool_error()
+        assert error == "days must be a whole number from 1 through 365"
+      end
+    end
+  end
+
   describe "the rest answer without arguments" do
     test "suggestions, outcomes, advisors, policies, workflows, executing" do
       for {module, key} <- [

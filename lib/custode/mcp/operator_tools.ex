@@ -10,6 +10,18 @@ defmodule Custode.MCP.OperatorTools do
   siblings is already a per-routine `mcp: true` decision, and the HTTP
   surface is localhost-only (auth is issue #1).
   """
+
+  @max_rows 100
+
+  @doc false
+  def bounded_rows(nil, default, _field), do: {:ok, default}
+
+  def bounded_rows(value, _default, _field)
+      when is_integer(value) and value in 1..@max_rows,
+      do: {:ok, value}
+
+  def bounded_rows(_value, _default, field),
+    do: {:error, "#{field} must be a whole number from 1 through #{@max_rows}"}
 end
 
 defmodule Custode.MCP.OperatorTools.Beat do
@@ -89,33 +101,40 @@ defmodule Custode.MCP.OperatorTools.ListGates do
 
   import Custode.MCP.Tools
   alias Custode.Gates.Review
+  alias Custode.MCP.OperatorTools
 
   schema do
     field(:status, :string, description: "filter: open | resolved | requeued | orphaned")
-    field(:limit, :integer, description: "max rows (default 20)")
+    field(:limit, :integer, description: "max rows (default 20, range 1..100)")
   end
 
   @impl true
   def execute(params, frame) do
-    gates =
-      for gate <- Custode.Gates.recent(params[:limit] || 20, params[:status]) do
-        %{
-          agent_id: gate.agent_id,
-          kind: gate.kind,
-          action_id: gate.action_id,
-          detail: gate.detail,
-          class: gate.class,
-          repo: gate.repo,
-          pr_number: gate.pr_number,
-          risk: gate.risk,
-          review_state: gate.review_state,
-          review: review(gate.review),
-          status: gate.status,
-          opened_at: gate.inserted_at
-        }
-      end
+    case OperatorTools.bounded_rows(params[:limit], 20, "limit") do
+      {:ok, limit} ->
+        gates =
+          for gate <- Custode.Gates.recent(limit, params[:status]) do
+            %{
+              agent_id: gate.agent_id,
+              kind: gate.kind,
+              action_id: gate.action_id,
+              detail: gate.detail,
+              class: gate.class,
+              repo: gate.repo,
+              pr_number: gate.pr_number,
+              risk: gate.risk,
+              review_state: gate.review_state,
+              review: review(gate.review),
+              status: gate.status,
+              opened_at: gate.inserted_at
+            }
+          end
 
-    reply(frame, %{gates: gates})
+        reply(frame, %{gates: gates})
+
+      {:error, message} ->
+        fail(frame, message)
+    end
   end
 
   defp review(%Review{} = review) do
@@ -137,22 +156,28 @@ defmodule Custode.MCP.OperatorTools.FeedTail do
 
   import Custode.MCP.Tools
 
+  alias Custode.MCP.OperatorTools
+
   schema do
     field(:agent_id, :string, description: "restrict to one agent")
-    field(:n, :integer, description: "how many entries (default 20)")
+    field(:n, :integer, description: "how many entries (default 20, range 1..100)")
   end
 
   @impl true
   def execute(params, frame) do
-    n = params[:n] || 20
+    case OperatorTools.bounded_rows(params[:n], 20, "n") do
+      {:ok, n} ->
+        entries =
+          case params[:agent_id] do
+            nil -> Custode.Feed.tail(n)
+            agent_id -> Custode.Feed.for_agent(agent_id, n)
+          end
 
-    entries =
-      case params[:agent_id] do
-        nil -> Custode.Feed.tail(n)
-        agent_id -> Custode.Feed.for_agent(agent_id, n)
-      end
+        reply(frame, %{entries: entries})
 
-    reply(frame, %{entries: entries})
+      {:error, message} ->
+        fail(frame, message)
+    end
   end
 end
 

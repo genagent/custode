@@ -38,6 +38,11 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.Tools.RejectAction, name: "reject_action")
   component(Custode.MCP.Tools.RunJob, name: "run_job")
 
+  # Claude's permission prompt calls this tool outside the model's normal
+  # allowlist. The handler derives its routine from the authenticated MCP
+  # connection and may approve only that routine's read-only Custode tools.
+  component(Custode.MCP.PermissionTools.PermissionDecide, name: "permission_decide")
+
   # roster mutation (#75 / design 001 slice 3): preview is free, the write is
   # caller-guarded inside the tool
   component(Custode.MCP.RosterTools.PreviewRoutine, name: "preview_routine")

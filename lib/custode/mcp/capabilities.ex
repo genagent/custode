@@ -18,6 +18,7 @@ defmodule Custode.MCP.Capabilities do
   alias Snodo.Error, as: SnodoError
 
   @memory_tools ~w(journal_read remember recall forget)
+  @permission_tools ~w(permission_decide)
 
   @worker_tools ~w(
     ask_operator
@@ -94,11 +95,8 @@ defmodule Custode.MCP.Capabilities do
 
   def authorized_tool_names(:main, %{kind: :routine, id: id}) do
     case AgentHandoff.authorization_role(id) do
-      {:ok, :caretaker} ->
-        exposed_tool_names(:caretaker) ++ @caretaker_on_demand_tools
-
       {:ok, role} when is_atom(role) ->
-        exposed_tool_names(role)
+        authorized_routine_tool_names(role) ++ @permission_tools
 
       _unavailable ->
         []
@@ -107,6 +105,13 @@ defmodule Custode.MCP.Capabilities do
 
   def authorized_tool_names(:memory, %{kind: :sub_agent}), do: @memory_tools
   def authorized_tool_names(_endpoint, _identity), do: []
+
+  @doc false
+  @spec authorized_routine_tool_names(atom()) :: [String.t()]
+  def authorized_routine_tool_names(:caretaker),
+    do: exposed_tool_names(:caretaker) ++ @caretaker_on_demand_tools
+
+  def authorized_routine_tool_names(role) when is_atom(role), do: exposed_tool_names(role)
 
   @impl Snodo.Authorization
   def authorize(phase, %Component{} = component, context, endpoint)

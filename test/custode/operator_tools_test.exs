@@ -77,6 +77,13 @@ defmodule Custode.OperatorToolsTest do
   end
 
   describe "list_gates" do
+    test "bounds the result limit before it reaches the database" do
+      for limit <- [0, -1, 101] do
+        assert tool_error(OperatorTools.ListGates.execute(%{limit: limit}, @frame)) ==
+                 "limit must be a whole number from 1 through 100"
+      end
+    end
+
     test "shows an open gate with the action id approve_action needs" do
       id = start_stub_agent!()
       :processing = Agent.submit_prompt(id, "go")
@@ -157,13 +164,20 @@ defmodule Custode.OperatorToolsTest do
       Custode.Feed.record(%{agent: first, event: "turn", summary: "one"})
       Custode.Feed.record(%{agent: second, event: "turn", summary: "two"})
 
-      json = tool_json(OperatorTools.FeedTail.execute(%{n: 500}, @frame))
+      json = tool_json(OperatorTools.FeedTail.execute(%{n: 100}, @frame))
       summaries = Enum.map(json["entries"], & &1["summary"])
       assert "one" in summaries
       assert "two" in summaries
 
       json = tool_json(OperatorTools.FeedTail.execute(%{agent_id: second}, @frame))
       assert [%{"summary" => "two"}] = json["entries"]
+    end
+
+    test "bounds the result count before reading the feed" do
+      for n <- [0, -1, 101] do
+        assert tool_error(OperatorTools.FeedTail.execute(%{n: n}, @frame)) ==
+                 "n must be a whole number from 1 through 100"
+      end
     end
   end
 

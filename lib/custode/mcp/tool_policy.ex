@@ -9,15 +9,16 @@ defmodule Custode.MCP.ToolPolicy do
   registered components and fails, naming the tool, when one has no entry. A
   new tool cannot ship unclassified.
 
-  It records; nothing at runtime reads it. The guard each category names is
-  still the call inside the tool.
+  Most handlers still enforce their own category guard. The permission broker
+  also reads this table at runtime so it can approve only tools classified as
+  `:read` without maintaining a second list.
 
   ## Categories
 
     * `:read` -- changes nothing.
     * `:self_write` -- writes only the caller's own records (notebook, memory,
-      asks, drafts, disowned PRs). The guard is `check_self/2`, or the row is
-      keyed by the caller's id.
+      asks, drafts, disowned PRs, permission audits). The guard is
+      `check_self/2`, or the row is keyed by the caller's id.
     * `{:repo_write, verb}` -- a GitHub write. It must pass `verb` to
       `granted/3` or `check_grant/2` (`Custode.MCP.Tools`).
     * `:delegate` -- drives another agent: start, prompt, decide its gate.
@@ -42,6 +43,8 @@ defmodule Custode.MCP.ToolPolicy do
     "approve_action" => :delegate,
     "reject_action" => :delegate,
     "run_job" => :delegate,
+    # permission broker: records a redacted decision under the caller's id
+    "permission_decide" => :self_write,
     # roster and profiles: a preview writes nothing
     "preview_routine" => :read,
     "preview_routine_edit" => :read,

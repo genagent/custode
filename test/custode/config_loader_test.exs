@@ -97,6 +97,30 @@ defmodule Custode.Config.LoaderTest do
     assert profiles[:"codex-review"].provider == :codex
   end
 
+  test "permission_broker parses only on a routine" do
+    toml = """
+    [[routines]]
+    id = "managed"
+    cron = "manual"
+    prompt = "read"
+    mcp = true
+    permission_broker = "read_only"
+    """
+
+    {[routine], [], %{}} = Loader.parse!(toml)
+    assert routine.permission_broker == :read_only
+
+    profile = """
+    [[profiles]]
+    name = "managed"
+    permission_broker = "read_only"
+    """
+
+    assert_raise RuntimeError, ~r/unknown key "permission_broker"/, fn ->
+      Loader.parse!(profile)
+    end
+  end
+
   test "apply_profiles/1 leaves config profiles intact for a profile-less file (#236 regression)" do
     # the bug: a legacy routines.toml (routines only, no [[profiles]]) parsed
     # to %{} and, applied strictly, wiped every config.exs profile the running
