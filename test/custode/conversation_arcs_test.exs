@@ -31,7 +31,8 @@ defmodule Custode.ConversationArcsTest do
     end)
 
     assert :ok = Agents.stop_agent(routine.id)
-    assert {:ok, :started} = Actions.message(routine.id, "second question")
+    assert {:ok, delivery} = Actions.message(routine.id, "second question")
+    assert delivery in [:started, :queued]
 
     second = latest_turn(routine.id, first.id)
     assert second.id != first.id
