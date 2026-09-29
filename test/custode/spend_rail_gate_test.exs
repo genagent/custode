@@ -5,6 +5,8 @@ defmodule Custode.SpendRailGateTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
+  alias Custode.AgentHandoff
+  alias Custode.AgentHandoffIntent
   alias Custode.Agents
   alias Custode.Gates
   alias Custode.MCP.OperatorTools
@@ -85,6 +87,8 @@ defmodule Custode.SpendRailGateTest do
 
   test "rail enforcement targets the provider that owns the turn after a roster edit" do
     routine = start_budgeted_routine!(:claude)
+    on_exit(fn -> Agents.stop_agent(routine.id, :codex) end)
+
     assert :processing = ObanClaude.Agent.submit_prompt(routine.id, "finish on claude")
 
     assert_receive {:enqueued, %{"prompt" => "finish on claude"}, turn_meta}
@@ -104,6 +108,11 @@ defmodule Custode.SpendRailGateTest do
       }
     ])
 
+    assert :ok = AgentHandoff.reconcile(routine.id)
+
+    assert {:pending, %{provider: :claude, phase: :quiescing}} =
+             AgentHandoff.status(routine.id)
+
     result =
       structured_result(:claude, %{
         "directive" => "request_permission",
@@ -117,10 +126,13 @@ defmodule Custode.SpendRailGateTest do
                query_fun: ObanClaude.Testing.respond(result)
              )
 
-    assert {:ok, %{deferred_pause: %{reason: reason}}} =
+    assert {:ok, %{deferred_pause: %{cause: :quiesce, reason: :config_change}}} =
              ObanClaude.Agent.info(routine.id)
 
-    assert reason =~ "daily token rail hit"
+    assert %{"cause" => "pause_after_turn", "reason" => rail_reason} =
+             AgentHandoffIntent.get(routine.id)
+
+    assert rail_reason =~ "daily token rail hit"
     assert {:ok, :offline} = ObanCodex.Agent.status(routine.id)
 
     assert :ok = finish(:claude, turn_meta, result)
@@ -140,7 +152,23 @@ defmodule Custode.SpendRailGateTest do
     end)
 
     assert :rejected = ObanClaude.Agent.reject_action(routine.id, action_id, "not today")
-    assert {:ok, :paused} = ObanClaude.Agent.await(routine.id, :paused, 1_000)
+
+    eventually(fn ->
+      assert {:ok, :offline} = ObanClaude.Agent.status(routine.id)
+
+      assert {:ok, %{state: :paused, pause_context: pause_context}} =
+               ObanCodex.Agent.info(routine.id)
+
+      assert pause_context.cause == :pause_after_turn
+      assert pause_context.pause_reason =~ "daily token rail hit"
+      assert :ready = AgentHandoff.status(routine.id)
+      assert nil == AgentHandoffIntent.get(routine.id)
+
+      assert Enum.any?(Custode.Feed.for_agent(routine.id), fn entry ->
+               entry["event"] == "budget_paused" and
+                 String.contains?(entry["action"], "daily token rail hit")
+             end)
+    end)
   end
 
   defp start_budgeted_routine!(provider) do
