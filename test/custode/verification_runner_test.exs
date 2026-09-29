@@ -245,7 +245,7 @@ defmodule Custode.Verification.RunnerTest do
 
     parent_command =
       case parent_action do
-        :wait -> "sleep 5"
+        :wait -> ~s(while [ ! -f "$1/release" ]; do sleep 0.01; done)
         :release -> ~s(while [ ! -f "$1/release" ]; do sleep 0.01; done; sleep 0.1)
       end
 
