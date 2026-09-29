@@ -8,29 +8,29 @@ tracked by #453, which closed on 2026-09-24 once rungs 0 to 4 had shipped.
 This file keeps the current status, the standing architectural positions, the
 rungs, and the shipped-milestone history.
 
-## Status: fleet paused; development resumed (2026-09-28)
+## Status: public operator alpha (2026-09-29)
 
-The running fleet remains stopped. Development resumed with the bounded Snodo
-dependency migration in #704. The last release is v0.1.0 (2026-09-24), and
-`main` carries fixes after it through #701. The design/013 spike in #700 still
-waits on the operator; its ideas continue as a separate, standalone project.
-Custode stays resumable as the dashboard and fleet product.
+Custode is public, GitHub Actions is live, and v0.2.0 is the current
+source-installed release. It moves the MCP transport to released Snodo,
+hardens fleet handoffs and queued wakes, and gives fresh Claude Code and Codex
+sessions an installable operator skill with lifecycle, troubleshooting and
+self-maintenance guidance. The design/013 spike in #700 remains separate from
+the dashboard and fleet product.
 
-To resume:
+To upgrade a running v0.1.0 installation:
 
-1. In the checkout the fleet runs from, `git pull`, then `mix deps.get`.
-   The MCP transport is the released `snodo_plug` package from Hex, so a fresh
-   checkout needs no private dependency credential or source override.
-2. `mix custode doctor`, then `mix phx.server`. A normal boot schedules
-   every routine in the local `routines.toml` on its cron, and `@reboot`
-   routines fire once. For a quiet start, use "pause all" in the console
-   header's fleet menu as soon as the node is up, then resume routines one at
-   a time with `mix custode resume <agent_id>`.
-3. GitHub Actions has not run since 2026-09-24: every job fails before its
-   first step because the account's Actions spending limit is exhausted.
-   Merges since then rest on the five local gates in AGENTS.md. Check that CI
-   runs again before relying on it.
-4. Pick up from #599. #554 and #555 are the operator's decisions, #499 and
+1. Drain Custode and wait for the process to exit. Do not update the live
+   checkout while the old node is still running.
+2. In that checkout, run `git pull --ff-only`, `mix deps.get`, then
+   `mix custode doctor`. Fix every failure before applying schema changes.
+3. Review the four migrations added since v0.1.0, take a recoverable backup of
+   `CUSTODE_HOME`, then run `mix ecto.migrate` and `mix custode doctor` again.
+4. Check each configured host with `mix custode.skill.install all` (or select
+   that host explicitly). If it reports a stale or modified package, inspect
+   the installed files before choosing the printed `--force` command. Restart
+   Custode, refresh the operator token in the host environment, and restart or
+   reconnect the host.
+5. Pick up from #599. #554 and #555 are the operator's decisions, #499 and
    #556 are blocked, and the work kernel stays frozen (#423, #424, #439,
    #630).
 
@@ -106,3 +106,8 @@ tree, not running, deleted only when a fix touches it.
   beat handoff.
 - 2026-09-24: v0.1.0, a private, source-installed, single-operator local
   alpha. [guides/demo.md](guides/demo.md) is its quickstart.
+- 2026-09-29: v0.2.0, the public source-installed operator alpha. Snodo is the
+  packaged MCP transport; routine handoffs and queued wakes survive races;
+  console text and navigation are easier to scan; and the installable operator
+  skill teaches safe lifecycle, troubleshooting and self-maintenance across
+  Claude Code and Codex.

@@ -58,7 +58,7 @@ defmodule Custode.MCP.Snodo do
       protocols: @protocols,
       capabilities: capabilities,
       authorization: {Capabilities, endpoint},
-      server_info: %{"name" => name, "version" => "0.1.0"}
+      server_info: %{"name" => name, "version" => "0.2.0"}
     )
   end
 end

@@ -89,8 +89,8 @@ Routine instructions, prompt files, the `prompt_agent` tool, and an agent's stru
 
 | Endpoint | Server | Tools | Resources | Templates | Prompts |
 | --- | --- | ---: | ---: | ---: | ---: |
-| `/mcp` | custode 0.1.0 | 79 | 4 | 13 | 0 |
-| `/mcp/memory` | memory 0.1.0 | 4 | 0 | 0 | 0 |
+| `/mcp` | custode 0.2.0 | 79 | 4 | 13 | 0 |
+| `/mcp/memory` | memory 0.2.0 | 4 | 0 | 0 | 0 |
 
 **`/mcp`**: protocol versions 2026-07-28, 2025-11-25, 2025-06-18; capabilities `{"resources":{},"tools":{}}`.
 
