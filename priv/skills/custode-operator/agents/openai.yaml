@@ -1,0 +1,7 @@
+interface:
+  display_name: "Custode Operator"
+  short_description: "Operate and maintain a local Custode fleet"
+  default_prompt: "Use $custode-operator to operate this Custode installation."
+
+policy:
+  allow_implicit_invocation: false

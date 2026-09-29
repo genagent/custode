@@ -13,6 +13,7 @@ defmodule Custode.Routine do
   alias Custode.Gates.Class
   alias Custode.Handoff
   alias Custode.MCP.{Capabilities, Identity}
+  alias Custode.OperatorSkill
   alias Custode.Routine.{Effort, Prompts}
 
   @instructions_contract_ref "<execution-contract.instructions>"
@@ -291,7 +292,8 @@ defmodule Custode.Routine do
         identity_token: identity_token
       )
 
-    contract = execution_contract(routine, args, instructions)
+    approved_args = protected_approved_args(routine, args)
+    contract = execution_contract(routine, args, approved_args, instructions)
 
     execution_revision = execution_revision(contract, routine, identity_token)
 
@@ -306,7 +308,7 @@ defmodule Custode.Routine do
         "args" => args,
         # approvals may need more than reads (a gated delete runs rm; a repo
         # caretaker's approved edit runs in an isolated worktree)
-        "approved_args" => routine.approved_args,
+        "approved_args" => approved_args,
         # the machine watchdog must outlast the subprocess cap
         "job_timeout" => routine.timeout_ms + 60_000,
         "config_revision" => execution_revision
@@ -324,7 +326,7 @@ defmodule Custode.Routine do
         identity_token: "<routine-token>"
       )
 
-    execution_contract(routine, args, instructions)
+    execution_contract(routine, args, protected_approved_args(routine, args), instructions)
   end
 
   @doc """
@@ -432,15 +434,36 @@ defmodule Custode.Routine do
     ]
   end
 
-  defp execution_contract(routine, args, instructions) do
+  defp execution_contract(routine, args, approved_args, instructions) do
     %{
       provider: routine.provider,
       args: execution_args_contract(routine, args),
       instructions: instructions,
       mcp: mcp_contract(routine),
-      approved_args: routine.approved_args,
+      approved_args: execution_approved_args_contract(routine, approved_args),
       job_timeout: routine.timeout_ms + 60_000
     }
+  end
+
+  defp protected_approved_args(%{provider: :claude} = routine, args) do
+    routine.approved_args
+    |> Map.drop(["setting_sources", "hermetic"])
+    |> copy_base_arg(args, "setting_sources")
+    |> copy_base_arg(args, "hermetic")
+  end
+
+  defp protected_approved_args(%{provider: :codex} = routine, args) do
+    routine.approved_args
+    |> Map.drop(["config_overrides", "strict_config"])
+    |> Map.put("config_overrides", Map.fetch!(args, "config_overrides"))
+    |> Map.put("strict_config", true)
+  end
+
+  defp copy_base_arg(approved_args, args, key) do
+    case Map.fetch(args, key) do
+      {:ok, value} -> Map.put(approved_args, key, value)
+      :error -> approved_args
+    end
   end
 
   defp execution_args_contract(%{provider: :claude}, args) do
@@ -448,12 +471,21 @@ defmodule Custode.Routine do
   end
 
   defp execution_args_contract(%{provider: :codex}, args) do
+    Map.update!(args, "config_overrides", &codex_execution_overrides_contract/1)
+  end
+
+  defp execution_approved_args_contract(%{provider: :claude}, approved_args),
+    do: approved_args
+
+  defp execution_approved_args_contract(%{provider: :codex}, approved_args) do
+    Map.update!(approved_args, "config_overrides", &codex_execution_overrides_contract/1)
+  end
+
+  defp codex_execution_overrides_contract(overrides) do
     authorization = codex_mcp_server_root!("custode") <> ".http_headers.Authorization="
     instructions = "developer_instructions="
 
-    Map.update!(args, "config_overrides", fn overrides ->
-      Enum.map(overrides, &execution_override_contract(&1, authorization, instructions))
-    end)
+    Enum.map(overrides, &execution_override_contract(&1, authorization, instructions))
   end
 
   defp execution_override_contract(override, authorization, instructions) do
@@ -506,6 +538,7 @@ defmodule Custode.Routine do
       max_budget_usd: Application.fetch_env!(:custode, :max_budget_usd),
       timeout: 200_000,
       json_schema: directive_schema(),
+      setting_sources: "project,local",
       # the memory-only MCP server: persistence without delegation powers;
       # the per-sub-agent config carries its minted identity token
       mcp_config: [Map.fetch!(opts, :mcp_config_path)],
@@ -546,9 +579,11 @@ defmodule Custode.Routine do
     extra = if allowed == [], do: extra, else: Keyword.put(extra, :allowed_tools, allowed)
 
     extra =
-      if routine.hermetic != nil,
-        do: Keyword.put(extra, :hermetic, routine.hermetic),
-        else: extra
+      if routine.hermetic != nil do
+        Keyword.put(extra, :hermetic, routine.hermetic)
+      else
+        Keyword.put(extra, :setting_sources, "project,local")
+      end
 
     extra =
       if routine.effort != nil,
@@ -576,6 +611,7 @@ defmodule Custode.Routine do
       sandbox: :read_only,
       approval_policy: :never,
       skip_git_repo_check: true,
+      strict_config: true,
       output_schema: directive_schema_path(),
       config_overrides: codex_config_overrides(routine, instructions, opts),
       meta: %{"custode_context_path" => context_path}
@@ -587,7 +623,10 @@ defmodule Custode.Routine do
   end
 
   defp codex_config_overrides(routine, instructions, opts) do
-    overrides = [toml_override("developer_instructions", instructions)]
+    overrides = [
+      codex_operator_skill_override(),
+      toml_override("developer_instructions", instructions)
+    ]
 
     overrides =
       if routine.effort,
@@ -601,6 +640,15 @@ defmodule Custode.Routine do
     else
       overrides
     end
+  end
+
+  # The operator skill is installed in the user's global skill directory so an
+  # interactive operator session can discover it. A routine is a worker, not an
+  # operator: disable exactly this package at the session layer while retaining
+  # every other user and repository skill rule.
+  defp codex_operator_skill_override do
+    skill_path = Path.join(OperatorSkill.destination(:codex), "SKILL.md")
+    "skills.config=[{path=#{Jason.encode!(skill_path)},enabled=false}]"
   end
 
   defp codex_custode_overrides(routine, nil) do
@@ -776,9 +824,10 @@ defmodule Custode.Routine do
       # implementations); nil leaves the CLI default
       effort: Effort.normalize!(Map.get(routine, :effort)),
       system_prompt: resolve_prompt(routine, role, id),
-      # non-hermetic runs inherit the repo's own CLAUDE.md/persona (#19);
-      # set hermetic: true to shut ambient context out for a routine
-      hermetic: Map.get(routine, :hermetic),
+      # Normal runs retain project/local context but exclude user settings;
+      # a full seal shuts all ambient configuration out. The wrapper's
+      # project-scoped seal means "user only", so Custode rejects it.
+      hermetic: normalize_hermetic!(Map.get(routine, :hermetic)),
       # persona-by-name from the repo's own .claude/agents/ (#19): the repo
       # owns its worker's voice; nil runs claude as itself
       agent: Map.get(routine, :agent),
@@ -809,6 +858,15 @@ defmodule Custode.Routine do
   defp normalize_provider!(provider) do
     raise ArgumentError,
           "unknown routine provider #{inspect(provider)} (expected claude or codex)"
+  end
+
+  defp normalize_hermetic!(value) when value in [nil, false], do: nil
+  defp normalize_hermetic!(value) when value in [true, :full], do: value
+
+  defp normalize_hermetic!(value) do
+    raise ArgumentError,
+          "invalid routine hermetic scope #{inspect(value)} " <>
+            "(expected true/full or false; project scope loads user settings)"
   end
 
   defp default_model(:claude), do: Application.fetch_env!(:custode, :model)

@@ -209,16 +209,18 @@ what it returns.
 `mix custode <command>` drives the running node over its MCP port:
 `status`, `gates`, `approve`, `reject`, `asks`, `answer`, `dismiss`, `prompt`, `beat`,
 `pause`, `resume`, `away`, `back`, `disown`, `reclaim`, `feed`, `spend`,
-`drain`, `doctor`. From a git worktree, pass the token:
+`drain`. `mix custode doctor` is the local exception: it checks the host even
+when no server is running. From a git worktree, pass the token:
 `CUSTODE_OPERATOR_TOKEN="$(cat <checkout>/tmp/operator.token)"`.
 
 The [MCP client reference](docs/mcp-reference.md) documents every tool, prompt,
 resource and resource template, including arguments, results, side effects and
 access checks. A [JSON catalog](docs/mcp-reference.json) is available for clients.
-Install the shared external-operator workflow for Claude Code, Codex, or both
-with `mix custode.skill.install <claude|codex|all>`; the
+Install the explicit-only external-operator workflow for Claude Code, Codex,
+or both with `mix custode.skill.install <claude|codex|all>`. Doctor reports a
+missing, stale or modified package; the
 [fresh-machine guide](guides/install.md#7-give-interactive-agents-the-operator-skill)
-covers the host paths and connection boundary.
+covers repair commands, host paths and the operator identity boundary.
 
 ## How an agent works
 

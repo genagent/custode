@@ -1,0 +1,21 @@
+# Troubleshooting Custode
+
+Start from the exact symptom and collect evidence before changing state. Preserve the tool error, relevant agent status, doctor output, and stable IDs. Never include an operator token, routine token, provider credential, or agent MCP configuration in a report.
+
+| Symptom | Evidence to collect | Remediation boundary |
+| --- | --- | --- |
+| `operator_bootstrap` is unavailable or cannot connect | Confirm the Custode process, loopback host and configured MCP port, saved MCP registration, and the environment inherited by the interactive host. | Restart or reconnect the host with the current operator token. The token changes at each Custode boot. |
+| Bootstrap is refused or reports a non-operator or unverified caller | Record the returned caller identity and endpoint. | Stop. A routine or sub-agent session is the wrong place for this skill; do not imitate the operator workflow. |
+| A Custode MCP tool is denied | Preserve the denial and inspect effective permissions. In Claude Code use `/permissions` and `/status`; run `mix custode doctor` for managed-policy warnings. | A local allow rule cannot override a deny or an organization policy. Ask the policy administrator to change the selected managed source. |
+| A call returns `Invalid params` | Load the live tool schema and compare the original names, types, target ID, and repository. | Correct the arguments. This proves the call reached validation and is not evidence of a permission failure. |
+| Claude cannot run | Run `mix custode doctor` and `claude auth status`; inspect the boot-doctor signal and provider startup error. | Install or authenticate Claude in the account that runs Custode, then restart when the boot doctor withheld ticks. |
+| Codex cannot run | Run `codex --version` and `codex login status`; inspect the routine's configured and execution providers. | Repair Codex independently. `mix custode doctor` currently checks Claude, not Codex. |
+| A Codex-only host shows two Claude doctor failures | Confirm all non-Claude doctor checks pass. The boot doctor still withholds scheduled ticks when Claude is unavailable, although direct operator messages can run. | Install and authenticate Claude for scheduled beats, or report the current limitation instead of claiming the fleet is healthy. |
+| A routine is offline, busy, or paused | Read `agent_status`, attention, recent activity, and the exact durable operator-message receipt. | An operator message starts an offline routine and queues behind busy work. A budget pause or other human-owed pause requires the human's decision before resume. |
+| A checkout is missing, occupied, or mismatched | Read the routine's declared repository and working directory, then use the owned-checkout preview or inspection path. | Preserve occupied or mismatched directories. Provision or refresh only through the maintained operation after reviewing its effect. |
+| Doctor says the running checkout is behind upstream | Confirm this is the live checkout and that the fleet has drained. | Follow the update sequence in [lifecycle.md](lifecycle.md): pull and fetch dependencies, run doctor before migrations, review the operating note and take any warranted backup, migrate, then run doctor again before restart. |
+| The console says the boot doctor failed | Read the host attention detail, full doctor report, and logs. | Fix the named host or provider condition and restart. Scheduled ticks and inbox wakes remain withheld until then. |
+| SQLite repeatedly reports `Database busy` | Check for another Custode process on the same home and long-running writers. | Stop the duplicate or wedged process. Ordinary short contention already has bounded retries. |
+| Doctor reports the operator skill missing, stale, or modified | Note the named host, installed path, version, and digest state. | Run the exact `mix custode.skill.install` repair command doctor prints. For a stale or modified package, inspect the installed files, decide whether to replace them, and then use the printed `--force` command. Restart the host afterward. |
+
+After any connection or restart repair, call `operator_bootstrap` again and compare `installation.id`. After any message-delivery repair, continue with the original `agent_id` and `message_id`; do not infer an outcome from provider process state.
