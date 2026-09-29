@@ -10,12 +10,13 @@ rungs, and the shipped-milestone history.
 
 ## Status: public operator alpha (2026-09-29)
 
-Custode is public, GitHub Actions is live, and v0.2.0 is the current
-source-installed release. It moves the MCP transport to released Snodo,
-hardens fleet handoffs and queued wakes, and gives fresh Claude Code and Codex
-sessions an installable operator skill with lifecycle, troubleshooting and
-self-maintenance guidance. The design/013 spike in #700 remains separate from
-the dashboard and fleet product.
+Custode is public, GitHub Actions is live, and v0.2.1 is the current
+source-installed release. It includes the v0.2.0 transport, fleet reliability,
+and operator skill work, then adds a focused conversation view for every agent.
+The view keeps operator prompts, provider replies, questions, approvals, and
+outcomes together while preserving the full control-room view for fleet work.
+The design/013 spike in #700 remains separate from the dashboard and fleet
+product.
 
 To upgrade a running v0.1.0 installation:
 
@@ -111,3 +112,7 @@ tree, not running, deleted only when a fix touches it.
   console text and navigation are easier to scan; and the installable operator
   skill teaches safe lifecycle, troubleshooting and self-maintenance across
   Claude Code and Codex.
+- 2026-09-29: v0.2.1 adds a focused, full-height conversation view for every
+  agent, with correlated exchanges, stable history pagination, shared drafts,
+  inline questions and approvals, and live updates that preserve scroll
+  position.
