@@ -8,7 +8,7 @@ defmodule Custode.Operations.Authorization do
   def operator(_definition, %OperationEnvelope{actor: %{kind: :operator}}), do: {:ok, :operator}
 
   def operator(_definition, %OperationEnvelope{actor: %{kind: :routine, id: id}}) do
-    with %{role: role} <- Custode.Routine.get(id),
+    with {:ok, %{role: role}} <- Custode.AgentHandoff.authorization_routine(id),
          :operator <- Custode.Roles.grants(role) do
       {:ok, :operator}
     else

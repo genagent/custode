@@ -9,6 +9,7 @@ defmodule Custode.MCPToolsTest do
   import Ecto.Query, only: [from: 2]
   import ObanClaude.Testing
 
+  alias Custode.{AgentHandoff, Agents, OperatorMessages}
   alias Custode.MCP.{ReadTools, Scope, Snodo, Tools}
   alias ObanClaude.Agent
 
@@ -104,6 +105,47 @@ defmodule Custode.MCPToolsTest do
       assert json["pending_wake"]["spend_override"] == true
       assert json["pending_wake"]["blocked_by"] == "debounce"
     end
+
+    test "agent_status returns the shared execution facts without relabeling history" do
+      routine = routine_fixture!(tmp_workspace!(), %{model: "sonnet", effort: :high})
+      revision = Custode.Routine.execution_revision(routine)
+
+      historical =
+        %{"model" => "haiku", "effort" => "low", "prompt" => "old turn"}
+        |> Oban.Job.new(
+          worker: ObanClaude.Agent.Job,
+          queue: :agents,
+          meta: %{
+            "agent_id" => routine.id,
+            "agent_generation" => "old-generation",
+            "agent_turn_id" => "old-turn",
+            "config_revision" => "old-revision"
+          }
+        )
+        |> Custode.Repo.insert!()
+
+      on_exit(fn -> Custode.Repo.delete(historical) end)
+
+      json = tool_json(Tools.AgentStatus.execute(%{agent_id: routine.id}, @frame))
+      shared = Custode.ExecutionFacts.read(routine.id) |> Map.drop([:live_error])
+
+      assert json["execution"] == shared |> Jason.encode!() |> Jason.decode!()
+      assert json["execution"]["desired"]["config_revision"] == revision
+
+      assert json["execution"]["turns"] == [
+               %{
+                 "id" => historical.id,
+                 "state" => "available",
+                 "provider" => "claude",
+                 "model" => "haiku",
+                 "effort" => "low",
+                 "config_revision" => "old-revision",
+                 "generation" => "old-generation",
+                 "turn_id" => "old-turn",
+                 "working_dir" => nil
+               }
+             ]
+    end
   end
 
   describe "start_agent / prompt_agent" do
@@ -189,6 +231,132 @@ defmodule Custode.MCPToolsTest do
       # the operator's pause stands: a parent cannot lift it by prompting
       assert {:ok, :paused} = Agent.status(id)
       refute_receive {:enqueued, _args, _meta}, 200
+    end
+
+    for provider <- [:claude, :codex] do
+      @provider provider
+
+      test "a delegated prompt records exact #{@provider} admission across fast and queued turns" do
+        provider = @provider
+        parent_id = uid("#{provider}-parent")
+        {id, frame} = start_delegated_agent!(provider, parent_id)
+
+        first_params = %{
+          agent_id: id,
+          prompt: "first delegated turn",
+          idempotency_key: "first-turn"
+        }
+
+        first = tool_json(Tools.PromptAgent.execute(first_params, frame))
+        assert first["delivered"] == true
+        assert first["how"] == "delivered"
+        assert first["provider"] == to_string(provider)
+
+        assert_receive {:delegated_enqueued, ^provider, first_args, first_meta, first_delivery,
+                        "executing"},
+                       1_000
+
+        assert first_args["prompt"] == "first delegated turn"
+        assert first_meta["correlation_id"] == first["message_id"]
+        assert first_delivery in ["admitting", "delivered"]
+
+        eventually(fn ->
+          assert %{
+                   delivery: "delivered",
+                   provider: expected_provider,
+                   status: "executing"
+                 } = OperatorMessages.get(first["message_id"])
+
+          assert expected_provider == to_string(provider)
+        end)
+
+        second_params = %{
+          agent_id: id,
+          prompt: "queued delegated turn",
+          idempotency_key: "second-turn"
+        }
+
+        second = tool_json(Tools.PromptAgent.execute(second_params, frame))
+        assert second["delivered"] == true
+        assert second["how"] == "delivered"
+        assert second["provider"] == to_string(provider)
+
+        duplicate = tool_json(Tools.PromptAgent.execute(second_params, frame))
+        assert duplicate["message_id"] == second["message_id"]
+        assert duplicate["duplicate"] == true
+        refute_receive {:delegated_enqueued, ^provider, _args, _meta, _delivery, _status}, 100
+
+        :ok = finish_delegated_turn(provider, first_meta)
+
+        assert_receive {:delegated_enqueued, ^provider, second_args, second_meta, second_delivery,
+                        "executing"},
+                       1_000
+
+        assert second_args["prompt"] == "queued delegated turn"
+        assert second_meta["correlation_id"] == second["message_id"]
+        assert second_delivery in ["admitting", "delivered"]
+        refute_receive {:delegated_enqueued, ^provider, _args, _meta, _delivery, _status}, 100
+
+        :ok = finish_delegated_turn(provider, second_meta)
+        assert {:ok, :idle} = Agents.await(id, provider, :idle, 1_000)
+      end
+    end
+
+    test "a delegated prompt claimed during config reload is refused instead of replayed" do
+      provider = :claude
+      parent_id = uid("reload-parent")
+      {id, frame} = start_delegated_agent!(provider, parent_id)
+      old_routines = Application.get_env(:custode, :routines, [])
+      put_env!(:routines, old_routines)
+
+      replacement = %{
+        id: id,
+        provider: provider,
+        cron: :manual,
+        workspace: tmp_workspace!(),
+        prompt: "configured work"
+      }
+
+      test_pid = self()
+
+      reload =
+        Task.async(fn ->
+          AgentHandoff.reconfigure([id], fn ->
+            send(test_pid, {:reload_boundary, self()})
+
+            receive do
+              :apply_reload ->
+                Application.put_env(:custode, :routines, [replacement | old_routines])
+                {:ok, :reloaded}
+            after
+              2_000 -> {:error, :reload_test_timeout}
+            end
+          end)
+        end)
+
+      assert_receive {:reload_boundary, boundary}, 1_000
+
+      delivery =
+        Task.async(fn ->
+          Tools.PromptAgent.execute(
+            %{agent_id: id, prompt: "must not cross reload", idempotency_key: "reload-race"},
+            frame
+          )
+        end)
+
+      eventually(fn ->
+        assert %{delivery: "admitting", status: "queued"} =
+                 delegated_message(id, "reload-race")
+      end)
+
+      send(boundary, :apply_reload)
+      assert {:ok, :reloaded} = Task.await(reload, 5_000)
+
+      json = delivery |> Task.await(5_000) |> tool_json()
+      assert json["delivered"] == false
+      assert json["status"] == "refused"
+      assert json["error"]["kind"] == "delivery_refused"
+      refute_receive {:delegated_enqueued, ^provider, _args, _meta, _delivery, _status}, 200
     end
 
     test "an idempotency retry returns the same receipt without a second delivery" do
@@ -955,6 +1123,72 @@ defmodule Custode.MCPToolsTest do
 
   defp routine_frame(id),
     do: %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :routine, id: id}}}
+
+  defp start_delegated_agent!(provider, parent_id) do
+    id = uid("#{provider}-delegated")
+    test_pid = self()
+
+    enqueue_fun = fn args, meta ->
+      message = OperatorMessages.get(meta["correlation_id"])
+      delivery = message && message.delivery
+
+      :ok =
+        OperatorMessages.handle_event(
+          [telemetry_provider(provider), :agent, :transition],
+          %{},
+          %{
+            agent_id: id,
+            correlation_id: meta["correlation_id"],
+            to: :running,
+            agent_generation: meta["agent_generation"],
+            agent_turn_id: meta["agent_turn_id"],
+            arc_id: meta["arc_id"]
+          },
+          nil
+        )
+
+      projected = OperatorMessages.get(meta["correlation_id"])
+
+      send(
+        test_pid,
+        {:delegated_enqueued, provider, args, meta, delivery, projected && projected.status}
+      )
+
+      {:ok, :queued}
+    end
+
+    {:ok, _pid} = Agents.start_agent(id, provider, enqueue_fun: enqueue_fun)
+    :ok = Custode.SubAgents.record_spawn!(id, parent_id, %{workspace: "/tmp"})
+
+    on_exit(fn ->
+      Agents.stop_agent(id, provider)
+      Custode.SubAgents.forget(id)
+    end)
+
+    {id, routine_frame(parent_id)}
+  end
+
+  defp finish_delegated_turn(:claude, meta) do
+    result = ObanClaude.Testing.result(result: "done", session_id: Ecto.UUID.generate())
+    ObanClaude.Agent.Job.handle_result(result, %Oban.Job{meta: meta, attempt: 1, max_attempts: 1})
+  end
+
+  defp finish_delegated_turn(:codex, meta) do
+    result = ObanCodex.Testing.result("done", session_id: Ecto.UUID.generate())
+    ObanCodex.Agent.Job.handle_result(result, %Oban.Job{meta: meta, attempt: 1, max_attempts: 1})
+  end
+
+  defp delegated_message(agent_id, idempotency_key) do
+    Custode.Repo.one(
+      from(m in Custode.OperatorMessage,
+        where: m.target_agent_id == ^agent_id and m.idempotency_key == ^idempotency_key,
+        limit: 1
+      )
+    )
+  end
+
+  defp telemetry_provider(:claude), do: :oban_claude
+  defp telemetry_provider(:codex), do: :oban_codex
 
   defp approved_gate!(agent_id, class, detail \\ nil) do
     gate =

@@ -5,7 +5,7 @@ defmodule Custode.Operator.ActionsTest do
   import Ecto.Query, only: [from: 2]
   import ObanClaude.Testing
 
-  alias Custode.Asks
+  alias Custode.{AgentHandoff, Agents, Asks, OperatorMessages, Routine}
   alias Custode.Operator.Actions
   alias Custode.Repo
   alias ObanClaude.Agent
@@ -34,6 +34,149 @@ defmodule Custode.Operator.ActionsTest do
       assert {:ok, :delivered} = Actions.message(id, "what changed on main?")
       assert_receive {:enqueued, args, _meta}, 1_000
       assert args["prompt"] =~ "what changed on main?"
+    end
+
+    test "an answer cannot bypass an older durable message through continuation admission" do
+      id = uid("continuation-fifo")
+      test_pid = self()
+
+      put_env!(:routines, [
+        %{
+          id: id,
+          provider: :claude,
+          cron: :manual,
+          workspace: tmp_workspace!(),
+          prompt: "work"
+        }
+      ])
+
+      config =
+        id
+        |> Routine.get()
+        |> Routine.agent_config(%{})
+        |> Keyword.put(:enqueue_fun, fn args, meta ->
+          send(test_pid, {:fifo_enqueued, args, meta})
+          {:ok, :queued}
+        end)
+
+      {:ok, _pid} = Agents.start_agent(id, config)
+      on_exit(fn -> Agents.stop_agent(id, :claude) end)
+
+      assert {:ok, original, :created} =
+               Actions.message_with_receipt(id, "start the review")
+
+      assert_receive {:fifo_enqueued, _args, original_meta}, 1_000
+
+      assert {:ok, older, :created} =
+               OperatorMessages.submit(id, "older queued context", [], fn _message ->
+                 {:ok, :queued}
+               end)
+
+      detach_handoff_transitions()
+      on_exit(&attach_handoff_transitions/0)
+
+      result =
+        ObanClaude.Testing.structured_result(%{
+          "directive" => "ask_user",
+          "question" => "which environment?"
+        })
+
+      :ok =
+        ObanClaude.Agent.Job.handle_result(
+          result,
+          %Oban.Job{meta: original_meta, attempt: 1, max_attempts: 1}
+        )
+
+      assert {:ok, {:waiting_for_user, "which environment?"}} =
+               ObanClaude.Agent.await(id, :waiting_for_user, 1_000)
+
+      eventually(fn ->
+        assert OperatorMessages.get(original.message_id).status == "waiting_for_input"
+      end)
+
+      attach_handoff_transitions()
+
+      assert {:ok, answer, :created} =
+               Actions.message_with_receipt(id, "staging")
+
+      assert answer.continues_message_id == original.message_id
+      assert answer.delivery == "queued"
+
+      assert_receive {:fifo_enqueued, older_args, older_meta}, 1_000
+      assert older_args["prompt"] =~ "older queued context"
+      assert older_meta["correlation_id"] == older.message_id
+
+      refute_receive {:fifo_enqueued, _args, _meta}, 100
+      assert OperatorMessages.get(answer.message_id).delivery == "queued"
+
+      :ok = finish_provider_turn(:claude, older_meta)
+
+      assert_receive {:fifo_enqueued, answer_args, answer_meta}, 1_000
+      assert answer_args["prompt"] =~ "staging"
+      assert answer_meta["correlation_id"] == original.message_id
+    end
+
+    for provider <- [:claude, :codex] do
+      @provider provider
+
+      test "a busy unconfigured #{@provider} agent durably owns one idempotent cast" do
+        provider = @provider
+        id = start_provider_agent!(provider)
+
+        assert :processing = Agents.submit_prompt(id, "first turn")
+        assert_receive {:operator_provider_enqueued, ^provider, _args, first_meta}, 1_000
+
+        opts = [idempotency_key: "busy-operator-message"]
+
+        assert {:ok, message, :created} =
+                 Actions.message_with_receipt(id, "queue after the turn", opts)
+
+        assert message.delivery == "delivered"
+        assert message.provider == to_string(provider)
+        assert message.status == "queued"
+
+        assert {:ok, duplicate, :duplicate} =
+                 Actions.message_with_receipt(id, "queue after the turn", opts)
+
+        assert duplicate.message_id == message.message_id
+        refute_receive {:operator_provider_enqueued, ^provider, _args, _meta}, 100
+
+        :ok = finish_provider_turn(provider, first_meta)
+
+        assert_receive {:operator_provider_enqueued, ^provider, second_args, second_meta}, 1_000
+        assert second_args["prompt"] == "queue after the turn"
+        assert second_meta["correlation_id"] == message.message_id
+        refute_receive {:operator_provider_enqueued, ^provider, _args, _meta}, 100
+
+        eventually(fn ->
+          assert %{
+                   delivery: "delivered",
+                   provider: expected_provider,
+                   status: "executing"
+                 } = OperatorMessages.get(message.message_id)
+
+          assert expected_provider == to_string(provider)
+        end)
+
+        :ok = finish_provider_turn(provider, second_meta)
+        assert {:ok, :idle} = Agents.await(id, provider, :idle, 1_000)
+
+        :ok = Agents.emergency_pause(id, provider)
+        assert {:ok, :paused} = Agents.await(id, provider, :paused, 1_000)
+
+        assert {:ok, resumed, :created} =
+                 Actions.message_with_receipt(id, "resume this agent")
+
+        assert resumed.delivery == "resumed"
+        assert resumed.provider == to_string(provider)
+
+        assert_receive {:operator_provider_enqueued, ^provider, resumed_args, resumed_meta}, 1_000
+        assert resumed_args["prompt"] == "resume this agent"
+        assert resumed_meta["correlation_id"] == resumed.message_id
+
+        :ok = finish_provider_turn(provider, resumed_meta)
+        assert {:ok, :idle} = Agents.await(id, provider, :idle, 1_000)
+      end
     end
 
     # the engine answers :agent_not_running for an offline agent, which is why
@@ -376,6 +519,54 @@ defmodule Custode.Operator.ActionsTest do
 
       assert :ok = Actions.resume(target, caretaker_opts)
       assert {:ok, :idle} = Agent.await(target, :idle, 1_000)
+    end
+  end
+
+  defp start_provider_agent!(provider) do
+    id = uid("#{provider}-operator-message")
+    test_pid = self()
+
+    {:ok, _pid} =
+      Agents.start_agent(id, provider,
+        enqueue_fun: fn args, meta ->
+          send(test_pid, {:operator_provider_enqueued, provider, args, meta})
+          {:ok, :queued}
+        end
+      )
+
+    on_exit(fn -> Agents.stop_agent(id, provider) end)
+    id
+  end
+
+  defp finish_provider_turn(:claude, meta) do
+    result = ObanClaude.Testing.result(result: "done", session_id: Ecto.UUID.generate())
+    ObanClaude.Agent.Job.handle_result(result, %Oban.Job{meta: meta, attempt: 1, max_attempts: 1})
+  end
+
+  defp finish_provider_turn(:codex, meta) do
+    result = ObanCodex.Testing.result("done", session_id: Ecto.UUID.generate())
+    ObanCodex.Agent.Job.handle_result(result, %Oban.Job{meta: meta, attempt: 1, max_attempts: 1})
+  end
+
+  defp detach_handoff_transitions do
+    :telemetry.detach("custode-agent-handoff")
+    :ok
+  end
+
+  defp attach_handoff_transitions do
+    detach_handoff_transitions()
+
+    case Process.whereis(AgentHandoff) do
+      pid when is_pid(pid) ->
+        :telemetry.attach_many(
+          "custode-agent-handoff",
+          [[:oban_claude, :agent, :transition], [:oban_codex, :agent, :transition]],
+          &AgentHandoff.handle_transition/4,
+          pid
+        )
+
+      nil ->
+        :ok
     end
   end
 end

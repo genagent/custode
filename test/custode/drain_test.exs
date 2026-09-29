@@ -88,6 +88,7 @@ defmodule Custode.DrainTest do
       Custode.drain(
         pause: fn _queue -> :ok end,
         stop: fn -> send(test_pid, :stopped) end,
+        timeout: 100,
         poll: 5
       )
 

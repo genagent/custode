@@ -100,7 +100,15 @@ defmodule Custode.RosterToolsTest do
       )
 
     assert json["live"] == true
-    assert Custode.Routine.get("codex-add").provider == :codex
+    routine = Custode.Routine.get("codex-add")
+    assert routine.provider == :codex
+    assert routine.model == Application.get_env(:custode, :codex_model)
+
+    assert routine.approved_args == %{
+             "sandbox" => "workspace_write",
+             "approval_policy" => "never"
+           }
+
     assert File.read!(path) =~ ~s(provider = "codex")
   end
 

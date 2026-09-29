@@ -10,6 +10,29 @@ defmodule Custode.MCP do
 
   alias Custode.MCP.Identity
 
+  defmodule BootConfigWriter do
+    @moduledoc false
+
+    @doc false
+    def child_spec(_opts) do
+      %{
+        id: __MODULE__,
+        start: {__MODULE__, :start_link, [[]]},
+        restart: :temporary,
+        type: :worker
+      }
+    end
+
+    # Config files carry the identity tokens used by provider processes. The
+    # supervisor must not advance to the handoff coordinator until every file
+    # reflects the current roster and identity store.
+    @doc false
+    def start_link(_opts) do
+      Custode.MCP.write_config!()
+      :ignore
+    end
+  end
+
   def port, do: Application.get_env(:custode, :mcp_port, 6161)
 
   def url, do: "http://127.0.0.1:#{port()}/mcp"
@@ -71,7 +94,7 @@ defmodule Custode.MCP do
   one PER ROUTINE carrying that routine's bearer token (#2 -- the token IS
   the caller identity the router verifies), plus the shared external
   servers file. Requires `Custode.MCP.Identity` to be running; invoked
-  from a boot task after it, and before the ticks queue opens.
+  from a boot barrier after it, and before the ticks queue opens.
   """
   def write_config! do
     File.mkdir_p!(Path.dirname(config_path()))
@@ -94,15 +117,26 @@ defmodule Custode.MCP do
   end
 
   @doc """
-  Mint (or re-mint) a routine's identity and write its per-routine MCP config
-  file. Boot calls this for every roster entry; runtime adds (#75's
-  write-back) call it for the newcomer so "beatable immediately" holds for
-  mcp: true routines too -- a routine without this file fails every turn
-  with command_failed until someone writes it.
+  Ensure a routine has an identity and write its per-routine MCP config file.
+
+  Boot rewrites every roster entry using the token already provisioned by
+  `Identity`; runtime additions mint only when the identity is absent. A
+  routine without this file fails every MCP-enabled turn with
+  `command_failed` until someone writes it.
   """
   def write_routine_config!(routine_id) do
-    token = Identity.mint(:routine, routine_id)
+    token =
+      case Identity.token(:routine, routine_id) do
+        {:ok, token} -> token
+        :error -> Identity.mint(:routine, routine_id)
+      end
 
+    write_routine_config!(routine_id, token)
+  end
+
+  @doc false
+  def write_routine_config!(routine_id, token)
+      when is_binary(routine_id) and is_binary(token) do
     ClaudeWrapper.McpConfig.new()
     |> ClaudeWrapper.McpConfig.add_http("custode", url(),
       headers: %{"Authorization" => "Bearer " <> token}

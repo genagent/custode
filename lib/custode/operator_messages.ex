@@ -11,7 +11,7 @@ defmodule Custode.OperatorMessages do
 
   import Ecto.Query, only: [from: 2]
 
-  alias Custode.{Agents, OperatorMessage, Repo}
+  alias Custode.{AgentHandoff, Agents, OperatorMessage, Repo}
 
   @handler_id "custode-operator-messages"
   @events [
@@ -26,6 +26,27 @@ defmodule Custode.OperatorMessages do
   ]
 
   @active ~w(queued executing waiting_for_input waiting_for_approval)
+  @refused_delivery "refused"
+
+  defmodule BootReconciler do
+    @moduledoc false
+
+    @doc false
+    def child_spec(_opts) do
+      %{
+        id: __MODULE__,
+        start: {__MODULE__, :start_link, [[]]},
+        restart: :temporary,
+        type: :worker
+      }
+    end
+
+    @doc false
+    def start_link(_opts) do
+      Custode.OperatorMessages.reconcile!()
+      :ignore
+    end
+  end
 
   @doc "Attach the provider-neutral lifecycle projection."
   def attach do
@@ -36,11 +57,13 @@ defmodule Custode.OperatorMessages do
   Persist one submission and invoke `deliver` exactly once for a new
   `(caller, target, idempotency key)` tuple.
 
-  `deliver` receives the provider correlation id and returns `{:ok, how}` or
-  `{:error, reason}`. Concurrent duplicates receive the existing row and never
-  invoke it again. Reusing a key with different text is refused.
+  `deliver` receives the inserted durable row and returns `{:ok, how}` or
+  `{:error, reason}`. A delivery that records provider admission while holding
+  the live-config boundary returns `{:admitted, how}`. Concurrent duplicates
+  receive the existing row and never invoke it again. Reusing a key with
+  different text is refused.
   """
-  @spec submit(String.t(), String.t(), keyword(), (String.t() -> {:ok, term()} | {:error, term()})) ::
+  @spec submit(String.t(), String.t(), keyword(), (OperatorMessage.t() -> term())) ::
           {:ok, OperatorMessage.t(), :created | :duplicate} | {:error, term()}
   def submit(target_agent_id, prompt, opts, deliver) when is_function(deliver, 1) do
     with {:ok, caller} <- caller(opts),
@@ -62,8 +85,11 @@ defmodule Custode.OperatorMessages do
         prompt: prompt,
         provider_correlation_id: provider_correlation_id,
         continues_message_id: continued && continued.message_id,
-        provider: target_agent_id |> Agents.provider() |> to_string(),
-        status: "queued"
+        provider: target_agent_id |> configured_provider() |> to_string(),
+        status: "queued",
+        # The durable queue owns a message before provider admission begins.
+        # A crash at any later instruction therefore leaves replayable work.
+        delivery: "queued"
       }
 
       insert_or_get(attrs, prompt_hash, deliver)
@@ -122,18 +148,271 @@ defmodule Custode.OperatorMessages do
     }
   end
 
+  @doc "Queued messages for one target, in caller submission order."
+  def queued_for(target_agent_id) when is_binary(target_agent_id) do
+    Repo.all(
+      from(m in OperatorMessage,
+        where:
+          m.target_agent_id == ^target_agent_id and m.status == "queued" and
+            m.delivery == "queued",
+        order_by: [asc: m.id]
+      )
+    )
+  end
+
+  @doc "Atomically claim a queued message for one provider-admission attempt."
+  @spec claim_delivery(OperatorMessage.t()) ::
+          {:ok, OperatorMessage.t()} | {:error, :not_queued}
+  def claim_delivery(%OperatorMessage{} = message), do: claim_delivery(message, :any)
+
+  @doc "Atomically claim a queued message only when it is the target's oldest queued row."
+  @spec claim_next_delivery(OperatorMessage.t()) ::
+          {:ok, OperatorMessage.t()} | {:error, :not_queued | :not_next}
+  def claim_next_delivery(%OperatorMessage{} = message), do: claim_delivery(message, :next)
+
+  defp claim_delivery(
+         %OperatorMessage{id: id, provider_correlation_id: correlation_id},
+         order
+       )
+       when order in [:any, :next] do
+    token = Ecto.UUID.generate()
+
+    Repo.transaction(
+      fn -> claim_delivery!(id, correlation_id, token, order) end,
+      mode: :immediate
+    )
+    |> claim_result()
+  end
+
+  defp claim_delivery!(id, correlation_id, token, order) do
+    message = id |> claimable_message() |> ensure_queued!()
+    ensure_next!(message, id, order)
+    persist_delivery_claim!(id, correlation_id, token)
+  end
+
+  defp claimable_message(id) do
+    Repo.one(
+      from(m in OperatorMessage,
+        where: m.id == ^id,
+        select: %{
+          status: m.status,
+          delivery: m.delivery,
+          target_agent_id: m.target_agent_id
+        }
+      )
+    )
+  end
+
+  defp ensure_queued!(%{status: "queued", delivery: "queued"} = message), do: message
+  defp ensure_queued!(_message), do: Repo.rollback(:not_queued)
+
+  defp ensure_next!(_message, _id, :any), do: :ok
+
+  defp ensure_next!(message, id, :next) do
+    if oldest_queued_id(message.target_agent_id) == id,
+      do: :ok,
+      else: Repo.rollback(:not_next)
+  end
+
+  defp oldest_queued_id(target_agent_id) do
+    Repo.one(
+      from(m in OperatorMessage,
+        where:
+          m.target_agent_id == ^target_agent_id and m.status == "queued" and
+            m.delivery == "queued",
+        order_by: [asc: m.id],
+        select: m.id,
+        limit: 1
+      )
+    )
+  end
+
+  defp persist_delivery_claim!(id, correlation_id, token) do
+    # Provider jobs use a monotonic durable id. Snapshotting it under the same
+    # immediate write lock as the claim distinguishes an old shared-correlation
+    # job from the job this attempt may enqueue, even at equal timestamps.
+    claim_after_job_id = latest_job_id(correlation_id) || 0
+    claimed_at = now()
+
+    {updated_count, _rows} =
+      Repo.update_all(
+        from(m in OperatorMessage,
+          where: m.id == ^id and m.status == "queued" and m.delivery == "queued"
+        ),
+        set: [
+          delivery: "admitting",
+          claim_token: token,
+          claimed_at: claimed_at,
+          claim_after_job_id: claim_after_job_id,
+          updated_at: claimed_at
+        ]
+      )
+
+    claimed_message!(updated_count, id)
+  end
+
+  defp claimed_message!(1, id), do: Repo.get!(OperatorMessage, id)
+  defp claimed_message!(0, _id), do: Repo.rollback(:not_queued)
+
+  defp claim_result({:ok, claimed}), do: {:ok, claimed}
+  defp claim_result({:error, :not_queued}), do: {:error, :not_queued}
+  defp claim_result({:error, :not_next}), do: {:error, :not_next}
+
+  @doc "Release an unadmitted claim so the durable message can be replayed."
+  @spec release_delivery(OperatorMessage.t()) :: :ok | {:error, :not_admitting}
+  def release_delivery(%OperatorMessage{id: id, claim_token: token})
+      when is_binary(token) and token != "" do
+    {updated_count, _rows} =
+      Repo.update_all(
+        from(m in OperatorMessage,
+          where:
+            m.id == ^id and m.status == "queued" and m.delivery == "admitting" and
+              m.claim_token == ^token
+        ),
+        set: [
+          delivery: "queued",
+          claim_token: nil,
+          claimed_at: nil,
+          claim_after_job_id: nil,
+          updated_at: now()
+        ]
+      )
+
+    case updated_count do
+      1 -> :ok
+      0 -> {:error, :not_admitting}
+    end
+  end
+
+  def release_delivery(%OperatorMessage{}), do: {:error, :not_admitting}
+
+  @doc "Record that a claimed message was handed to its live provider."
+  @spec record_delivery(OperatorMessage.t(), term(), atom() | String.t()) ::
+          :ok | {:error, :not_admitting}
+  def record_delivery(%OperatorMessage{id: id, claim_token: token}, how, provider)
+      when is_binary(token) and token != "" do
+    now = now()
+
+    {updated_count, _rows} =
+      Repo.update_all(
+        from(m in OperatorMessage,
+          # Fast test providers, and occasionally a very short real turn, can
+          # publish their completion telemetry before submit_prompt/3 returns.
+          # Admission still happened and its exact disposition must win over
+          # the temporary claim without rewriting lifecycle status that
+          # telemetry already made terminal.
+          where: m.id == ^id and m.delivery == "admitting" and m.claim_token == ^token
+        ),
+        set: [
+          delivery: to_string(how),
+          claim_token: nil,
+          claimed_at: nil,
+          claim_after_job_id: nil,
+          provider: to_string(provider),
+          detail: nil,
+          updated_at: now
+        ]
+      )
+
+    case updated_count do
+      1 -> :ok
+      0 -> {:error, :not_admitting}
+    end
+  end
+
+  def record_delivery(%OperatorMessage{}, _how, _provider), do: {:error, :not_admitting}
+
+  @doc "Return the oldest durable message waiting for provider admission."
+  def next_queued(target_agent_id) when is_binary(target_agent_id) do
+    Repo.one(
+      from(m in OperatorMessage,
+        where:
+          m.target_agent_id == ^target_agent_id and m.status == "queued" and
+            m.delivery == "queued",
+        order_by: [asc: m.id],
+        limit: 1
+      )
+    )
+  end
+
+  @doc "Reclaim prompts accepted only into a provider process's volatile queue."
+  def defer_unstarted(target_agent_id) when is_binary(target_agent_id) do
+    rows =
+      Repo.all(
+        from(m in OperatorMessage,
+          where: m.target_agent_id == ^target_agent_id and m.status == "queued",
+          order_by: [asc: m.id]
+        )
+      )
+
+    Enum.each(rows, fn row ->
+      case latest_job(row.provider_correlation_id) do
+        nil ->
+          update!(row, %{
+            delivery: "queued",
+            claim_token: nil,
+            claimed_at: nil,
+            claim_after_job_id: nil,
+            detail: "waiting for provider admission after live configuration changed"
+          })
+
+        _job ->
+          reconcile_correlation(row.provider_correlation_id)
+      end
+    end)
+
+    :ok
+  end
+
   @doc "Recover active rows from durable Oban metadata after an application restart."
   def reconcile! do
     correlations =
       Repo.all(
         from(m in OperatorMessage,
-          where: m.status in ["queued", "executing"],
+          where: m.status in ["queued", "executing"] or m.delivery == "admitting",
           distinct: true,
           select: m.provider_correlation_id
         )
       )
 
     Enum.each(correlations, &reconcile_correlation/1)
+    :ok
+  end
+
+  @doc "Routine ids that still own non-terminal operator messages."
+  @spec active_target_ids() :: [String.t()]
+  def active_target_ids do
+    Repo.all(
+      from(m in OperatorMessage,
+        where: m.status in ^@active,
+        distinct: true,
+        select: m.target_agent_id
+      )
+    )
+  end
+
+  @doc "Settle work that can no longer be delivered because its routine was removed."
+  @spec settle_removed(String.t()) :: :ok
+  def settle_removed(target_agent_id) when is_binary(target_agent_id) do
+    now = now()
+
+    Repo.update_all(
+      from(m in OperatorMessage,
+        where: m.target_agent_id == ^target_agent_id and m.status in ^@active
+      ),
+      set: [
+        status: "refused",
+        delivery: @refused_delivery,
+        claim_token: nil,
+        claimed_at: nil,
+        claim_after_job_id: nil,
+        detail: "routine removed before provider delivery",
+        error: error_map(:delivery_refused, :routine_removed),
+        completed_at: now,
+        updated_at: now
+      ]
+    )
+
     :ok
   end
 
@@ -189,15 +468,35 @@ defmodule Custode.OperatorMessages do
   end
 
   defp deliver_new(message, deliver) do
-    case safe_deliver(deliver, message.provider_correlation_id) do
+    case safe_deliver(deliver, message) do
+      {:admitted, _how} ->
+        {:ok, Repo.get!(OperatorMessage, message.id), :created}
+
       {:ok, how} ->
         updated = update!(message, %{delivery: to_string(how)})
+        {:ok, updated, :created}
+
+      {:deferred, reason} ->
+        {updated_count, _rows} =
+          Repo.update_all(
+            from(m in OperatorMessage,
+              where: m.id == ^message.id and m.delivery == "queued"
+            ),
+            set: [
+              detail: "waiting for live configuration: #{inspect(reason)}",
+              updated_at: now()
+            ]
+          )
+
+        if updated_count > 0, do: AgentHandoff.work_queued(message.target_agent_id)
+        updated = Repo.get!(OperatorMessage, message.id)
         {:ok, updated, :created}
 
       {:error, reason} ->
         updated =
           update!(message, %{
             status: "refused",
+            delivery: @refused_delivery,
             error: error_map(:delivery_refused, reason),
             completed_at: now()
           })
@@ -206,8 +505,8 @@ defmodule Custode.OperatorMessages do
     end
   end
 
-  defp safe_deliver(deliver, correlation_id) do
-    deliver.(correlation_id)
+  defp safe_deliver(deliver, message) do
+    deliver.(message)
   rescue
     exception -> {:error, {:delivery_exception, Exception.message(exception)}}
   catch
@@ -371,21 +670,40 @@ defmodule Custode.OperatorMessages do
   defp run_result(_provider, result), do: %{result: output_map(inspect(result))}
 
   defp reconcile_correlation(correlation_id) do
-    case latest_job(correlation_id) do
+    job = latest_job(correlation_id)
+    release_unowned_admitting(correlation_id, job)
+
+    case job do
       nil ->
-        update_active(correlation_id, %{
-          status: "failed",
-          error: error_map(:delivery_interrupted, :no_durable_job),
-          completed_at: now()
-        })
+        preserve_queued_without_job(correlation_id)
 
       %Oban.Job{state: state} = job when state in ["available", "scheduled", "retryable"] ->
-        update_active(correlation_id, Map.merge(job_attrs(job), %{status: "queued"}))
+        provider = job_provider(job)
+        recover_admitting_delivery(correlation_id, provider)
+
+        update_active(
+          correlation_id,
+          Map.merge(job_attrs(job), %{
+            status: "queued",
+            provider: provider
+          })
+        )
 
       %Oban.Job{state: "executing"} = job ->
-        update_active(correlation_id, Map.merge(job_attrs(job), %{status: "executing"}))
+        provider = job_provider(job)
+        recover_admitting_delivery(correlation_id, provider)
+
+        update_active(
+          correlation_id,
+          Map.merge(job_attrs(job), %{
+            status: "executing",
+            provider: provider
+          })
+        )
 
       %Oban.Job{state: "completed"} = job ->
+        recover_admitting_delivery(correlation_id, job_provider(job))
+
         update_active(
           correlation_id,
           job_attrs(job)
@@ -397,6 +715,8 @@ defmodule Custode.OperatorMessages do
         )
 
       %Oban.Job{state: state} = job when state in ["cancelled", "discarded"] ->
+        recover_admitting_delivery(correlation_id, job_provider(job))
+
         update_active(
           correlation_id,
           Map.merge(job_attrs(job), %{
@@ -408,6 +728,92 @@ defmodule Custode.OperatorMessages do
     end
   end
 
+  defp preserve_queued_without_job(correlation_id) do
+    now = now()
+
+    Repo.update_all(
+      from(m in OperatorMessage,
+        where: m.provider_correlation_id == ^correlation_id and m.status == "queued"
+      ),
+      set: [
+        delivery: "queued",
+        claim_token: nil,
+        claimed_at: nil,
+        claim_after_job_id: nil,
+        updated_at: now
+      ]
+    )
+
+    update_statuses(correlation_id, ["executing"], %{
+      status: "failed",
+      error: error_map(:delivery_interrupted, :no_durable_job),
+      completed_at: now
+    })
+  end
+
+  defp recover_admitting_delivery(correlation_id, provider) do
+    Repo.update_all(
+      from(m in OperatorMessage,
+        where: m.provider_correlation_id == ^correlation_id and m.delivery == "admitting"
+      ),
+      set: [
+        delivery: "delivered",
+        claim_token: nil,
+        claimed_at: nil,
+        claim_after_job_id: nil,
+        provider: provider,
+        updated_at: now()
+      ]
+    )
+
+    :ok
+  end
+
+  defp release_unowned_admitting(correlation_id, %Oban.Job{id: job_id})
+       when is_integer(job_id) do
+    # A job owns this attempt only when it was inserted after the atomic claim
+    # boundary. Equality means it was already present when the claim began.
+    release_admitting(
+      from(m in OperatorMessage,
+        where:
+          m.provider_correlation_id == ^correlation_id and m.delivery == "admitting" and
+            (is_nil(m.claim_after_job_id) or m.claim_after_job_id >= ^job_id)
+      )
+    )
+  end
+
+  defp release_unowned_admitting(correlation_id, _missing_or_undated_job) do
+    release_admitting(
+      from(m in OperatorMessage,
+        where: m.provider_correlation_id == ^correlation_id and m.delivery == "admitting"
+      )
+    )
+  end
+
+  defp release_admitting(query) do
+    Repo.update_all(query,
+      set: [
+        status: "queued",
+        delivery: "queued",
+        claim_token: nil,
+        claimed_at: nil,
+        claim_after_job_id: nil,
+        agent_generation: nil,
+        agent_turn_id: nil,
+        arc_id: nil,
+        provider_session_id: nil,
+        detail: nil,
+        result: nil,
+        error: nil,
+        started_at: nil,
+        completed_at: nil,
+        updated_at: now()
+      ]
+    )
+
+    :ok
+  end
+
   defp latest_job(correlation_id) do
     Repo.one(
       from(j in Oban.Job,
@@ -416,6 +822,28 @@ defmodule Custode.OperatorMessages do
         limit: 1
       )
     )
+  end
+
+  defp latest_job_id(correlation_id) do
+    Repo.one(
+      from(j in Oban.Job,
+        where: fragment("json_extract(?, '$.correlation_id') = ?", j.meta, ^correlation_id),
+        order_by: [desc: j.id],
+        select: j.id,
+        limit: 1
+      )
+    )
+  end
+
+  defp job_provider(%Oban.Job{worker: "ObanClaude.Agent.Job"}), do: "claude"
+  defp job_provider(%Oban.Job{worker: "ObanCodex.Agent.Job"}), do: "codex"
+  defp job_provider(_job), do: nil
+
+  defp configured_provider(agent_id) do
+    case Agents.configured_provider(agent_id) do
+      provider when provider in [:claude, :codex] -> provider
+      {:error, _reason} -> :claude
+    end
   end
 
   defp job_attrs(%Oban.Job{meta: meta, attempted_at: attempted_at}) do
@@ -472,7 +900,9 @@ defmodule Custode.OperatorMessages do
 
     Repo.update_all(
       from(m in OperatorMessage,
-        where: m.provider_correlation_id == ^correlation_id and m.status in ^statuses
+        where:
+          m.provider_correlation_id == ^correlation_id and m.status in ^statuses and
+            (is_nil(m.delivery) or m.delivery != "queued")
       ),
       set: Map.to_list(Map.put(attrs, :updated_at, now))
     )

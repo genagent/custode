@@ -4,7 +4,7 @@ defmodule Custode.SpendLedgerTest do
   import Custode.TestHelpers
   import ObanClaude.Testing
 
-  alias Custode.SpendLedger
+  alias Custode.{Routine, SpendLedger}
   alias ObanClaude.Agent
 
   setup do
@@ -114,13 +114,17 @@ defmodule Custode.SpendLedgerTest do
   defp stub_routine!(routine) do
     test_pid = self()
 
+    config =
+      Routine.agent_config(routine) ++
+        [
+          enqueue_fun: fn args, meta ->
+            send(test_pid, {:enqueued, args, meta})
+            {:ok, :queued}
+          end
+        ]
+
     {:ok, _pid} =
-      Agent.start_agent(routine.id,
-        enqueue_fun: fn args, meta ->
-          send(test_pid, {:enqueued, args, meta})
-          {:ok, :queued}
-        end
-      )
+      Agent.start_agent(routine.id, config)
 
     on_exit(fn -> Agent.stop_agent(routine.id) end)
     :ok
@@ -180,7 +184,10 @@ defmodule Custode.SpendLedgerTest do
     workspace = tmp_workspace!()
     routine = routine_fixture!(workspace, %{daily_budget_tokens: 1_000, daily_budget_usd: nil})
 
-    {:ok, _pid} = Agent.start_agent(routine.id, enqueue_fun: fn _a, _m -> {:ok, :queued} end)
+    config =
+      Routine.agent_config(routine) ++ [enqueue_fun: fn _args, _meta -> {:ok, :queued} end]
+
+    {:ok, _pid} = Agent.start_agent(routine.id, config)
     on_exit(fn -> Agent.stop_agent(routine.id) end)
 
     :ok =
@@ -208,13 +215,16 @@ defmodule Custode.SpendLedgerTest do
 
     test_pid = self()
 
-    {:ok, _pid} =
-      Custode.Agents.start_agent(routine.id,
-        enqueue_fun: fn args, meta ->
-          send(test_pid, {:codex_enqueued, args, meta})
-          {:ok, :queued}
-        end
-      )
+    config =
+      Routine.agent_config(routine) ++
+        [
+          enqueue_fun: fn args, meta ->
+            send(test_pid, {:codex_enqueued, args, meta})
+            {:ok, :queued}
+          end
+        ]
+
+    {:ok, _pid} = Custode.Agents.start_agent(routine.id, :codex, config)
 
     on_exit(fn -> Custode.Agents.stop_agent(routine.id, :codex) end)
 

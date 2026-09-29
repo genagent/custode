@@ -578,6 +578,7 @@ defmodule CustodeWeb.ConsoleLive do
   defp save_images(_socket), do: []
 
   defp sent_notice(:delivered), do: "sent"
+  defp sent_notice(:queued), do: "queued for the next safe turn"
   defp sent_notice(:resumed), do: "resumed, then sent"
   defp sent_notice(:started), do: "started a turn with your message"
 

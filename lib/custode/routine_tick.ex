@@ -49,6 +49,7 @@ defmodule Custode.RoutineTick do
 
   require Logger
 
+  alias Custode.AgentHandoff
   alias Custode.Availability
   alias Custode.Availability.Advice
   alias Custode.Routine
@@ -125,16 +126,29 @@ defmodule Custode.RoutineTick do
   end
 
   defp beat(id) do
+    case AgentHandoff.admit(id, fn -> enqueue_current_tick(id) end) do
+      {:deferred, reason} ->
+        {:cancel, {:config_transition, id, reason}}
+
+      {:error, reason} ->
+        {:cancel, {:config_reconcile_failed, id, reason}}
+
+      other ->
+        other
+    end
+  end
+
+  defp enqueue_current_tick(id) do
     case Routine.get(id) do
       nil ->
-        # the routine was removed from config since boot; nothing to beat
+        # The routine can disappear after the resolver job was inserted.
         {:cancel, {:unknown_routine, id}}
 
       routine ->
-        run_intake(routine)
-        tick = Routine.tick_worker(routine)
-
-        with {:ok, args, prepared} <- Custode.ConversationArcs.tick_args(routine, :scheduled) do
+        with :ok <- run_intake(routine),
+             {:ok, args, prepared} <-
+               Custode.ConversationArcs.tick_args(routine, :scheduled) do
+          tick = Routine.tick_worker(routine)
           enqueue_tick(routine, tick, args, prepared)
         end
     end

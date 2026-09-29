@@ -4,6 +4,7 @@ defmodule Custode.RoutineTest do
   import Custode.TestHelpers
 
   alias Custode.Gates.Class
+  alias Custode.MCP.Identity
 
   describe "normalize and defaults" do
     test "fills model, budget, system prompt, and mcp from the shared defaults" do
@@ -219,12 +220,15 @@ defmodule Custode.RoutineTest do
       args = Custode.Routine.tick_args(routine)
 
       assert args["agent_id"] == routine.id
-      assert args["prompt"] == "sweep now"
+      assert String.starts_with?(args["prompt"], "sweep now")
+      assert args["prompt"] =~ "Operator presence"
       assert args["session"] == "fresh"
       assert args["if_busy"] == "skip"
       assert args["if_offline"] == "start"
       assert args["start"]["approved_args"] == %{"permission_mode" => "bypass_permissions"}
       assert is_integer(args["start"]["job_timeout"])
+      assert args["start"]["config_revision"] == Custode.Routine.execution_revision(routine)
+      assert args["delivery_revision"] == Custode.Routine.delivery_revision(routine)
 
       context_path = Path.join(Path.expand(routine.workspace), "HANDOFF.md")
       assert args["start"]["args"]["custode_context_path"] == context_path
@@ -233,6 +237,238 @@ defmodule Custode.RoutineTest do
 
       # the whole thing must survive the crontab -> oban_jobs JSON round trip
       assert args == args |> Jason.encode!() |> Jason.decode!()
+    end
+
+    test "execution revision classifies provider state separately from delivery policy" do
+      workspace = tmp_workspace!()
+      alternate_workspace = tmp_workspace!()
+      id = uid("execution-revision")
+
+      base = %{
+        id: id,
+        provider: :claude,
+        cron: "@daily",
+        workspace: workspace,
+        working_dir: workspace,
+        prompt: "sweep",
+        model: "haiku",
+        effort: :low,
+        system_prompt: "follow the first contract",
+        max_turns: 20,
+        max_budget_usd: 1.0,
+        timeout_ms: 200_000,
+        approved_args: %{"permission_mode" => "bypass_permissions"},
+        extra_allowed_tools: []
+      }
+
+      put_env!(:routines, [base])
+
+      revision = fn changes ->
+        Application.put_env(:custode, :routines, [Map.merge(base, changes)])
+        Custode.Routine.default() |> Custode.Routine.execution_revision()
+      end
+
+      original = revision.(%{})
+
+      delivery_revision = fn changes ->
+        Application.put_env(:custode, :routines, [Map.merge(base, changes)])
+        Custode.Routine.default() |> Custode.Routine.delivery_revision()
+      end
+
+      original_delivery = delivery_revision.(%{})
+
+      for changes <- [
+            %{provider: :codex, model: "gpt-5.6-sol"},
+            %{model: "sonnet"},
+            %{effort: :high},
+            %{system_prompt: "follow the second contract"},
+            %{role: :backlog_worker},
+            %{repo: "genagent/other"},
+            %{role: :backlog_worker, mcp: true},
+            %{extra_allowed_tools: ["Bash(git status:*)"]},
+            %{workspace: alternate_workspace},
+            %{working_dir: alternate_workspace},
+            %{max_turns: 40},
+            %{max_budget_usd: 2.0},
+            %{approved_args: %{"permission_mode" => "accept_edits"}},
+            %{timeout_ms: 300_000},
+            %{hermetic: true},
+            %{agent: "reviewer"}
+          ] do
+        refute revision.(changes) == original,
+               "expected provider launch change #{inspect(changes)} to rotate the config revision"
+      end
+
+      # These values are read by Custode at delivery time. They do not live
+      # inside the provider process and therefore must not churn an idle
+      # process or rotate a compatible native conversation arc.
+      for changes <- [
+            %{prompt: "a different sweep"},
+            %{cron: "@hourly"},
+            %{daily_budget_usd: 10.0},
+            %{daily_budget_tokens: 1_000_000},
+            %{on_note: :ignore},
+            %{sensors: [:ci]}
+          ] do
+        assert revision.(changes) == original,
+               "expected delivery policy change #{inspect(changes)} to keep the config revision"
+      end
+
+      refute delivery_revision.(%{prompt: "a different sweep"}) == original_delivery
+
+      for changes <- [
+            %{cron: "@hourly"},
+            %{daily_budget_usd: 10.0},
+            %{daily_budget_tokens: 1_000_000},
+            %{on_note: :ignore},
+            %{sensors: [:ci]}
+          ] do
+        assert delivery_revision.(changes) == original_delivery,
+               "expected non-prompt delivery policy #{inspect(changes)} to keep the delivery revision"
+      end
+    end
+
+    test "Codex bearer token remints rotate execution and queued delivery" do
+      routine =
+        routine_fixture!(tmp_workspace!(), %{
+          provider: :codex,
+          mcp: true,
+          role: :backlog_worker
+        })
+
+      assert :error = Identity.token(:routine, routine.id)
+      missing_revision = Custode.Routine.execution_revision(routine)
+      assert :error = Identity.token(:routine, routine.id)
+
+      :ok = Custode.MCP.write_routine_config!(routine.id)
+      {:ok, original_token} = Identity.token(:routine, routine.id)
+      original_revision = Custode.Routine.execution_revision(routine)
+      refute original_revision == missing_revision
+
+      start = Custode.Routine.tick_args(routine)["start"]
+      original_delivery_revision = Custode.Routine.delivery_revision(routine)
+      assert {:ok, ^original_token} = Identity.token(:routine, routine.id)
+      assert start["config_revision"] == original_revision
+
+      reminted_token = Identity.mint(:routine, routine.id)
+      refute reminted_token == original_token
+
+      refute Custode.Routine.execution_revision(routine) == original_revision
+      refute Custode.Routine.delivery_revision(routine) == original_delivery_revision
+
+      tick = Custode.Routine.tick_args(routine)
+      start = tick["start"]
+      assert start["config_revision"] == Custode.Routine.execution_revision(routine)
+      assert tick["delivery_revision"] == Custode.Routine.delivery_revision(routine)
+      assert {:ok, ^reminted_token} = Identity.token(:routine, routine.id)
+
+      authorization =
+        start["args"]["config_overrides"]
+        |> Enum.find(&String.starts_with?(&1, "mcp_servers.custode.http_headers.Authorization="))
+
+      assert authorization ==
+               "mcp_servers.custode.http_headers.Authorization=" <>
+                 Jason.encode!("Bearer " <> reminted_token)
+    end
+
+    test "semantic external MCP changes rotate Claude and Codex revisions" do
+      first_server = %{
+        name: "reference",
+        type: :http,
+        url: "https://one.example/mcp",
+        allowed: ["mcp__reference__search"]
+      }
+
+      put_env!(:external_mcp_servers, [first_server])
+
+      for provider <- [:claude, :codex] do
+        routine =
+          routine_fixture!(tmp_workspace!(), %{
+            provider: provider,
+            mcp: true,
+            role: :backlog_worker
+          })
+
+        original_revision = Custode.Routine.execution_revision(routine)
+
+        Application.put_env(:custode, :external_mcp_servers, [
+          %{first_server | url: "https://two.example/mcp"}
+        ])
+
+        refute Custode.Routine.execution_revision(routine) == original_revision,
+               "expected #{provider} external MCP URL change to rotate the config revision"
+
+        Application.put_env(:custode, :external_mcp_servers, [first_server])
+      end
+    end
+
+    test "live presence changes sweep prompts without rotating the execution revision" do
+      put_env!(:presence_override, :away)
+
+      instructions = fn provider, args ->
+        case provider do
+          :claude ->
+            args["append_system_prompt"]
+
+          :codex ->
+            args["config_overrides"]
+            |> Enum.find(&String.starts_with?(&1, "developer_instructions="))
+            |> String.replace_prefix("developer_instructions=", "")
+            |> Jason.decode!()
+        end
+      end
+
+      for provider <- [:claude, :codex] do
+        routine = routine_fixture!(tmp_workspace!(), %{provider: provider})
+        away = Custode.Routine.tick_args(routine)
+        refute instructions.(provider, away["start"]["args"]) =~ "Operator presence"
+        assert away["prompt"] =~ "operator: AWAY"
+
+        Application.put_env(:custode, :presence_override, :present)
+        present = Custode.Routine.tick_args(routine)
+        assert present["prompt"] =~ "operator: PRESENT"
+
+        assert present["start"]["config_revision"] ==
+                 away["start"]["config_revision"]
+
+        refute present["delivery_revision"] == away["delivery_revision"]
+
+        Application.put_env(:custode, :presence_override, :away)
+      end
+    end
+
+    test "static instructions, binding policy and ambient orders rotate the revision" do
+      workspace = tmp_workspace!()
+      orders_path = Path.join([workspace, ".custode", "orders.md"])
+      File.mkdir_p!(Path.dirname(orders_path))
+      File.write!(orders_path, "Use the first repository workflow.")
+
+      first_policy = %{id: :execution_contract, applies: :all, text: "Follow the first policy."}
+      put_env!(:policies, [first_policy])
+      put_env!(:ambient_orders, :all)
+
+      routine =
+        routine_fixture!(workspace, %{
+          working_dir: workspace,
+          system_prompt: "Follow the first standing instructions."
+        })
+
+      original_revision = Custode.Routine.execution_revision(routine)
+
+      refute Custode.Routine.execution_revision(%{
+               routine
+               | system_prompt: "Follow the second standing instructions."
+             }) == original_revision
+
+      Application.put_env(:custode, :policies, [
+        %{first_policy | text: "Follow the second policy."}
+      ])
+
+      refute Custode.Routine.execution_revision(routine) == original_revision
+
+      Application.put_env(:custode, :policies, [first_policy])
+      File.write!(orders_path, "Use the second repository workflow.")
+      refute Custode.Routine.execution_revision(routine) == original_revision
     end
 
     test "a routine may run as a repo-owned persona (#19: agent passthrough)" do
@@ -370,6 +606,7 @@ defmodule Custode.RoutineTest do
           role: :backlog_worker
         })
 
+      :ok = Custode.MCP.write_routine_config!(routine.id)
       args = Custode.Routine.tick_args(routine)["start"]["args"]
 
       assert args["model"] == "gpt-6"

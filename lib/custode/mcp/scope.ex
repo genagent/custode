@@ -7,8 +7,8 @@ defmodule Custode.MCP.Scope do
   repository-local effects to the identity attached to that request.
   """
 
+  alias Custode.{AgentHandoff, MCP, OwnedCheckout, Repository}
   alias Custode.Gates.Class
-  alias Custode.{MCP, OwnedCheckout, Repository, Routine}
 
   @type job_paths :: %{workspace: String.t() | nil, report_inbox: String.t()}
 
@@ -199,18 +199,22 @@ defmodule Custode.MCP.Scope do
     caller = MCP.caller(frame)
 
     with :ok <- served(repo) do
-      case caller do
-        %{kind: :operator} ->
-          :ok
-
-        %{kind: :routine, id: id} ->
-          authorize_routine_repo(Routine.get(id), id, repo)
-
-        %{kind: :sub_agent, id: id} ->
-          {:error, "identity: temporary agent #{id} may not change repository facts"}
-      end
+      authorize_repo_caller(caller, repo)
     end
   end
+
+  defp authorize_repo_caller(%{kind: :operator}, _repo), do: :ok
+
+  defp authorize_repo_caller(%{kind: :routine, id: id}, repo) do
+    case AgentHandoff.authorization_routine(id) do
+      {:ok, routine} -> authorize_routine_repo(routine, id, repo)
+      {:error, :handoff_pending} -> {:error, handoff_error(id)}
+      {:error, _reason} -> authorize_routine_repo(nil, id, repo)
+    end
+  end
+
+  defp authorize_repo_caller(%{kind: :sub_agent, id: id}, _repo),
+    do: {:error, "identity: temporary agent #{id} may not change repository facts"}
 
   defp authorize_routine_repo(%{repo: repo}, _id, repo), do: :ok
 
@@ -274,11 +278,14 @@ defmodule Custode.MCP.Scope do
   end
 
   defp authorize_job_paths(%{kind: :routine, id: id}, workspace, report_inbox) do
-    case Routine.get(id) do
-      nil ->
+    case AgentHandoff.authorization_routine(id) do
+      {:error, :handoff_pending} ->
+        {:error, handoff_error(id)}
+
+      {:error, _reason} ->
         {:error, "identity: routine #{id} is not in the current roster"}
 
-      routine ->
+      {:ok, routine} ->
         workspace = workspace || routine.working_dir
         {:ok, owned_checkout} = OwnedCheckout.path(id)
 
@@ -298,6 +305,9 @@ defmodule Custode.MCP.Scope do
 
   defp authorize_job_paths(%{kind: :sub_agent, id: id}, _workspace, _report_inbox),
     do: {:error, "identity: temporary agent #{id} may not run jobs"}
+
+  defp handoff_error(id),
+    do: "identity: routine #{id} is changing configuration; retry after its handoff completes"
 
   defp authorize_path(path, roots, label, caller_id) do
     expanded = Path.expand(path)

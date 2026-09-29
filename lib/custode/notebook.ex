@@ -62,7 +62,7 @@ defmodule Custode.Notebook do
         source: opts[:source] || "sweep"
       })
 
-    after_mutation(routine_id)
+    after_mutation(routine_id, opts)
     {:ok, entry}
   end
 
@@ -96,7 +96,7 @@ defmodule Custode.Notebook do
   janitor retires them, but leave the agent's own journal.md so it does not
   re-distill what it already folded in.
   """
-  def compact_journal(routine_id, summary) when is_binary(summary) do
+  def compact_journal(routine_id, summary, opts \\ []) when is_binary(summary) do
     now = DateTime.utc_now()
 
     {count, entry} =
@@ -109,8 +109,11 @@ defmodule Custode.Notebook do
             set: [compacted_at: now]
           )
 
-        {:ok, entry} =
-          journal_append(routine_id, summary, title: "compaction", source: "compaction")
+        journal_opts =
+          [title: "compaction", source: "compaction"] ++
+            Keyword.take(opts, [:authorization_routine])
+
+        {:ok, entry} = journal_append(routine_id, summary, journal_opts)
 
         {count, entry}
       end)
@@ -145,7 +148,7 @@ defmodule Custode.Notebook do
     todo =
       Repo.insert!(%Todo{routine_id: routine_id, text: text, source: opts[:source] || "sweep"})
 
-    after_mutation(routine_id)
+    after_mutation(routine_id, opts)
     {:ok, todo}
   end
 
@@ -167,14 +170,14 @@ defmodule Custode.Notebook do
   end
 
   @doc "Mark a todo done by id, re-render, notify."
-  def todo_complete(id) do
+  def todo_complete(id, opts \\ []) do
     case Repo.get(Todo, id) do
       nil ->
         {:error, :not_found}
 
       todo ->
         todo = todo |> Ecto.Changeset.change(status: "done") |> Repo.update!()
-        after_mutation(todo.routine_id)
+        after_mutation(todo.routine_id, opts)
         {:ok, todo}
     end
   end
@@ -220,13 +223,19 @@ defmodule Custode.Notebook do
         :ok
 
       routine ->
-        workspace = Path.expand(routine.workspace)
-        # the views are regenerable, so the directory is too (#496)
-        File.mkdir_p!(workspace)
-        File.write!(Path.join(workspace, "journal.md"), render_journal(routine_id))
-        File.write!(Path.join(workspace, "TODO.md"), render_todos(routine_id))
-        :ok
+        render!(routine_id, routine)
     end
+  end
+
+  defp render!(_routine_id, nil), do: :ok
+
+  defp render!(routine_id, routine) do
+    workspace = Path.expand(routine.workspace)
+    # the views are regenerable, so the directory is too (#496)
+    File.mkdir_p!(workspace)
+    File.write!(Path.join(workspace, "journal.md"), render_journal(routine_id))
+    File.write!(Path.join(workspace, "TODO.md"), render_todos(routine_id))
+    :ok
   end
 
   defp render_journal(routine_id) do
@@ -270,9 +279,12 @@ defmodule Custode.Notebook do
   # (design/002). A view that cannot be written must not turn a write that
   # succeeded into an error: an agent told its journal entry failed will
   # journal it again (#496).
-  defp after_mutation(routine_id) do
+  defp after_mutation(routine_id, opts) do
     try do
-      render!(routine_id)
+      case Keyword.fetch(opts, :authorization_routine) do
+        {:ok, routine} -> render!(routine_id, routine)
+        :error -> render!(routine_id)
+      end
     rescue
       error in File.Error ->
         require Logger

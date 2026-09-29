@@ -21,7 +21,12 @@ defmodule Custode.ConsoleTest do
       {:ok, :queued}
     end
 
-    {:ok, _pid} = Agent.start_agent(routine.id, enqueue_fun: enqueue_fun)
+    config =
+      routine
+      |> Custode.Routine.agent_config(%{})
+      |> Keyword.put(:enqueue_fun, enqueue_fun)
+
+    {:ok, _pid} = Agent.start_agent(routine.id, config)
     on_exit(fn -> Agent.stop_agent(routine.id) end)
     :ok
   end
@@ -105,7 +110,9 @@ defmodule Custode.ConsoleTest do
 
     :ok = Custode.pause()
     {:ok, :paused} = Agent.await(routine.id, :paused, 1_000)
-    assert {:error, :paused} = Custode.ask("while locked")
+    assert :processing = Custode.ask("while locked")
+    assert_receive {:enqueued, %{"prompt" => "while locked"}, _meta}
+    assert :ok = Custode.pause()
     assert :resumed = Custode.resume()
     assert {:ok, :idle} = Custode.status()
   end

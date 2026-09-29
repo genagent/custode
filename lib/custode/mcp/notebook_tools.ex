@@ -14,9 +14,22 @@ defmodule Custode.MCP.NotebookTools do
 
   @doc false
   def fetch_routine(routine_id) do
-    case Custode.Routine.get(routine_id) do
-      nil -> {:error, "unknown routine #{inspect(routine_id)}"}
-      routine -> {:ok, routine}
+    case authorization_routine(routine_id) do
+      {:ok, nil} -> {:error, "unknown routine #{inspect(routine_id)}"}
+      {:ok, routine} -> {:ok, routine}
+      {:error, message} -> {:error, message}
+    end
+  end
+
+  @doc false
+  def fetch_render_routine(routine_id), do: authorization_routine(routine_id)
+
+  defp authorization_routine(routine_id) do
+    case Custode.AgentHandoff.authorization_routine(routine_id) do
+      {:ok, routine} -> {:ok, routine}
+      {:error, :unknown_routine} -> {:ok, nil}
+      {:error, :handoff_pending} -> {:error, "routine configuration handoff is pending"}
+      {:error, _reason} -> {:error, "routine authorization is temporarily unavailable"}
     end
   end
 end
@@ -26,6 +39,8 @@ defmodule Custode.MCP.NotebookTools.JournalAppend do
   use Anubis.Server.Component, type: :tool
 
   import Custode.MCP.Tools
+
+  alias Custode.MCP.NotebookTools
 
   @body "the entry text (markdown ok)"
 
@@ -40,11 +55,13 @@ defmodule Custode.MCP.NotebookTools.JournalAppend do
   def execute(params, frame) do
     with {:ok, routine_id} <- fetch_self(params, frame),
          :ok <- check_self(frame, routine_id),
-         {:ok, body} <- need(params, :body, @body) do
+         {:ok, body} <- need(params, :body, @body),
+         {:ok, routine} <- NotebookTools.fetch_render_routine(routine_id) do
       {:ok, entry} =
         Custode.Notebook.journal_append(routine_id, body,
           title: params[:title],
-          source: "sweep"
+          source: "sweep",
+          authorization_routine: routine
         )
 
       reply(frame, %{entry_id: entry.id})
@@ -147,6 +164,8 @@ defmodule Custode.MCP.NotebookTools.CompactJournal do
 
   import Custode.MCP.Tools
 
+  alias Custode.MCP.NotebookTools
+
   @summary "the distillation: what your journal so far still means, in a few lines"
 
   schema do
@@ -159,8 +178,11 @@ defmodule Custode.MCP.NotebookTools.CompactJournal do
   def execute(params, frame) do
     with {:ok, routine_id} <- fetch_self(params, frame),
          :ok <- check_self(frame, routine_id),
-         {:ok, summary} <- need(params, :summary, @summary) do
-      {:ok, %{summarized: count}} = Custode.Notebook.compact_journal(routine_id, summary)
+         {:ok, summary} <- need(params, :summary, @summary),
+         {:ok, routine} <- NotebookTools.fetch_render_routine(routine_id) do
+      {:ok, %{summarized: count}} =
+        Custode.Notebook.compact_journal(routine_id, summary, authorization_routine: routine)
+
       reply(frame, %{summarized: count})
     else
       {:error, message} -> fail(frame, message)
@@ -174,6 +196,8 @@ defmodule Custode.MCP.NotebookTools.TodoAdd do
 
   import Custode.MCP.Tools
 
+  alias Custode.MCP.NotebookTools
+
   @text "the todo, one line"
 
   schema do
@@ -186,15 +210,21 @@ defmodule Custode.MCP.NotebookTools.TodoAdd do
   def execute(params, frame) do
     with {:ok, routine_id} <- fetch_self(params, frame),
          :ok <- check_self(frame, routine_id),
-         {:ok, text} <- need(params, :text, @text) do
-      add(routine_id, text, frame)
+         {:ok, text} <- need(params, :text, @text),
+         {:ok, routine} <- NotebookTools.fetch_render_routine(routine_id) do
+      add(routine_id, routine, text, frame)
     else
       {:error, message} -> fail(frame, message)
     end
   end
 
-  defp add(routine_id, text, frame) do
-    {:ok, todo} = Custode.Notebook.todo_add(routine_id, text, source: "sweep")
+  defp add(routine_id, routine, text, frame) do
+    {:ok, todo} =
+      Custode.Notebook.todo_add(routine_id, text,
+        source: "sweep",
+        authorization_routine: routine
+      )
+
     reply(frame, %{todo_id: todo.id})
   end
 end
@@ -301,6 +331,8 @@ defmodule Custode.MCP.NotebookTools.TodoComplete do
 
   import Custode.MCP.Tools
 
+  alias Custode.MCP.NotebookTools
+
   schema do
     field(:todo_id, :integer, required: true)
   end
@@ -312,7 +344,9 @@ defmodule Custode.MCP.NotebookTools.TodoComplete do
   def execute(%{todo_id: todo_id}, frame) do
     with owner when is_binary(owner) <- Custode.Notebook.todo_owner(todo_id),
          :ok <- check_self(frame, owner),
-         {:ok, todo} <- Custode.Notebook.todo_complete(todo_id) do
+         {:ok, routine} <- NotebookTools.fetch_render_routine(owner),
+         {:ok, todo} <-
+           Custode.Notebook.todo_complete(todo_id, authorization_routine: routine) do
       reply(frame, %{todo_id: todo.id, status: todo.status})
     else
       {:error, message} when is_binary(message) -> fail(frame, message)

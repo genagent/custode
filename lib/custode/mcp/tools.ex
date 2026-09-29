@@ -267,32 +267,87 @@ defmodule Custode.MCP.Tools.AgentStatus do
   end
 
   defp status(agent_id, frame) do
+    execution = Custode.ExecutionFacts.read(agent_id)
+
     case Custode.Agents.status(agent_id) do
       {:ok, :offline} ->
-        reply(frame, %{
-          agent_id: agent_id,
-          state: "offline",
-          pending_wake: Custode.InboxWakes.read_model(agent_id),
-          conversation: Custode.ConversationArcs.read_model(agent_id)
-        })
+        reply(
+          frame,
+          Map.merge(
+            %{
+              agent_id: agent_id,
+              state: "offline",
+              pending_wake: Custode.InboxWakes.read_model(agent_id),
+              conversation: Custode.ConversationArcs.read_model(agent_id)
+            },
+            config_read_model(agent_id, execution)
+          )
+        )
 
       {:ok, status} ->
-        {:ok, info} = Custode.Agents.info(agent_id)
+        case Custode.Agents.info(agent_id) do
+          {:ok, info} ->
+            reply(
+              frame,
+              Map.merge(
+                %{
+                  agent_id: agent_id,
+                  state: to_string(Custode.MCP.state_of(status)),
+                  detail: inspect(status),
+                  turns: info.turns,
+                  cost_usd: info.cost_usd,
+                  session_id: info.session_id,
+                  active_arc_id: info.active_arc_id,
+                  continuation: info.continuation,
+                  pending_wake: Custode.InboxWakes.read_model(agent_id),
+                  conversation: Custode.ConversationArcs.read_model(agent_id)
+                },
+                config_read_model(agent_id, execution)
+              )
+            )
 
-        reply(frame, %{
-          agent_id: agent_id,
-          state: to_string(Custode.MCP.state_of(status)),
-          detail: inspect(status),
-          turns: info.turns,
-          cost_usd: info.cost_usd,
-          session_id: info.session_id,
-          active_arc_id: info.active_arc_id,
-          continuation: info.continuation,
-          pending_wake: Custode.InboxWakes.read_model(agent_id),
-          conversation: Custode.ConversationArcs.read_model(agent_id)
-        })
+          {:error, reason} ->
+            fail(frame, "agent status changed while it was being read: #{inspect(reason)}")
+        end
+
+      {:error, reason} ->
+        fail(
+          frame,
+          "agent lifecycle has conflicting live providers: #{inspect(reason)}"
+        )
     end
   end
+
+  defp config_read_model(agent_id, execution) do
+    {config_state, transition} =
+      case Custode.AgentHandoff.status(agent_id) do
+        :ready ->
+          {"ready", nil}
+
+        {:pending, pending} ->
+          {"transitioning",
+           %{
+             provider: to_string(pending.provider),
+             phase: to_string(pending.phase),
+             preserve_pause: pending.preserve_pause?
+           }}
+      end
+
+    %{
+      configured_provider: value(execution.desired, :provider),
+      execution_provider: value(execution.applied, :provider),
+      desired_config_revision: value(execution.desired, :config_revision),
+      applied_config_revision: value(execution.applied, :config_revision),
+      config_state: config_state,
+      config_transition: transition,
+      execution: Map.drop(execution, [:live_error])
+    }
+  end
+
+  defp value(nil, _key), do: nil
+
+  defp value(map, key) when is_map(map),
+    do: Map.get(map, key, Map.get(map, to_string(key)))
 end
 
 defmodule Custode.MCP.Tools.StartAgent do
@@ -367,8 +422,8 @@ defmodule Custode.MCP.Tools.PromptAgent do
 
   import Custode.MCP.Tools
 
+  alias Custode.{AgentHandoff, Agents, OperatorMessages}
   alias Custode.Operator.Actions
-  alias Custode.OperatorMessages
 
   schema do
     field(:agent_id, :string, required: true)
@@ -423,8 +478,8 @@ defmodule Custode.MCP.Tools.PromptAgent do
       idempotency_key: params[:idempotency_key]
     ]
 
-    case OperatorMessages.submit(agent_id, prompt, opts, fn correlation_id ->
-           delegated_delivery(agent_id, prompt, correlation_id)
+    case OperatorMessages.submit(agent_id, prompt, opts, fn message ->
+           delegated_delivery(agent_id, prompt, message, frame)
          end) do
       {:ok, message, disposition} -> reply_message(message, disposition, frame)
       {:error, {:refused, message, _reason}} -> reply_message(message, :created, frame)
@@ -432,17 +487,94 @@ defmodule Custode.MCP.Tools.PromptAgent do
     end
   end
 
-  defp delegated_delivery(agent_id, prompt, correlation_id) do
-    case Custode.Agents.status(agent_id) do
-      {:ok, :paused} -> {:error, :agent_paused}
-      {:ok, _state} -> cast_delegated(agent_id, prompt, correlation_id)
+  defp delegated_delivery(agent_id, prompt, message, frame) do
+    # Claim before waiting on the handoff coordinator. A configuration reload
+    # may already own that boundary, and its generic durable-work recovery
+    # must not replay this delegated row before authorization is rechecked.
+    case OperatorMessages.claim_delivery(message) do
+      {:ok, claimed} ->
+        result =
+          AgentHandoff.admit(agent_id, fn ->
+            admit_delegated(agent_id, prompt, claimed, frame)
+          end)
+
+        settle_delegated_admission(claimed, result)
+
+      {:error, :not_queued} ->
+        resolve_delegated_claim_miss(message.message_id)
     end
   end
 
-  defp cast_delegated(agent_id, prompt, correlation_id) do
-    case Custode.Agents.cast_prompt(agent_id, prompt, correlation_id: correlation_id) do
-      :ok -> {:ok, :delivered}
+  defp admit_delegated(agent_id, prompt, claimed, frame) do
+    with :ok <- check_delegated_target(frame, agent_id, :manage),
+         {:ok, provider} <- delegated_provider(agent_id),
+         {:ok, state} <- delegated_state(agent_id, provider),
+         :ok <- delegated_ready(state) do
+      case safe_delegated_cast(agent_id, provider, prompt, claimed.provider_correlation_id) do
+        :ok -> record_delegated_admission(claimed, provider)
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  defp delegated_provider(agent_id) do
+    case Agents.live_provider(agent_id) do
+      {:ok, provider} -> {:ok, provider}
+      :offline -> {:error, :agent_not_running}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp delegated_state(agent_id, provider) do
+    {:ok, status} = Agents.status(agent_id, provider)
+    {:ok, Custode.state_of(status)}
+  end
+
+  defp delegated_ready(:paused), do: {:error, :agent_paused}
+  defp delegated_ready(:offline), do: {:error, :agent_not_running}
+  defp delegated_ready(_state), do: :ok
+
+  defp safe_delegated_cast(agent_id, provider, prompt, correlation_id) do
+    Agents.cast_prompt(agent_id, provider, prompt, correlation_id: correlation_id)
+  rescue
+    exception -> {:error, {:cast_exception, Exception.message(exception)}}
+  catch
+    kind, reason -> {:error, {:cast_throw, kind, reason}}
+  end
+
+  defp record_delegated_admission(claimed, provider) do
+    case OperatorMessages.record_delivery(claimed, :delivered, provider) do
+      :ok -> {:admitted, :delivered}
+      # The cast was accepted, so releasing the claim could submit it twice.
+      # Durable provider-job reconciliation repairs this retained claim.
+      {:error, _reason} -> {:admitted, :delivered}
+    end
+  end
+
+  defp settle_delegated_admission(_claimed, {:admitted, _how} = admitted), do: admitted
+
+  defp settle_delegated_admission(claimed, {:deferred, reason}),
+    do: release_delegated_claim(claimed, {:error, {:config_transition, reason}})
+
+  defp settle_delegated_admission(claimed, {:error, _reason} = error),
+    do: release_delegated_claim(claimed, error)
+
+  defp settle_delegated_admission(claimed, other),
+    do: release_delegated_claim(claimed, {:error, {:unexpected_admission_reply, other}})
+
+  defp release_delegated_claim(claimed, result) do
+    case OperatorMessages.release_delivery(claimed) do
+      :ok -> result
+      {:error, reason} -> {:error, {:release_delivery, reason}}
+    end
+  end
+
+  defp resolve_delegated_claim_miss(message_id) do
+    case OperatorMessages.get(message_id) do
+      nil -> {:error, :message_not_found}
+      %{delivery: "queued"} -> {:error, :delivery_claim_raced}
+      %{delivery: "admitting"} -> {:admitted, :already_admitting}
+      %{} -> {:admitted, :already_admitted}
     end
   end
 

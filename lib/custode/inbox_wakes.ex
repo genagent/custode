@@ -13,7 +13,17 @@ defmodule Custode.InboxWakes do
 
   require Logger
 
-  alias Custode.{Agents, ConversationArcs, InboxWake, InboxWakeJob, Repo, Routine, SpendLedger}
+  alias Custode.{
+    AgentHandoff,
+    AgentHandoffIntent,
+    Agents,
+    ConversationArcs,
+    InboxWake,
+    InboxWakeJob,
+    Repo,
+    Routine,
+    SpendLedger
+  }
 
   @debounce_seconds 20
   @retry_seconds 5
@@ -151,8 +161,9 @@ defmodule Custode.InboxWakes do
       # Budget authority is restored first. A pre-restart one-wake override
       # remains recorded, but the replacement process is conservatively
       # paused until the operator explicitly resumes it again.
-      Custode.SpendLedger.reconcile_pauses!()
-      Custode.InboxWakes.reconcile!()
+      pause = &Custode.SpendLedger.restore_boot_pause!/1
+      Custode.SpendLedger.reconcile_pauses!(pause: pause)
+      Custode.InboxWakes.reconcile!(pause: pause)
       :ignore
     end
   end
@@ -215,6 +226,64 @@ defmodule Custode.InboxWakes do
     end
   end
 
+  @doc false
+  def config_ready(routine_id, opts \\ []) when is_binary(routine_id) do
+    now = with_usec(DateTime.utc_now())
+    transaction = Keyword.get(opts, :transaction, &config_ready_transaction/1)
+    enqueue = Keyword.get(opts, :enqueue, &insert_kickoff(&1, now))
+
+    result =
+      transaction.(fn ->
+        case Repo.get(InboxWake, routine_id) do
+          %InboxWake{state: "pending", blocked_by: "config_transition"} = wake ->
+            release_config_wake(wake, enqueue)
+
+          _other ->
+            nil
+        end
+      end)
+
+    case result do
+      {:ok, %InboxWake{}} ->
+        broadcast(routine_id)
+        :ok
+
+      {:ok, nil} ->
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+
+      other ->
+        {:error, {:unexpected_transaction_reply, other}}
+    end
+  rescue
+    exception -> {:error, {:config_ready_exception, Exception.message(exception)}}
+  catch
+    kind, reason -> {:error, {:config_ready_throw, kind, reason}}
+  end
+
+  defp config_ready_transaction(fun), do: Repo.transaction(fun, mode: :immediate)
+
+  defp release_config_wake(wake, enqueue) do
+    case enqueue.(wake) do
+      :ok ->
+        wake
+        |> InboxWake.update_changeset(%{blocked_by: nil, retry_count: 0})
+        |> Repo.update()
+        |> case do
+          {:ok, released} -> released
+          {:error, changeset} -> Repo.rollback({:persist_failed, changeset})
+        end
+
+      {:error, reason} ->
+        Repo.rollback({:enqueue_failed, reason})
+
+      other ->
+        Repo.rollback({:unexpected_enqueue_reply, other})
+    end
+  end
+
   @doc "Attach the provider-neutral transition handler."
   def attach do
     :telemetry.attach_many(@handler_id, @events, &__MODULE__.handle_event/4, nil)
@@ -224,8 +293,9 @@ defmodule Custode.InboxWakes do
   Recover claims whose supervised delivery tasks died with the previous
   application instance, then recreate the unique kickoff for every live wave.
   """
-  def reconcile! do
+  def reconcile!(opts \\ []) do
     now = with_usec(DateTime.utc_now())
+    pause = Keyword.get(opts, :pause, &boot_paused/1)
 
     Repo.update_all(
       from(w in InboxWake, where: w.state == "dispatching"),
@@ -240,7 +310,7 @@ defmodule Custode.InboxWakes do
 
     InboxWake
     |> Repo.all()
-    |> Enum.each(&reconcile_wake(&1, now))
+    |> Enum.each(&reconcile_wake(&1, now, pause))
 
     :ok
   end
@@ -473,7 +543,7 @@ defmodule Custode.InboxWakes do
   end
 
   defp boot_and_hold(wake, routine, blocked_by, now) do
-    case boot_paused(routine) do
+    case boot_paused(routine, pause_context(blocked_by)) do
       :ok -> hold(wake, blocked_by)
       {:error, _reason} -> retry_pending(wake, "offline", now)
     end
@@ -599,14 +669,16 @@ defmodule Custode.InboxWakes do
 
   defp deliver(wake, routine) do
     result =
-      with {:ok, current} <- current_delivery_routine(routine.id, wake),
-           :ok <- ensure_agent(current, wake),
-           :ok <- watch_delivery(current, wake),
-           :ok <- delivery_fence(current, wake),
-           {:ok, prepared} <-
-             ConversationArcs.prepare(current, :inbox, arc_id: "inbox:#{wake.wake_id}") do
-        submit(wake, current, prepared)
-      end
+      AgentHandoff.admit(routine.id, fn ->
+        with {:ok, current} <- current_delivery_routine(routine.id, wake),
+             :ok <- ensure_agent(current, wake),
+             :ok <- watch_delivery(current, wake),
+             :ok <- delivery_fence(current, wake),
+             {:ok, prepared} <-
+               ConversationArcs.prepare(current, :inbox, arc_id: "inbox:#{wake.wake_id}") do
+          submit(wake, current, prepared)
+        end
+      end)
 
     case result do
       :processing ->
@@ -618,6 +690,10 @@ defmodule Custode.InboxWakes do
 
       :admitted ->
         clear_admitted(wake)
+
+      {:deferred, reason} ->
+        release_after_delivery_failure(wake, {:config_transition, reason})
+        AgentHandoff.work_queued(wake.routine_id)
 
       {:error, reason} ->
         release_after_delivery_failure(wake, reason)
@@ -647,7 +723,7 @@ defmodule Custode.InboxWakes do
 
   defp submit(wake, routine, prepared) do
     result =
-      Agents.submit_prompt(routine.id, routine.prompt,
+      Agents.submit_prompt(routine.id, Routine.tick_prompt(routine),
         origin: :tick,
         session: :fresh,
         arc_id: prepared.arc_id,
@@ -741,12 +817,19 @@ defmodule Custode.InboxWakes do
       else: "awaiting_permission"
   end
 
-  defp boot_paused(routine) do
+  defp boot_paused(routine), do: boot_paused(routine, pause_context("spend_rail"))
+
+  defp boot_paused(routine, context) do
     seeds = ConversationArcs.seed_map(routine)
 
-    with start when start in [:started, :already_started] <- start_for_pause(routine, seeds),
-         :ok <- Agents.emergency_pause(routine.id),
-         {:ok, :paused} <- Agents.await(routine.id, :paused, 1_000) do
+    # Delivery runs inside AgentHandoff.admit/3. Calling the provider-neutral
+    # emergency_pause/1 from here would synchronously call that coordinator
+    # from its own process after the provider has already started. Record the
+    # safety intent first, then use the provider captured by this admission.
+    with :ok <- AgentHandoffIntent.put(routine.id, context),
+         :ok <- start_for_pause(routine, seeds),
+         :ok <- Agents.emergency_pause(routine.id, routine.provider, context),
+         {:ok, :paused} <- Agents.await(routine.id, routine.provider, :paused, 1_000) do
       :ok
     else
       {:error, reason} -> {:error, reason}
@@ -754,10 +837,19 @@ defmodule Custode.InboxWakes do
     end
   end
 
+  defp pause_context("spend_rail"),
+    do: %{cause: :emergency_pause, reason: :spend_rail}
+
+  defp pause_context("paused"),
+    do: %{cause: :emergency_pause, reason: :preexisting_pause}
+
   defp start_for_pause(routine, seeds) do
-    case Agents.start_agent(routine.id, Routine.agent_config(routine, seeds)) do
-      {:ok, _pid} -> :started
-      {:error, {:already_started, _pid}} -> :already_started
+    case Agents.start_agent(
+           routine.id,
+           routine.provider,
+           Routine.agent_config(routine, seeds)
+         ) do
+      {:ok, _pid} -> :ok
       {:error, reason} -> {:error, reason}
     end
   end
@@ -853,6 +945,16 @@ defmodule Custode.InboxWakes do
 
   defp release_after_delivery_failure(wake, :gate_recovered) do
     release_claim(wake.routine_id, wake.wake_id, wake.claim_token, "debounce", true)
+  end
+
+  defp release_after_delivery_failure(wake, {:config_transition, _reason}) do
+    release_claim(
+      wake.routine_id,
+      wake.wake_id,
+      wake.claim_token,
+      "config_transition",
+      false
+    )
   end
 
   defp release_after_delivery_failure(wake, reason) do
@@ -1219,46 +1321,47 @@ defmodule Custode.InboxWakes do
     :ok
   end
 
-  defp reconcile_wake(wake, now) do
+  defp reconcile_wake(wake, now, pause) do
     wake.routine_id
     |> Routine.get()
-    |> reconcile_wake(wake, now)
+    |> reconcile_wake(wake, now, pause)
   end
 
-  defp reconcile_wake(nil, wake, _now),
+  defp reconcile_wake(nil, wake, _now, _pause),
     do: supersede(wake.routine_id, wake.wake_id, :routine_removed)
 
-  defp reconcile_wake(%{on_note: :ignore}, wake, _now),
+  defp reconcile_wake(%{on_note: :ignore}, wake, _now, _pause),
     do: supersede(wake.routine_id, wake.wake_id, :policy_changed)
 
-  defp reconcile_wake(routine, wake, now) do
+  defp reconcile_wake(routine, wake, now, pause) do
     routine
     |> active_provider_work(wake)
-    |> reconcile_provider_work(routine, wake, now)
+    |> reconcile_provider_work(routine, wake, now, pause)
   end
 
-  defp reconcile_provider_work(:admitted, _routine, wake, _now), do: clear_admitted(wake)
+  defp reconcile_provider_work(:admitted, _routine, wake, _now, _pause),
+    do: clear_admitted(wake)
 
-  defp reconcile_provider_work(provider_work, routine, wake, now) do
+  defp reconcile_provider_work(provider_work, routine, wake, now, pause) do
     wake
     |> clear_stale_provider_hold(provider_work)
     |> reset_delivery_failure()
-    |> reconcile_authority(routine, now)
+    |> reconcile_authority(routine, now, pause)
   end
 
-  defp reconcile_authority(%InboxWake{spend_override: true} = wake, _routine, now),
+  defp reconcile_authority(%InboxWake{spend_override: true} = wake, _routine, now, _pause),
     do: schedule_wave(wake, now)
 
-  defp reconcile_authority(wake, routine, now) do
+  defp reconcile_authority(wake, routine, now, pause) do
     if SpendLedger.over_rail?(routine) do
-      reconcile_spend_rail(wake, routine, now)
+      reconcile_spend_rail(wake, routine, now, pause)
     else
       schedule_wave(wake, now)
     end
   end
 
-  defp reconcile_spend_rail(wake, routine, now) do
-    case boot_paused(routine) do
+  defp reconcile_spend_rail(wake, routine, now, pause) do
+    case pause.(routine) do
       :ok -> hold(wake, "spend_rail")
       {:error, _reason} -> retry_pending(wake, "offline", now)
     end

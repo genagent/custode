@@ -193,19 +193,21 @@ defmodule Custode.PresenceTest do
     assert length(toggles) == 3
   end
 
-  test "the tick-args system prompt carries the presence line at fire time" do
+  test "the tick prompt carries the presence line at fire time" do
     workspace = tmp_workspace!()
     id = uid("routine")
 
     put_env!(:routines, [%{id: id, cron: "@daily", workspace: workspace, prompt: "sweep"}])
 
     Application.put_env(:custode, :presence_override, :away)
-    args = Custode.Routine.tick_args(Custode.Routine.get(id))
-    assert args["start"]["args"]["append_system_prompt"] =~ "operator: AWAY"
+    away = Custode.Routine.tick_args(Custode.Routine.get(id))
+    assert away["prompt"] =~ "operator: AWAY"
+    refute away["start"]["args"]["append_system_prompt"] =~ "Operator presence"
 
     # a presence flip reaches the very next tick, no restart (#121/#142)
     Application.put_env(:custode, :presence_override, :present)
-    args = Custode.Routine.tick_args(Custode.Routine.get(id))
-    assert args["start"]["args"]["append_system_prompt"] =~ "operator: PRESENT"
+    present = Custode.Routine.tick_args(Custode.Routine.get(id))
+    assert present["prompt"] =~ "operator: PRESENT"
+    refute present["delivery_revision"] == away["delivery_revision"]
   end
 end

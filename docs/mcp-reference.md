@@ -244,7 +244,7 @@ Read the recent tail of an agent event history.
 
 ### Tool: agent_status
 
-Inspect one agent, its pending inbox wake and durable conversation arc.
+Inspect one agent's lifecycle, execution configuration, pending inbox wake and durable conversation arc.
 
 **Endpoints:** /mcp. **Category:** read.
 
@@ -252,13 +252,13 @@ Inspect one agent, its pending inbox wake and durable conversation arc.
 | --- | --- | --- | --- | --- |
 | agent_id | string | yes | the agent to inspect |  |
 
-**Result:** All states: agent_id, state, pending_wake and conversation with current plus active arcs. pending_wake is null or contains wake_id, reason, state, note_count, first_note_at, last_note_at, due_at, blocked_by, spend_override and claimed_at. A current conversation arc names its logical and provider arc ids, kind, provider, optional provider_session_id, host/workspace/config identity, decision, reason, outcome and timestamps. Running agents also return detail, turns, cost_usd, legacy default session_id, active_arc_id and the wrapper's current or latest continuation.
+**Result:** All states: agent_id, state, execution, configured_provider, execution_provider, desired_config_revision, applied_config_revision, config_state, config_transition, pending_wake and conversation with current plus active arcs. execution contains desired, applied, active and up to 40 captured turns; desired, applied and captured turns include provider, model, effort, working_dir and config revision when known. applied and active are null when unavailable, and unknown fields remain null. pending_wake is null or contains wake_id, reason, state, note_count, first_note_at, last_note_at, due_at, blocked_by, spend_override and claimed_at. A current conversation arc names its logical and provider arc ids, kind, provider, optional provider_session_id, host/workspace/config identity, decision, reason, outcome and timestamps. Running agents also return detail, turns, cost_usd, legacy default session_id, active_arc_id and the wrapper's current or latest continuation.
 
-**Side effects:** None; reads agent lifecycle, pending inbox wake and Custode-owned conversation-arc state.
+**Side effects:** None; reads roster intent, live provider lifecycle, captured provider jobs, live-configuration handoff state, pending inbox wake and Custode-owned conversation-arc state.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may inspect only a temporary agent whose durable spawn record names it as parent; the operator may inspect any target. Missing or reconciled records do not widen access.
 
-**Behavior, defaults and errors:** agent_id is required. detail is diagnostic text and can carry pending gate information; no structured action object is guaranteed. pending_wake is null when no durable inbox wake remains. When present it explains the coalesced note count, delivery state, timing and current blocker; reading it does not deliver or clear the wake. pending_wake.spend_override is true when a manual resume authorized that wake past the daily spend rail. It does not replace blocked_by, which continues to report the current delivery blocker. conversation is the durable read model shared with LiveView. Provider session ids are opaque, host-local acceleration handles and may be null.
+**Behavior, defaults and errors:** agent_id is required. detail is diagnostic text and can carry pending gate information; no structured action object is guaranteed. pending_wake is null when no durable inbox wake remains. When present it explains the coalesced note count, delivery state, timing and current blocker; reading it does not deliver or clear the wake. pending_wake.spend_override is true when a manual resume authorized that wake past the daily spend rail. It does not replace blocked_by, which continues to report the current delivery blocker. conversation is the durable read model shared with LiveView. Provider session ids are opaque, host-local acceleration handles and may be null. execution is the execution read model shared with the console: desired is roster intent, applied is the live process contract, active is the provider job correlated through continuation identity, and turns are captured provider jobs newest first. Each execution layer reports its own working_dir when known. A desired model, effort or working_dir is inferred onto applied only when provider and config revision exactly match; historical turns are never relabeled. A paused process still reports an active correlated turn while its durable provider job remains active. configured_provider and desired_config_revision are compatibility aliases for execution.desired. execution_provider and applied_config_revision are aliases for execution.applied. config_state is ready or transitioning; when transitioning, config_transition reports the provider associated with the current phase, that phase and whether an independent pause must be preserved. The tool fails if both provider lifecycles are live for the same agent, and can fail if the lifecycle changes between the status and detail reads.
 
 ### Tool: answer_ask
 
@@ -376,7 +376,7 @@ Replace the live journal view with an authored summary.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Authenticated agents may write only their own records; the operator may name any identity.
 
-**Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. summary is runtime-required despite optional discovery schema. This is an authored distillation, not automatic summarization. Repeating it creates another summary and compacts the previous summary too.
+**Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. summary is runtime-required despite optional discovery schema. This is an authored distillation, not automatic summarization. Repeating it creates another summary and compacts the previous summary too. Render destinations use the authorization snapshot for the target's active execution revision, so a mid-turn roster workspace or working_dir edit does not redirect an old turn.
 
 ### Tool: define_profile
 
@@ -553,7 +553,7 @@ Delete a persistent fact by key.
 
 ### Tool: inbox_list
 
-Read unfiled notes in a configured routine inbox.
+Read unfiled notes in an authorized routine inbox.
 
 **Endpoints:** /mcp. **Category:** read.
 
@@ -566,9 +566,9 @@ Read unfiled notes in a configured routine inbox.
 
 **Side effects:** None; reads file-based inbox notes.
 
-**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Any authenticated caller reaching this tool may read another configured routine's notes by ID; no self-only read guard.
+**Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Any authenticated caller reaching this tool may read another routine's notes by ID when that target is configured or still owns an active captured execution; no self-only read guard.
 
-**Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. Target must be a configured routine. Only inbox/*.md notes whose content does not begin FILED are returned. Distinct from list_inbox, which is the operator attention inbox.
+**Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. Target must be configured or still own an active captured execution. Only inbox/*.md notes whose content does not begin FILED are returned. The inbox path uses the authorization snapshot for the target's active execution revision, so a mid-turn roster workspace or working_dir edit does not redirect an old turn. Distinct from list_inbox, which is the operator attention inbox.
 
 ### Tool: inbox_mark_filed
 
@@ -588,7 +588,7 @@ Mark an inbox note as already incorporated.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Authenticated agents may write only their own records; the operator may name any identity.
 
-**Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. name is runtime-required, must be a filename rather than a path, and must exist in the routine inbox. Caller is expected to journal relevant content first. An existing FILED prefix makes retry a no-op. Unknown routine, invalid name and file errors become tool errors.
+**Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. name is runtime-required, must be a filename rather than a path, and must exist in the routine inbox. The inbox path uses the authorization snapshot for the target's active execution revision, so a mid-turn roster workspace or working_dir edit does not redirect an old turn. Caller is expected to journal relevant content first. An existing FILED prefix makes retry a no-op. Unknown routine, invalid name and file errors become tool errors.
 
 ### Tool: journal_append
 
@@ -609,7 +609,7 @@ Append a persistent journal entry.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Authenticated agents may write only their own records; the operator may name any identity.
 
-**Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. body is runtime-required despite optional discovery schema; title is optional. Entries use source='sweep'. Retrying appends another entry, so this is not idempotent.
+**Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. body is runtime-required despite optional discovery schema; title is optional. Entries use source='sweep'. Retrying appends another entry, so this is not idempotent. Render destinations use the authorization snapshot for the target's active execution revision, so a mid-turn roster workspace or working_dir edit does not redirect an old turn.
 
 ### Tool: journal_read
 
@@ -1074,11 +1074,11 @@ Send one durable, idempotent message or answer to an agent.
 
 **Result:** The durable message receipt: message_id, target and caller provenance, status, delivery path, provider and exact turn identity when known, continuation link, detail, result, error and timestamps; plus agent_id, delivered, how and duplicate.
 
-**Side effects:** Creates a durable operator-message record, then sends or queues work exactly once for a new caller/target/idempotency tuple. For an operator, can resume a paused agent or start an offline configured routine and records activity.
+**Side effects:** Creates a durable operator-message record, then sends or queues work exactly once for a new caller/target/idempotency tuple. For an operator, can resume a paused agent or start an offline configured routine and records activity. If a configured routine is adopting a changed provider contract, the durable message waits behind that boundary and is submitted after the replacement is ready.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may prompt only a temporary agent whose durable spawn record names it as parent; the operator may message any target through the shared operator action. Missing or reconciled records do not widen access.
 
-**Behavior, defaults and errors:** agent_id and prompt are required. idempotency_key is optional; omission creates a new logical message, while retrying the same caller, target and key with the same prompt returns the existing receipt and duplicate=true. Reusing the key with different text is a tool error. Waiting-for-user input creates a new public message linked to the question while retaining its provider correlation; busy input queues. Operator how='started' means startup was accepted, not that execution began. A refusal before enqueue returns a durable refused receipt with delivered=false rather than losing the attempt. New clients should pass the returned message_id to await_agent.
+**Behavior, defaults and errors:** agent_id and prompt are required. idempotency_key is optional; omission creates a new logical message, while retrying the same caller, target and key with the same prompt returns the existing receipt and duplicate=true. Reusing the key with different text is a tool error. Waiting-for-user input creates a new public message linked to the question while retaining its provider correlation. how='queued' means the durable message is waiting because the provider is busy or because the routine is adopting its current execution configuration. how='admitting' means Custode has claimed the durable message for provider admission but has not yet durably recorded the final delivery path; use the returned message_id with await_agent. delivered=true means the durable submission was accepted rather than refused; it does not mean the provider turn completed. Operator how='started' means startup was accepted, not that execution began. A refusal before enqueue returns a durable refused receipt with delivered=false rather than losing the attempt. New clients should pass the returned message_id to await_agent.
 
 ### Tool: provision_owned_checkout
 
@@ -1732,7 +1732,7 @@ Add a persistent todo.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Authenticated agents may write only their own records; the operator may name any identity.
 
-**Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. text is runtime-required despite optional discovery schema. Retrying adds another todo.
+**Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. text is runtime-required despite optional discovery schema. Retrying adds another todo. Render destinations use the authorization snapshot for the target's active execution revision, so a mid-turn roster workspace or working_dir edit does not redirect an old turn.
 
 ### Tool: todo_complete
 
@@ -1750,7 +1750,7 @@ Mark an owned todo complete.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Looks up the todo owner; agents may complete only their own, while the operator may complete any.
 
-**Behavior, defaults and errors:** todo_id is required. Unknown IDs fail with 'no todo #&lt;id&gt;'. Completing an already done todo keeps it done but still performs bookkeeping.
+**Behavior, defaults and errors:** todo_id is required. Unknown IDs fail with 'no todo #&lt;id&gt;'. Completing an already done todo keeps it done but still performs bookkeeping. Render destinations use the authorization snapshot for the todo owner's active execution revision, so a mid-turn roster workspace or working_dir edit does not redirect an old turn.
 
 ### Tool: todo_list
 

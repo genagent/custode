@@ -11,8 +11,9 @@ defmodule Custode.Operator.Authority do
   def fleet_control(%{kind: :operator}), do: :ok
 
   def fleet_control(%{kind: :routine, id: id}) do
-    case Custode.Routine.get(id) do
-      %{role: :caretaker} -> :ok
+    case Custode.AgentHandoff.authorization_routine(id) do
+      {:ok, %{role: :caretaker}} -> :ok
+      {:error, :handoff_pending} -> {:error, handoff_error(id)}
       _other -> {:error, "identity: fleet control requires the human operator or caretaker role"}
     end
   end
@@ -50,9 +51,13 @@ defmodule Custode.Operator.Authority do
     do: {:error, "identity: roster writes require the human operator or caretaker role"}
 
   defp caretaker(id) do
-    case Custode.Routine.get(id) do
-      %{role: :caretaker} -> :ok
+    case Custode.AgentHandoff.authorization_routine(id) do
+      {:ok, %{role: :caretaker}} -> :ok
+      {:error, :handoff_pending} -> {:error, handoff_error(id)}
       _other -> {:error, "identity: roster writes require the human operator or caretaker role"}
     end
   end
+
+  defp handoff_error(id),
+    do: "identity: routine #{id} is changing configuration; retry after its handoff completes"
 end
