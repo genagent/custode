@@ -97,6 +97,30 @@ wants goes through an approval gate; nothing merges without a human.
   executing turns, and the server stops itself; then boot again
 - The feed and each agent's page carry the story; gates are one click
 
+## Updating
+
+Run updates from the checkout that hosts the fleet. Drain Custode and wait for
+the process to exit before changing that checkout. Then:
+
+```sh
+git pull --ff-only
+mix deps.get
+mix custode doctor
+mix ecto.migrate
+mix custode doctor
+mix custode.skill.install all
+mix run --no-halt
+```
+
+Review the release's operating note and pending migrations before running the
+commands. Take a recoverable backup of `CUSTODE_HOME` when schema changes
+warrant one. The skill installer prints a `--force` command for a stale or
+modified package; inspect the installed files before choosing to run it. Select
+`claude` or `codex` instead of `all` when only one host is configured. After
+Custode restarts, reload `CUSTODE_OPERATOR_TOKEN` from the new token file and
+restart or reconnect each provider session. The installed operator skill's
+lifecycle reference carries the full drain, failure and recovery procedure.
+
 ## 7. Give interactive agents the operator skill
 
 Claude Code and Codex can use the same thin operating contract when they

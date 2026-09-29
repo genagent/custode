@@ -15,9 +15,9 @@ permission model. It is written up in
 current plan is
 [design/010-back-to-the-dashboard.md](design/010-back-to-the-dashboard.md).
 
-**New here?** [guides/demo.md](guides/demo.md) is the 0.1.0 quickstart: a
-fresh home, one agent with its own clone, one task through a gate to a draft
-pull request, the same steps over MCP, and a restart.
+**New here?** Start with [guides/install.md](guides/install.md) for the current
+source install and operator setup. [guides/demo.md](guides/demo.md) preserves
+the v0.1.0 demonstration and its original acceptance path.
 
 ## Cost
 
