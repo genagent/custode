@@ -44,7 +44,7 @@ defmodule Custode.AgentHandoff do
 
   @type provider :: :claude | :codex
   @type pending :: %{
-          provider: provider(),
+          provider: provider() | nil,
           preserve_pause?: boolean(),
           phase:
             :draining
@@ -767,6 +767,7 @@ defmodule Custode.AgentHandoff do
       end
     else
       {:error, :unknown_routine} -> forget_removed(agent_id, state)
+      {:error, reason} -> {{:error, reason}, state}
     end
   end
 
@@ -979,6 +980,9 @@ defmodule Custode.AgentHandoff do
 
       {:error, :unknown_routine} ->
         forget_removed(agent_id, state)
+
+      {:error, reason} ->
+        {{:error, reason}, state}
     end
   end
 
@@ -1007,6 +1011,7 @@ defmodule Custode.AgentHandoff do
     case desired(agent_id, state) do
       {:ok, desired} -> advance_preserving(agent_id, desired, pending, state)
       {:error, :unknown_routine} -> forget_removed(agent_id, state)
+      {:error, reason} -> {{:error, reason}, state}
     end
   end
 
@@ -1014,6 +1019,7 @@ defmodule Custode.AgentHandoff do
     case desired(agent_id, state) do
       {:ok, desired} -> advance_replay_owner(agent_id, desired, pending, state)
       {:error, :unknown_routine} -> forget_removed(agent_id, state)
+      {:error, reason} -> {{:error, reason}, state}
     end
   end
 
@@ -1021,6 +1027,7 @@ defmodule Custode.AgentHandoff do
     case desired(agent_id, state) do
       {:ok, desired} -> advance_replay_owner(agent_id, desired, pending, state)
       {:error, :unknown_routine} -> forget_removed(agent_id, state)
+      {:error, reason} -> {{:error, reason}, state}
     end
   end
 
@@ -1044,6 +1051,7 @@ defmodule Custode.AgentHandoff do
     case desired(agent_id, state) do
       {:ok, desired} -> advance_preserved(agent_id, desired, pending, state)
       {:error, :unknown_routine} -> forget_removed(agent_id, state)
+      {:error, reason} -> {{:error, reason}, state}
     end
   end
 
@@ -1255,6 +1263,9 @@ defmodule Custode.AgentHandoff do
           {:error, reason} ->
             {{:error, {:fence_stale_ticks, reason}}, state}
         end
+
+      {:error, reason} ->
+        {{:error, reason}, state}
     end
   end
 
@@ -1354,7 +1365,16 @@ defmodule Custode.AgentHandoff do
       {:error, :unknown_routine} ->
         _ = invoke(state, :stop_agent, [agent_id, started.provider])
         forget_removed(agent_id, state)
+
+      {:error, reason} ->
+        retain_started_obligation(agent_id, pending, reason, state)
     end
+  end
+
+  defp retain_started_obligation(agent_id, pending, reason, state) do
+    phase = if pending.preserve_pause?, do: :preserving, else: :replaying
+    pending = %{pending | phase: phase}
+    {{:error, reason}, put_pending(state, agent_id, pending)}
   end
 
   defp preserve_pause(agent_id, provider, state) do
@@ -1809,23 +1829,34 @@ defmodule Custode.AgentHandoff do
 
   defp activate_queued_replay(agent_id, result, state) do
     case desired(agent_id, state) do
-      {:ok, desired} -> start_replay_activation(agent_id, result, desired, state)
-      {:error, :unknown_routine} -> {result, state}
+      {:ok, desired} ->
+        start_replay_activation(agent_id, result, desired, state)
+
+      {:error, :unknown_routine} ->
+        {result, state}
+
+      {:error, reason} ->
+        pending = queued_replay_pending(result, nil)
+        {{:error, reason}, put_pending(state, agent_id, pending)}
     end
   end
 
   defp start_replay_activation(agent_id, result, desired, state) do
-    pending = %{
-      provider: desired.provider,
-      preserve_pause?: result == :paused,
-      phase: if(result == :paused, do: :preserved, else: :replaying)
-    }
+    pending = queued_replay_pending(result, desired.provider)
 
     state = put_pending(state, agent_id, pending)
 
     if pending.phase == :preserved,
       do: {:paused, state},
       else: advance_replay_owner(agent_id, desired, pending, state)
+  end
+
+  defp queued_replay_pending(result, provider) do
+    %{
+      provider: provider,
+      preserve_pause?: result == :paused,
+      phase: if(result == :paused, do: :preserved, else: :replaying)
+    }
   end
 
   # If the coordinator died after starting a compatible replacement but
@@ -1858,8 +1889,14 @@ defmodule Custode.AgentHandoff do
 
   defp recover_queued_offline_replay(agent_id, state) do
     case desired(agent_id, state) do
-      {:ok, desired} -> start_recovered_offline_replay(agent_id, desired, state)
-      _unknown -> state
+      {:ok, desired} ->
+        start_recovered_offline_replay(agent_id, desired, state)
+
+      {:error, :unknown_routine} ->
+        state
+
+      {:error, _reason} ->
+        put_pending(state, agent_id, queued_replay_pending(:ready, nil))
     end
   end
 
