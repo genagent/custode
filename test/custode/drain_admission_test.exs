@@ -92,6 +92,38 @@ defmodule Custode.DrainAdmissionTest do
     refute_received :stopped
   end
 
+  test "a reserved ticks producer may be registered before its state is readable" do
+    put_env!(:oban_queues, ticks: 1)
+    :ok = Oban.start_queue(queue: :ticks, limit: 1, paused: true)
+    await_queue(:ticks, &match?(%{paused: true}, &1))
+    parent = self()
+
+    on_exit(fn ->
+      Oban.stop_queue(queue: :ticks)
+      await_queue(:ticks, &is_nil/1)
+    end)
+
+    assert {:ok, [:ticks]} =
+             Custode.Drain.pause(
+               queues: [:ticks],
+               check_queue: fn queue ->
+                 send(parent, :checked_ticks)
+
+                 case Process.get(:ticks_state_reads, 0) do
+                   0 ->
+                     Process.put(:ticks_state_reads, 1)
+                     nil
+
+                   _count ->
+                     Oban.check_queue(queue: queue)
+                 end
+               end
+             )
+
+    assert_received :checked_ticks
+    assert_received :checked_ticks
+  end
+
   test "a delayed probe start cannot reopen ticks after drain" do
     put_env!(:oban_queues, ticks: 1)
     assert Oban.check_queue(queue: :ticks) == nil

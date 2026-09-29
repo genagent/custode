@@ -120,11 +120,11 @@ defmodule Custode.Drain do
 
   defp missing_queue(queue, required, pending) do
     cond do
-      Oban.Registry.whereis(Oban, {:producer, to_string(queue)}) ->
-        {:halt, {:error, "could not confirm pause for queue #{queue}"}}
-
       to_string(queue) in required ->
         {:cont, {:ok, [queue | pending]}}
+
+      Oban.Registry.whereis(Oban, {:producer, to_string(queue)}) ->
+        {:halt, {:error, "could not confirm pause for queue #{queue}"}}
 
       true ->
         {:cont, {:ok, pending}}
