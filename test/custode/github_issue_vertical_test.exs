@@ -142,6 +142,7 @@ defmodule Custode.GitHubIssueVerticalTest do
     def list_issues(_owner, _repo, _opts), do: {:ok, []}
     def view_issue(_owner, _repo, _number), do: {:error, :unsupported}
     def pr_checks(_owner, _repo, _number), do: {:ok, %{sha: nil, checks: []}}
+    def checks_for_ref(_owner, _repo, _ref), do: {:ok, []}
     def job_log_tail(_owner, _repo, _job_id), do: {:error, :unsupported}
     def pr_diff(_owner, _repo, _number), do: {:ok, %{files: []}}
 

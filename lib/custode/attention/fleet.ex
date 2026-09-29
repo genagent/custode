@@ -28,6 +28,7 @@ defmodule Custode.Attention.Fleet do
   alias Custode.Routine
   alias Custode.RunClock
   alias Custode.Sensor.Health
+  alias Custode.Sensors.CiStatus.Infrastructure
   alias Custode.Signal
   alias Custode.SpendLedger
   alias Custode.TurnFailure
@@ -40,7 +41,9 @@ defmodule Custode.Attention.Fleet do
   `:quiet`).
   """
   @spec views() :: [map()]
-  def views do
+  def views, do: views(current_ci_infrastructure())
+
+  defp views(ci_infrastructure) do
     routines = Routine.all()
     running = Map.new(Agents.list())
 
@@ -50,6 +53,7 @@ defmodule Custode.Attention.Fleet do
       in_flight: Map.new(RunClock.running()),
       spend: SpendLedger.today_by_agent(),
       disowned: Disowned.by_repo(),
+      ci_infrastructure: ci_infrastructure,
       sensor_failures: sensor_failures(),
       turn_failures: turn_failures(),
       next_beats: Custode.NextBeat.pending(),
@@ -83,14 +87,23 @@ defmodule Custode.Attention.Fleet do
   """
   @spec signals() :: [Signal.t()]
   def signals do
-    per_agent = Enum.map(views(), &Attention.resolve(&1, context()))
+    ci_infrastructure = current_ci_infrastructure()
+    per_agent = Enum.map(views(ci_infrastructure), &Attention.resolve(&1, context()))
+
+    repository =
+      Enum.map(ci_infrastructure, fn {_repo, condition} ->
+        Attention.ci_infrastructure(condition)
+      end)
 
     # The host signal has no view to come from, so it joins here and every
     # reader of this list (chip, inbox, CLI, MCP) gets it unchanged (#443).
     #
     # The workflow signals join the same way (#447): a launch proposal and a
     # parked run have no agent behind them either.
-    [Attention.host(Custode.Host.facts()) | Attention.workflows(workflow_facts()) ++ per_agent]
+    [
+      Attention.host(Custode.Host.facts())
+      | Attention.workflows(workflow_facts()) ++ repository ++ per_agent
+    ]
     |> Enum.reject(&is_nil/1)
     |> Attention.rank()
   end
@@ -177,8 +190,9 @@ defmodule Custode.Attention.Fleet do
   @spec signals_by_id() :: %{String.t() => Signal.t()}
   def signals_by_id do
     context = context()
+    ci_infrastructure = current_ci_infrastructure()
 
-    Map.new(views(), fn view -> {view.id, Attention.resolve(view, context)} end)
+    Map.new(views(ci_infrastructure), fn view -> {view.id, Attention.resolve(view, context)} end)
   end
 
   # Everything the resolver must not read for itself: the clock, and the one
@@ -199,10 +213,10 @@ defmodule Custode.Attention.Fleet do
       # OLDEST open ask, not newest: staleness is what should surface, and an
       # agent with three open questions is owed the first one first.
       ask: sources.asks |> Map.get(id, []) |> List.last() |> ask_view(),
-      failing_prs: failing_prs(routine, sources.disowned),
+      failing_prs: failing_prs(routine, sources.disowned, sources.ci_infrastructure),
       sensor_failures: Map.get(sources.sensor_failures, id, []),
       turn_failure: Map.get(sources.turn_failures, id),
-      default_branch: default_branch(routine),
+      default_branch: default_branch(routine, sources.ci_infrastructure),
       spend_today: Map.get(sources.spend, id, 0.0),
       budget: routine && routine.daily_budget_usd,
       running_since: Map.get(sources.in_flight, id),
@@ -346,13 +360,19 @@ defmodule Custode.Attention.Fleet do
   # Marks each failing PR as disowned or not HERE (#313), so the resolver only
   # partitions a list of facts. Deciding it in both places would be one
   # judgment made twice, which is how two surfaces start disagreeing.
-  defp failing_prs(%{repo: repo}, disowned) when is_binary(repo) do
+  defp failing_prs(%{repo: repo}, disowned, ci_infrastructure) when is_binary(repo) do
     case Custode.GitHub.overview(repo) do
       {:ok, overview} ->
         numbers = Map.get(disowned, repo, MapSet.new())
 
+        blocked_refs =
+          ci_infrastructure
+          |> Map.get(repo, %{})
+          |> Map.get(:pr_refs, %{})
+
         overview.open_prs.items
         |> Enum.filter(&(&1[:checks] in ["FAILURE", "ERROR"]))
+        |> Enum.reject(&blocked_ref?(&1, blocked_refs))
         |> Enum.map(&pr_fact(repo, &1.number, MapSet.member?(numbers, &1.number)))
         |> Enum.reject(&is_nil/1)
 
@@ -366,7 +386,14 @@ defmodule Custode.Attention.Fleet do
     end
   end
 
-  defp failing_prs(_routine, _disowned), do: []
+  defp failing_prs(_routine, _disowned, _ci_infrastructure), do: []
+
+  defp blocked_ref?(item, blocked_refs) do
+    case Map.fetch(blocked_refs, item.number) do
+      {:ok, blocked_ref} -> blocked_ref == item[:head_sha]
+      :error -> false
+    end
+  end
 
   # A red check the agent still owns takes the cached signal as it stands: it
   # resolves to `:red_check` in `:watching`, where being a cache-cycle behind
@@ -389,14 +416,81 @@ defmodule Custode.Attention.Fleet do
 
   # Same cached overview, one more field (#310). An agent with no repository
   # has no branch to be red, which is why this is nil rather than green.
-  defp default_branch(%{repo: repo}) when is_binary(repo) do
+  defp default_branch(%{repo: repo}, ci_infrastructure) when is_binary(repo) do
     case Custode.GitHub.overview(repo) do
-      {:ok, overview} -> Map.get(overview, :default_branch)
-      :loading -> nil
+      {:ok, overview} ->
+        branch = Map.get(overview, :default_branch)
+
+        blocked_refs =
+          ci_infrastructure
+          |> Map.get(repo, %{})
+          |> Map.get(:branch_refs, %{})
+
+        blocked? =
+          branch &&
+            case Map.fetch(blocked_refs, branch[:name]) do
+              {:ok, blocked_ref} -> blocked_ref == branch[:oid]
+              :error -> false
+            end
+
+        if blocked?, do: nil, else: branch
+
+      :loading ->
+        nil
+
       # unreadable is not red (#485), the same as not fetched yet
-      {:error, _reason} -> nil
+      {:error, _reason} ->
+        nil
     end
   end
 
-  defp default_branch(_routine), do: nil
+  defp default_branch(_routine, _ci_infrastructure), do: nil
+
+  # A sensor's durable observation is tied to an exact commit. The GitHub
+  # overview cache can advance before that sensor runs again, so discard any
+  # item whose PR head or branch tip no longer matches. This filters both the
+  # global operator condition and the per-routine suppression from one read.
+  defp current_ci_infrastructure do
+    Infrastructure.active()
+    |> Enum.flat_map(fn {repo, condition} ->
+      case Custode.GitHub.overview(repo) do
+        {:ok, overview} -> current_condition(repo, condition, overview)
+        :loading -> [{repo, condition}]
+        {:error, _reason} -> [{repo, condition}]
+      end
+    end)
+    |> Map.new()
+  end
+
+  defp current_condition(repo, condition, overview) do
+    current_pr_refs =
+      overview.open_prs.items
+      |> Map.new(&{&1.number, &1[:head_sha]})
+
+    pr_refs =
+      Map.filter(condition.pr_refs, fn {number, ref} ->
+        Map.get(current_pr_refs, number) == ref
+      end)
+
+    branch = Map.get(overview, :default_branch)
+
+    branch_refs =
+      Map.filter(condition.branch_refs, fn {name, ref} ->
+        branch && branch[:name] == name && branch[:oid] == ref
+      end)
+
+    if map_size(pr_refs) == 0 and map_size(branch_refs) == 0 do
+      []
+    else
+      current = %{
+        condition
+        | prs: pr_refs |> Map.keys() |> Enum.sort(),
+          branches: branch_refs |> Map.keys() |> Enum.sort(),
+          pr_refs: pr_refs,
+          branch_refs: branch_refs
+      }
+
+      [{repo, current}]
+    end
+  end
 end

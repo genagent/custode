@@ -14,7 +14,7 @@ defmodule Custode.Repository do
 
   Write verbs: `open_pr/3`, `comment/4`, `ready_pr/3`, `merge_pr/3`.
   Read verbs (#129): `list_issues/2`, `view_issue/2`, `list_prs/2`,
-  `view_pr/2`, `pr_checks/2`, `job_log_tail/2`, `pr_diff/2`,
+  `view_pr/2`, `pr_checks/2`, `checks_for_ref/2`, `job_log_tail/2`, `pr_diff/2`,
   `review_snapshot/2` -- scoped
   GitHub reads through the bound server, replacing the unscoped
   `gh issue list` / `gh pr view` Bash grants. `Custode.GitHub` still owns the
@@ -253,6 +253,9 @@ defmodule Custode.Repository do
   @doc "The check runs on a PR's head commit (name, status, conclusion)."
   def pr_checks(name, number), do: call(name, {:pr_checks, number})
 
+  @doc false
+  def checks_for_ref(name, ref), do: call(name, {:checks_for_ref, ref})
+
   @doc "A bounded tail of one GitHub Actions job log."
   def job_log_tail(name, job_id), do: call(name, {:job_log_tail, job_id})
 
@@ -382,6 +385,10 @@ defmodule Custode.Repository do
 
   def handle_call({:pr_checks, number}, _from, state) do
     read_op(:pr_checks, [state.owner, state.repo, number]) |> reply(state)
+  end
+
+  def handle_call({:checks_for_ref, ref}, _from, state) do
+    read_op(:checks_for_ref, [state.owner, state.repo, ref]) |> reply(state)
   end
 
   def handle_call({:job_log_tail, job_id}, _from, state) do
@@ -611,6 +618,7 @@ defmodule Custode.Repository.OpsBehaviour do
   @callback list_prs(owner, repo, keyword() | map()) :: result
   @callback view_pr(owner, repo, pos_integer()) :: result
   @callback pr_checks(owner, repo, pos_integer()) :: result
+  @callback checks_for_ref(owner, repo, ref :: String.t()) :: result
   @callback job_log_tail(owner, repo, pos_integer()) :: result
   @callback pr_diff(owner, repo, pos_integer()) :: result
   @callback review_snapshot(owner, repo, pos_integer(), merge_method :: String.t() | nil) ::
@@ -794,6 +802,70 @@ defmodule Custode.Repository.Ops do
     end
   end
 
+  def checks_for_ref(owner, repo, ref) when is_binary(ref) and ref != "" do
+    with {:ok, client} <- client(),
+         {:ok, checks} <- complete_check_runs_for_ref(client, owner, repo, ref),
+         {:ok, statuses} <- commit_statuses_for_ref(client, owner, repo, ref) do
+      {:ok, checks ++ statuses}
+    end
+  end
+
+  def checks_for_ref(_owner, _repo, _ref), do: {:error, :invalid_ref}
+
+  defp complete_check_runs_for_ref(client, owner, repo, ref) do
+    opts = [params: [filter: "latest", per_page: 100]]
+
+    with {:ok, result} <- unwrap(GhEx.Checks.list_for_ref(client, owner, repo, ref, opts)),
+         {:ok, runs} <- complete_check_runs(result) do
+      {:ok, Enum.map(runs, &check_row/1)}
+    end
+  end
+
+  defp complete_check_runs(%{"total_count" => total, "check_runs" => runs})
+       when is_integer(total) and total >= 0 and is_list(runs) do
+    received = length(runs)
+
+    cond do
+      received != total -> {:error, {:incomplete_check_runs, total, received}}
+      Enum.all?(runs, &is_map/1) -> {:ok, runs}
+      true -> {:error, :malformed_check_runs}
+    end
+  end
+
+  defp complete_check_runs(_response), do: {:error, :malformed_check_runs}
+
+  # A GraphQL statusCheckRollup contains both CheckRun and StatusContext
+  # entries. The sensor may only call a ref infrastructure-blocked after it
+  # has read both sources; otherwise one quick Actions failure could hide a
+  # real external status failure. Combined status returns the latest entry per
+  # context and a total_count, so the same first-page completeness rule holds.
+  defp commit_statuses_for_ref(client, owner, repo, ref) do
+    opts = [params: [per_page: 100]]
+
+    with {:ok, result} <- unwrap(GhEx.Statuses.get_combined(client, owner, repo, ref, opts)),
+         {:ok, statuses} <- complete_statuses(result) do
+      {:ok, Enum.map(statuses, &status_row/1)}
+    end
+  end
+
+  defp complete_statuses(%{"total_count" => total, "statuses" => statuses})
+       when is_integer(total) and total >= 0 and is_list(statuses) do
+    received = length(statuses)
+
+    cond do
+      received != total -> {:error, {:incomplete_commit_statuses, total, received}}
+      Enum.all?(statuses, &valid_status?/1) -> {:ok, statuses}
+      true -> {:error, :malformed_commit_statuses}
+    end
+  end
+
+  defp complete_statuses(_response), do: {:error, :malformed_commit_statuses}
+
+  defp valid_status?(%{"context" => context, "state" => state}),
+    do: is_binary(context) and context != "" and is_binary(state) and state != ""
+
+  defp valid_status?(_status), do: false
+
   def job_log_tail(owner, repo, job_id) do
     with {:ok, client} <- client(),
          {:ok, log} <- unwrap(GhEx.Actions.download_job_logs(client, owner, repo, job_id)) do
@@ -904,6 +976,19 @@ defmodule Custode.Repository.Ops do
       url: run["html_url"],
       started_at: run["started_at"],
       completed_at: run["completed_at"]
+    }
+  end
+
+  defp status_row(status) do
+    %{
+      id: status["id"],
+      name: status["context"],
+      status: "completed",
+      conclusion: status["state"],
+      url: status["target_url"],
+      started_at: nil,
+      completed_at: nil,
+      source: :commit_status
     }
   end
 

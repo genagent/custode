@@ -5,6 +5,7 @@ defmodule Custode.GitHubTest do
   import ExUnit.CaptureLog
 
   alias Custode.GitHub.Cache
+  alias Custode.GitHub.Fetcher
   alias Custode.Test.FakeGitHubFetcher
 
   doctest Custode.GitHub.Cache
@@ -272,6 +273,75 @@ defmodule Custode.GitHubTest do
 
       assert String.length(Cache.short_reason(%GhEx.Error{message: String.duplicate("y", 500)})) ==
                120
+    end
+  end
+
+  describe "the real overview fetcher" do
+    @fetcher_stub __MODULE__.FetcherGitHubStub
+
+    setup do
+      previous_token = System.get_env("GITHUB_TOKEN")
+      System.put_env("GITHUB_TOKEN", "test-token")
+      Application.put_env(:custode, :github_req_options, plug: {Req.Test, @fetcher_stub})
+
+      on_exit(fn ->
+        Application.delete_env(:custode, :github_req_options)
+
+        if previous_token,
+          do: System.put_env("GITHUB_TOKEN", previous_token),
+          else: System.delete_env("GITHUB_TOKEN")
+      end)
+
+      :ok
+    end
+
+    test "an open PR carries the exact head SHA behind its check rollup" do
+      test_pid = self()
+
+      Req.Test.stub(@fetcher_stub, fn conn ->
+        {:ok, raw, conn} = Plug.Conn.read_body(conn)
+        send(test_pid, {:overview_query, Jason.decode!(raw)})
+
+        Req.Test.json(conn, %{
+          "data" => %{
+            "repository" => %{
+              "openPrs" => %{
+                "totalCount" => 1,
+                "nodes" => [
+                  %{
+                    "number" => 12,
+                    "title" => "fix: keep the ref",
+                    "url" => "https://github.com/acme/widget/pull/12",
+                    "isDraft" => false,
+                    "updatedAt" => "2026-09-28T20:00:00Z",
+                    "commits" => %{
+                      "nodes" => [
+                        %{
+                          "commit" => %{
+                            "oid" => "deadbeef",
+                            "statusCheckRollup" => %{"state" => "FAILURE"}
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        })
+      end)
+
+      assert {:ok, %{open_prs: %{items: [pr]}}} = Fetcher.fetch("acme/widget")
+      assert %{number: 12, checks: "FAILURE", head_sha: "deadbeef"} = pr
+
+      assert_received {:overview_query,
+                       %{
+                         "query" => query,
+                         "variables" => %{"name" => "widget", "owner" => "acme"}
+                       }}
+
+      assert query =~ "commit { oid statusCheckRollup { state } }"
     end
   end
 

@@ -31,7 +31,7 @@ defmodule Custode.Signal do
   site, so the fleet page, the inbox and the CLI cannot disagree about what
   counts as needing a human.
 
-      :host_down                                                -> :needs_you
+      :host_down  :ci_infrastructure                            -> :needs_you
       :workflow_launch  :workflow_rail                          -> :needs_you
       :red_main  :needs_answer  :approval  :rail_hit  :stalled  -> :needs_you
       :disowned_check  :turn_failing                            -> :needs_you
@@ -59,6 +59,11 @@ defmodule Custode.Signal do
   it invalidates the operator's own next action and is owed to them whether or
   not an agent is also working on it (#310).
 
+  `:ci_infrastructure` belongs to the repository rather than any one agent.
+  A quota, billing, or runner block cannot be repaired by changing a pull
+  request, so it reaches the operator once while the affected routine signals
+  stay quiet (#716).
+
   `:paused` sits in `:quiet`. An agent the operator stopped on purpose is not
   a problem to be solved, and the fleet page used to treat it as one
   (`CustodeWeb.Components.needs_attention?/1` counts `:paused`), which put a
@@ -68,6 +73,7 @@ defmodule Custode.Signal do
   @typedoc "What the agent's state is, most-urgent first. See `Custode.Attention`."
   @type kind ::
           :host_down
+          | :ci_infrastructure
           | :red_main
           | :turn_failing
           | :needs_answer
