@@ -69,15 +69,21 @@ defmodule Custode.Config.WriteBackTest do
   end
 
   test "renders the literal section a gate card would show" do
-    text = WriteBack.render_routine(entry("shown"))
+    text =
+      entry("shown")
+      |> Map.put(:permission_broker, :read_only)
+      |> WriteBack.render_routine()
+
     assert text =~ ~s([[routines]])
     assert text =~ ~s(id = "shown")
     assert text =~ ~s(profile = "backlog_worker")
     assert text =~ ~s(tags = ["rust", "external"])
+    assert text =~ ~s(permission_broker = "read_only")
     # and the rendered text is valid TOML the loader accepts
     {[parsed], [], _} = Loader.parse!(text)
     assert parsed.id == "shown"
     assert parsed.profile == :backlog_worker
+    assert parsed.permission_broker == :read_only
   end
 
   test "duplicate ids and broken entries are refused as values" do
@@ -156,6 +162,15 @@ defmodule Custode.Config.WriteBackTest do
       {:ok, ^path} = WriteBack.update_routine("newbie", %{model: nil})
       {[_, raw], [], _} = Loader.parse!(File.read!(path), path)
       refute Map.has_key?(raw, :model)
+    end
+
+    test "permission broker is editable without baking profile defaults", %{path: path} do
+      assert {:ok, ^path} =
+               WriteBack.update_routine("newbie", %{permission_broker: :read_only})
+
+      {[_existing, raw], [], _} = Loader.parse!(File.read!(path), path)
+      assert raw.permission_broker == :read_only
+      assert File.read!(path) =~ ~s(permission_broker = "read_only")
     end
 
     test "changing provider stops the old engine before the next beat", %{path: path} do

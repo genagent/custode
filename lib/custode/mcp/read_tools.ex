@@ -27,6 +27,17 @@ defmodule Custode.MCP.ReadTools do
   struct's field list.
   """
 
+  @max_days 365
+
+  @doc false
+  def bounded_days(nil, default), do: {:ok, default}
+
+  def bounded_days(days, _default) when is_integer(days) and days in 1..@max_days,
+    do: {:ok, days}
+
+  def bounded_days(_days, _default),
+    do: {:error, "days must be a whole number from 1 through #{@max_days}"}
+
   @doc false
   def signal_map(signal) do
     %{
@@ -163,33 +174,38 @@ defmodule Custode.MCP.ReadTools.SuggestionOutcomes do
 
   import Custode.MCP.Tools
 
+  alias Custode.MCP.ReadTools
   alias Custode.Suggestions.Outcome
 
   schema do
-    field(:days, :integer, description: "window in days (default 30)")
+    field(:days, :integer, description: "window in days (default 30, range 1..365)")
   end
 
   @impl true
   def execute(params, frame) do
-    opts = if days = params[:days], do: [since: days * 24 * 60 * 60], else: []
+    case ReadTools.bounded_days(params[:days], 30) do
+      {:ok, days} ->
+        decisions =
+          for record <- Outcome.history(since: days * 24 * 60 * 60) do
+            %{
+              agent: record.agent,
+              advisor: record.advisor,
+              field: record.field,
+              proposed: record.proposed,
+              decision: record.decision,
+              status: record.status,
+              reason: record.reason,
+              at: record.at,
+              observed: record.observed,
+              summary: Outcome.describe(record)
+            }
+          end
 
-    decisions =
-      for record <- Outcome.history(opts) do
-        %{
-          agent: record.agent,
-          advisor: record.advisor,
-          field: record.field,
-          proposed: record.proposed,
-          decision: record.decision,
-          status: record.status,
-          reason: record.reason,
-          at: record.at,
-          observed: record.observed,
-          summary: Outcome.describe(record)
-        }
-      end
+        reply(frame, %{decisions: decisions})
 
-    reply(frame, %{decisions: decisions})
+      {:error, message} ->
+        fail(frame, message)
+    end
   end
 end
 
@@ -208,23 +224,28 @@ defmodule Custode.MCP.ReadTools.Advisors do
   import Custode.MCP.Tools
 
   alias Custode.Advisors.Record
+  alias Custode.MCP.ReadTools
 
   schema do
-    field(:days, :integer, description: "window in days (default 30)")
+    field(:days, :integer, description: "window in days (default 30, range 1..365)")
   end
 
   @impl true
   def execute(params, frame) do
-    opts = if days = params[:days], do: [since: days * 24 * 60 * 60], else: []
+    case ReadTools.bounded_days(params[:days], 30) do
+      {:ok, days} ->
+        advisors =
+          for entry <- Record.all(since: days * 24 * 60 * 60) do
+            entry
+            |> Map.from_struct()
+            |> Map.put(:summary, Record.describe(entry))
+          end
 
-    advisors =
-      for entry <- Record.all(opts) do
-        entry
-        |> Map.from_struct()
-        |> Map.put(:summary, Record.describe(entry))
-      end
+        reply(frame, %{advisors: advisors})
 
-    reply(frame, %{advisors: advisors})
+      {:error, message} ->
+        fail(frame, message)
+    end
   end
 end
 
@@ -240,17 +261,21 @@ defmodule Custode.MCP.ReadTools.Metrics do
 
   import Custode.MCP.Tools
 
+  alias Custode.MCP.ReadTools
+
   @kinds ~w(spend turns gate_latency by_model gate_outcomes prs_opened)
 
   schema do
     field(:kind, :string, required: true, description: "one of: #{Enum.join(@kinds, ", ")}")
-    field(:days, :integer, description: "window in days (default 7)")
+    field(:days, :integer, description: "window in days (default 7, range 1..365)")
   end
 
   @impl true
   def execute(%{kind: kind} = params, frame) when kind in @kinds do
-    days = params[:days] || 7
-    reply(frame, %{kind: kind, days: days, data: measure(kind, days)})
+    case ReadTools.bounded_days(params[:days], 7) do
+      {:ok, days} -> reply(frame, %{kind: kind, days: days, data: measure(kind, days)})
+      {:error, message} -> fail(frame, message)
+    end
   end
 
   def execute(%{kind: kind}, frame),
@@ -285,19 +310,27 @@ defmodule Custode.MCP.ReadTools.Digest do
 
   import Custode.MCP.Tools
 
+  alias Custode.MCP.ReadTools
+
   schema do
-    field(:days, :integer, description: "window in days (default 1)")
+    field(:days, :integer, description: "window in days (default 1, range 1..365)")
     field(:markdown, :boolean, description: "render as markdown instead of the typed map")
   end
 
   @impl true
   def execute(params, frame) do
-    digest = Custode.Digest.build(params[:days] || 1)
+    case ReadTools.bounded_days(params[:days], 1) do
+      {:ok, days} ->
+        digest = Custode.Digest.build(days)
 
-    if params[:markdown] do
-      reply(frame, %{markdown: Custode.Digest.to_markdown(digest)})
-    else
-      reply(frame, digest)
+        if params[:markdown] do
+          reply(frame, %{markdown: Custode.Digest.to_markdown(digest)})
+        else
+          reply(frame, digest)
+        end
+
+      {:error, message} ->
+        fail(frame, message)
     end
   end
 end

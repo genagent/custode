@@ -28,8 +28,9 @@ defmodule Custode.MCP.RosterTools do
 
   @doc false
   # The attrs shape shared by both tools: assignment fields plus the
-  # common overrides. Tags arrive as strings and convert exactly like the
-  # TOML loader converts them.
+  # common overrides. Keep open-vocabulary tags as strings until the rendered
+  # TOML is loaded through the trusted configuration path; MCP input must not
+  # mint permanent BEAM atoms.
   def to_attrs(params) do
     %{id: params.id}
     |> put_if(params, :provider, &String.to_existing_atom/1)
@@ -52,7 +53,7 @@ defmodule Custode.MCP.RosterTools do
     |> put_if(params, :hermetic)
     |> put_if(params, :system_prompt_file)
     |> put_if(params, :extra_allowed_tools)
-    |> put_if(params, :tags, fn tags -> Enum.map(tags, &String.to_atom/1) end)
+    |> put_if(params, :tags)
   end
 
   defp put_if(attrs, params, key, convert \\ & &1) do
@@ -63,7 +64,7 @@ defmodule Custode.MCP.RosterTools do
   end
 
   @doc false
-  def external?(attrs), do: :external in Map.get(attrs, :tags, [])
+  def external?(attrs), do: Enum.any?(Map.get(attrs, :tags, []), &(&1 in [:external, "external"]))
 
   @doc false
   # The edit-changes shape (#174 slice 3): the assignment fields plus the
@@ -92,7 +93,7 @@ defmodule Custode.MCP.RosterTools do
     |> put_if(params, :hermetic)
     |> put_if(params, :system_prompt_file)
     |> put_if(params, :extra_allowed_tools)
-    |> put_if(params, :tags, fn tags -> Enum.map(tags, &String.to_atom/1) end)
+    |> put_if(params, :tags)
     |> apply_drops(params)
   end
 

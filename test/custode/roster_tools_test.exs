@@ -87,6 +87,17 @@ defmodule Custode.RosterToolsTest do
     refute File.exists?(path)
   end
 
+  test "preview does not intern open-vocabulary tags", %{path: path} do
+    tag = "tag-" <> Ecto.UUID.generate()
+    assert_raise ArgumentError, fn -> String.to_existing_atom(tag) end
+
+    json = tool_json(PreviewRoutine.execute(%{id: "safe-tag", tags: [tag]}, @operator))
+
+    assert json["toml"] =~ inspect(tag)
+    assert_raise ArgumentError, fn -> String.to_existing_atom(tag) end
+    refute File.exists?(path)
+  end
+
   test "provider is exposed by preview and add", %{path: path} do
     json = tool_json(PreviewRoutine.execute(%{id: "codex-preview", provider: "codex"}, @operator))
     assert json["toml"] =~ ~s(provider = "codex")
@@ -229,6 +240,38 @@ defmodule Custode.RosterToolsTest do
       refute json["before"] =~ "daily_budget_usd"
       assert json["after"] =~ ~s(daily_budget_usd = 75.0)
       refute File.exists?(path)
+    end
+
+    test "preview_routine_edit never opens direct or profile prompt-file paths" do
+      direct =
+        PreviewRoutineEdit.execute(
+          %{id: "existing", system_prompt_file: System.tmp_dir!()},
+          @operator
+        )
+        |> tool_json()
+
+      assert direct["after"] =~ ~s(system_prompt_file = "#{System.tmp_dir!()}")
+
+      workspace = tmp_workspace!()
+
+      put_env!(:profiles, %{
+        unreadable: %{
+          cron: "@daily",
+          prompt: "sweep",
+          role: :star_tracker,
+          system_prompt_file: System.tmp_dir!()
+        }
+      })
+
+      put_env!(:routines, [
+        %{id: "profile-prompt", profile: :unreadable, workspace: workspace}
+      ])
+
+      inherited =
+        PreviewRoutineEdit.execute(%{id: "profile-prompt", model: "sonnet"}, @operator)
+        |> tool_json()
+
+      assert inherited["after"] =~ ~s(model = "sonnet")
     end
 
     test "the caretaker edits through the gate flow; a worker is refused", %{path: path} do

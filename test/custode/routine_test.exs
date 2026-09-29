@@ -18,6 +18,7 @@ defmodule Custode.RoutineTest do
       assert routine.role == :assistant
       assert routine.system_prompt =~ "assistant"
       assert routine.mcp == false
+      assert routine.permission_broker == nil
     end
 
     test "per-routine overrides win" do
@@ -526,6 +527,111 @@ defmodule Custode.RoutineTest do
       assert "mcp__custode__run_job" in claude_args["allowed_tools"]
       assert claude_args["append_system_prompt"] =~ "Delegation"
       assert claude_args["append_system_prompt"] =~ "run_job"
+    end
+
+    test "read-only permission broker is an explicit Claude MCP routine opt-in" do
+      for configured_hermetic <- [nil, :project, false] do
+        routine =
+          routine_fixture!("workspace", %{
+            mcp: true,
+            permission_broker: :read_only,
+            hermetic: configured_hermetic
+          })
+
+        claude_args = Custode.Routine.tick_args(routine)["start"]["args"]
+
+        assert routine.permission_broker == :read_only
+
+        assert claude_args["permission_prompt_tool"] ==
+                 "mcp__custode__permission_decide"
+
+        assert claude_args["hermetic"] == "full"
+      end
+
+      plain = routine_fixture!("workspace", %{mcp: true})
+
+      refute Map.has_key?(
+               Custode.Routine.tick_args(plain)["start"]["args"],
+               "permission_prompt_tool"
+             )
+    end
+
+    test "permission broker rejects unsupported modes, providers, and MCP-disabled routines" do
+      assert_raise ArgumentError, ~r/unknown permission_broker/, fn ->
+        routine_fixture!("workspace", %{mcp: true, permission_broker: :write})
+      end
+
+      assert_raise ArgumentError, ~r/requires provider claude and mcp true/, fn ->
+        routine_fixture!("workspace", %{permission_broker: :read_only})
+      end
+
+      assert_raise ArgumentError, ~r/requires provider claude and mcp true/, fn ->
+        routine_fixture!("workspace", %{
+          provider: :codex,
+          mcp: true,
+          permission_broker: :read_only
+        })
+      end
+
+      assert_raise ArgumentError, ~r/use system_prompt or system_prompt_file/, fn ->
+        routine_fixture!("workspace", %{
+          mcp: true,
+          permission_broker: :read_only,
+          agent: "repo-reviewer"
+        })
+      end
+    end
+
+    test "permission broker cannot be inherited from a profile" do
+      put_env!(:profiles, %{
+        managed: %{
+          cron: :manual,
+          prompt: "read",
+          mcp: true,
+          permission_broker: :read_only
+        }
+      })
+
+      assert_raise ArgumentError, ~r/permission_broker is a routine-only setting/, fn ->
+        routine_fixture!("workspace", %{profile: :managed})
+      end
+    end
+
+    test "permission broker cannot be inherited from provider-specific profile defaults" do
+      put_env!(:profiles, %{
+        managed: %{cron: :manual, prompt: "read", mcp: true}
+      })
+
+      put_env!(:profile_provider_defaults, %{
+        managed: %{claude: %{permission_broker: :read_only}}
+      })
+
+      assert_raise ArgumentError, ~r/permission_broker is a routine-only setting/, fn ->
+        routine_fixture!("workspace", %{profile: :managed})
+      end
+
+      put_env!(:profile_provider_defaults, %{
+        nil => %{claude: %{permission_broker: :read_only}}
+      })
+
+      assert_raise ArgumentError, ~r/permission_broker is a routine-only setting/, fn ->
+        routine_fixture!("workspace", %{mcp: true})
+      end
+
+      put_env!(:profile_provider_defaults, %{})
+      routine = routine_fixture!("workspace", %{mcp: true, permission_broker: nil})
+      assert routine.permission_broker == nil
+    end
+
+    test "permission broker and its forced hermetic contract change the execution revision" do
+      routine = routine_fixture!("workspace", %{mcp: true})
+      original_revision = Custode.Routine.execution_revision(routine)
+
+      brokered = %{routine | permission_broker: :read_only}
+      refute Custode.Routine.execution_revision(brokered) == original_revision
+
+      assert Custode.Routine.execution_revision(%{brokered | hermetic: :project}) ==
+               Custode.Routine.execution_revision(brokered)
     end
 
     test "phase-split models: cheap sweeps, expensive approved implementations" do

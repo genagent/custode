@@ -7,7 +7,8 @@ access-control boundary. The generated [client reference](../mcp-reference.md)
 remains the source for each operation's arguments, effects, and implemented
 checks.
 
-This is a design audit. It does not enable new enforcement.
+This began as a design audit and now also records the shared capability
+enforcement that has landed since the audit.
 
 ## Four separate layers
 
@@ -25,9 +26,12 @@ questions:
 4. **Runtime authorization** is a check inside a tool handler or the shared
    operation that performs the action. Only this layer refuses a direct call.
 
-`Custode.MCP.ToolPolicy` describes the intended category of every tool. Runtime
-code does not read that module, so it is documentation and coverage metadata,
-not an enforcement mechanism.
+`Custode.MCP.ToolPolicy` describes the intended category of every tool. Most
+tool handlers still enforce their own narrower boundary rather than reading
+that table. The Claude permission broker is the exception: it reads the table
+to recognize tools classified as `read`, then combines that classification
+with the caller's executable role capability policy. A category alone is not
+an authorization grant.
 
 ## Identities and intended endpoints
 
@@ -122,6 +126,67 @@ The current handlers enforce these boundaries:
   through the action-grant check, whose default mode currently observes and
   records an out-of-grant call rather than refusing it.
 - Main-endpoint resources require the human operator identity.
+
+### Claude permission broker
+
+`permission_decide` is a narrow provider adapter for Claude's
+`--permission-prompt-tool` contract. It decides only whether an authenticated
+routine may ask Claude to invoke one read-only tool on Custode's local MCP
+server. The bearer identity supplies the routine ID; callers cannot select or
+assert another identity. The decision uses the routine's captured execution
+authorization, the same role capability policy used for discovery and blind
+calls, and the requested tool's `Custode.MCP.ToolPolicy` category.
+
+An allow decision therefore requires all of the following:
+
+- the caller is an authenticated routine with an available authorization
+  snapshot;
+- the requested name is a known local `mcp__custode__*` tool authorized for
+  that captured role; and
+- the tool policy category is `read`.
+
+The broker denies built-in Claude tools, external MCP tools, unknown or
+out-of-role Custode tools, non-read tools, and calls to itself. Schema-invalid
+calls fail at the authenticated MCP protocol boundary before the handler and
+therefore do not produce a broker audit record. Every well-formed request that
+reaches the handler returns a normal allow or deny decision. An allow result
+echoes the requested input unchanged; the broker never invokes the target tool.
+Each decision records bounded audit metadata without the requested input or a
+bearer token. The broker is available to authenticated routines through MCP
+discovery but stays out of `Custode.Routine.mcp_tools/1`, the ordinary provider
+allowlist, because it is control-plane plumbing rather than a work capability.
+
+The provider integration is an explicit routine-only opt-in:
+
+```toml
+[[routines]]
+id = "managed-reader"
+provider = "claude"
+mcp = true
+permission_broker = "read_only"
+```
+
+The setting is valid only for a Claude routine with MCP enabled and cannot be
+inherited from a profile. It passes
+`mcp__custode__permission_decide` as Claude's permission-prompt tool and forces
+the effective hermetic mode to `full`. The sealed launch excludes ambient
+user, project and local settings, hooks, instructions and MCP definitions,
+while Claude's managed settings remain in force. An external MCP server cannot
+use the reserved name `custode`. A brokered routine also cannot select a named
+Claude agent, whose definition would be hidden by the seal; put standing
+instructions in `system_prompt` or `system_prompt_file` instead.
+
+The setting is part of the routine execution contract, so changing it rotates
+the execution revision. A process that already captured the old revision keeps
+its old arguments and authorization snapshot; the next provider process uses
+the new setting.
+
+This is one layer in Claude's permission evaluation. Managed deny rules apply
+before the broker and cannot be overridden. Claude can also bypass the broker
+for calls already resolved by its own policy, and tools marked as requiring
+user interaction cannot be approved by a headless permission-prompt tool.
+Custode still checks the eventual target call at the MCP boundary, so an allow
+decision is not a durable grant and does not replace tool-specific guards.
 
 The repository grant checker still defaults to observation. Turning refusal
 on is the policy decision tracked by #554.

@@ -52,4 +52,14 @@ defmodule Custode.ExternalMCPTest do
 
     assert Custode.MCP.external_allowed() == ["mcp__hexpm__info"]
   end
+
+  test "the authenticated custode server name is reserved" do
+    put_env!(:external_mcp_servers, [
+      %{name: "custode", type: :http, url: "https://untrusted.example/mcp"}
+    ])
+
+    assert_raise ArgumentError, ~r/name "custode" is reserved/, fn ->
+      Custode.MCP.external_servers()
+    end
+  end
 end

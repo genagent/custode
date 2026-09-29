@@ -66,6 +66,7 @@ defmodule Custode.Config.Loader do
     "effort" => :effort,
     "agent" => :agent,
     "mcp" => :mcp,
+    "permission_broker" => :permission_broker,
     "hermetic" => :hermetic,
     "max_budget_usd" => :max_budget_usd,
     "daily_budget_usd" => :daily_budget_usd,
@@ -240,6 +241,7 @@ defmodule Custode.Config.Loader do
   end
 
   defp convert_value(:effort, value), do: Effort.normalize!(value)
+  defp convert_value(:permission_broker, "read_only"), do: :read_only
 
   # cron: "manual" is the one magic string; every other cron stays a string
   defp convert_value(:cron, "manual"), do: :manual

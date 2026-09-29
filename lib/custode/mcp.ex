@@ -67,13 +67,16 @@ defmodule Custode.MCP do
   """
   def external_servers do
     for server <- Application.get_env(:custode, :external_mcp_servers, []) do
+      name = Map.fetch!(server, :name)
+      validate_external_name!(name)
+
       %{
-        name: Map.fetch!(server, :name),
+        name: name,
         type: Map.get(server, :type, :http),
         url: Map.get(server, :url),
         command: Map.get(server, :command),
         args: Map.get(server, :args, []),
-        allowed: Map.get(server, :allowed, ["mcp__" <> Map.fetch!(server, :name)])
+        allowed: Map.get(server, :allowed, ["mcp__" <> name])
       }
     end
   end
@@ -180,4 +183,11 @@ defmodule Custode.MCP do
 
   @doc "The state atom out of a `Custode.Agents.status/1` payload."
   defdelegate state_of(status), to: Custode
+
+  defp validate_external_name!("custode") do
+    raise ArgumentError,
+          "external MCP server name \"custode\" is reserved for the authenticated Custode server"
+  end
+
+  defp validate_external_name!(_name), do: :ok
 end
