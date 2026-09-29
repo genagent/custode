@@ -195,6 +195,7 @@ toggles them ([guides/ui-hierarchy.md](guides/ui-hierarchy.md)).
 | Page | What it is |
 |---|---|
 | `/` | **The console.** A rail of every subject grouped by what it needs (needs you, watching, working, scheduled, quiet), filterable by name, repository, tag or state. A subject pane with a message box that works in any state and tabs: attention, activity, work, notebook, panel, turns, config. An item pane with the evidence (failing checks, risk, the agent's context) and one control per thing you can do. |
+| `/agents/:id/conversation` | **A focused agent conversation.** Operator prompts, provider replies, questions, approvals, and their outcomes appear as correlated exchanges in one full-height transcript, with stable older-history loading and the same saved draft as the console. |
 | `/custode` | **Talking to custode**, `Cmd/Ctrl+K` from anywhere. A sentence box, custode's pending proposal as a plan with `do it` and `cancel`, its answers, and what it did while you were away. |
 | `/metrics` | Spend, approval rates by agent, by gate class and risk, and writes observed outside an approval. |
 | `/inbox`, `/repos`, `/workflows`, `/suggestions` | The needs-you queue, repository overviews, workflow runs, advisor suggestions. |
