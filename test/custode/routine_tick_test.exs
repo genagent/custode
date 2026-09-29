@@ -70,7 +70,7 @@ defmodule Custode.RoutineTickTest do
 
     first = hd(ticks_for(id))
     assert first.args["agent_id"] == id
-    assert first.args["prompt"] == "original"
+    assert String.starts_with?(first.args["prompt"], "original")
     assert first.args["start"]["args"]["model"] == "haiku"
 
     # edit the routine's prompt and model WITHOUT restarting: the next fire
@@ -83,7 +83,7 @@ defmodule Custode.RoutineTickTest do
 
     second = hd(ticks_for(id))
     assert second.id != first.id
-    assert second.args["prompt"] == "revised"
+    assert String.starts_with?(second.args["prompt"], "revised")
     assert second.args["start"]["args"]["model"] == "sonnet"
   end
 
@@ -242,7 +242,7 @@ defmodule Custode.RoutineTickTest do
              Custode.Routine.tick_args(Custode.Routine.get(id))
              |> put_in(["start", "session_arcs"], %{})
 
-    assert job.args["prompt"] == "unchanged prompt"
+    assert String.starts_with?(job.args["prompt"], "unchanged prompt")
     assert job.args["start"]["args"]["model"] == "haiku"
   end
 
@@ -265,6 +265,6 @@ defmodule Custode.RoutineTickTest do
     assert_receive {:vertical, %{id: ^id}, [^result]}
 
     assert [job] = ticks_for(id)
-    assert job.args["prompt"] == "legacy sweep"
+    assert String.starts_with?(job.args["prompt"], "legacy sweep")
   end
 end

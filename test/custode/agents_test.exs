@@ -4,8 +4,9 @@ defmodule Custode.AgentsTest do
   import Custode.TestHelpers
   import ObanClaude.Testing
 
-  alias Custode.Agents
+  alias Custode.{AgentHandoff, Agents, OperatorMessages, Routine}
   alias Custode.Feed.Ingest
+  alias Custode.Operator.Actions
 
   test "queued casts stay nonblocking and preserve session, origin and agent identity" do
     id = uid("facade")
@@ -46,6 +47,98 @@ defmodule Custode.AgentsTest do
                     %{"agent_id" => ^id, "origin" => "operator"}}
   end
 
+  test "an explicit-provider emergency pause retains the durable pause provenance" do
+    id = uid("pause-provenance")
+
+    {:ok, _pid} =
+      Agents.start_agent(id,
+        enqueue_fun: fn _args, _meta -> {:ok, :queued} end
+      )
+
+    on_exit(fn -> Agents.stop_agent(id) end)
+
+    context = %{
+      "cause" => "pause_after_turn",
+      "reason" => "daily_spend",
+      "correlation_id" => "spend-rail-42"
+    }
+
+    assert :ok = Agents.emergency_pause(id, :claude, context)
+    assert {:ok, :paused} = Agents.await(id, :paused, 1_000)
+
+    assert {:ok,
+            %{
+              pause_context: %{
+                cause: "pause_after_turn",
+                pause_reason: "daily_spend",
+                correlation_id: "spend-rail-42"
+              }
+            }} = Agents.info(id, :claude)
+  end
+
+  test "a durable message resumes a configured paused routine inside handoff ownership" do
+    id = uid("paused-handoff-message")
+    parent = self()
+
+    put_env!(:routines, [
+      %{id: id, provider: :claude, cron: :manual, workspace: tmp_workspace!(), prompt: "work"}
+    ])
+
+    config =
+      id
+      |> Routine.get()
+      |> Routine.agent_config(%{})
+      |> Keyword.put(:enqueue_fun, fn args, meta ->
+        send(parent, {:paused_message_enqueued, args, meta})
+        {:ok, :queued}
+      end)
+
+    {:ok, _pid} = Agents.start_agent(id, :claude, config)
+    on_exit(fn -> Agents.stop_agent(id, :claude) end)
+
+    assert :ok = Agents.emergency_pause(id, :claude)
+    assert {:ok, :paused} = Agents.await(id, :paused, 1_000)
+
+    assert :ok =
+             AgentHandoff.pause(
+               id,
+               %{cause: :emergency_pause, reason: :operator},
+               fn -> :ok end
+             )
+
+    assert {:pending, %{phase: :preserving}} = AgentHandoff.status(id)
+    :ok = :sys.suspend(AgentHandoff)
+
+    on_exit(fn ->
+      if is_pid(Process.whereis(AgentHandoff)), do: :sys.resume(AgentHandoff)
+    end)
+
+    delivery =
+      Task.async(fn ->
+        Actions.message_with_receipt(id, "continue the release",
+          actor: %{kind: :operator, id: "test-operator"},
+          via: :mcp
+        )
+      end)
+
+    eventually(fn -> assert [_message] = OperatorMessages.queued_for(id) end)
+    :ok = :sys.resume(AgentHandoff)
+
+    assert {:ok, message, :created} = Task.await(delivery, 1_000)
+
+    assert message.delivery == "resumed"
+
+    assert_receive {:paused_message_enqueued, %{"prompt" => prompt}, meta}, 1_000
+    assert prompt =~ "continue the release"
+    assert meta["correlation_id"] == message.message_id
+    assert OperatorMessages.queued_for(id) == []
+
+    :ok = finish_agent_turn(meta, result(session_id: "message-session"))
+    assert {:ok, :idle} = Agents.await(id, :idle, 1_000)
+    eventually(fn -> assert AgentHandoff.status(id) == :ready end)
+    refute_receive {:paused_message_enqueued, _args, _meta}, 100
+  end
+
   test "a Codex routine routes the same lifecycle through ObanCodex" do
     id = uid("codex-facade")
     parent = self()
@@ -54,13 +147,13 @@ defmodule Custode.AgentsTest do
       %{id: id, provider: :codex, cron: :manual, workspace: tmp_workspace!(), prompt: "review"}
     ])
 
-    {:ok, _pid} =
-      Agents.start_agent(id,
-        enqueue_fun: fn args, meta ->
-          send(parent, {:codex_enqueued, args, meta})
-          {:ok, :queued}
-        end
-      )
+    config =
+      configured_agent_config(id, fn args, meta ->
+        send(parent, {:codex_enqueued, args, meta})
+        {:ok, :queued}
+      end)
+
+    {:ok, _pid} = Agents.start_agent(id, config)
 
     on_exit(fn -> Agents.stop_agent(id, :codex) end)
 
@@ -89,13 +182,13 @@ defmodule Custode.AgentsTest do
       %{id: id, provider: :codex, cron: :manual, workspace: tmp_workspace!(), prompt: "review"}
     ])
 
-    {:ok, _pid} =
-      Agents.start_agent(id,
-        enqueue_fun: fn args, meta ->
-          send(parent, {:codex_fork_enqueued, args, meta})
-          {:ok, :queued}
-        end
-      )
+    config =
+      configured_agent_config(id, fn args, meta ->
+        send(parent, {:codex_fork_enqueued, args, meta})
+        {:ok, :queued}
+      end)
+
+    {:ok, _pid} = Agents.start_agent(id, config)
 
     on_exit(fn -> Agents.stop_agent(id, :codex) end)
 
@@ -138,13 +231,13 @@ defmodule Custode.AgentsTest do
       %{id: id, provider: :codex, cron: :manual, workspace: tmp_workspace!(), prompt: "review"}
     ])
 
-    {:ok, _pid} =
-      Agents.start_agent(id,
-        enqueue_fun: fn args, meta ->
-          send(parent, {:codex_gate_enqueued, args, meta})
-          {:ok, :queued}
-        end
-      )
+    config =
+      configured_agent_config(id, fn args, meta ->
+        send(parent, {:codex_gate_enqueued, args, meta})
+        {:ok, :queued}
+      end)
+
+    {:ok, _pid} = Agents.start_agent(id, config)
 
     on_exit(fn -> Agents.stop_agent(id, :codex) end)
 
@@ -173,5 +266,12 @@ defmodule Custode.AgentsTest do
       assert [%{detail: "open the review PR", class: "implement"}] =
                Custode.Gates.open_gates(id)
     end)
+  end
+
+  defp configured_agent_config(id, enqueue_fun) do
+    id
+    |> Routine.get()
+    |> Routine.agent_config(%{})
+    |> Keyword.put(:enqueue_fun, enqueue_fun)
   end
 end

@@ -13,7 +13,7 @@ defmodule Custode.MCP.Capabilities do
 
   alias Anubis.MCP.Error, as: AnubisError
   alias Anubis.Server.Handlers
-  alias Custode.Routine
+  alias Custode.AgentHandoff
   alias Snodo.Authorization.Component
   alias Snodo.Error, as: SnodoError
 
@@ -64,7 +64,12 @@ defmodule Custode.MCP.Capabilities do
   def authorize_endpoint(:main, %{kind: :operator}), do: :ok
 
   def authorize_endpoint(:main, %{kind: :routine, id: id}) do
-    if Routine.role(id), do: :ok, else: {:error, "routine is not in the current roster"}
+    case AgentHandoff.authorization_role(id) do
+      {:ok, _role} -> :ok
+      {:error, :handoff_pending} -> {:error, "routine configuration handoff is pending"}
+      {:error, :unknown_routine} -> {:error, "routine is not in the current roster"}
+      {:error, _reason} -> {:error, "routine authorization is temporarily unavailable"}
+    end
   end
 
   def authorize_endpoint(:memory, %{kind: :sub_agent}), do: :ok
@@ -88,15 +93,15 @@ defmodule Custode.MCP.Capabilities do
   def authorized_tool_names(:main, %{kind: :operator}), do: :all
 
   def authorized_tool_names(:main, %{kind: :routine, id: id}) do
-    case Routine.role(id) do
-      :caretaker ->
+    case AgentHandoff.authorization_role(id) do
+      {:ok, :caretaker} ->
         exposed_tool_names(:caretaker) ++ @caretaker_on_demand_tools
 
-      nil ->
-        []
-
-      role when is_atom(role) ->
+      {:ok, role} when is_atom(role) ->
         exposed_tool_names(role)
+
+      _unavailable ->
+        []
     end
   end
 

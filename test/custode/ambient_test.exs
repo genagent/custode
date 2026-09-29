@@ -105,6 +105,16 @@ defmodule Custode.AmbientTest do
     assert entry.source == "ambient"
   end
 
+  test "a contract render is pure and does not journal the pickup" do
+    routine = routine_with_orders("standing orders\n")
+
+    assert Ambient.render(routine, journal?: false) =~ "standing orders"
+
+    assert routine.id
+           |> Custode.Notebook.journal(50)
+           |> Enum.filter(&(&1.title == "Ambient orders picked up")) == []
+  end
+
   # The gate (#19 slice 2): a file in a repo is prompt content, so a repo the
   # fleet merely works must not be able to write into its agent's prompt.
   describe "the policy gate" do

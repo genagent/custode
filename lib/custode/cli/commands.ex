@@ -615,6 +615,9 @@ defmodule Custode.CLI.Prompt do
   defp delivery(%{"how" => "started"}),
     do: "the agent was offline: started a turn with this prompt"
 
+  defp delivery(%{"how" => "queued"}),
+    do: "queued until the agent is ready for another message"
+
   defp delivery(_reply), do: "delivered"
 end
 

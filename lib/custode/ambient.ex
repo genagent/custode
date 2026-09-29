@@ -133,27 +133,30 @@ defmodule Custode.Ambient do
   orders come first and the role-scoped file after. Journals the first pickup
   of each file as a side effect.
   """
-  def render(routine) do
+  def render(routine, opts \\ []) do
+    journal? = Keyword.get(opts, :journal?, true)
+
     if enabled?(routine) do
-      render_file(routine, path(routine), @relative_path, @journal_title) <>
+      render_file(routine, path(routine), @relative_path, @journal_title, journal?) <>
         render_file(
           routine,
           role_path(routine),
           role_relative_path(routine.role),
-          @role_journal_title
+          @role_journal_title,
+          journal?
         )
     else
       ""
     end
   end
 
-  defp render_file(routine, path, relative, journal_title) do
+  defp render_file(routine, path, relative, journal_title, journal?) do
     case read_file(path) do
       "" ->
         ""
 
       contents ->
-        note_pickup(routine, path, journal_title)
+        if journal?, do: note_pickup(routine, path, journal_title)
         section(contents, relative)
     end
   end

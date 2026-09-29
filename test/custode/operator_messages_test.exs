@@ -67,9 +67,11 @@ defmodule Custode.OperatorMessagesTest do
              end)
 
     assert message.status == "refused"
+    assert message.delivery == "refused"
     assert message.error["kind"] == "delivery_refused"
     assert {:ok, settled, false} = OperatorMessages.await(message.message_id, 0)
     assert settled.status == "refused"
+    assert settled.delivery == "refused"
   end
 
   test "await on an unsettled exact message times out with its current state" do
@@ -80,6 +82,56 @@ defmodule Custode.OperatorMessagesTest do
 
     assert {:ok, current, true} = OperatorMessages.await(message.message_id, 0)
     assert current.status == "queued"
+  end
+
+  test "routine removal terminally refuses every undelivered row" do
+    target = uid("removed-routine")
+
+    {:ok, queued, :created} =
+      OperatorMessages.submit(target, "still queued", [], fn _message -> {:ok, :queued} end)
+
+    {:ok, handed_off, :created} =
+      OperatorMessages.submit(target, "accepted but not started", [], fn _message ->
+        {:ok, :delivered}
+      end)
+
+    {:ok, claimed, :created} =
+      OperatorMessages.submit(target, "claim interrupted", [], fn _message -> {:ok, :queued} end)
+
+    {:ok, claimed} = OperatorMessages.claim_delivery(claimed)
+
+    {:ok, completed, :created} =
+      OperatorMessages.submit(target, "already completed", [], fn _message ->
+        {:ok, :delivered}
+      end)
+
+    completed
+    |> Ecto.Changeset.change(status: "completed", completed_at: DateTime.utc_now())
+    |> Repo.update!()
+
+    other_target = uid("other-routine")
+
+    {:ok, other, :created} =
+      OperatorMessages.submit(other_target, "unrelated", [], fn _message -> {:ok, :queued} end)
+
+    assert :ok = OperatorMessages.settle_removed(target)
+
+    for message <- [queued, handed_off, claimed] do
+      settled = OperatorMessages.get(message.message_id)
+      assert settled.status == "refused"
+      assert settled.delivery == "refused"
+      assert settled.error == %{"kind" => "delivery_refused", "detail" => ":routine_removed"}
+      assert settled.detail == "routine removed before provider delivery"
+      assert settled.claim_token == nil
+      assert settled.claimed_at == nil
+      assert settled.claim_after_job_id == nil
+      assert %DateTime{} = settled.completed_at
+      assert {:ok, ^settled, false} = OperatorMessages.await(message.message_id, 0)
+    end
+
+    assert OperatorMessages.get(completed.message_id).status == "completed"
+    assert OperatorMessages.get(other.message_id).status == "queued"
+    assert OperatorMessages.next_queued(target) == nil
   end
 
   for provider <- [:claude, :codex] do
@@ -235,6 +287,14 @@ defmodule Custode.OperatorMessagesTest do
     assert {:ok, orphan, :created} = queued_message(uid("orphan"))
     assert {:ok, durable, :created} = queued_message(uid("durable"))
 
+    orphan
+    |> Ecto.Changeset.change(status: "executing", delivery: "delivered")
+    |> Repo.update!()
+
+    durable
+    |> Ecto.Changeset.change(delivery: "started")
+    |> Repo.update!()
+
     now = DateTime.utc_now()
 
     job =
@@ -251,12 +311,14 @@ defmodule Custode.OperatorMessagesTest do
       )
       |> Repo.insert!()
 
+    delete_job_on_exit(job)
+
     :ok = OperatorMessages.reconcile!()
 
     assert %{status: "failed", error: %{"kind" => "delivery_interrupted"}} =
              OperatorMessages.get(orphan.message_id)
 
-    assert %{status: "queued", agent_turn_id: "turn-1"} =
+    assert %{status: "queued", delivery: "started", agent_turn_id: "turn-1"} =
              OperatorMessages.get(durable.message_id)
 
     job
@@ -265,8 +327,382 @@ defmodule Custode.OperatorMessagesTest do
 
     :ok = OperatorMessages.reconcile!()
 
-    assert %{status: "executing", started_at: ^now} =
+    assert %{status: "executing", delivery: "started", started_at: ^now} =
              OperatorMessages.get(durable.message_id)
+  end
+
+  test "restart reconciliation preserves messages deferred behind a config handoff" do
+    target = uid("handoff-deferred")
+
+    assert {:ok, message, :created} =
+             OperatorMessages.submit(target, "wait for replacement", [], fn _correlation_id ->
+               {:deferred, :handoff_pending}
+             end)
+
+    assert %{status: "queued", delivery: "queued"} =
+             OperatorMessages.get(message.message_id)
+
+    assert :ok = OperatorMessages.reconcile!()
+
+    assert %{status: "queued", delivery: "queued", error: nil} =
+             OperatorMessages.get(message.message_id)
+  end
+
+  test "an accepted replay is no longer eligible for another replay" do
+    target = uid("handoff-accepted")
+
+    assert {:ok, message, :created} =
+             OperatorMessages.submit(target, "deliver once", [], fn _correlation_id ->
+               {:deferred, :handoff_pending}
+             end)
+
+    assert [queued] = OperatorMessages.queued_for(target)
+    assert queued.message_id == message.message_id
+
+    assert {:ok, claimed} = OperatorMessages.claim_delivery(queued)
+    assert :ok = OperatorMessages.record_delivery(claimed, :delivered, :claude)
+    assert OperatorMessages.queued_for(target) == []
+  end
+
+  test "a released admission claim becomes replayable again" do
+    target = uid("released-claim")
+
+    assert {:ok, message, :created} =
+             OperatorMessages.submit(target, "retry admission", [], fn _message ->
+               {:ok, :queued}
+             end)
+
+    assert {:ok, claimed} = OperatorMessages.claim_delivery(message)
+    assert claimed.delivery == "admitting"
+    assert is_binary(claimed.claim_token)
+    assert %DateTime{} = claimed.claimed_at
+    assert is_integer(claimed.claim_after_job_id)
+    assert OperatorMessages.next_queued(target) == nil
+    assert {:error, :not_queued} = OperatorMessages.claim_delivery(message)
+
+    assert :ok = OperatorMessages.release_delivery(claimed)
+    assert %{message_id: message_id, delivery: "queued"} = OperatorMessages.next_queued(target)
+    assert message_id == message.message_id
+    assert {:error, :not_admitting} = OperatorMessages.release_delivery(claimed)
+
+    assert {:ok, reclaimed} = OperatorMessages.claim_delivery(message)
+    assert reclaimed.delivery == "admitting"
+    assert reclaimed.claim_token != claimed.claim_token
+    assert {:error, :not_admitting} = OperatorMessages.release_delivery(claimed)
+
+    assert {:error, :not_admitting} =
+             OperatorMessages.record_delivery(claimed, :delivered, :claude)
+
+    assert %{delivery: "admitting", claim_token: token} =
+             OperatorMessages.get(message.message_id)
+
+    assert token == reclaimed.claim_token
+    assert :ok = OperatorMessages.record_delivery(reclaimed, :delivered, :claude)
+
+    assert %{
+             delivery: "delivered",
+             claim_token: nil,
+             claimed_at: nil,
+             claim_after_job_id: nil
+           } =
+             OperatorMessages.get(message.message_id)
+  end
+
+  test "ordered admission only claims the oldest queued message for a target" do
+    target = uid("ordered-claim")
+
+    assert {:ok, first, :created} =
+             OperatorMessages.submit(target, "first", [], fn _message ->
+               {:ok, :queued}
+             end)
+
+    assert {:ok, second, :created} =
+             OperatorMessages.submit(target, "second", [], fn _message ->
+               {:ok, :queued}
+             end)
+
+    assert {:error, :not_next} = OperatorMessages.claim_next_delivery(second)
+    assert %{delivery: "queued", claim_token: nil} = OperatorMessages.get(second.message_id)
+
+    assert {:ok, claimed} = OperatorMessages.claim_next_delivery(first)
+    assert claimed.message_id == first.message_id
+    assert claimed.delivery == "admitting"
+
+    assert {:ok, next_claimed} = OperatorMessages.claim_next_delivery(second)
+    assert next_claimed.message_id == second.message_id
+  end
+
+  test "shared-correlation telemetry leaves the next durable message queued" do
+    target = uid("shared-correlation")
+
+    assert {:ok, first, :created} =
+             OperatorMessages.submit(target, "ask a question", [], fn _message ->
+               {:ok, :queued}
+             end)
+
+    assert {:ok, claimed} = OperatorMessages.claim_delivery(first)
+
+    waiting_meta = %{
+      agent_id: target,
+      correlation_id: first.provider_correlation_id,
+      to: :waiting_for_user,
+      agent_generation: "generation-1",
+      agent_turn_id: "turn-1",
+      arc_id: "arc-1"
+    }
+
+    assert :ok =
+             OperatorMessages.handle_event(
+               [:oban_claude, :agent, :transition],
+               %{},
+               waiting_meta,
+               nil
+             )
+
+    assert %{status: "waiting_for_input", delivery: "admitting"} =
+             OperatorMessages.get(first.message_id)
+
+    assert {:ok, second, :created} =
+             OperatorMessages.submit(target, "answer", [], fn _message ->
+               {:ok, :queued}
+             end)
+
+    assert second.provider_correlation_id == first.provider_correlation_id
+
+    assert %{status: "queued", delivery: "queued"} =
+             OperatorMessages.get(second.message_id)
+
+    assert :ok = OperatorMessages.record_delivery(claimed, :delivered, :claude)
+
+    running_meta = %{
+      waiting_meta
+      | to: :running,
+        agent_generation: "generation-2",
+        agent_turn_id: "turn-2",
+        arc_id: "arc-2"
+    }
+
+    assert :ok =
+             OperatorMessages.handle_event(
+               [:oban_claude, :agent, :transition],
+               %{},
+               running_meta,
+               nil
+             )
+
+    assert %{
+             status: "executing",
+             delivery: "delivered",
+             agent_generation: "generation-2",
+             agent_turn_id: "turn-2",
+             arc_id: "arc-2"
+           } = OperatorMessages.get(first.message_id)
+
+    assert %{
+             status: "queued",
+             delivery: "queued",
+             agent_generation: nil,
+             agent_turn_id: nil,
+             arc_id: nil
+           } = OperatorMessages.get(second.message_id)
+  end
+
+  test "boot recovery releases a claim newer than a completed shared-correlation job" do
+    {first, claimed, job} = claimed_continuation_with_prior_job("completed")
+
+    job =
+      job
+      |> Ecto.Changeset.change(inserted_at: claimed.claimed_at)
+      |> Repo.update!()
+
+    assert DateTime.compare(job.inserted_at, claimed.claimed_at) == :eq
+    assert claimed.claim_after_job_id == job.id
+    assert :ok = OperatorMessages.reconcile!()
+
+    assert %{status: "failed", delivery: "delivered"} =
+             OperatorMessages.get(first.message_id)
+
+    assert %{
+             status: "queued",
+             delivery: "queued",
+             claim_token: nil,
+             claimed_at: nil,
+             claim_after_job_id: nil,
+             agent_generation: nil,
+             agent_turn_id: nil,
+             arc_id: nil,
+             error: nil
+           } = OperatorMessages.get(claimed.message_id)
+
+    assert %{message_id: message_id} = OperatorMessages.next_queued(claimed.target_agent_id)
+    assert message_id == claimed.message_id
+  end
+
+  test "boot recovery releases a claim newer than an active shared-correlation job" do
+    {first, claimed, job} = claimed_continuation_with_prior_job("executing")
+
+    assert DateTime.compare(job.inserted_at, claimed.claimed_at) == :lt
+    assert claimed.claim_after_job_id == job.id
+    assert :ok = OperatorMessages.reconcile!()
+
+    assert %{status: "executing", delivery: "delivered", agent_turn_id: "prior-turn"} =
+             OperatorMessages.get(first.message_id)
+
+    assert %{
+             status: "queued",
+             delivery: "queued",
+             claim_token: nil,
+             claimed_at: nil,
+             claim_after_job_id: nil,
+             agent_generation: nil,
+             agent_turn_id: nil,
+             arc_id: nil,
+             started_at: nil
+           } = OperatorMessages.get(claimed.message_id)
+
+    assert %{message_id: message_id} = OperatorMessages.next_queued(claimed.target_agent_id)
+    assert message_id == claimed.message_id
+  end
+
+  test "boot recovery owns a newer provider job even when its timestamp equals the claim" do
+    target = uid("equal-claim-time")
+
+    assert {:ok, message, :created} =
+             OperatorMessages.submit(target, "deliver after claim", [], fn _message ->
+               {:ok, :queued}
+             end)
+
+    assert {:ok, claimed} = OperatorMessages.claim_delivery(message)
+
+    job =
+      insert_provider_job(
+        claimed.provider_correlation_id,
+        "executing",
+        claimed.claimed_at
+      )
+
+    assert DateTime.compare(job.inserted_at, claimed.claimed_at) == :eq
+    assert job.id > claimed.claim_after_job_id
+    assert :ok = OperatorMessages.reconcile!()
+
+    assert %{
+             status: "executing",
+             delivery: "delivered",
+             claim_token: nil,
+             claimed_at: nil,
+             claim_after_job_id: nil,
+             agent_turn_id: "prior-turn"
+           } = OperatorMessages.get(message.message_id)
+  end
+
+  test "boot recovery clears an admitting claim without overwriting terminal lifecycle state" do
+    target = uid("terminal-admitting")
+
+    assert {:ok, message, :created} =
+             OperatorMessages.submit(target, "finish during admission", [], fn _message ->
+               {:ok, :queued}
+             end)
+
+    assert {:ok, claimed} = OperatorMessages.claim_delivery(message)
+
+    _job =
+      insert_provider_job(
+        claimed.provider_correlation_id,
+        "executing",
+        claimed.claimed_at
+      )
+
+    completed_at = DateTime.utc_now()
+
+    claimed
+    |> Ecto.Changeset.change(
+      status: "completed",
+      result: %{"output" => "finished"},
+      completed_at: completed_at
+    )
+    |> Repo.update!()
+
+    assert :ok = OperatorMessages.reconcile!()
+
+    assert %{
+             status: "completed",
+             result: %{"output" => "finished"},
+             completed_at: ^completed_at,
+             delivery: "delivered",
+             claim_token: nil,
+             claimed_at: nil,
+             claim_after_job_id: nil
+           } = OperatorMessages.get(message.message_id)
+  end
+
+  test "legacy rows without a delivery marker still receive lifecycle telemetry" do
+    target = uid("legacy-delivery")
+
+    assert {:ok, message, :created} =
+             OperatorMessages.submit(target, "already admitted", [], fn _message ->
+               {:ok, :delivered}
+             end)
+
+    message
+    |> Ecto.Changeset.change(delivery: nil)
+    |> Repo.update!()
+
+    assert :ok =
+             OperatorMessages.handle_event(
+               [:oban_claude, :agent, :transition],
+               %{},
+               %{
+                 agent_id: target,
+                 correlation_id: message.provider_correlation_id,
+                 to: :running,
+                 agent_generation: "legacy-generation",
+                 agent_turn_id: "legacy-turn",
+                 arc_id: "legacy-arc"
+               },
+               nil
+             )
+
+    assert %{
+             status: "executing",
+             delivery: nil,
+             agent_generation: "legacy-generation",
+             agent_turn_id: "legacy-turn",
+             arc_id: "legacy-arc"
+           } = OperatorMessages.get(message.message_id)
+  end
+
+  test "a fast terminal transition retains the exact admission disposition" do
+    target = uid("fast-admission")
+
+    assert {:ok, message, :created} =
+             OperatorMessages.submit(target, "finish immediately", [], fn _message ->
+               {:deferred, :handoff_pending}
+             end)
+
+    assert {:ok, claimed} = OperatorMessages.claim_delivery(message)
+
+    claimed
+    |> Ecto.Changeset.change(status: "completed", completed_at: DateTime.utc_now())
+    |> Repo.update!()
+
+    assert :ok = OperatorMessages.record_delivery(claimed, :started, :claude)
+
+    assert %{status: "completed", delivery: "started", provider: "claude"} =
+             OperatorMessages.get(message.message_id)
+  end
+
+  test "a deferred caller cannot requeue a row another replay already admitted" do
+    target = uid("concurrent-admission")
+
+    assert {:ok, message, :created} =
+             OperatorMessages.submit(target, "deliver once", [], fn message ->
+               {:ok, claimed} = OperatorMessages.claim_delivery(message)
+               :ok = OperatorMessages.record_delivery(claimed, :delivered, :claude)
+               {:deferred, :handoff_pending}
+             end)
+
+    assert %{status: "queued", delivery: "delivered", provider: "claude"} = message
+    assert OperatorMessages.queued_for(target) == []
   end
 
   test "a recovered provider job cannot claim application completion without its live owner" do
@@ -309,13 +745,16 @@ defmodule Custode.OperatorMessagesTest do
       }
     ])
 
-    {:ok, _pid} =
-      Agents.start_agent(id,
-        enqueue_fun: fn args, meta ->
-          send(parent, {:provider_enqueued, provider, args, meta})
-          {:ok, :queued}
-        end
-      )
+    config =
+      id
+      |> Custode.Routine.get()
+      |> Custode.Routine.agent_config(%{})
+      |> Keyword.put(:enqueue_fun, fn args, meta ->
+        send(parent, {:provider_enqueued, provider, args, meta})
+        {:ok, :queued}
+      end)
+
+    {:ok, _pid} = Agents.start_agent(id, config)
 
     on_exit(fn -> Agents.stop_agent(id, provider) end)
     id
@@ -326,8 +765,8 @@ defmodule Custode.OperatorMessagesTest do
       agent_id,
       prompt,
       [actor: %{kind: :operator, id: "test-operator"}, via: :mcp],
-      fn correlation_id ->
-        case Agents.cast_prompt(agent_id, prompt, correlation_id: correlation_id) do
+      fn message ->
+        case Agents.cast_prompt(agent_id, prompt, correlation_id: message.provider_correlation_id) do
           :ok -> {:ok, :delivered}
           {:error, reason} -> {:error, reason}
         end
@@ -338,6 +777,68 @@ defmodule Custode.OperatorMessagesTest do
   defp queued_message(target) do
     OperatorMessages.submit(target, "queued", [], fn _correlation_id ->
       {:ok, :delivered}
+    end)
+  end
+
+  defp claimed_continuation_with_prior_job(state)
+       when state in ["completed", "executing"] do
+    target = uid("prior-#{state}")
+
+    {:ok, first, :created} =
+      OperatorMessages.submit(target, "question", [], fn _message ->
+        {:ok, :delivered}
+      end)
+
+    first
+    |> Ecto.Changeset.change(status: "waiting_for_input")
+    |> Repo.update!()
+
+    inserted_at = DateTime.add(DateTime.utc_now(), -60, :second)
+
+    job = insert_provider_job(first.provider_correlation_id, state, inserted_at)
+
+    {:ok, second, :created} =
+      OperatorMessages.submit(target, "answer", [], fn _message ->
+        {:ok, :queued}
+      end)
+
+    {:ok, claimed} = OperatorMessages.claim_delivery(second)
+    {first, claimed, job}
+  end
+
+  defp insert_provider_job(correlation_id, state, inserted_at)
+       when state in ["completed", "executing"] do
+    changes =
+      case state do
+        "completed" ->
+          [state: state, inserted_at: inserted_at, completed_at: inserted_at]
+
+        "executing" ->
+          [state: state, inserted_at: inserted_at, attempted_at: inserted_at]
+      end
+
+    job =
+      %{"prompt" => "prior turn"}
+      |> Oban.Job.new(
+        worker: ObanClaude.Agent.Job,
+        queue: :agents,
+        meta: %{
+          "correlation_id" => correlation_id,
+          "agent_generation" => "prior-generation",
+          "agent_turn_id" => "prior-turn",
+          "arc_id" => "prior-arc"
+        }
+      )
+      |> Ecto.Changeset.change(changes)
+      |> Repo.insert!()
+
+    delete_job_on_exit(job)
+    job
+  end
+
+  defp delete_job_on_exit(job) do
+    on_exit(fn ->
+      if persisted = Repo.get(Oban.Job, job.id), do: Repo.delete!(persisted)
     end)
   end
 

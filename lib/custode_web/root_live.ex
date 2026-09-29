@@ -98,6 +98,7 @@ defmodule CustodeWeb.RootLive do
     do: {:noreply, socket |> assign(notice: "failed: #{inspect(reason)}") |> refresh()}
 
   defp sent_notice(:delivered), do: "sent"
+  defp sent_notice(:queued), do: "queued for the next safe turn"
   defp sent_notice(:resumed), do: "custode was paused: resumed, then sent"
   defp sent_notice(:started), do: "custode was offline: started a turn with your sentence"
 

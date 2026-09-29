@@ -3,6 +3,12 @@ import Config
 # The routine query path must reap subprocesses when its owner exits.
 config :claude_wrapper, runner: ClaudeWrapper.Runner.Forcola
 
+# Provider Tick jobs enter Custode's live-configuration boundary immediately
+# before they inspect, start or deliver to an agent. Configure the hooks before
+# Oban and either provider supervision tree starts.
+config :oban_claude, tick_admission: Custode.ProviderTickAdmission
+config :oban_codex, tick_admission: Custode.ProviderTickAdmission
+
 config :custode,
   ecto_repos: [Custode.Repo],
   # Exqlite's connection busy timeout handles ordinary lock contention. SQLite

@@ -19,7 +19,7 @@ defmodule Custode.SpendLedger do
 
   import Ecto.Query, only: [from: 2]
 
-  alias Custode.{Attempts, Repo}
+  alias Custode.{AgentHandoffIntent, Attempts, ProviderJobs, Repo}
 
   defmodule Entry do
     @moduledoc false
@@ -350,13 +350,57 @@ defmodule Custode.SpendLedger do
   booted directly INTO :paused -- ticks skip them (if_busy: skip) and
   resume stays the human override.
   """
-  def reconcile_pauses! do
+  def reconcile_pauses!(opts \\ []) do
+    pause = Keyword.get(opts, :pause, &boot_paused/1)
+
     for routine <- Custode.Routine.all(), over_rail?(routine) do
-      boot_paused(routine)
+      :ok = pause.(routine)
+
+      Custode.Feed.record(%{
+        event: "budget_paused",
+        agent: routine.id,
+        action: "still over its daily rail after restart -- booted paused (no leak turn)"
+      })
+
       routine.id
     end
 
     :ok
+  end
+
+  @doc false
+  def restore_boot_pause!(routine) do
+    reason =
+      case overage(routine, routine.id) do
+        reason when is_binary(reason) ->
+          reason
+
+        nil ->
+          raise "cannot restore a boot pause for #{routine.id}: its spend rail is not exceeded"
+      end
+
+    context = %{cause: :emergency_pause, reason: reason}
+
+    with :ok <- AgentHandoffIntent.put(routine.id, context),
+         :ok <- ProviderJobs.cancel_active_turns!(routine.id),
+         seeds when is_map(seeds) <- Custode.ConversationArcs.seed_map(routine),
+         config when is_list(config) <- Custode.Routine.agent_config(routine, seeds),
+         :ok <- start_boot_agent(routine, config),
+         :ok <- Custode.Agents.emergency_pause(routine.id, routine.provider, context),
+         {:ok, :paused} <- Custode.Agents.await(routine.id, routine.provider, :paused, 1_000) do
+      :ok
+    else
+      reason ->
+        raise "could not restore the spend pause for #{routine.id}: #{inspect(reason)}"
+    end
+  end
+
+  defp start_boot_agent(routine, config) do
+    case Custode.Agents.start_agent(routine.id, routine.provider, config) do
+      {:ok, _pid} -> :ok
+      {:error, reason} -> {:error, {:start_agent, reason}}
+      other -> {:error, {:start_agent, {:unexpected_reply, other}}}
+    end
   end
 
   @doc "Whether a routine has crossed either configured daily spend rail."
@@ -367,26 +411,15 @@ defmodule Custode.SpendLedger do
   end
 
   defp boot_paused(routine) do
-    start = Custode.Routine.tick_args(routine)["start"]
+    seeds = Custode.ConversationArcs.seed_map(routine)
+    config = Custode.Routine.agent_config(routine, seeds)
 
-    case Custode.Agents.start_agent(routine.id,
-           args: start["args"],
-           approved_args: start["approved_args"],
-           job_timeout: start["job_timeout"]
-         ) do
+    case Custode.Agents.start_agent(routine.id, config) do
       {:ok, _pid} ->
         Custode.Agents.emergency_pause(routine.id)
 
-        Custode.Feed.record(%{
-          event: "budget_paused",
-          agent: routine.id,
-          action: "still over its daily rail after restart -- booted paused (no leak turn)"
-        })
-
-        :ok
-
-      {:error, _already_or_other} ->
-        :ok
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

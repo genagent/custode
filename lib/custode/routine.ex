@@ -15,6 +15,8 @@ defmodule Custode.Routine do
   alias Custode.MCP.{Capabilities, Identity}
   alias Custode.Routine.{Effort, Prompts}
 
+  @instructions_contract_ref "<execution-contract.instructions>"
+
   @doc "All configured routines, with profile and defaults applied."
   def all do
     for routine <- Application.fetch_env!(:custode, :routines), do: normalize(routine)
@@ -36,16 +38,20 @@ defmodule Custode.Routine do
     |> Map.get(profile, %{})
   end
 
-  defp apply_profile(routine) do
-    profile = Map.get(profiles(), routine[:profile], %{})
+  defp apply_profile(routine, profiles) do
+    profile = Map.get(profiles, routine[:profile], %{})
+
+    profile_provider =
+      normalize_provider!(Map.get(profile, :provider, :claude))
 
     provider =
-      normalize_provider!(Map.get(routine, :provider, Map.get(profile, :provider, :claude)))
+      normalize_provider!(Map.get(routine, :provider, profile_provider))
 
     provider_defaults = routine[:profile] |> profile_provider_defaults() |> Map.get(provider, %{})
 
     profile =
       profile
+      |> drop_foreign_provider_defaults(profile_provider, provider)
       |> merge_provider_defaults(provider_defaults)
 
     tags = Enum.uniq(Map.get(profile, :tags, []) ++ Map.get(routine, :tags, []))
@@ -56,6 +62,16 @@ defmodule Custode.Routine do
     |> Map.delete(:profile)
     |> template_approved_args()
   end
+
+  # A flat profile's model and approval arguments belong to that profile's
+  # provider. When a routine selects another provider, inherit the shared
+  # envelope and let provider defaults (or the provider itself) supply those
+  # two values. Explicit routine overrides are merged afterward and remain
+  # subject to provider validation.
+  defp drop_foreign_provider_defaults(profile, provider, provider), do: profile
+
+  defp drop_foreign_provider_defaults(profile, _profile_provider, _provider),
+    do: Map.drop(profile, [:approved_args, :model])
 
   defp merge_provider_defaults(profile, defaults) do
     Enum.reduce(defaults, profile, fn
@@ -266,33 +282,142 @@ defmodule Custode.Routine do
   @doc "The crontab / Tick args for a routine: the complete agent spec."
   def tick_args(routine) do
     context_path = Handoff.render!(routine)
+    instructions = instructions_contract(routine, context_path, journal_ambient?: true)
+    identity_token = delivery_identity_token!(routine)
+    prompt = tick_prompt(routine)
+
+    args =
+      agent_args(routine, context_path, render_instructions(instructions),
+        identity_token: identity_token
+      )
+
+    contract = execution_contract(routine, args, instructions)
+
+    execution_revision = execution_revision(contract, routine, identity_token)
 
     %{
       "agent_id" => routine.id,
-      "prompt" => routine.prompt,
+      "prompt" => prompt,
+      "delivery_revision" => delivery_revision(prompt, execution_revision),
       "session" => "fresh",
       "if_busy" => "skip",
       "if_offline" => "start",
       "start" => %{
-        "args" => agent_args(routine, context_path),
+        "args" => args,
         # approvals may need more than reads (a gated delete runs rm; a repo
         # caretaker's approved edit runs in an isolated worktree)
         "approved_args" => routine.approved_args,
         # the machine watchdog must outlast the subprocess cap
-        "job_timeout" => routine.timeout_ms + 60_000
+        "job_timeout" => routine.timeout_ms + 60_000,
+        "config_revision" => execution_revision
       }
     }
   end
 
   @doc "The effective provider contract whose change makes a stored session incompatible."
   def continuation_contract(routine) do
-    %{
-      provider: routine.provider,
-      args: agent_args(routine, Handoff.path(routine)),
-      approved_args: routine.approved_args,
-      job_timeout: routine.timeout_ms + 60_000
-    }
+    context_path = Handoff.path(routine)
+    instructions = instructions_contract(routine, context_path, journal_ambient?: false)
+
+    args =
+      agent_args(routine, context_path, @instructions_contract_ref,
+        identity_token: "<routine-token>"
+      )
+
+    execution_contract(routine, args, instructions)
   end
+
+  @doc """
+  A stable revision for the exact provider-process configuration applied to a
+  turn.
+
+  The provider, model, effort, system instructions, role-derived tools, MCP
+  settings, workspace, working directory, per-turn limits, approved arguments
+  and timeout all flow through `continuation_contract/1` and change this
+  revision. Role, repository and both path scopes are also included explicitly
+  because the same revision keys the immutable MCP authorization snapshot;
+  authorization changes must rotate even when they render equivalent provider
+  instructions. The user prompt, cadence, daily rails, note policy and sensors
+  are selected by Custode for each delivery and deliberately do not churn the
+  provider process. Standing instructions, binding policy, ambient orders and
+  the provider-neutral MCP server contract remain included. A Codex bearer
+  token is also included because that credential is embedded in the immutable
+  provider args; reminting it must replace a live process that still holds the
+  revoked value. Claude reads its token from a config path and does not need
+  that rotation. Operator presence is delivery evidence carried by sweep
+  prompts and does not rotate the provider process.
+  """
+  def execution_revision(routine) do
+    execution_revision(
+      continuation_contract(routine),
+      routine,
+      delivery_identity_token(routine)
+    )
+  end
+
+  @doc """
+  A revision for delivery-time fields that must be current on the next turn.
+
+  The execution revision already carries every immutable provider value,
+  including a Codex credential fingerprint. Adding the exact rendered prompt,
+  including live operator presence, fences a queued Tick when either its
+  launch contract or its delivered sweep prompt is stale.
+  """
+  def delivery_revision(routine) do
+    prompt = tick_prompt(routine)
+    delivery_revision(prompt, execution_revision(routine))
+  end
+
+  @doc "The current sweep prompt, including delivery-time operator presence evidence."
+  def tick_prompt(routine), do: routine.prompt <> Custode.Presence.render()
+
+  defp delivery_revision(prompt, execution_revision) do
+    fingerprint(%{
+      execution_revision: execution_revision,
+      prompt: prompt
+    })
+  end
+
+  defp execution_revision(contract, routine, identity_token) do
+    fingerprint(%{
+      contract: contract,
+      credential_revision: delivery_credential_revision(routine, identity_token),
+      authorization: authorization_contract(routine)
+    })
+  end
+
+  defp authorization_contract(routine) do
+    Map.take(routine, [:role, :repo, :workspace, :working_dir])
+  end
+
+  defp delivery_credential_revision(%{provider: :codex, mcp: true}, token)
+       when is_binary(token),
+       do: fingerprint(token)
+
+  defp delivery_credential_revision(%{provider: :codex, mcp: true}, :missing), do: :missing
+
+  defp delivery_credential_revision(_routine, _identity_token), do: nil
+
+  defp delivery_identity_token(%{provider: :codex, mcp: true, id: id}) do
+    case Identity.token(:routine, id) do
+      {:ok, token} -> token
+      :error -> :missing
+    end
+  end
+
+  defp delivery_identity_token(_routine), do: nil
+
+  defp delivery_identity_token!(%{provider: :codex, mcp: true, id: id} = routine) do
+    case delivery_identity_token(routine) do
+      token when is_binary(token) ->
+        token
+
+      :missing ->
+        raise "Codex routine #{inspect(id)} has no MCP identity; provision its config before building a Tick"
+    end
+  end
+
+  defp delivery_identity_token!(_routine), do: nil
 
   @doc "Provider agent configuration for a cold start, with durable arc seeds."
   def agent_config(routine, session_arcs \\ %{}) do
@@ -302,8 +427,66 @@ defmodule Custode.Routine do
       args: start["args"],
       approved_args: start["approved_args"],
       job_timeout: start["job_timeout"],
+      config_revision: start["config_revision"],
       session_arcs: session_arcs
     ]
+  end
+
+  defp execution_contract(routine, args, instructions) do
+    %{
+      provider: routine.provider,
+      args: execution_args_contract(routine, args),
+      instructions: instructions,
+      mcp: mcp_contract(routine),
+      approved_args: routine.approved_args,
+      job_timeout: routine.timeout_ms + 60_000
+    }
+  end
+
+  defp execution_args_contract(%{provider: :claude}, args) do
+    Map.replace!(args, "append_system_prompt", @instructions_contract_ref)
+  end
+
+  defp execution_args_contract(%{provider: :codex}, args) do
+    authorization = codex_mcp_server_root!("custode") <> ".http_headers.Authorization="
+    instructions = "developer_instructions="
+
+    Map.update!(args, "config_overrides", fn overrides ->
+      Enum.map(overrides, &execution_override_contract(&1, authorization, instructions))
+    end)
+  end
+
+  defp execution_override_contract(override, authorization, instructions) do
+    cond do
+      String.starts_with?(override, authorization) ->
+        authorization <> Jason.encode!("Bearer <routine-token>")
+
+      String.starts_with?(override, instructions) ->
+        instructions <> Jason.encode!(@instructions_contract_ref)
+
+      true ->
+        override
+    end
+  end
+
+  defp mcp_contract(%{mcp: true} = routine) do
+    %{
+      custode: %{
+        identity: %{kind: :routine, id: routine.id},
+        url: Custode.MCP.url(),
+        allowed_tools: mcp_tools(routine.role)
+      },
+      external_servers: Custode.MCP.external_servers()
+    }
+  end
+
+  defp mcp_contract(_routine), do: nil
+
+  defp fingerprint(contract) do
+    contract
+    |> :erlang.term_to_binary([:deterministic])
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
   end
 
   @doc "The provider-specific Oban worker that delivers a routine tick."
@@ -331,7 +514,7 @@ defmodule Custode.Routine do
     )
   end
 
-  defp claude_args(routine, context_path) do
+  defp claude_args(routine, context_path, instructions) do
     # No permission_mode: since bookkeeping goes through the notebook MCP
     # tools, a routine agent needs NO standing filesystem write permission --
     # claude's default mode denies writes non-interactively, and anything
@@ -344,7 +527,7 @@ defmodule Custode.Routine do
       max_budget_usd: routine.max_budget_usd,
       timeout: routine.timeout_ms,
       json_schema: directive_schema(),
-      append_system_prompt: system_prompt(routine, context_path),
+      append_system_prompt: instructions,
       meta: %{"custode_context_path" => context_path}
     ]
 
@@ -380,13 +563,13 @@ defmodule Custode.Routine do
     ObanClaude.Args.defaults(base ++ extra)
   end
 
-  defp agent_args(%{provider: :claude} = routine, context_path),
-    do: claude_args(routine, context_path)
+  defp agent_args(%{provider: :claude} = routine, context_path, instructions, _opts),
+    do: claude_args(routine, context_path, instructions)
 
-  defp agent_args(%{provider: :codex} = routine, context_path),
-    do: codex_args(routine, context_path)
+  defp agent_args(%{provider: :codex} = routine, context_path, instructions, opts),
+    do: codex_args(routine, context_path, instructions, opts)
 
-  defp codex_args(routine, context_path) do
+  defp codex_args(routine, context_path, instructions, opts) do
     base = [
       working_dir: Path.expand(routine.working_dir),
       timeout: routine.timeout_ms,
@@ -394,7 +577,7 @@ defmodule Custode.Routine do
       approval_policy: :never,
       skip_git_repo_check: true,
       output_schema: directive_schema_path(),
-      config_overrides: codex_config_overrides(routine, context_path),
+      config_overrides: codex_config_overrides(routine, instructions, opts),
       meta: %{"custode_context_path" => context_path}
     ]
 
@@ -403,8 +586,8 @@ defmodule Custode.Routine do
     ObanCodex.Args.defaults(base)
   end
 
-  defp codex_config_overrides(routine, context_path) do
-    overrides = [toml_override("developer_instructions", system_prompt(routine, context_path))]
+  defp codex_config_overrides(routine, instructions, opts) do
+    overrides = [toml_override("developer_instructions", instructions)]
 
     overrides =
       if routine.effort,
@@ -412,19 +595,19 @@ defmodule Custode.Routine do
         else: overrides
 
     if routine.mcp do
-      overrides ++ codex_custode_overrides(routine) ++ codex_external_overrides()
+      overrides ++
+        codex_custode_overrides(routine, opts[:identity_token]) ++
+        codex_external_overrides()
     else
       overrides
     end
   end
 
-  defp codex_custode_overrides(routine) do
-    token =
-      case Identity.token(:routine, routine.id) do
-        {:ok, token} -> token
-        :error -> Identity.mint(:routine, routine.id)
-      end
+  defp codex_custode_overrides(routine, nil) do
+    raise "Codex routine #{inspect(routine.id)} has no captured MCP identity token"
+  end
 
+  defp codex_custode_overrides(routine, token) when is_binary(token) do
     tools = Enum.map(mcp_tools(routine.role), &String.replace_prefix(&1, "mcp__custode__", ""))
     server = codex_mcp_server_root!("custode")
 
@@ -469,22 +652,31 @@ defmodule Custode.Routine do
 
   # Policies (#50) append to EVERY prompt, including operator-supplied
   # system_prompt: overrides -- fleet law rides along regardless of role.
-  # Presence (#141) and repo-owned ambient orders (#19) ride the same way:
-  # composed at tick time, so a presence flip or an edit to the working_dir's
-  # .custode/orders.md reaches the very next sweep with no restart (#121/#142).
-  defp system_prompt(%{mcp: true} = routine, context_path) do
-    routine.system_prompt <>
-      delegation_prompt() <>
-      Custode.Policy.render(routine) <>
-      Custode.Presence.render() <>
-      Custode.Ambient.render(routine) <> handoff_prompt(context_path)
+  # Repo-owned ambient orders (#19) are captured by the provider process and
+  # therefore belong to the compatibility contract. Contract reads suppress
+  # Ambient's pickup journal side effect. Presence (#141) is delivery evidence,
+  # rendered into each sweep prompt by tick_prompt/1 instead.
+  defp instructions_contract(%{mcp: true} = routine, context_path, opts) do
+    %{
+      before_presence:
+        routine.system_prompt <> delegation_prompt() <> Custode.Policy.render(routine),
+      after_presence:
+        Custode.Ambient.render(routine, journal?: opts[:journal_ambient?]) <>
+          handoff_prompt(context_path)
+    }
   end
 
-  defp system_prompt(routine, context_path) do
-    routine.system_prompt <>
-      Custode.Policy.render(routine) <>
-      Custode.Presence.render() <>
-      Custode.Ambient.render(routine) <> handoff_prompt(context_path)
+  defp instructions_contract(routine, context_path, opts) do
+    %{
+      before_presence: routine.system_prompt <> Custode.Policy.render(routine),
+      after_presence:
+        Custode.Ambient.render(routine, journal?: opts[:journal_ambient?]) <>
+          handoff_prompt(context_path)
+    }
+  end
+
+  defp render_instructions(instructions) do
+    instructions.before_presence <> instructions.after_presence
   end
 
   defp handoff_prompt(context_path) do
@@ -523,9 +715,14 @@ defmodule Custode.Routine do
   """
   def normalize_entry(routine), do: normalize(routine)
 
-  defp normalize(routine) do
+  @doc "Normalize one raw entry against an explicit prospective profile map."
+  def normalize_entry(routine, profiles) when is_map(profiles), do: normalize(routine, profiles)
+
+  defp normalize(routine), do: normalize(routine, profiles())
+
+  defp normalize(routine, profiles) do
     profile = Map.get(routine, :profile)
-    routine = apply_profile(routine)
+    routine = apply_profile(routine, profiles)
     id = Map.fetch!(routine, :id)
     provider = normalize_provider!(Map.get(routine, :provider, :claude))
     model = Map.get(routine, :model, default_model(provider))
@@ -617,12 +814,12 @@ defmodule Custode.Routine do
   defp default_model(:claude), do: Application.fetch_env!(:custode, :model)
   defp default_model(:codex), do: Application.get_env(:custode, :codex_model)
 
-  defp validate_model_provider!(:specialist, :codex, model)
+  defp validate_model_provider!(_profile, :codex, model)
        when model in ["opus", "sonnet", "haiku"] do
     raise ArgumentError, "Claude model #{model} cannot be used by a Codex routine"
   end
 
-  defp validate_model_provider!(:specialist, :claude, "gpt-" <> _rest = model) do
+  defp validate_model_provider!(_profile, :claude, "gpt-" <> _rest = model) do
     raise ArgumentError, "Codex model #{model} cannot be used by a Claude routine"
   end
 

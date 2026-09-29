@@ -17,6 +17,8 @@ for table <- [
       "gate_reviews",
       "next_beats",
       "inbox_wakes",
+      "agent_handoff_intents",
+      "agent_authorization_snapshots",
       "conversation_arc_events",
       "conversation_arcs",
       "operator_messages",

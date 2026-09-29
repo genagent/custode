@@ -54,7 +54,12 @@ defmodule Custode.Application do
     Custode.Routine.ensure_workspaces!()
     provision_installation()
 
-    children = [
+    Supervisor.start_link(startup_children(), strategy: :one_for_one, name: Custode.Supervisor)
+  end
+
+  @doc false
+  def startup_children do
+    [
       {Phoenix.PubSub, name: Custode.PubSub},
       # the in-flight clock (#211): owns its ETS table, so start it before
       # any run telemetry can fire
@@ -69,9 +74,7 @@ defmodule Custode.Application do
       # Provider prompt queues live in the agent process, while provider jobs
       # live in Oban. Reconcile their durable message rows before accepting new
       # operator traffic after a restart (#657).
-      Supervisor.child_spec({Task, &Custode.OperatorMessages.reconcile!/0},
-        id: :operator_messages_reconcile
-      ),
+      Custode.OperatorMessages.BootReconciler,
       Supervisor.child_spec({Task, &Custode.Missions.bootstrap!/0}, id: :mission_bootstrap),
       Supervisor.child_spec(
         {Task,
@@ -89,9 +92,9 @@ defmodule Custode.Application do
       ObanCodex.Agent.Supervisor,
       Custode.InboxWakes.Monitor,
       # identity before configs: tokens are minted into the per-agent
-      # config files the boot task writes next (#1/#2)
+      # config files the blocking boot writer writes next (#1/#2)
       Custode.MCP.Identity,
-      Supervisor.child_spec({Task, &Custode.MCP.write_config!/0}, id: :mcp_configs),
+      Custode.MCP.BootConfigWriter,
       # repo panels: cached GitHub issue/PR overviews for repo-tied routines
       Custode.GitHub.Cache,
       # served repos (#10): one process per repo-tied project; verbs are calls
@@ -123,7 +126,9 @@ defmodule Custode.Application do
       Supervisor.child_spec({Task, fn -> Custode.SubAgents.reconcile!() end},
         id: :sub_agents_reconcile
       ),
-      # over-budget routines boot paused instead of leaking one turn (#6)
+      # This blocking child restores durable spend pauses before AgentHandoff
+      # can recover queued delivery. Its boot-only provider path does not call
+      # the coordinator, which deliberately starts later as the replay fence.
       Custode.InboxWakes.BootReconciler,
       # a workflow run whose last node landed while the app was down has
       # nothing to call it forward (#271). Slice 1b left this unwired on the
@@ -135,6 +140,15 @@ defmodule Custode.Application do
       ),
       Snodo.executor_child_spec(),
       {Bandit, plug: Custode.MCP.Router, port: Custode.MCP.port(), ip: {127, 0, 0, 1}},
+      # Config edits quiesce the process that owns the current turn before a
+      # replacement starts with the newest effective provider contract. Boot
+      # reconciliation restores durable messages, budget pauses, and inbox
+      # wakes first. The listener is attached before this child replays work.
+      Custode.AgentHandoff,
+      # Persisted Codex jobs capture their bearer credential. Refresh that one
+      # ephemeral value before opening :agents, after identity/config boot and
+      # after AgentHandoff has restored the physical ownership boundary.
+      Custode.ProviderJobs.BootStarter,
       # the ticks queue starts only after this loopback probe confirms the
       # MCP surface answers -- the first-sweep-after-restart tool blackout
       # (#4) was the claude CLI racing the session layer at boot
@@ -148,8 +162,6 @@ defmodule Custode.Application do
       {Custode.Scheduler, autostart: Application.get_env(:custode, :scheduler_autostart, true)},
       CustodeWeb.Endpoint
     ]
-
-    Supervisor.start_link(children, strategy: :one_for_one, name: Custode.Supervisor)
   end
 
   # The installation id (#647) is created or replaced here and nowhere else, so
@@ -212,23 +224,17 @@ defmodule Custode.Application do
       # ticks on their own queue so a beat observes the agent's state, not a
       # queue slot behind the agent's own turn job. Overridable so the test
       # env can run with no executing queues at all (no paid calls, ever).
-      # agents: 3 so a routine turn, a one-shot job, and a sub-agent turn can
+      # agents: 5 so routine turns, one-shot jobs, and sub-agent turns can
       # all run concurrently (a delegating parent occupies a slot while its
-      # children need their own). :ticks is withheld here and started by
-      # Custode.MCP.Probe once the MCP surface answers (#4).
+      # children need their own). :agents is withheld until persisted Codex
+      # credentials are refreshed. :ticks is withheld until Custode.MCP.Probe
+      # confirms the MCP surface answers (#4).
       # workflows: 1 (#271, design/005) -- a deep dig runs its whole DAG on its
       # own queue at concurrency 1, so it is exactly as sequential as the rest
       # of the fleet and can never starve the sweeps. The DAG says what depends
       # on what; the queue says how many run at once, and raising this is a
       # per-machine knob rather than a structural change.
-      queues:
-        Application.get_env(:custode, :oban_queues,
-          agents: 5,
-          ticks: 1,
-          sensors: 2,
-          workflows: 1
-        )
-        |> Keyword.delete(:ticks)
+      queues: Custode.ProviderJobs.initial_queues()
     ]
   end
 end

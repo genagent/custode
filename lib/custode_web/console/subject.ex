@@ -12,6 +12,7 @@ defmodule CustodeWeb.Console.Subject do
 
   import CustodeWeb.Components
 
+  alias Custode.ExecutionFacts
   alias Custode.Operator.RoutineEdit
   alias Custode.Signal
   alias CustodeWeb.WorkflowLaunch
@@ -31,6 +32,13 @@ defmodule CustodeWeb.Console.Subject do
   attr(:running_since, :any, default: nil)
 
   def subject(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :execution,
+        ExecutionFacts.read(assigns.subject.id, routine: assigns.subject.routine)
+      )
+
     ~H"""
     <div class="flex flex-wrap items-center gap-3">
       <h1 class="font-mono text-2xl font-bold">{@subject.id}</h1>
@@ -50,7 +58,18 @@ defmodule CustodeWeb.Console.Subject do
       </div>
     </div>
 
-    <p class="mt-1 font-mono text-xs text-base-content/60">{facts(@subject)}</p>
+    <p id="subject-execution-facts" class="mt-1 font-mono text-xs text-base-content/60">
+      {facts(@subject, @execution)}
+    </p>
+    <p
+      :if={configuration_transition?(@execution)}
+      id="subject-config-transition"
+      class="mt-1 font-mono text-xs text-warning"
+    >
+      {current_execution_label(@execution)}: {execution_label(current_execution(@execution))} · next turn: {execution_label(
+        @execution.desired
+      )}
+    </p>
     <p :if={@subject.conversation.current} class="mt-1 font-mono text-xs text-base-content/50">
       {conversation_facts(@subject.conversation.current)}
     </p>
@@ -174,8 +193,13 @@ defmodule CustodeWeb.Console.Subject do
       <.work_tab :if={@tab == "work"} subject={@subject} message_gen={@message_gen} />
       <.notebook_tab :if={@tab == "notebook"} subject={@subject} />
       <.panel_tab :if={@tab == "panel"} subject={@subject} />
-      <.turns_tab :if={@tab == "turns"} subject={@subject} />
-      <.config_tab :if={@tab == "config"} subject={@subject} edit={@edit} />
+      <.turns_tab :if={@tab == "turns"} subject={@subject} execution={@execution} />
+      <.config_tab
+        :if={@tab == "config"}
+        subject={@subject}
+        execution={@execution}
+        edit={@edit}
+      />
     </div>
     """
   end
@@ -535,15 +559,35 @@ defmodule CustodeWeb.Console.Subject do
   end
 
   attr(:subject, :map, required: true)
+  attr(:execution, :map, required: true)
 
-  # The engine's own record of what the agent process did, newest first. Raw
-  # on purpose: this is the tab for "what actually happened", and a prettier
-  # rendering would be a second opinion about it.
+  # Provider jobs are the durable record of the execution contract used by a
+  # turn. The process history remains raw below them, but a routine edit must
+  # never relabel a live or completed turn with its new defaults.
   defp turns_tab(assigns) do
     ~H"""
-    <p :if={@subject.history == []} class="text-sm text-base-content/50">
+    <p :if={@subject.history == [] and @execution.turns == []} class="text-sm text-base-content/50">
       no machine log: the agent has not run since the node started
     </p>
+
+    <section :if={@execution.turns != []} id="captured-turns" class="mb-4 space-y-2">
+      <h3 class="text-xs font-bold uppercase tracking-widest text-base-content/50">
+        captured turn configuration
+      </h3>
+      <div
+        :for={turn <- @execution.turns}
+        id={"turn-contract-#{turn.id}"}
+        data-config-revision={turn.config_revision}
+        class="flex flex-wrap items-center gap-2 rounded-lg bg-base-100 px-3 py-2 font-mono text-xs shadow-sm"
+      >
+        <span class={["badge badge-sm", active_turn?(turn, @execution) && "badge-info"]}>
+          {if active_turn?(turn, @execution), do: "active", else: turn.state}
+        </span>
+        <span>{execution_label(turn)}</span>
+        <span class="ml-auto text-base-content/40">turn {short_id(turn.turn_id)}</span>
+      </div>
+    </section>
+
     <div
       :if={@subject.history != []}
       class="max-h-[32rem] overflow-y-auto rounded-lg bg-base-100 p-3 font-mono text-xs shadow-sm"
@@ -556,6 +600,7 @@ defmodule CustodeWeb.Console.Subject do
   end
 
   attr(:subject, :map, required: true)
+  attr(:execution, :map, required: true)
   attr(:edit, :any, default: nil)
 
   defp config_tab(assigns) do
@@ -574,14 +619,34 @@ defmodule CustodeWeb.Console.Subject do
             ({Custode.Roles.tier(@subject.routine.role)} tier)
           </span>
         </dd>
-        <dt class="text-base-content/50">provider</dt>
+        <dt :if={current_execution(@execution)} class="text-base-content/50">
+          {current_execution_label(@execution)}
+        </dt>
+        <dd :if={current_execution(@execution)} id="active-turn-config" class="font-mono">
+          {execution_label(current_execution(@execution))}
+        </dd>
+        <dt :if={current_execution(@execution)} class="text-base-content/50">
+          {current_execution_label(@execution)} location
+        </dt>
+        <dd :if={current_execution(@execution)} class="break-all font-mono text-xs">
+          {current_execution(@execution).working_dir || "unknown"}
+        </dd>
+        <dt class="text-base-content/50">
+          {if configuration_transition?(@execution), do: "next turn provider", else: "provider"}
+        </dt>
         <dd><b>{@subject.routine.provider}</b></dd>
-        <dt class="text-base-content/50">sweeps on</dt>
-        <dd>
+        <dt class="text-base-content/50">
+          {if configuration_transition?(@execution), do: "next turn sweeps on", else: "sweeps on"}
+        </dt>
+        <dd id="desired-turn-config" data-config-revision={@execution.desired.config_revision}>
           <b>{@subject.routine.model || "CLI default"}</b><span :if={@subject.routine.effort}>
             at {@subject.routine.effort} effort
           </span>
         </dd>
+        <dt class="text-base-content/50">
+          {if configuration_transition?(@execution), do: "next turn location", else: "runs in"}
+        </dt>
+        <dd class="break-all font-mono text-xs">{@execution.desired.working_dir}</dd>
         <dt :if={@subject.routine.approved_args["model"]} class="text-base-content/50">
           approved work
         </dt>
@@ -682,19 +747,23 @@ defmodule CustodeWeb.Console.Subject do
     """
   end
 
-  defp facts(%{kind: :other, attention_item: {:proposal, _id}}),
+  defp facts(%{kind: :other, attention_item: {:proposal, _id}}, _execution),
     do: "not an agent: a signal with no process behind it"
 
-  defp facts(%{kind: :other, state: :ended}), do: "ephemeral agent"
-  defp facts(%{kind: :other, state: :offline}), do: "no routine or recorded activity"
-  defp facts(%{kind: :other}), do: "not an agent: a signal with no process behind it"
-  defp facts(%{routine: nil}), do: "no routine: a sub-agent or a one-shot"
+  defp facts(%{kind: :other, state: :ended}, _execution), do: "ephemeral agent"
 
-  defp facts(%{routine: routine, spend_today: spend}) do
+  defp facts(%{kind: :other, state: :offline}, _execution),
+    do: "no routine or recorded activity"
+
+  defp facts(%{kind: :other}, _execution),
+    do: "not an agent: a signal with no process behind it"
+
+  defp facts(%{routine: nil}, _execution), do: "no routine: a sub-agent or a one-shot"
+
+  defp facts(%{routine: routine, spend_today: spend}, execution) do
     [
       routine.role,
-      routine.provider,
-      routine.model,
+      execution_summary(execution),
       routine.cron,
       routine.repo,
       "$#{usd(spend)}" <> budget(routine.daily_budget_usd)
@@ -702,6 +771,65 @@ defmodule CustodeWeb.Console.Subject do
     |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.map_join(" · ", &to_string/1)
   end
+
+  defp execution_summary(%{live_error: error}) when not is_nil(error),
+    do: "execution unavailable"
+
+  defp execution_summary(execution) do
+    execution = current_execution(execution) || execution.desired || %{}
+
+    [
+      Map.get(execution, :provider),
+      Map.get(execution, :model),
+      execution |> Map.get(:effort) |> effort_label()
+    ]
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.join(" · ")
+  end
+
+  defp configuration_transition?(%{desired: nil}), do: false
+
+  defp configuration_transition?(%{desired: desired} = execution) do
+    applied = current_execution(execution)
+
+    if is_nil(applied) do
+      false
+    else
+      Enum.any?([:provider, :model, :effort, :working_dir, :config_revision], fn key ->
+        Map.get(applied, key) != Map.get(desired, key)
+      end)
+    end
+  end
+
+  defp active_turn?(turn, %{active: %{id: id}}), do: turn.id == id
+  defp active_turn?(_turn, _execution), do: false
+
+  defp current_execution(%{active: active, applied: applied}), do: active || applied
+
+  defp current_execution_label(%{active: nil}), do: "live process"
+  defp current_execution_label(_execution), do: "active turn"
+
+  defp execution_label(nil), do: "execution unknown"
+
+  defp execution_label(execution) do
+    [
+      execution.provider || "provider unknown",
+      execution.model || "model unknown",
+      effort_label(execution.effort) || "effort unknown",
+      execution_location(execution.working_dir),
+      "config #{short_id(execution.config_revision)}"
+    ]
+    |> Enum.join(" · ")
+  end
+
+  defp execution_location(nil), do: "location unknown"
+  defp execution_location(path), do: "in #{path}"
+
+  defp effort_label(nil), do: nil
+  defp effort_label(effort), do: "#{effort} effort"
+
+  defp short_id(id) when is_binary(id), do: String.slice(id, 0, 12)
+  defp short_id(_id), do: "unknown"
 
   defp budget(nil), do: " today"
   defp budget(limit), do: " of $#{usd(limit)}"

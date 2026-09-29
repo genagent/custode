@@ -12,8 +12,10 @@ defmodule Custode do
       iex> Custode.pause(); Custode.resume()
   """
 
+  alias Custode.AgentHandoff
   alias Custode.Agents
   alias Custode.Gates.Grant
+  alias Custode.Operator.Actions
   alias Custode.Routine
 
   @doc """
@@ -41,9 +43,16 @@ defmodule Custode do
   @doc "Fire one sweep right now (an out-of-schedule tick through the same policy)."
   def beat(id \\ nil) do
     routine = fetch!(id)
-    tick = Routine.tick_worker(routine)
+
+    AgentHandoff.admit(routine.id, fn -> enqueue_manual_beat(routine.id) end)
+  end
+
+  defp enqueue_manual_beat(agent_id) do
+    routine = fetch!(agent_id)
 
     with {:ok, args, prepared} <- Custode.ConversationArcs.tick_args(routine, :scheduled) do
+      tick = Routine.tick_worker(routine)
+
       case Oban.insert(tick.new(args, queue: :ticks)) do
         {:ok, job} ->
           {:ok, job.id}
@@ -55,12 +64,13 @@ defmodule Custode do
     end
   end
 
-  @doc "Fire-and-forget prompt to the agent (queued if it is mid-sweep)."
+  @doc "Durably send a prompt to the agent, queued if it is mid-sweep."
   def poke(prompt, id \\ nil) do
     routine = fetch!(id)
 
-    with {:ok, delivered, opts} <- Custode.ConversationArcs.operator_delivery(routine, prompt) do
-      Agents.cast_prompt(routine.id, delivered, opts)
+    case Actions.message(routine.id, prompt, via: :cli) do
+      {:ok, _delivery} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -68,8 +78,9 @@ defmodule Custode do
   def ask(prompt, id \\ nil) do
     routine = fetch!(id)
 
-    with {:ok, delivered, opts} <- Custode.ConversationArcs.operator_delivery(routine, prompt) do
-      Agents.submit_prompt(routine.id, delivered, opts)
+    case Actions.message(routine.id, prompt, via: :cli) do
+      {:ok, _delivery} -> :processing
+      {:error, reason} -> {:error, reason}
     end
   end
 

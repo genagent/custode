@@ -3,8 +3,8 @@ defmodule Custode.MCPCapabilitiesTest do
 
   import Custode.TestHelpers
 
-  alias Custode.MCP.Identity
-  alias Custode.MCP.Tools
+  alias Custode.{AgentAuthorizationSnapshot, Repo, Routine}
+  alias Custode.MCP.{Capabilities, Identity, Tools}
 
   setup do
     worker_workspace = tmp_workspace!()
@@ -100,6 +100,63 @@ defmodule Custode.MCPCapabilitiesTest do
     refute "dismiss_ask" in caretaker_tools
 
     assert tool_names(sub) == ~w(forget journal_read recall remember)
+  end
+
+  test "discovery follows the durable contract of an active old-revision turn", ctx do
+    old_routine = Routine.get(ctx.worker_id)
+    old_revision = Routine.execution_revision(old_routine)
+    assert :ok = AgentAuthorizationSnapshot.put(old_routine, old_revision)
+
+    job =
+      %{"prompt" => "keep the captured authorization"}
+      |> Oban.Job.new(
+        worker: ObanClaude.Agent.Job,
+        queue: :agents,
+        meta: %{
+          "agent_id" => ctx.worker_id,
+          "agent_generation" => Ecto.UUID.generate(),
+          "agent_turn_id" => Ecto.UUID.generate(),
+          "config_revision" => old_revision
+        }
+      )
+      |> Ecto.Changeset.change(state: "suspended")
+      |> Repo.insert!()
+
+    on_exit(fn -> Repo.delete!(Repo.reload!(job)) end)
+
+    previous_routines = Application.fetch_env!(:custode, :routines)
+
+    Application.put_env(
+      :custode,
+      :routines,
+      Enum.map(previous_routines, fn
+        %{id: id} = routine when id == ctx.worker_id -> %{routine | role: :caretaker}
+        routine -> routine
+      end)
+    )
+
+    on_exit(fn -> Application.put_env(:custode, :routines, previous_routines) end)
+
+    new_routine = Routine.get(ctx.worker_id)
+    new_revision = Routine.execution_revision(new_routine)
+    assert :ok = AgentAuthorizationSnapshot.put(new_routine, new_revision)
+
+    worker = session(ctx.worker_token, "/mcp")
+    old_tools = tool_names(worker)
+
+    assert "journal_append" in old_tools
+    refute "beat" in old_tools
+
+    job
+    |> Ecto.Changeset.change(state: "completed")
+    |> Repo.update!()
+
+    assert "beat" in Capabilities.authorized_tool_names(:main, %{
+             kind: :routine,
+             id: ctx.worker_id
+           })
+
+    assert "beat" in tool_names(worker)
   end
 
   test "routine discovery does not normalize unrelated roster fields" do

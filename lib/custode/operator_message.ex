@@ -20,6 +20,9 @@ defmodule Custode.OperatorMessage do
     field(:continues_message_id, :string)
     field(:status, :string, default: "queued")
     field(:delivery, :string)
+    field(:claim_token, Ecto.UUID)
+    field(:claimed_at, :utc_datetime_usec)
+    field(:claim_after_job_id, :integer)
     field(:provider, :string)
     field(:agent_generation, :string)
     field(:agent_turn_id, :string)
@@ -80,6 +83,9 @@ defmodule Custode.OperatorMessage do
       :continues_message_id,
       :status,
       :delivery,
+      :claim_token,
+      :claimed_at,
+      :claim_after_job_id,
       :provider,
       :agent_generation,
       :agent_turn_id,

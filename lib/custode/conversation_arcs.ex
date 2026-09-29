@@ -134,8 +134,33 @@ defmodule Custode.ConversationArcs do
 
   @doc "Close an arc whose provider launch was not admitted."
   def abandon(%{arc: %ConversationArc{} = arc}, reason) do
-    Repo.transaction(fn -> close!(arc, "completed", to_string(reason), "launch_failed") end)
+    abandon(arc.routine_id, arc.arc_id, reason)
   end
+
+  @doc "Close an exact active arc whose provider launch was not admitted."
+  def abandon(routine_id, arc_id, reason)
+      when is_binary(routine_id) and is_binary(arc_id) and arc_id != "" do
+    Repo.transaction(
+      fn ->
+        case Repo.one(
+               from(a in ConversationArc,
+                 where:
+                   a.routine_id == ^routine_id and a.arc_id == ^arc_id and
+                     a.state == "active",
+                 limit: 1
+               )
+             ) do
+          nil -> :ok
+          arc -> close!(arc, "completed", reason_text(reason), "launch_failed")
+        end
+      end,
+      mode: :immediate
+    )
+  end
+
+  defp reason_text(reason) when is_binary(reason), do: reason
+  defp reason_text(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp reason_text(reason), do: inspect(reason)
 
   @doc false
   def attach do
@@ -332,6 +357,10 @@ defmodule Custode.ConversationArcs do
     end
   end
 
+  # The process revision also carries short-lived credentials that force a
+  # live host replacement. They do not make the provider-native conversation
+  # incompatible. Arc continuity follows the semantic contract, whose MCP
+  # projection retains authority and tool changes while redacting the token.
   defp fingerprint(contract) do
     contract
     |> :erlang.term_to_binary([:deterministic])

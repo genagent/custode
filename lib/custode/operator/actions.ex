@@ -21,7 +21,7 @@ defmodule Custode.Operator.Actions do
   (#448) and the operation log.
   """
 
-  alias Custode.Agents
+  alias Custode.{AgentHandoff, Agents, Routine}
   alias Custode.Operations.Fleet.PauseAgent
   alias Custode.Operator.Authority
   alias Custode.OperatorMessages
@@ -49,7 +49,7 @@ defmodule Custode.Operator.Actions do
   text (#472). Returns what it did, so a surface can say so.
   """
   @spec message(String.t(), String.t(), keyword()) ::
-          {:ok, :delivered | :resumed | :started} | {:error, term()}
+          {:ok, :queued | :delivered | :resumed | :started} | {:error, term()}
   def message(agent_id, text, opts \\ []) do
     case message_with_receipt(agent_id, text, opts) do
       {:ok, message, _disposition} -> delivery_result(message)
@@ -63,18 +63,203 @@ defmodule Custode.Operator.Actions do
           {:ok, Custode.OperatorMessage.t(), :created | :duplicate}
           | {:error, {:refused, Custode.OperatorMessage.t(), term()} | term()}
   def message_with_receipt(agent_id, text, opts \\ []) do
-    case String.trim(to_string(text)) do
-      "" ->
-        {:error, :empty}
+    text
+    |> to_string()
+    |> String.trim()
+    |> submit_message(agent_id, opts)
+  end
 
-      text ->
-        OperatorMessages.submit(agent_id, text, opts, fn correlation_id ->
-          deliver(agent_id, text, state_of(agent_id), opts, correlation_id)
-        end)
+  defp submit_message("", _agent_id, _opts), do: {:error, :empty}
+
+  defp submit_message(text, agent_id, opts) do
+    agent_id
+    |> OperatorMessages.submit(text, opts, &deliver_message(agent_id, text, opts, &1))
+    |> record_prompt_submission(agent_id, text)
+  end
+
+  defp record_prompt_submission({:ok, _message, :created} = result, agent_id, text) do
+    :ok = Custode.Feed.record_prompted(agent_id, text)
+    result
+  end
+
+  defp record_prompt_submission(result, _agent_id, _text), do: result
+
+  defp deliver_message(agent_id, text, opts, message) do
+    case Routine.get(agent_id) do
+      nil -> deliver_ad_hoc(agent_id, text, opts, message)
+      _routine -> deliver(agent_id, text, opts, message)
     end
   end
 
-  defp deliver(agent_id, text, :offline, _opts, correlation_id) do
+  # An unconfigured process has no routine replay owner. Claim its durable row
+  # before waiting on the configuration boundary, then use the provider's
+  # nonblocking cast so a busy process owns the queued prompt itself.
+  defp deliver_ad_hoc(agent_id, text, opts, message) do
+    case OperatorMessages.claim_delivery(message) do
+      {:ok, claimed} ->
+        result =
+          AgentHandoff.admit(agent_id, fn ->
+            admit_ad_hoc(agent_id, text, opts, claimed)
+          end)
+
+        settle_ad_hoc_admission(claimed, result)
+
+      {:error, :not_queued} ->
+        resolve_ad_hoc_claim_miss(message.message_id)
+    end
+  end
+
+  defp admit_ad_hoc(agent_id, text, opts, claimed) do
+    case Routine.get(agent_id) do
+      nil ->
+        with {:ok, provider} <- live_ad_hoc_provider(agent_id),
+             {:ok, state} <- ad_hoc_state(agent_id, provider) do
+          deliver_ad_hoc_state(agent_id, provider, text, opts, claimed, state)
+        end
+
+      _configured ->
+        {:error, :agent_became_configured}
+    end
+  end
+
+  defp live_ad_hoc_provider(agent_id) do
+    case Agents.live_provider(agent_id) do
+      {:ok, provider} -> {:ok, provider}
+      :offline -> {:error, :agent_not_running}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp ad_hoc_state(agent_id, provider) do
+    {:ok, status} = Agents.status(agent_id, provider)
+    {:ok, Custode.state_of(status)}
+  end
+
+  defp deliver_ad_hoc_state(_agent_id, _provider, _text, _opts, _claimed, :offline),
+    do: {:error, :agent_not_running}
+
+  defp deliver_ad_hoc_state(agent_id, provider, text, opts, claimed, :paused) do
+    with :ok <- resume_ad_hoc(agent_id, provider, opts) do
+      cast_ad_hoc(agent_id, provider, text, claimed, :resumed)
+    end
+  end
+
+  defp deliver_ad_hoc_state(agent_id, provider, text, _opts, claimed, _state),
+    do: cast_ad_hoc(agent_id, provider, text, claimed, :delivered)
+
+  defp resume_ad_hoc(agent_id, provider, opts) do
+    with :ok <- Authority.fleet_control(actor(opts)) do
+      case Agents.resume_agent(agent_id, provider) do
+        :resumed -> :ok
+        :ok -> :ok
+        {:error, reason} -> {:error, reason}
+        other -> {:error, {:unexpected_resume_reply, other}}
+      end
+    end
+  end
+
+  defp cast_ad_hoc(agent_id, provider, text, claimed, how) do
+    case safe_ad_hoc_cast(agent_id, provider, text, claimed.provider_correlation_id) do
+      :ok ->
+        record_admission(claimed, how, provider)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp safe_ad_hoc_cast(agent_id, provider, text, correlation_id) do
+    Agents.cast_prompt(agent_id, provider, text,
+      origin: :operator,
+      correlation_id: correlation_id
+    )
+  rescue
+    exception -> {:error, {:cast_exception, Exception.message(exception)}}
+  catch
+    kind, reason -> {:error, {:cast_throw, kind, reason}}
+  end
+
+  defp settle_ad_hoc_admission(_claimed, {:admitted, _how} = admitted), do: admitted
+
+  defp settle_ad_hoc_admission(claimed, {:deferred, reason}),
+    do: release_unadmitted(claimed, {:error, {:config_transition, reason}})
+
+  defp settle_ad_hoc_admission(claimed, {:error, _reason} = error),
+    do: release_unadmitted(claimed, error)
+
+  defp settle_ad_hoc_admission(claimed, other),
+    do: release_unadmitted(claimed, {:error, {:unexpected_admission_reply, other}})
+
+  defp resolve_ad_hoc_claim_miss(message_id) do
+    case OperatorMessages.get(message_id) do
+      nil -> {:error, :message_not_found}
+      %{delivery: "queued"} -> {:error, :delivery_claim_raced}
+      %{delivery: "admitting"} -> {:admitted, :already_admitting}
+      %{} -> {:admitted, :already_admitted}
+    end
+  end
+
+  defp deliver(agent_id, text, opts, message) do
+    admission_opts = [
+      allow_preserved: true,
+      continuation: not is_nil(message.continues_message_id),
+      current_queue_head: queue_head?(message),
+      durable_message: true
+    ]
+
+    Custode.AgentHandoff.admit(
+      agent_id,
+      fn -> admit_message(agent_id, text, opts, message) end,
+      admission_opts
+    )
+  end
+
+  defp admit_message(agent_id, text, opts, message) do
+    case OperatorMessages.get(message.message_id) do
+      %{delivery: "queued"} = queued ->
+        admit_queued_message(agent_id, text, opts, message.message_id, queued)
+
+      %{delivery: "admitting"} ->
+        {:deferred, :delivery_claimed}
+
+      %{} ->
+        # A replay queued ahead of this call already admitted the row. The
+        # callback executes inside the coordinator, so observing that durable
+        # fact here also prevents a second provider submission.
+        {:admitted, :already_admitted}
+
+      nil ->
+        {:error, :message_not_found}
+    end
+  end
+
+  defp admit_queued_message(agent_id, text, opts, message_id, queued) do
+    with {:ok, state} <- current_state(agent_id),
+         :ok <- admission_ready(state),
+         {:ok, provider} <- admission_provider(agent_id),
+         {:ok, claimed} <- OperatorMessages.claim_next_delivery(queued) do
+      result = deliver_ready(agent_id, text, state, opts, claimed.provider_correlation_id)
+      settle_message_admission(claimed, provider, result)
+    else
+      {:deferred, _reason} = deferred -> deferred
+      {:error, :not_next} -> {:deferred, :queued_behind_earlier_message}
+      {:error, :not_queued} -> resolve_admission_claim_miss(message_id)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp settle_message_admission(claimed, provider, {:ok, how}),
+    do: record_admission(claimed, how, provider)
+
+  defp settle_message_admission(claimed, _provider, other),
+    do: release_unadmitted(claimed, other)
+
+  defp admission_ready(state) when state in [:running, :awaiting_permission],
+    do: {:deferred, :agent_busy}
+
+  defp admission_ready(_state), do: :ok
+
+  defp deliver_ready(agent_id, text, :offline, _opts, correlation_id) do
     case Custode.Routine.get(agent_id) do
       nil ->
         {:error, :agent_not_running}
@@ -84,20 +269,19 @@ defmodule Custode.Operator.Actions do
     end
   end
 
-  defp deliver(agent_id, text, :paused, opts, correlation_id) do
-    with :ok <- resume(agent_id, opts), do: cast(agent_id, text, :resumed, correlation_id)
+  defp deliver_ready(agent_id, text, :paused, opts, correlation_id) do
+    with :ok <- resume(agent_id, opts), do: submit(agent_id, text, :resumed, correlation_id)
   end
 
   # An answer belongs to the arc that asked the question. Omitting arc_id
   # makes the wrapper keep its active arc while origin=:operator still marks
   # the response as human input.
-  defp deliver(agent_id, text, :waiting_for_user, _opts, correlation_id) do
-    case Agents.cast_prompt(agent_id, text,
+  defp deliver_ready(agent_id, text, :waiting_for_user, _opts, correlation_id) do
+    case Agents.submit_prompt(agent_id, text,
            origin: :operator,
            correlation_id: correlation_id
          ) do
-      :ok ->
-        Custode.Feed.record_prompted(agent_id, text)
+      :processing ->
         {:ok, :delivered}
 
       {:error, reason} ->
@@ -105,20 +289,93 @@ defmodule Custode.Operator.Actions do
     end
   end
 
-  defp deliver(agent_id, text, _state, _opts, correlation_id),
-    do: cast(agent_id, text, :delivered, correlation_id)
+  defp deliver_ready(agent_id, text, _state, _opts, correlation_id),
+    do: submit(agent_id, text, :delivered, correlation_id)
 
-  # `how` is what the caller is told happened (#472), so a surface can say
-  # "resumed" or "started" and not only "sent".
-  defp cast(agent_id, text, how, correlation_id) do
+  @doc false
+  def replay_next(agent_id) do
+    case OperatorMessages.next_queued(agent_id) do
+      nil -> :empty
+      message -> replay_next(agent_id, message)
+    end
+  end
+
+  defp replay_next(agent_id, message) do
+    with {:ok, state} <- current_state(agent_id),
+         :ok <- replay_ready(state),
+         {:ok, provider} <- admission_provider(agent_id),
+         {:ok, claimed} <- OperatorMessages.claim_delivery(message) do
+      settle_replay(claimed, provider, replay(claimed))
+    else
+      {:deferred, _reason} = deferred -> deferred
+      {:error, :not_queued} -> resolve_replay_claim_miss(message)
+      {:error, reason} -> {:error, {message.message_id, reason}}
+    end
+  end
+
+  defp settle_replay(claimed, provider, {:ok, how}) do
+    record_replay_delivery(claimed, how, provider)
+  end
+
+  defp settle_replay(claimed, _provider, {:error, reason}) do
+    release_replay(claimed, {:error, {claimed.message_id, reason}})
+  end
+
+  defp record_replay_delivery(claimed, how, provider) do
+    case OperatorMessages.record_delivery(claimed, how, provider) do
+      :ok -> {:accepted, claimed.message_id}
+      # The provider accepted the message. Keep it out of the replay queue
+      # even if recording its exact disposition needs durable-job reconciliation.
+      {:error, _reason} -> {:accepted, claimed.message_id}
+    end
+  end
+
+  defp replay(%{caller_kind: "operator"} = message) do
+    submit_replay(
+      message.target_agent_id,
+      message.prompt,
+      message.provider_correlation_id
+    )
+  end
+
+  defp replay(message) do
+    case Agents.submit_prompt(message.target_agent_id, message.prompt,
+           correlation_id: message.provider_correlation_id
+         ) do
+      :processing -> {:ok, :delivered}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:unexpected_submit_reply, other}}
+    end
+  end
+
+  defp replay_ready(state) when state in [:idle, :waiting_for_user], do: :ok
+  defp replay_ready(state), do: {:deferred, state}
+
+  defp submit_replay(agent_id, text, correlation_id) do
     with {:ok, delivered_text, prompt_opts} <- operator_delivery(agent_id, text),
-         :ok <-
-           Agents.cast_prompt(
+         :processing <-
+           Agents.submit_prompt(
              agent_id,
              delivered_text,
              Keyword.put(prompt_opts, :correlation_id, correlation_id)
            ) do
-      Custode.Feed.record_prompted(agent_id, text)
+      {:ok, :delivered}
+    else
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:unexpected_submit_reply, other}}
+    end
+  end
+
+  # `how` is what the caller is told happened (#472), so a surface can say
+  # "resumed" or "started" and not only "sent".
+  defp submit(agent_id, text, how, correlation_id) do
+    with {:ok, delivered_text, prompt_opts} <- operator_delivery(agent_id, text),
+         :processing <-
+           Agents.submit_prompt(
+             agent_id,
+             delivered_text,
+             Keyword.put(prompt_opts, :correlation_id, correlation_id)
+           ) do
       {:ok, how}
     else
       {:error, reason} -> {:error, reason}
@@ -131,11 +388,8 @@ defmodule Custode.Operator.Actions do
       seeds = Custode.ConversationArcs.seed_map(routine)
       config = Custode.Routine.agent_config(routine, seeds)
 
-      case Agents.start_agent(routine.id, config) do
+      case Agents.start_agent(routine.id, routine.provider, config) do
         {:ok, _pid} ->
-          deliver_started(routine.id, text, delivered_text, prompt_opts, correlation_id)
-
-        {:error, {:already_started, _pid}} ->
           deliver_started(routine.id, text, delivered_text, prompt_opts, correlation_id)
 
         {:error, reason} ->
@@ -144,14 +398,13 @@ defmodule Custode.Operator.Actions do
     end
   end
 
-  defp deliver_started(agent_id, original, delivered, prompt_opts, correlation_id) do
-    case Agents.cast_prompt(
+  defp deliver_started(agent_id, _original, delivered, prompt_opts, correlation_id) do
+    case Agents.submit_prompt(
            agent_id,
            delivered,
            Keyword.put(prompt_opts, :correlation_id, correlation_id)
          ) do
-      :ok ->
-        Custode.Feed.record_prompted(agent_id, original)
+      :processing ->
         {:ok, :started}
 
       {:error, reason} ->
@@ -173,13 +426,82 @@ defmodule Custode.Operator.Actions do
   defp delivery_result(%{delivery: "delivered"}), do: {:ok, :delivered}
   defp delivery_result(%{delivery: "resumed"}), do: {:ok, :resumed}
   defp delivery_result(%{delivery: "started"}), do: {:ok, :started}
+  defp delivery_result(%{delivery: "admitting"}), do: {:ok, :queued}
+  defp delivery_result(%{delivery: "queued"}), do: {:ok, :queued}
   defp delivery_result(_message), do: {:ok, :delivered}
+
+  defp record_admission(message, how, provider) do
+    case OperatorMessages.record_delivery(message, how, provider) do
+      :ok -> {:admitted, how}
+      # Provider acceptance is the point of no return. Leaving the row claimed
+      # lets durable-job reconciliation repair its exact disposition without
+      # ever submitting the same message twice.
+      {:error, _reason} -> {:admitted, how}
+    end
+  end
+
+  defp release_unadmitted(message, result) do
+    case OperatorMessages.release_delivery(message) do
+      :ok -> result
+      {:error, reason} -> {:error, {:release_delivery, reason}}
+    end
+  end
+
+  defp release_replay(message, result) do
+    case OperatorMessages.release_delivery(message) do
+      :ok -> result
+      {:error, reason} -> {:error, {message.message_id, {:release_delivery, reason}}}
+    end
+  end
+
+  defp resolve_admission_claim_miss(message_id) do
+    case OperatorMessages.get(message_id) do
+      nil -> {:error, :message_not_found}
+      %{delivery: "queued"} -> {:deferred, :delivery_claim_raced}
+      %{delivery: "admitting"} -> {:deferred, :delivery_claimed}
+      %{} -> {:admitted, :already_admitted}
+    end
+  end
+
+  defp resolve_replay_claim_miss(message) do
+    case OperatorMessages.get(message.message_id) do
+      nil -> :empty
+      %{delivery: "queued"} -> {:deferred, :delivery_claim_raced}
+      %{delivery: "admitting"} -> {:deferred, :delivery_claimed}
+      %{} -> {:accepted, message.message_id}
+    end
+  end
+
+  defp admission_provider(agent_id) do
+    case Agents.live_provider(agent_id) do
+      {:ok, provider} ->
+        {:ok, provider}
+
+      :offline ->
+        case Agents.configured_provider(agent_id) do
+          provider when provider in [:claude, :codex] -> {:ok, provider}
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp queue_head?(%{id: id, target_agent_id: agent_id}) do
+    case OperatorMessages.next_queued(agent_id) do
+      %{id: ^id} -> true
+      _other -> false
+    end
+  end
 
   # `status/1` always answers `{:ok, status}`; an agent with no process is
   # `{:ok, :offline}`, which is the case `deliver/4` branches on.
-  defp state_of(agent_id) do
-    {:ok, status} = Agents.status(agent_id)
-    Custode.state_of(status)
+  defp current_state(agent_id) do
+    case Agents.status(agent_id) do
+      {:ok, status} -> {:ok, Custode.state_of(status)}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @doc "Approve an agent's pending action."
@@ -258,14 +580,23 @@ defmodule Custode.Operator.Actions do
     # `Custode.beat/1` raises for an id with no routine. A subject is not
     # always an agent (a workflow signal, a ghost), and a surface that offers
     # the button anyway must get an error back and not a crash.
-    with :ok <- Authority.fleet_control(actor(opts)) do
-      case Custode.Routine.get(agent_id) do
-        nil ->
-          {:error, :no_routine}
+    with :ok <- Authority.fleet_control(actor(opts)),
+         {:ok, _routine} <- fetch_routine(agent_id) do
+      run_beat(agent_id)
+    end
+  end
 
-        _routine ->
-          Custode.beat(agent_id)
-      end
+  defp fetch_routine(agent_id) do
+    case Routine.get(agent_id) do
+      nil -> {:error, :no_routine}
+      routine -> {:ok, routine}
+    end
+  end
+
+  defp run_beat(agent_id) do
+    case Custode.beat(agent_id) do
+      {:deferred, reason} -> {:error, {:config_transition, reason}}
+      other -> other
     end
   end
 
@@ -424,7 +755,7 @@ defmodule Custode.Operator.Actions do
   agent). It is `message/3` to the caretaker, so it reaches it in any state.
   """
   @spec tell_custode(String.t(), keyword()) ::
-          {:ok, :delivered | :resumed | :started} | {:error, term()}
+          {:ok, :queued | :delivered | :resumed | :started} | {:error, term()}
   def tell_custode(text, opts \\ []) do
     case caretaker() do
       nil -> {:error, :no_caretaker}

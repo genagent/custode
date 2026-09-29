@@ -8,6 +8,7 @@ defmodule Custode.SpendRailGateTest do
   alias Custode.Agents
   alias Custode.Gates
   alias Custode.MCP.OperatorTools
+  alias Custode.Routine
   alias Custode.SpendLedger
 
   @endpoint CustodeWeb.Endpoint
@@ -153,13 +154,16 @@ defmodule Custode.SpendRailGateTest do
 
     test_pid = self()
 
-    {:ok, _pid} =
-      Agents.start_agent(routine.id,
-        enqueue_fun: fn args, meta ->
-          send(test_pid, {:enqueued, args, meta})
-          {:ok, :queued}
-        end
-      )
+    config =
+      Routine.agent_config(routine) ++
+        [
+          enqueue_fun: fn args, meta ->
+            send(test_pid, {:enqueued, args, meta})
+            {:ok, :queued}
+          end
+        ]
+
+    {:ok, _pid} = Agents.start_agent(routine.id, provider, config)
 
     on_exit(fn -> Agents.stop_agent(routine.id, provider) end)
     routine

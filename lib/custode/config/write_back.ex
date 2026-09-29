@@ -29,6 +29,7 @@ defmodule Custode.Config.WriteBack do
   show the operator the literal text that approval will append.
   """
 
+  alias Custode.AgentHandoff
   alias Custode.Config.Loader
   alias Custode.Routine.Effort
 
@@ -38,23 +39,19 @@ defmodule Custode.Config.WriteBack do
   `{:error, reason}` on a duplicate id or an entry that fails normalization.
   """
   def add_routine(attrs) when is_map(attrs) do
-    with :ok <- validate(attrs) do
-      path = Loader.target_path()
-      ensure_file!(path)
-      File.write!(path, render_routine(attrs), [:append])
-      {:ok, _path, _routines, _sensors, _profiles} = Loader.load!()
-      # a runtime add must also mint the newcomer's identity and MCP config
-      # (boot only does this for the roster it saw): without the file, every
-      # mcp: true turn dies command_failed until the next restart
-      Custode.MCP.write_routine_config!(attrs.id)
-      # ...and its workspace (#496): the notebook re-renders journal.md into it
-      # on every write, and boot only created workspaces for the roster it saw
-      attrs.id |> Custode.Routine.get() |> Custode.Routine.ensure_workspace!()
-      # ...and its repo server (#221): served?/1 is a Registry lookup, and
-      # boot only starts servers for the roster it saw
-      if is_binary(attrs[:repo]), do: Custode.Repository.ensure_served(attrs.repo, attrs.id)
-      {:ok, path}
-    end
+    id = Map.get(attrs, :id)
+    affected = if is_binary(id) and id != "", do: [id], else: []
+
+    AgentHandoff.reconfigure(affected, fn ->
+      with {:ok, routine} <- validate(attrs),
+           :ok <- prepare_routine(routine) do
+        path = Loader.target_path()
+        ensure_file!(path)
+        File.write!(path, render_routine(attrs), [:append])
+        {:ok, _path, _routines, _sensors, _profiles} = Loader.load!()
+        {:ok, path}
+      end
+    end)
   end
 
   @doc """
@@ -71,31 +68,32 @@ defmodule Custode.Config.WriteBack do
   design 001 mode switch; surfaces must present that deliberately.
   """
   def update_routine(id, changes) when is_binary(id) and is_map(changes) do
+    AgentHandoff.reconfigure([id], fn -> update_routine_file(id, changes) end)
+  end
+
+  defp update_routine_file(id, changes) do
     with :ok <- validate_changes(changes),
          {:ok, raw} <- fetch_raw(id),
          merged = merge_changes(raw, changes),
          :ok <- validate_entry(merged) do
-      old_provider = Custode.Routine.get(id).provider
-      path = Loader.target_path()
-      ensure_file!(path)
-      splice!(path, id, render_routine(merged))
-      {:ok, _path, _routines, _sensors, _profiles} = Loader.load!()
-      new_provider = Custode.Routine.get(id).provider
-
-      if old_provider != new_provider do
-        stop_live_agent(id, old_provider)
-        Custode.MCP.write_routine_config!(id)
-      end
-
-      # a repo change serves the new one and retires the old if orphaned (#221)
-      if is_binary(merged[:repo]), do: Custode.Repository.ensure_served(merged.repo, id)
-      old_repo = Map.get(raw, :repo)
-
-      if is_binary(old_repo) and old_repo != merged[:repo],
-        do: Custode.Repository.stop_serving(old_repo)
-
-      {:ok, path}
+      persist_routine_update(id, raw, merged)
     end
+  end
+
+  defp persist_routine_update(id, raw, merged) do
+    path = Loader.target_path()
+    old_repo = Map.get(raw, :repo)
+    ensure_file!(path)
+    splice!(path, id, render_routine(merged))
+    {:ok, _path, _routines, _sensors, _profiles} = Loader.load!()
+
+    # a repo change serves the new one and retires the old if orphaned (#221)
+    if is_binary(merged[:repo]), do: Custode.Repository.ensure_served(merged.repo, id)
+
+    if is_binary(old_repo) and old_repo != merged[:repo],
+      do: Custode.Repository.stop_serving(old_repo)
+
+    {:ok, path}
   end
 
   @doc """
@@ -128,17 +126,30 @@ defmodule Custode.Config.WriteBack do
   operator to prune.
   """
   def remove_routine(id) when is_binary(id) do
-    with {:ok, raw} <- fetch_raw(id) do
-      provider = Custode.Routine.get(id).provider
-      path = Loader.target_path()
-      ensure_file!(path)
-      raw_repo = Map.get(raw, :repo)
-      splice!(path, id, nil)
-      {:ok, _path, _routines, _sensors, _profiles} = Loader.load!()
-      stop_live_agent(id, provider)
-      if is_binary(raw_repo), do: Custode.Repository.stop_serving(raw_repo)
-      {:ok, path}
+    AgentHandoff.reconfigure([id], fn -> remove_routine_file(id) end)
+  end
+
+  defp remove_routine_file(id) do
+    with {:ok, raw} <- fetch_raw(id),
+         {:ok, provider} <- removal_provider(id),
+         :ok <- stop_live_agent(id, provider) do
+      persist_routine_removal(id, raw)
     end
+  end
+
+  defp persist_routine_removal(id, raw) do
+    path = Loader.target_path()
+    ensure_file!(path)
+    splice!(path, id, nil)
+    {:ok, _path, _routines, _sensors, _profiles} = Loader.load!()
+
+    # AgentHandoff owns pause-intent cleanup while it reconciles the
+    # removed routine. Keeping that fallible operation out of this
+    # callback prevents a committed removal from being reported as a
+    # failed write.
+    raw_repo = Map.get(raw, :repo)
+    if is_binary(raw_repo), do: Custode.Repository.stop_serving(raw_repo)
+    {:ok, path}
   end
 
   # ------------------------------------------------------------------
@@ -156,14 +167,16 @@ defmodule Custode.Config.WriteBack do
   of the inherited fields. Refuses a duplicate name or a malformed envelope.
   """
   def add_profile(name, envelope) when is_binary(name) and is_map(envelope) do
-    with :ok <- validate_profile_name(name, :new),
-         :ok <- validate_profile_envelope(envelope) do
-      path = Loader.target_path()
-      ensure_file!(path)
-      File.write!(path, render_profile(name, envelope), [:append])
-      {:ok, _path, _routines, _sensors, _profiles} = Loader.load!()
-      {:ok, path}
-    end
+    AgentHandoff.reconfigure([], fn ->
+      with :ok <- validate_profile_name(name, :new),
+           :ok <- validate_profile_envelope(envelope) do
+        path = Loader.target_path()
+        ensure_file!(path)
+        File.write!(path, render_profile(name, envelope), [:append])
+        {:ok, _path, _routines, _sensors, _profiles} = Loader.load!()
+        {:ok, path}
+      end
+    end)
   end
 
   @doc """
@@ -172,18 +185,20 @@ defmodule Custode.Config.WriteBack do
   Every routine wearing the profile inherits the change at the next run.
   """
   def update_profile(name, changes) when is_binary(name) and is_map(changes) do
-    with :ok <- validate_profile_name(name, :existing),
-         {:ok, envelope} <- fetch_profile(name),
-         merged = merge_changes(envelope, changes),
-         :ok <- validate_profile_envelope(merged) do
-      old_providers = profile_wearer_providers(name)
-      path = Loader.target_path()
-      ensure_file!(path)
-      splice_profile!(path, name, render_profile(name, merged))
-      {:ok, _path, _routines, _sensors, _profiles} = Loader.load!()
-      reconcile_profile_provider_changes(old_providers)
-      {:ok, path}
-    end
+    AgentHandoff.reconfigure([], fn ->
+      with :ok <- validate_profile_name(name, :existing),
+           {:ok, envelope} <- fetch_profile(name),
+           merged = merge_changes(envelope, changes),
+           :ok <- validate_profile_envelope(merged),
+           :ok <- validate_profile_wearers(name, merged) do
+        wearers = profile_wearers(name)
+        path = Loader.target_path()
+        ensure_file!(path)
+        splice_profile!(path, name, render_profile(name, merged))
+        {:ok, _path, _routines, _sensors, _profiles} = Loader.load!()
+        {:ok, path, wearers}
+      end
+    end)
   end
 
   @doc """
@@ -192,14 +207,16 @@ defmodule Custode.Config.WriteBack do
   routine would strip its grants mid-flight; reassign those routines first.
   """
   def remove_profile(name) when is_binary(name) do
-    with :ok <- validate_profile_name(name, :existing),
-         :ok <- no_routine_wears(name) do
-      path = Loader.target_path()
-      ensure_file!(path)
-      splice_profile!(path, name, nil)
-      {:ok, _path, _routines, _sensors, _profiles} = Loader.load!()
-      {:ok, path}
-    end
+    AgentHandoff.reconfigure([], fn ->
+      with :ok <- validate_profile_name(name, :existing),
+           :ok <- no_routine_wears(name) do
+        path = Loader.target_path()
+        ensure_file!(path)
+        splice_profile!(path, name, nil)
+        {:ok, _path, _routines, _sensors, _profiles} = Loader.load!()
+        {:ok, path}
+      end
+    end)
   end
 
   @doc """
@@ -527,6 +544,23 @@ defmodule Custode.Config.WriteBack do
     end
   end
 
+  defp validate_profile_wearers(name, envelope) do
+    profile = String.to_existing_atom(name)
+    prospective_profiles = Map.put(all_profiles(), profile, envelope)
+
+    raw_routines()
+    |> Enum.filter(&(&1[:profile] == profile))
+    |> Enum.reduce_while(:ok, fn raw, :ok ->
+      try do
+        _normalized = Custode.Routine.normalize_entry(raw, prospective_profiles)
+        {:cont, :ok}
+      rescue
+        error ->
+          {:halt, {:error, {:invalid_profile_wearer, raw.id, Exception.message(error)}}}
+      end
+    end)
+  end
+
   # A profile in use cannot be removed: its wearers would lose their whole
   # envelope (grants, budgets, role) at the next reload (#236). Checked on
   # RAW entries -- Routine.all/0 has already folded the profile away.
@@ -659,33 +693,29 @@ defmodule Custode.Config.WriteBack do
   defp join_lines(lines, :before), do: Enum.join(lines, "\n") <> "\n"
   defp join_lines(lines, :after), do: "\n" <> Enum.join(lines, "\n")
 
-  defp stop_live_agent(id, provider) do
-    Custode.Agents.stop_agent(id, provider)
-  catch
-    # not running (or already stopping) is fine: removal is idempotent on the
-    # process side, and the roster is already rewritten
-    _kind, _reason -> :ok
-  end
-
-  defp profile_wearer_providers(name) do
-    for routine <- Custode.Routine.all(),
-        routine.profile == String.to_existing_atom(name),
-        into: %{} do
-      {routine.id, routine.provider}
+  defp removal_provider(id) do
+    case Custode.Agents.execution_provider(id) do
+      provider when provider in [:claude, :codex] -> {:ok, provider}
+      {:error, reason} -> {:error, {:remove_live_agent_failed, id, reason}}
     end
   end
 
-  defp reconcile_profile_provider_changes(old_providers) do
-    Enum.each(old_providers, fn {id, old_provider} ->
-      case Custode.Routine.get(id) do
-        %{provider: new_provider} when new_provider != old_provider ->
-          stop_live_agent(id, old_provider)
-          Custode.MCP.write_routine_config!(id)
+  defp stop_live_agent(id, provider) do
+    case Custode.Agents.stop_agent(id, provider) do
+      :ok -> :ok
+      {:error, :agent_not_running} -> :ok
+      {:error, reason} -> {:error, {:remove_live_agent_failed, id, reason}}
+      other -> {:error, {:remove_live_agent_failed, id, {:unexpected_reply, other}}}
+    end
+  catch
+    kind, reason -> {:error, {:remove_live_agent_failed, id, {kind, reason}}}
+  end
 
-        _unchanged_or_removed ->
-          :ok
-      end
-    end)
+  defp profile_wearers(name) do
+    for routine <- Custode.Routine.all(),
+        routine.profile == String.to_existing_atom(name) do
+      routine.id
+    end
   end
 
   # normalize raises on a broken entry; surface that as a value, not a
@@ -708,8 +738,34 @@ defmodule Custode.Config.WriteBack do
         {:error, {:duplicate_id, id}}
 
       true ->
-        validate_entry(attrs)
+        normalize_entry(attrs)
     end
+  end
+
+  # Runtime additions need their local dependencies ready before the roster
+  # file and application environment make the routine visible. Otherwise a
+  # bad workspace or provider config can return an error after the routine is
+  # already committed, making the same request fail as a duplicate on retry.
+  defp prepare_routine(routine) do
+    with :ok <- Custode.Routine.ensure_workspace!(routine),
+         :ok <- Custode.MCP.write_routine_config!(routine.id) do
+      ensure_repo_served(routine)
+    end
+  rescue
+    error -> {:error, {:routine_preflight_failed, Exception.message(error)}}
+  catch
+    kind, reason -> {:error, {:routine_preflight_failed, {kind, reason}}}
+  end
+
+  defp ensure_repo_served(%{repo: repo, id: id}) when is_binary(repo),
+    do: Custode.Repository.ensure_served(repo, id)
+
+  defp ensure_repo_served(_routine), do: :ok
+
+  defp normalize_entry(attrs) do
+    {:ok, Custode.Routine.normalize_entry(attrs)}
+  rescue
+    error -> {:error, {:invalid_entry, Exception.message(error)}}
   end
 
   # TOML value rendering for the small vocabulary the roster uses.

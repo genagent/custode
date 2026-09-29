@@ -65,6 +65,29 @@ defmodule Custode.MCP.Identity do
     File.write!(operator_token_path(), operator)
     File.chmod!(operator_token_path(), 0o600)
 
+    # This process owns the in-memory credential table. A one-for-one restart
+    # therefore revokes every old routine token even though BootConfigWriter
+    # does not restart with it. Reprovision the configured routines here and
+    # rewrite their files with those exact tokens before accepting requests.
+    # Use do_mint/2 directly: calling the public GenServer API from init/1
+    # would deadlock on this process.
+    routines = Custode.Routine.all()
+
+    for routine <- routines do
+      token = do_mint(:routine, routine.id)
+      :ok = Custode.MCP.write_routine_config!(routine.id, token)
+    end
+
+    # On initial boot the handoff coordinator has not started yet and will
+    # reconcile the roster as its own boot fence. On an isolated Identity
+    # restart it is already live, so tell it that every Codex execution
+    # contract carrying one of the revoked tokens may now be stale.
+    if Process.whereis(Custode.AgentHandoff) do
+      for routine <- routines do
+        :ok = Custode.AgentHandoff.reconcile(routine.id)
+      end
+    end
+
     {:ok, %{}}
   end
 

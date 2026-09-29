@@ -4,7 +4,8 @@ defmodule Custode.ConversationArcsTest do
   import Custode.TestHelpers
   import ObanClaude.Testing
 
-  alias Custode.{Agents, ConversationArcs}
+  alias Custode.{Agents, ConversationArcs, Repo, Routine}
+  alias Custode.MCP.Identity
   alias Custode.Operator.Actions
   alias ObanClaude.Agent.{Job, Tick}
 
@@ -147,6 +148,29 @@ defmodule Custode.ConversationArcsTest do
     assert current.state == "active"
   end
 
+  test "a Codex credential refresh replaces the host without rotating its conversation arc" do
+    routine =
+      routine_fixture!(tmp_workspace!(), %{
+        provider: :codex,
+        mcp: true,
+        model: "gpt-5.6-sol"
+      })
+
+    _first_token = Identity.mint(:routine, routine.id)
+    first_revision = routine.id |> Routine.get() |> Routine.execution_revision()
+    assert {:ok, original} = ConversationArcs.prepare(Routine.get(routine.id), :operator)
+
+    _replacement_token = Identity.mint(:routine, routine.id)
+    current = Routine.get(routine.id)
+    assert Routine.execution_revision(current) != first_revision
+
+    assert {:ok, retained} = ConversationArcs.prepare(current, :operator)
+    assert retained.arc.id == original.arc.id
+    assert retained.reason == :no_session
+    assert [active] = ConversationArcs.history(routine.id, "operator")
+    assert active.state == "active"
+  end
+
   test "a rejected provider session records and selects an explicit fresh fallback" do
     routine = routine_fixture!(tmp_workspace!(), %{model: "haiku"})
     assert {:ok, prepared} = ConversationArcs.prepare(routine, :operator)
@@ -246,6 +270,13 @@ defmodule Custode.ConversationArcsTest do
         result(session_id: session_id),
         %Oban.Job{meta: job.meta, attempt: 1, max_attempts: 1}
       )
+
+    # handle_result/2 simulates the worker callback. Real Oban marks the row
+    # terminal when that callback returns; mirror that physical boundary here.
+    Oban.Job
+    |> Repo.get!(job.id)
+    |> Ecto.Changeset.change(state: "completed", completed_at: DateTime.utc_now())
+    |> Repo.update!()
 
     assert {:ok, :idle} = Agents.await(job.meta["agent_id"], :idle, 1_000)
   end

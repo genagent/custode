@@ -26,6 +26,42 @@ defmodule Custode.IdentityTest do
     assert :error = Identity.verify("nope")
   end
 
+  test "an isolated identity restart reprovisions routine configs and rotates Codex" do
+    routine =
+      routine_fixture!(tmp_workspace!(), %{
+        provider: :codex,
+        mcp: true,
+        role: :backlog_worker
+      })
+
+    :ok = Custode.MCP.write_routine_config!(routine.id)
+    {:ok, old_token} = Identity.token(:routine, routine.id)
+    old_pid = Process.whereis(Identity)
+    monitor = Process.monitor(old_pid)
+
+    Process.exit(old_pid, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^old_pid, :killed}
+
+    eventually(fn ->
+      new_pid = Process.whereis(Identity)
+      assert is_pid(new_pid)
+      refute new_pid == old_pid
+    end)
+
+    {:ok, new_token} = Identity.token(:routine, routine.id)
+    refute new_token == old_token
+    assert :error = Identity.verify(old_token)
+    assert {:ok, %{kind: :routine, id: routine_id}} = Identity.verify(new_token)
+    assert routine_id == routine.id
+
+    config = Custode.MCP.config_path(routine.id) |> File.read!() |> Jason.decode!()
+
+    assert config["mcpServers"]["custode"]["headers"]["Authorization"] ==
+             "Bearer " <> new_token
+
+    eventually(fn -> assert Custode.AgentHandoff.status(routine.id) == :ready end)
+  end
+
   test "the HTTP surface 401s without a token and works with the operator token" do
     url = "http://127.0.0.1:#{Custode.MCP.port()}/mcp"
 

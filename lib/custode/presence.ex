@@ -19,8 +19,8 @@ defmodule Custode.Presence do
   rendered context line lets sweeps choose night-shaped work instead (#141
   slice 2 teaches the roles to read it).
 
-  Rendered into every tick's system prompt at fire time -- #121/#142 make
-  that live, so presence flips reach the very next sweep with no restart.
+  Rendered into every tick prompt at fire time -- #121/#142 make that live,
+  so presence flips reach the very next sweep with no restart.
 
   ## A present pin lapses; an away pin does not (#328)
 
@@ -150,6 +150,7 @@ defmodule Custode.Presence do
   # The reading is only useful to a sweep if the sweep can tell what it rests
   # on. An assumed present and an evidenced present should not read alike.
   defp basis({:pinned, state}, nil, _now), do: "pinned #{state}; no recorded actions yet"
+
   defp basis({:pinned, state}, at, now), do: "pinned #{state}; last action #{ago(at, now)}"
   defp basis(:recent_action, at, now), do: "last action #{ago(at, now)}"
 

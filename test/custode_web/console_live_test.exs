@@ -675,6 +675,126 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ "no machine log"
   end
 
+  for {current_provider, current_model, current_effort, next_provider, next_model, next_effort} <-
+        [
+          {:claude, "haiku", "low", :codex, "gpt-5.6-sol", "high"},
+          {:codex, "gpt-5.6-luna", "low", :claude, "sonnet", "high"}
+        ] do
+    test "a running #{current_provider} turn keeps its captured configuration while the routine changes",
+         %{conn: conn} do
+      current_provider = unquote(current_provider)
+      current_model = unquote(current_model)
+      current_effort = unquote(current_effort)
+      next_provider = unquote(next_provider)
+      next_model = unquote(next_model)
+      next_effort = unquote(next_effort)
+      id = uid("console-config")
+      workspace = tmp_workspace!()
+
+      configured = %{
+        id: id,
+        cron: :manual,
+        workspace: workspace,
+        working_dir: workspace,
+        prompt: "inspect the captured configuration",
+        provider: current_provider,
+        model: current_model,
+        effort: current_effort,
+        mcp: false
+      }
+
+      put_env!(:routines, [configured])
+      routine = Custode.Routine.get(id)
+      current_revision = Custode.Routine.execution_revision(routine)
+
+      assert {:ok, _pid} =
+               Custode.Agents.start_agent(
+                 id,
+                 current_provider,
+                 Custode.Routine.agent_config(routine)
+               )
+
+      on_exit(fn ->
+        case Custode.Agents.status(id, current_provider) do
+          {:ok, :offline} -> :ok
+          {:ok, _state} -> Custode.Agents.stop_agent(id, current_provider)
+        end
+
+        Custode.Repo.query!("DELETE FROM oban_jobs WHERE json_extract(meta, '$.agent_id') = ?", [
+          id
+        ])
+      end)
+
+      assert :processing = Custode.Agents.submit_prompt(id, "use the old contract")
+
+      import Ecto.Query, only: [from: 2]
+
+      [turn] =
+        Custode.Repo.all(
+          from(j in Oban.Job,
+            where: fragment("json_extract(?, '$.agent_id')", j.meta) == ^id
+          )
+        )
+
+      assert turn.args["model"] == current_model
+      assert turn.meta["config_revision"] == current_revision
+
+      Application.put_env(:custode, :routines, [
+        %{
+          configured
+          | provider: next_provider,
+            model: next_model,
+            effort: next_effort
+        }
+      ])
+
+      desired_revision = id |> Custode.Routine.get() |> Custode.Routine.execution_revision()
+      assert desired_revision != current_revision
+
+      {:ok, view, _html} = live(conn, "/console/#{id}")
+
+      summary = view |> element("#subject-execution-facts") |> render()
+      assert summary =~ to_string(current_provider)
+      assert summary =~ current_model
+      assert summary =~ "#{current_effort} effort"
+      refute summary =~ next_model
+
+      transition = view |> element("#subject-config-transition") |> render()
+      assert transition =~ "active turn:"
+      assert transition =~ to_string(current_provider)
+      assert transition =~ current_model
+      assert transition =~ "next turn:"
+      assert transition =~ to_string(next_provider)
+      assert transition =~ next_model
+      assert transition =~ "#{next_effort} effort"
+
+      view |> element("button[phx-value-tab=config]") |> render_click()
+      active = view |> element("#active-turn-config") |> render()
+      desired = view |> element("#desired-turn-config") |> render()
+      assert active =~ current_model
+      assert active =~ String.slice(current_revision, 0, 12)
+      refute active =~ next_model
+      assert desired =~ next_model
+      assert desired =~ "#{next_effort} effort"
+
+      assert has_element?(
+               view,
+               ~s(#desired-turn-config[data-config-revision="#{desired_revision}"])
+             )
+
+      view |> element("button[phx-value-tab=turns]") |> render_click()
+      captured = view |> element("#turn-contract-#{turn.id}") |> render()
+      assert captured =~ current_model
+      assert captured =~ "#{current_effort} effort"
+      refute captured =~ next_model
+
+      assert has_element?(
+               view,
+               ~s(#turn-contract-#{turn.id}[data-config-revision="#{current_revision}"])
+             )
+    end
+  end
+
   # seen on the live fleet: an offline agent's "last said" was three identical
   # sensor pings
   test "last said is what the agent said, and sensor pings are only a footnote",

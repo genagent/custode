@@ -4,7 +4,16 @@ defmodule Custode.InboxWakesTest do
   import Custode.TestHelpers
   import Ecto.Query, only: [from: 2]
 
-  alias Custode.{Agents, InboxWake, InboxWakeJob, InboxWakes, Repo, SpendLedger}
+  alias Custode.{
+    AgentHandoff,
+    AgentHandoffIntent,
+    Agents,
+    InboxWake,
+    InboxWakeJob,
+    InboxWakes,
+    Repo,
+    SpendLedger
+  }
 
   setup do
     Repo.delete_all(InboxWake)
@@ -69,11 +78,7 @@ defmodule Custode.InboxWakesTest do
 
   test "a permanent delivery failure gets one retry and then holds without polling" do
     routine = routine_fixture!(tmp_workspace!())
-    {:ok, refusing_supervisor} = Task.Supervisor.start_link(max_children: 0)
-
-    on_exit(fn ->
-      if Process.alive?(refusing_supervisor), do: Supervisor.stop(refusing_supervisor)
-    end)
+    refusing_supervisor = start_supervised!({Task.Supervisor, max_children: 0})
 
     assert {:ok, wake} = InboxWakes.request(routine, debounce_seconds: 0)
 
@@ -128,6 +133,7 @@ defmodule Custode.InboxWakesTest do
   for provider <- [:claude, :codex] do
     test "#{provider}: activity claimed during a turn becomes one follow-up wave" do
       provider = unquote(provider)
+      put_env!(:presence_override, :away)
       routine = routine_fixture!(tmp_workspace!(), %{provider: provider})
       start_stub!(routine, provider)
 
@@ -166,7 +172,9 @@ defmodule Custode.InboxWakesTest do
       # Duplicate kickoff execution cannot acquire the claimed row.
       assert :ok = InboxWakes.dispatch(routine.id, first.wake_id, now: joined.due_at)
 
-      assert_receive {:enqueued, ^provider, %{"prompt" => "sweep now"}, inbox_meta}, 1_000
+      assert_receive {:enqueued, ^provider, %{"prompt" => prompt}, inbox_meta}, 1_000
+      assert prompt =~ "sweep now"
+      assert prompt =~ "operator: AWAY"
       assert inbox_meta["origin"] == "tick"
       assert inbox_meta["correlation_id"] =~ "inbox:#{first.wake_id}:"
       assert is_binary(inbox_meta["arc_id"])
@@ -290,6 +298,46 @@ defmodule Custode.InboxWakesTest do
     refute_receive {:enqueued, :claude, _args, _meta}, 50
 
     on_exit(fn -> Agents.stop_agent(routine.id, :claude) end)
+  end
+
+  for provider <- [:claude, :codex] do
+    test "#{provider}: a rail crossed after claim pauses inside handoff without a self-call" do
+      provider = unquote(provider)
+
+      routine =
+        routine_fixture!(tmp_workspace!(), %{provider: provider, daily_budget_usd: 0.1})
+
+      on_exit(fn ->
+        Agents.stop_agent(routine.id, provider)
+        AgentHandoffIntent.clear(routine.id)
+      end)
+
+      assert {:ok, wake} = InboxWakes.request(routine, debounce_seconds: 0)
+
+      assert :ok =
+               InboxWakes.dispatch(routine.id, wake.wake_id,
+                 before_claim: fn ->
+                   assert :ok = SpendLedger.record(routine.id, 5.0)
+                 end
+               )
+
+      assert {:ok, :paused} = Agents.await(routine.id, provider, :paused, 1_000)
+
+      assert {:ok,
+              %{
+                state: :paused,
+                pause_context: %{cause: :emergency_pause, reason: :spend_rail}
+              }} = Agents.info(routine.id, provider)
+
+      assert Process.alive?(Process.whereis(AgentHandoff))
+
+      eventually(fn ->
+        assert %InboxWake{state: "pending", blocked_by: "spend_rail"} =
+                 InboxWakes.get(routine.id)
+      end)
+
+      refute_receive {:enqueued, ^provider, _args, _meta}, 50
+    end
   end
 
   for provider <- [:claude, :codex] do
@@ -507,6 +555,67 @@ defmodule Custode.InboxWakesTest do
     assert [_job] = wake_jobs(routine.id, wake.wake_id)
   end
 
+  test "a completed config handoff releases its held inbox wake" do
+    routine = routine_fixture!(tmp_workspace!())
+    assert {:ok, wake} = InboxWakes.request(routine, debounce_seconds: 0)
+
+    wake_jobs(routine.id, wake.wake_id)
+    |> Enum.each(fn job -> Repo.delete_all(from(j in Oban.Job, where: j.id == ^job.id)) end)
+
+    wake
+    |> InboxWake.update_changeset(%{blocked_by: "config_transition", retry_count: 1})
+    |> Repo.update!()
+
+    assert :ok = InboxWakes.config_ready(routine.id)
+
+    assert %InboxWake{blocked_by: nil, retry_count: 0} = InboxWakes.get(routine.id)
+    assert [_job] = wake_jobs(routine.id, wake.wake_id)
+  end
+
+  test "a config handoff keeps its wake held when kickoff insertion fails" do
+    routine = routine_fixture!(tmp_workspace!())
+    assert {:ok, wake} = InboxWakes.request(routine, debounce_seconds: 0)
+
+    wake_jobs(routine.id, wake.wake_id)
+    |> Enum.each(fn job -> Repo.delete_all(from(j in Oban.Job, where: j.id == ^job.id)) end)
+
+    wake
+    |> InboxWake.update_changeset(%{blocked_by: "config_transition", retry_count: 1})
+    |> Repo.update!()
+
+    assert {:error, {:enqueue_failed, :queue_unavailable}} =
+             InboxWakes.config_ready(routine.id,
+               enqueue: fn _wake -> {:error, :queue_unavailable} end
+             )
+
+    assert %InboxWake{blocked_by: "config_transition", retry_count: 1} =
+             InboxWakes.get(routine.id)
+
+    assert wake_jobs(routine.id, wake.wake_id) == []
+  end
+
+  test "a config handoff keeps its wake held when the release transaction fails" do
+    routine = routine_fixture!(tmp_workspace!())
+    assert {:ok, wake} = InboxWakes.request(routine, debounce_seconds: 0)
+
+    wake_jobs(routine.id, wake.wake_id)
+    |> Enum.each(fn job -> Repo.delete_all(from(j in Oban.Job, where: j.id == ^job.id)) end)
+
+    wake
+    |> InboxWake.update_changeset(%{blocked_by: "config_transition", retry_count: 1})
+    |> Repo.update!()
+
+    assert {:error, :database_unavailable} =
+             InboxWakes.config_ready(routine.id,
+               transaction: fn _fun -> {:error, :database_unavailable} end
+             )
+
+    assert %InboxWake{blocked_by: "config_transition", retry_count: 1} =
+             InboxWakes.get(routine.id)
+
+    assert wake_jobs(routine.id, wake.wake_id) == []
+  end
+
   test "provider-loss recovery crosses the ticks queue before starting an offline agent" do
     routine = routine_fixture!(tmp_workspace!())
     assert {:ok, wake} = InboxWakes.request(routine, debounce_seconds: 0)
@@ -559,13 +668,18 @@ defmodule Custode.InboxWakesTest do
   defp start_stub!(routine, provider) do
     test_pid = self()
 
-    {:ok, pid} =
-      Agents.start_agent(routine.id,
-        enqueue_fun: fn args, meta ->
+    config =
+      routine
+      |> Custode.Routine.agent_config(%{})
+      |> Keyword.put(
+        :enqueue_fun,
+        fn args, meta ->
           send(test_pid, {:enqueued, provider, args, meta})
           {:ok, :queued}
         end
       )
+
+    {:ok, pid} = Agents.start_agent(routine.id, config)
 
     on_exit(fn -> Agents.stop_agent(routine.id, provider) end)
     pid
