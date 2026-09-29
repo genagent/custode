@@ -1097,6 +1097,237 @@ defmodule Custode.AgentHandoffTest do
     assert_eventually(fn -> AgentHandoff.status(coordinator, id) == :ready end)
   end
 
+  test "an unrelated sparse roster entry cannot crash a pending coordinator", context do
+    %{id: id, runtime: runtime, coordinator: coordinator} = context
+    put_routine(runtime, id, :claude, "current")
+    set_poll_interval(coordinator, 5_000)
+
+    original_routine_get = dependencies(runtime).routine_get
+    supervisor = Process.whereis(Custode.Supervisor)
+    global_handoff = Process.whereis(AgentHandoff)
+    previous_routines = Application.fetch_env!(:custode, :routines)
+
+    result =
+      try do
+        Application.put_env(:custode, :routines, [
+          %{id: id, cron: :manual, prompt: "test", workspace: System.tmp_dir!()},
+          %{id: "unrelated-sparse-#{id}"}
+        ])
+
+        replace_dependency(coordinator, :routine_get, &Custode.Routine.get/1)
+        AgentHandoff.reconcile(coordinator, id)
+      after
+        Application.put_env(:custode, :routines, previous_routines)
+      end
+
+    assert {:error, {:routine_get, {:exception, message}}} = result
+    assert message =~ "key :cron not found"
+    assert Process.alive?(coordinator)
+    assert Process.whereis(Custode.Supervisor) == supervisor
+    assert Process.whereis(AgentHandoff) == global_handoff
+    assert pending_phase(coordinator, id) == :retrying
+
+    replace_dependency(coordinator, :routine_get, original_routine_get)
+    assert :ok = AgentHandoff.reconcile(coordinator, id)
+    assert AgentHandoff.status(coordinator, id) == :ready
+  end
+
+  test "desired lookup failures retain every pending handoff phase", context do
+    %{id: base_id, runtime: runtime, coordinator: coordinator} = context
+    set_poll_interval(coordinator, 5_000)
+
+    replace_dependency(coordinator, :routine_get, fn _id ->
+      {:error, :temporarily_unreadable}
+    end)
+
+    for phase <- [:fencing, :preserving, :replaying, :draining, :preserved] do
+      id = "#{base_id}-#{phase}"
+      put_routine(runtime, id, :claude, "current")
+
+      put_handoff_pending(coordinator, id, %{
+        provider: :claude,
+        preserve_pause?: phase in [:preserving, :preserved],
+        phase: phase
+      })
+
+      assert {:error, {:routine_get, :temporarily_unreadable}} =
+               AgentHandoff.reconcile(coordinator, id)
+
+      assert Process.alive?(coordinator)
+      assert pending_phase(coordinator, id) == phase
+    end
+  end
+
+  test "start retry keeps the old handoff owner while desired config is unreadable", context do
+    %{id: id, runtime: runtime, coordinator: coordinator} = context
+    put_routine(runtime, id, :claude, "new")
+    put_live(runtime, id, :claude, :running, "old")
+    set_poll_interval(coordinator, 5_000)
+
+    assert {:deferred, :handoff_pending} = AgentHandoff.ensure(coordinator, id)
+    assert pending_phase(coordinator, id) == :quiescing
+
+    original_routine_get = dependencies(runtime).routine_get
+
+    replace_dependency(coordinator, :routine_get, fn _id ->
+      {:error, :temporarily_unreadable}
+    end)
+
+    drop_live(runtime, id)
+
+    assert {:error, {:routine_get, :temporarily_unreadable}} =
+             AgentHandoff.reconcile(coordinator, id)
+
+    assert Process.alive?(coordinator)
+    assert pending_phase(coordinator, id) == :quiescing
+    refute Enum.any?(calls(runtime), &match?({:start, ^id, _, _, _}, &1))
+
+    replace_dependency(coordinator, :routine_get, original_routine_get)
+    assert :ok = AgentHandoff.reconcile(coordinator, id)
+    assert Enum.any?(calls(runtime), &match?({:start, ^id, :claude, "new", _}, &1))
+  end
+
+  test "post-start lookup failure retains queued replay ownership", context do
+    %{id: id, runtime: runtime, coordinator: coordinator} = context
+    put_routine(runtime, id, :claude, "current")
+    set_queued(runtime, id)
+    set_poll_interval(coordinator, 5_000)
+
+    original_routine_get = dependencies(runtime).routine_get
+    {:ok, lookups} = Agent.start_link(fn -> 0 end)
+
+    replace_dependency(coordinator, :routine_get, fn lookup_id ->
+      call = Agent.get_and_update(lookups, fn count -> {count + 1, count + 1} end)
+
+      if call == 3,
+        do: {:error, :temporarily_unreadable},
+        else: original_routine_get.(lookup_id)
+    end)
+
+    assert {:error, {:routine_get, :temporarily_unreadable}} =
+             AgentHandoff.ensure(coordinator, id)
+
+    assert %{provider: :claude, revision: "current", state: :idle} = live(runtime, id)
+    assert pending_phase(coordinator, id) == :replaying
+    refute Enum.any?(calls(runtime), &match?({:replay, ^id}, &1))
+
+    replace_dependency(coordinator, :routine_get, original_routine_get)
+    assert :ok = AgentHandoff.reconcile(coordinator, id)
+    assert Enum.any?(calls(runtime), &match?({:replay, ^id}, &1))
+  end
+
+  test "post-start lookup failure restores a durable pause before replay", context do
+    %{id: id, runtime: runtime, coordinator: coordinator} = context
+    put_routine(runtime, id, :claude, "current")
+    set_queued(runtime, id)
+    put_pause_intent(runtime, id, %{cause: :emergency_pause, reason: :operator})
+    set_poll_interval(coordinator, 5_000)
+
+    original_routine_get = dependencies(runtime).routine_get
+    {:ok, lookups} = Agent.start_link(fn -> 0 end)
+
+    replace_dependency(coordinator, :routine_get, fn lookup_id ->
+      call = Agent.get_and_update(lookups, fn count -> {count + 1, count + 1} end)
+
+      if call == 3,
+        do: {:error, :temporarily_unreadable},
+        else: original_routine_get.(lookup_id)
+    end)
+
+    assert {:error, {:routine_get, :temporarily_unreadable}} =
+             AgentHandoff.ensure(coordinator, id)
+
+    assert pending_phase(coordinator, id) == :preserving
+    refute Enum.any?(calls(runtime), &match?({:replay, ^id}, &1))
+    refute Enum.any?(calls(runtime), &match?({:emergency_pause, ^id, _, _}, &1))
+
+    replace_dependency(coordinator, :routine_get, original_routine_get)
+    assert :ok = AgentHandoff.reconcile(coordinator, id)
+    assert pending_phase(coordinator, id) == :preserved
+    assert %{state: :paused} = live(runtime, id)
+    refute Enum.any?(calls(runtime), &match?({:replay, ^id}, &1))
+    assert Enum.any?(calls(runtime), &match?({:emergency_pause, ^id, :claude, _}, &1))
+  end
+
+  test "queued replay activation retains ownership when its second lookup fails", context do
+    %{id: id, runtime: runtime, coordinator: coordinator} = context
+    put_routine(runtime, id, :claude, "current")
+    put_live(runtime, id, :claude, :idle, "current")
+    set_queued(runtime, id)
+    set_poll_interval(coordinator, 5_000)
+
+    original_routine_get = dependencies(runtime).routine_get
+    {:ok, lookups} = Agent.start_link(fn -> 0 end)
+
+    replace_dependency(coordinator, :routine_get, fn lookup_id ->
+      call = Agent.get_and_update(lookups, fn count -> {count + 1, count + 1} end)
+
+      if call == 2,
+        do: {:error, :temporarily_unreadable},
+        else: original_routine_get.(lookup_id)
+    end)
+
+    GenServer.cast(coordinator, {:work_queued, id})
+    assert_eventually(fn -> pending_phase(coordinator, id) == :replaying end)
+    assert Process.alive?(coordinator)
+    refute Enum.any?(calls(runtime), &match?({:replay, ^id}, &1))
+
+    replace_dependency(coordinator, :routine_get, original_routine_get)
+    assert :ok = AgentHandoff.reconcile(coordinator, id)
+    assert Enum.any?(calls(runtime), &match?({:replay, ^id}, &1))
+  end
+
+  test "restart recovery retains an offline queued replay across lookup failure", context do
+    %{id: id, runtime: runtime} = context
+    assert :ok = stop_supervised(AgentHandoff)
+    put_routine(runtime, id, :codex, "current")
+    set_queued(runtime, id)
+
+    base_dependencies = dependencies(runtime)
+    {:ok, lookups} = Agent.start_link(fn -> 0 end)
+    {:ok, queue_checks} = Agent.start_link(fn -> 0 end)
+
+    routine_get = fn lookup_id ->
+      call = Agent.get_and_update(lookups, fn count -> {count + 1, count + 1} end)
+
+      if call == 2,
+        do: {:error, :temporarily_unreadable},
+        else: base_dependencies.routine_get.(lookup_id)
+    end
+
+    queued? = fn queued_id ->
+      call = Agent.get_and_update(queue_checks, fn count -> {count + 1, count + 1} end)
+      call > 1 and base_dependencies.queued?.(queued_id)
+    end
+
+    handler_id = "custode-agent-handoff-lookup-recovery-#{System.unique_integer([:positive])}"
+
+    {:ok, recovered} =
+      start_supervised(
+        Supervisor.child_spec(
+          {AgentHandoff,
+           name: nil,
+           handler_id: handler_id,
+           poll_interval: 5_000,
+           stop_timeout: 100,
+           dependencies:
+             base_dependencies
+             |> Map.put(:routine_get, routine_get)
+             |> Map.put(:queued?, queued?)},
+          id: {:lookup_recovery, id}
+        )
+      )
+
+    assert Process.alive?(recovered)
+    assert pending_phase(recovered, id) == :replaying
+    refute Enum.any?(calls(runtime), &match?({:start, ^id, _, _, _}, &1))
+
+    assert :ok = AgentHandoff.reconcile(recovered, id)
+    assert :ok = AgentHandoff.reconcile(recovered, id)
+    assert Enum.any?(calls(runtime), &match?({:start, ^id, :codex, "current", _}, &1))
+    assert Enum.any?(calls(runtime), &match?({:replay, ^id}, &1))
+  end
+
   test "routine removal releases a fencing owner", context do
     %{id: id, runtime: runtime, coordinator: coordinator} = context
     put_routine(runtime, id, :claude, "current")
@@ -1661,6 +1892,24 @@ defmodule Custode.AgentHandoffTest do
 
   defp set_fence_result(runtime, result) do
     Agent.update(runtime, &%{&1 | fence_result: result})
+  end
+
+  defp set_poll_interval(coordinator, interval) do
+    :sys.replace_state(coordinator, &%{&1 | poll_interval: interval})
+  end
+
+  defp replace_dependency(coordinator, name, fun) do
+    :sys.replace_state(coordinator, &put_in(&1, [:dependencies, name], fun))
+  end
+
+  defp put_handoff_pending(coordinator, id, pending) do
+    :sys.replace_state(coordinator, &put_in(&1, [:pending, id], pending))
+  end
+
+  defp pending_phase(coordinator, id) do
+    coordinator
+    |> :sys.get_state()
+    |> get_in([:pending, id, :phase])
   end
 
   defp record(runtime, call) do
