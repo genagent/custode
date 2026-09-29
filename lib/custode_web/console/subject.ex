@@ -11,6 +11,7 @@ defmodule CustodeWeb.Console.Subject do
   use Phoenix.Component
 
   import CustodeWeb.Components
+  import CustodeWeb.Console.Composer, only: [message_composer: 1]
 
   alias Custode.ExecutionFacts
   alias Custode.Operator.RoutineEdit
@@ -46,6 +47,12 @@ defmodule CustodeWeb.Console.Subject do
       <%!-- A subject is not always an agent: a workflow signal has nothing to
             beat, pause or talk to. Only a routine has a beat. --%>
       <div :if={@subject.kind != :other} class="ml-auto flex gap-2">
+        <.link
+          navigate={"/agents/#{@subject.id}/conversation"}
+          class="btn btn-ghost btn-sm"
+        >
+          conversation
+        </.link>
         <button :if={@subject.kind == :routine} class="btn btn-outline btn-sm" phx-click="beat">
           beat now
         </button>
@@ -109,68 +116,16 @@ defmodule CustodeWeb.Console.Subject do
       <span class="ml-auto font-mono">{elapsed(@running_since)}</span>
     </div>
 
-    <%!-- Always here, whatever the agent's state (#450). The button says
-          what sending will do: queue, answer, resume first, or start a turn. --%>
-    <form
+    <%!-- Always here, whatever the agent's state (#450). --%>
+    <.message_composer
       :if={@subject.kind != :other}
-      id={"message-#{@message_gen}"}
-      phx-hook="SubjectDraft"
-      phx-submit="message"
-      phx-change="validate_message"
-      data-subject-draft
-      data-subject={@subject.id}
+      subject_id={@subject.id}
+      state={@subject.state}
+      routine={@subject.routine}
+      message_gen={@message_gen}
+      upload={@upload}
       class="mt-4"
-    >
-      <div :for={entry <- @upload.entries} class="mb-1 flex items-center gap-2 text-xs">
-        <span class="badge badge-ghost badge-sm font-mono">{entry.client_name}</span>
-        <button
-          type="button"
-          class="link text-base-content/50"
-          phx-click="drop_image"
-          phx-value-ref={entry.ref}
-        >
-          remove
-        </button>
-        <span :for={error <- upload_errors(@upload, entry)} class="text-error">
-          {upload_error_text(error)}
-        </span>
-      </div>
-      <p :for={error <- upload_errors(@upload)} class="mb-1 text-xs text-error">
-        {upload_error_text(error)}
-      </p>
-
-      <div class="flex gap-2" phx-drop-target={@subject.routine && @upload.ref}>
-        <textarea
-          name="text"
-          rows="2"
-          data-draft-input
-          class="textarea textarea-bordered w-full text-sm"
-          placeholder={"message #{@subject.id}... #{message_hint(@subject.state)}"}
-        ></textarea>
-        <button
-          type="submit"
-          class="btn btn-primary btn-sm self-end"
-          phx-disable-with="sending..."
-        >
-          {message_label(@subject.state)}
-        </button>
-      </div>
-
-      <div class="mt-1 flex items-center gap-2 text-xs text-base-content/50">
-        <span data-draft-state hidden>unsent draft saved in this browser</span>
-        <button type="button" data-discard-draft hidden class="link">discard draft</button>
-      </div>
-
-      <%!-- An image reaches the agent as a path in its own workspace (#180),
-            so a subject with no routine has nowhere to put one. --%>
-      <label
-        :if={@subject.routine}
-        class="mt-1 flex items-center gap-2 text-xs text-base-content/40"
-      >
-        <.live_file_input upload={@upload} class="file-input file-input-xs w-52" />
-        or drop an image on the box
-      </label>
-    </form>
+    />
     <p :if={@notice} class="mt-1 text-xs text-base-content/60">{@notice}</p>
 
     <div role="tablist" class="tabs tabs-border mt-6">
@@ -885,25 +840,6 @@ defmodule CustodeWeb.Console.Subject do
     |> to_string()
     |> String.replace("_", " ")
   end
-
-  defp upload_error_text(:too_large), do: "too large (10MB max)"
-  defp upload_error_text(:too_many_files), do: "one image at a time"
-  defp upload_error_text(:not_accepted), do: "not an image type custode accepts"
-  defp upload_error_text(other), do: to_string(other)
-
-  # The label says what sending will DO, because for two states it does more
-  # than send (see `Custode.Operator.Actions.message/3`).
-  defp message_label(:running), do: "queue"
-  defp message_label(:waiting_for_user), do: "answer"
-  defp message_label(:paused), do: "resume + send"
-  defp message_label(:offline), do: "start + send"
-  defp message_label(_state), do: "send"
-
-  defp message_hint(:running), do: "(it is mid-turn: this queues)"
-  defp message_hint(:paused), do: "(paused: sending resumes it)"
-  defp message_hint(:offline), do: "(offline: this starts a turn with your message)"
-  defp message_hint(:waiting_for_user), do: "(it is waiting on you: this is the answer)"
-  defp message_hint(_state), do: ""
 
   defp tab_count("attention", _subject, %Signal{} = signal),
     do: if(Signal.needs_you?(signal), do: 1)

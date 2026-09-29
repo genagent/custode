@@ -195,6 +195,19 @@ defmodule Custode.Attention.Fleet do
     Map.new(views(ci_infrastructure), fn view -> {view.id, Attention.resolve(view, context)} end)
   end
 
+  @doc "The live blocking question or approval for one agent, without unrelated precedence."
+  @spec blocking_signal(String.t()) :: Signal.t() | nil
+  def blocking_signal(agent_id) when is_binary(agent_id) do
+    with %{} = view <- Enum.find(views(), &(&1.id == agent_id)) do
+      signal =
+        view
+        |> Map.merge(%{default_branch: nil, turn_failure: nil, ask: nil})
+        |> Attention.resolve(context())
+
+      if signal.kind in [:needs_answer, :approval], do: signal
+    end
+  end
+
   # Everything the resolver must not read for itself: the clock, and the one
   # piece of configuration a resolver decision depends on (#444).
   defp context do

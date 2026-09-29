@@ -154,6 +154,10 @@ defmodule Custode do
         fn -> Agents.reject_action(agent_id, action_id, stated || "no reason given") end
       )
 
+    if result == :rejected do
+      :ok = Custode.OperatorMessages.reject_approval(agent_id, stated)
+    end
+
     if result == :rejected and Custode.Routine.get(agent_id) do
       {:ok, _path} =
         Custode.Inbox.drop(

@@ -78,6 +78,35 @@ defmodule CustodeWeb.Console.Item do
     """
   end
 
+  attr(:signal, :any, required: true)
+  attr(:message_gen, :integer, required: true)
+
+  @doc "The selected signal's existing controls, embedded in a conversation exchange."
+  def conversation_actions(assigns) do
+    assigns =
+      assign(assigns, :ops, Enum.filter(assigns.signal.resolving, &Actions.handles?(&1.op)))
+
+    ~H"""
+    <section
+      :if={@ops != []}
+      id="conversation-actions"
+      class="mt-3 rounded-box border border-warning/40 bg-warning/5 p-4"
+    >
+      <p class="text-xs font-bold uppercase tracking-widest text-warning">needs you</p>
+      <p class="mt-1 text-sm font-semibold">{@signal.headline}</p>
+      <p
+        :if={context(@signal)}
+        class="mt-2 whitespace-pre-line border-l-2 border-base-300 pl-3 text-sm text-base-content/60"
+      >
+        {context(@signal)}
+      </p>
+      <div class="mt-3 flex flex-wrap items-start gap-2">
+        <.op :for={op <- @ops} op={op} message_gen={@message_gen} />
+      </div>
+    </section>
+    """
+  end
+
   defp context(%Signal{resolving: resolving}) do
     Enum.find_value(resolving, fn
       %{op: :answer_ask, args: %{context: context}} when is_binary(context) and context != "" ->

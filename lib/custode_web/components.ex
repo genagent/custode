@@ -440,7 +440,7 @@ defmodule CustodeWeb.Components do
       <form
         id={"reject-form-#{@action}"}
         phx-submit="reject"
-        class="dropdown-content z-10 mt-1 flex w-80 flex-col gap-2 rounded-box bg-base-100 p-3 text-left shadow-lg"
+        class="dropdown-content z-10 mt-1 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2 rounded-box bg-base-100 p-3 text-left shadow-lg"
       >
         <input type="hidden" name="agent" value={@agent} />
         <input type="hidden" name="action" value={@action} />
@@ -745,6 +745,22 @@ defmodule CustodeWeb.Components do
         {image.name}
       </span>
     </div>
+    """
+  end
+
+  attr(:text, :string, required: true)
+  attr(:agent, :string, required: true)
+  attr(:markdown, :boolean, default: false)
+
+  @doc "Render operator message text without exposing attachment plumbing."
+  def message_content(assigns) do
+    {text, images} = attachments(assigns.text, assigns.agent)
+    assigns = assign(assigns, text: text, images: images)
+
+    ~H"""
+    <.markdown :if={@text && @markdown} text={@text} />
+    <p :if={@text && !@markdown} class="whitespace-pre-wrap break-words text-sm">{@text}</p>
+    <.image_thumbnails images={@images} />
     """
   end
 

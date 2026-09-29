@@ -335,7 +335,8 @@ defmodule Custode.Operator.ActionsTest do
   describe "run/4 carries out a signal's own op" do
     defp gated!(action) do
       id = start_stub_agent!()
-      :processing = Agent.submit_prompt(id, "x")
+
+      assert {:ok, message, :created} = Actions.message_with_receipt(id, "x")
 
       assert_receive {:enqueued, _args, %{"agent_id" => ^id} = turn_meta}
 
@@ -349,14 +350,20 @@ defmodule Custode.Operator.ActionsTest do
         Agent.await(id, :awaiting_permission, 1_000)
 
       eventually(fn -> assert [_gate] = Custode.Gates.open_gates(id) end)
-      {id, action_id}
+
+      eventually(fn ->
+        assert %{status: "waiting_for_approval", detail: ^action} =
+                 OperatorMessages.get(message.message_id)
+      end)
+
+      {id, action_id, message}
     end
 
     test "approve and reject reach the gate row with the surface that decided" do
-      {approved, a1} = gated!("open a draft PR")
+      {approved, a1, _approved_message} = gated!("open a draft PR")
       assert :ok = Actions.run(:approve, %{agent: approved, action: a1}, %{}, via: :liveview)
 
-      {rejected, a2} = gated!("force-push main")
+      {rejected, a2, rejected_message} = gated!("force-push main")
 
       assert :ok =
                Actions.run(
@@ -370,6 +377,70 @@ defmodule Custode.Operator.ActionsTest do
       assert gate.outcome == "rejected"
       assert gate.reason == "never force-push"
       assert gate.decided_via == "liveview"
+
+      assert %{
+               status: "refused",
+               detail: "force-push main",
+               error: %{
+                 "kind" => "operator_rejected",
+                 "detail" => "never force-push"
+               }
+             } = OperatorMessages.get(rejected_message.message_id)
+    end
+
+    test "replaying an old rejection does not refuse a newer approval" do
+      {agent_id, old_action, old_message} = gated!("first proposal")
+
+      assert :ok =
+               Actions.run(
+                 :reject,
+                 %{agent: agent_id, action: old_action},
+                 %{"reason" => "not this time"},
+                 via: :liveview
+               )
+
+      assert OperatorMessages.get(old_message.message_id).status == "refused"
+
+      assert {:ok, new_message, :created} =
+               Actions.message_with_receipt(agent_id, "consider the next proposal")
+
+      assert_receive {:enqueued, _args, %{"agent_id" => ^agent_id} = turn_meta}
+
+      :ok =
+        finish_agent_turn(
+          turn_meta,
+          structured_result(%{
+            "directive" => "request_permission",
+            "action" => "second proposal"
+          })
+        )
+
+      assert {:ok, {:awaiting_permission, %{id: new_action}}} =
+               Agent.await(agent_id, :awaiting_permission, 1_000)
+
+      eventually(fn ->
+        assert %{status: "waiting_for_approval", detail: "second proposal"} =
+                 OperatorMessages.get(new_message.message_id)
+      end)
+
+      assert :ok =
+               Actions.run(
+                 :reject,
+                 %{agent: agent_id, action: old_action},
+                 %{"reason" => "same old answer"},
+                 via: :liveview
+               )
+
+      assert %{status: "waiting_for_approval", detail: "second proposal"} =
+               OperatorMessages.get(new_message.message_id)
+
+      assert :ok =
+               Actions.run(
+                 :reject,
+                 %{agent: agent_id, action: new_action},
+                 %{"reason" => "clean up the test"},
+                 via: :liveview
+               )
     end
 
     test "dismissal requires the ask id the operator actually saw" do

@@ -29,6 +29,8 @@ defmodule Custode.OperatorMessages do
   @statuses ~w(queued executing waiting_for_input waiting_for_approval completed failed refused)
   @refused_delivery "refused"
   @prompt_preview_length 160
+  @conversation_page_size 20
+  @conversation_page_max 100
 
   defmodule BootReconciler do
     @moduledoc false
@@ -123,6 +125,77 @@ defmodule Custode.OperatorMessages do
       |> scope_status(opts[:status])
 
     Repo.all(from(m in query, limit: ^limit))
+  end
+
+  @doc """
+  Read one bounded page of direct operator exchanges with an agent.
+
+  Exchanges are grouped by provider correlation so an answer that continues
+  a question remains with the request that opened it. Pages select complete
+  exchanges, newest first, then return them oldest first for transcript
+  rendering. Pass the returned `before` cursor to read the preceding page.
+  The opaque cursor fixes a row high-water mark so continuations arriving
+  during pagination cannot move an unread exchange across its boundary.
+
+  This projection deliberately includes prompt and result text and is for
+  trusted local operator surfaces. MCP reads keep using the authority-filtered
+  public shapes above.
+  """
+  @spec conversation(String.t(), keyword()) ::
+          {:ok,
+           %{
+             exchanges: [map()],
+             before: String.t() | nil,
+             has_older: boolean()
+           }}
+          | {:error, {:invalid_cursor, term()}}
+  def conversation(target_agent_id, opts \\ []) when is_binary(target_agent_id) do
+    limit = conversation_limit(opts[:limit])
+
+    with {:ok, cursor} <- decode_conversation_cursor(opts[:before], target_agent_id) do
+      snapshot_id = cursor_snapshot_id(cursor, target_agent_id)
+
+      groups_query =
+        from(m in OperatorMessage,
+          where:
+            m.target_agent_id == ^target_agent_id and m.caller_kind == "operator" and
+              m.id <= ^snapshot_id,
+          group_by: m.provider_correlation_id,
+          order_by: [desc: max(m.id)],
+          select: %{
+            correlation_id: m.provider_correlation_id,
+            first_id: min(m.id),
+            last_id: max(m.id)
+          }
+        )
+        |> before_exchange(cursor)
+
+      groups = Repo.all(from(g in groups_query, limit: ^(limit + 1)))
+      has_older = length(groups) > limit
+      selected = Enum.take(groups, limit)
+      correlation_ids = Enum.map(selected, & &1.correlation_id)
+
+      rows = conversation_rows(target_agent_id, correlation_ids, snapshot_id)
+      rows_by_correlation = Enum.group_by(rows, & &1.provider_correlation_id)
+
+      exchanges =
+        selected
+        |> Enum.reverse()
+        |> Enum.map(fn group ->
+          conversation_exchange(group, Map.fetch!(rows_by_correlation, group.correlation_id))
+        end)
+
+      {:ok,
+       %{
+         exchanges: exchanges,
+         before:
+           if(has_older,
+             do: conversation_cursor(List.last(selected), target_agent_id, snapshot_id),
+             else: nil
+           ),
+         has_older: has_older
+       }}
+    end
   end
 
   @doc "Whether this authenticated caller may inspect the message."
@@ -384,21 +457,27 @@ defmodule Custode.OperatorMessages do
         )
       )
 
-    Enum.each(rows, fn row ->
-      case latest_job(row.provider_correlation_id) do
-        nil ->
-          update!(row, %{
-            delivery: "queued",
-            claim_token: nil,
-            claimed_at: nil,
-            claim_after_job_id: nil,
-            detail: "waiting for provider admission after live configuration changed"
-          })
+    changed? =
+      Enum.reduce(rows, false, fn row, changed? ->
+        case latest_job(row.provider_correlation_id) do
+          nil ->
+            update!(row, %{
+              delivery: "queued",
+              claim_token: nil,
+              claimed_at: nil,
+              claim_after_job_id: nil,
+              detail: "waiting for provider admission after live configuration changed"
+            })
 
-        _job ->
-          reconcile_correlation(row.provider_correlation_id)
-      end
-    end)
+            true
+
+          _job ->
+            reconcile_correlation(row.provider_correlation_id)
+            changed?
+        end
+      end)
+
+    if changed?, do: Custode.PubSubBridge.broadcast({:operator_message_changed, target_agent_id})
 
     :ok
   end
@@ -435,22 +514,51 @@ defmodule Custode.OperatorMessages do
   def settle_removed(target_agent_id) when is_binary(target_agent_id) do
     now = now()
 
-    Repo.update_all(
-      from(m in OperatorMessage,
-        where: m.target_agent_id == ^target_agent_id and m.status in ^@active
-      ),
-      set: [
+    {updated, _rows} =
+      Repo.update_all(
+        from(m in OperatorMessage,
+          where: m.target_agent_id == ^target_agent_id and m.status in ^@active
+        ),
+        set: [
+          status: "refused",
+          delivery: @refused_delivery,
+          claim_token: nil,
+          claimed_at: nil,
+          claim_after_job_id: nil,
+          detail: "routine removed before provider delivery",
+          error: error_map(:delivery_refused, :routine_removed),
+          completed_at: now,
+          updated_at: now
+        ]
+      )
+
+    broadcast_message_changes(updated, [target_agent_id])
+
+    :ok
+  end
+
+  @doc "Settle the durable exchange when the operator rejects its approval request."
+  @spec reject_approval(String.t(), String.t() | nil) :: :ok
+  def reject_approval(target_agent_id, reason) when is_binary(target_agent_id) do
+    waiting =
+      Repo.one(
+        from(m in OperatorMessage,
+          where: m.target_agent_id == ^target_agent_id and m.status == "waiting_for_approval",
+          order_by: [desc: m.id],
+          limit: 1
+        )
+      )
+
+    if waiting do
+      update_statuses(waiting.provider_correlation_id, ["waiting_for_approval"], %{
         status: "refused",
-        delivery: @refused_delivery,
-        claim_token: nil,
-        claimed_at: nil,
-        claim_after_job_id: nil,
-        detail: "routine removed before provider delivery",
-        error: error_map(:delivery_refused, :routine_removed),
-        completed_at: now,
-        updated_at: now
-      ]
-    )
+        error: %{
+          "kind" => "operator_rejected",
+          "detail" => reason || "no reason given"
+        },
+        completed_at: now()
+      })
+    end
 
     :ok
   end
@@ -497,6 +605,139 @@ defmodule Custode.OperatorMessages do
   defp scope_status(query, nil), do: query
   defp scope_status(query, status), do: from(m in query, where: m.status == ^status)
 
+  defp conversation_limit(nil), do: @conversation_page_size
+
+  defp conversation_limit(limit) when is_integer(limit),
+    do: limit |> max(1) |> min(@conversation_page_max)
+
+  defp conversation_limit(_other), do: @conversation_page_size
+
+  defp conversation_rows(_target_agent_id, [], _snapshot_id), do: []
+
+  defp conversation_rows(target_agent_id, correlation_ids, snapshot_id) do
+    Repo.all(
+      from(m in OperatorMessage,
+        where:
+          m.target_agent_id == ^target_agent_id and m.caller_kind == "operator" and
+            m.provider_correlation_id in ^correlation_ids and m.id <= ^snapshot_id,
+        order_by: [asc: m.id]
+      )
+    )
+  end
+
+  defp before_exchange(query, %{last_id: last_id}),
+    do: from(m in query, having: max(m.id) < ^last_id)
+
+  defp before_exchange(query, _before), do: query
+
+  defp cursor_snapshot_id(%{snapshot_id: snapshot_id}, _target_agent_id), do: snapshot_id
+
+  defp cursor_snapshot_id(nil, target_agent_id) do
+    Repo.one(
+      from(m in OperatorMessage,
+        where: m.target_agent_id == ^target_agent_id and m.caller_kind == "operator",
+        select: max(m.id)
+      )
+    ) || 0
+  end
+
+  defp conversation_cursor(nil, _target_agent_id, _snapshot_id), do: nil
+
+  defp conversation_cursor(%{last_id: last_id}, target_agent_id, snapshot_id) do
+    %{
+      "resource" => "operator_conversation",
+      "scope" => target_agent_id,
+      "last_id" => last_id,
+      "snapshot_id" => snapshot_id
+    }
+    |> Jason.encode!()
+    |> Base.url_encode64(padding: false)
+  end
+
+  defp decode_conversation_cursor(nil, _target_agent_id), do: {:ok, nil}
+
+  defp decode_conversation_cursor(cursor, target_agent_id) when is_binary(cursor) do
+    with {:ok, encoded} <- Base.url_decode64(cursor, padding: false),
+         {:ok,
+          %{
+            "resource" => "operator_conversation",
+            "scope" => ^target_agent_id,
+            "last_id" => last_id,
+            "snapshot_id" => snapshot_id
+          }} <- Jason.decode(encoded),
+         true <-
+           is_integer(last_id) and last_id > 0 and is_integer(snapshot_id) and
+             snapshot_id >= last_id do
+      {:ok, %{last_id: last_id, snapshot_id: snapshot_id}}
+    else
+      _invalid -> {:error, {:invalid_cursor, cursor}}
+    end
+  end
+
+  defp decode_conversation_cursor(cursor, _target_agent_id),
+    do: {:error, {:invalid_cursor, cursor}}
+
+  defp conversation_exchange(group, rows) do
+    latest = List.last(rows)
+
+    %{
+      id: group.correlation_id,
+      first_id: group.first_id,
+      last_id: group.last_id,
+      prompts: Enum.map(rows, &conversation_prompt/1),
+      status: latest.status,
+      delivery: latest.delivery,
+      provider: latest_value(rows, :provider),
+      detail: latest_value(rows, :detail),
+      answer: rows |> latest_value(:result) |> conversation_answer(),
+      error: rows |> latest_value(:error) |> conversation_error(),
+      result: latest_value(rows, :result),
+      raw_error: latest_value(rows, :error),
+      inserted_at: hd(rows).inserted_at,
+      updated_at: latest.completed_at || latest.updated_at
+    }
+  end
+
+  defp conversation_prompt(message) do
+    %{
+      id: message.message_id,
+      text: message.prompt,
+      caller_id: message.caller_id,
+      continued: not is_nil(message.continues_message_id),
+      detail: message.detail,
+      inserted_at: message.inserted_at
+    }
+  end
+
+  defp latest_value(rows, field) do
+    rows
+    |> Enum.reverse()
+    |> Enum.find_value(&Map.get(&1, field))
+  end
+
+  defp conversation_answer(%{"output" => output}), do: output_text(output)
+  defp conversation_answer(_result), do: nil
+
+  defp output_text(output) when is_binary(output), do: output
+
+  defp output_text(%{"directive" => "ask_user", "question" => text}) when is_binary(text),
+    do: text
+
+  defp output_text(%{"directive" => "request_permission", "action" => text})
+       when is_binary(text),
+       do: text
+
+  defp output_text(%{"summary" => text}) when is_binary(text), do: text
+
+  defp output_text(output) when is_map(output) or is_list(output),
+    do: Jason.encode!(output, pretty: true)
+
+  defp output_text(output), do: inspect(output)
+
+  defp conversation_error(%{"detail" => detail}) when is_binary(detail), do: detail
+  defp conversation_error(error) when is_map(error), do: Jason.encode!(error, pretty: true)
+  defp conversation_error(_error), do: nil
+
   defp duplicate(attrs, prompt_hash) do
     existing =
       Repo.one!(
@@ -515,41 +756,45 @@ defmodule Custode.OperatorMessages do
   end
 
   defp deliver_new(message, deliver) do
-    case safe_deliver(deliver, message) do
-      {:admitted, _how} ->
-        {:ok, Repo.get!(OperatorMessage, message.id), :created}
+    result =
+      case safe_deliver(deliver, message) do
+        {:admitted, _how} ->
+          {:ok, Repo.get!(OperatorMessage, message.id), :created}
 
-      {:ok, how} ->
-        updated = update!(message, %{delivery: to_string(how)})
-        {:ok, updated, :created}
+        {:ok, how} ->
+          updated = update!(message, %{delivery: to_string(how)})
+          {:ok, updated, :created}
 
-      {:deferred, reason} ->
-        {updated_count, _rows} =
-          Repo.update_all(
-            from(m in OperatorMessage,
-              where: m.id == ^message.id and m.delivery == "queued"
-            ),
-            set: [
-              detail: "waiting for live configuration: #{inspect(reason)}",
-              updated_at: now()
-            ]
-          )
+        {:deferred, reason} ->
+          {updated_count, _rows} =
+            Repo.update_all(
+              from(m in OperatorMessage,
+                where: m.id == ^message.id and m.delivery == "queued"
+              ),
+              set: [
+                detail: "waiting for live configuration: #{inspect(reason)}",
+                updated_at: now()
+              ]
+            )
 
-        if updated_count > 0, do: AgentHandoff.work_queued(message.target_agent_id)
-        updated = Repo.get!(OperatorMessage, message.id)
-        {:ok, updated, :created}
+          if updated_count > 0, do: AgentHandoff.work_queued(message.target_agent_id)
+          updated = Repo.get!(OperatorMessage, message.id)
+          {:ok, updated, :created}
 
-      {:error, reason} ->
-        updated =
-          update!(message, %{
-            status: "refused",
-            delivery: @refused_delivery,
-            error: error_map(:delivery_refused, reason),
-            completed_at: now()
-          })
+        {:error, reason} ->
+          updated =
+            update!(message, %{
+              status: "refused",
+              delivery: @refused_delivery,
+              error: error_map(:delivery_refused, reason),
+              completed_at: now()
+            })
 
-        {:error, {:refused, updated, reason}}
-    end
+          {:error, {:refused, updated, reason}}
+      end
+
+    Custode.PubSubBridge.broadcast({:operator_message_changed, message.target_agent_id})
+    result
   end
 
   defp safe_deliver(deliver, message) do
@@ -682,7 +927,7 @@ defmodule Custode.OperatorMessages do
   end
 
   defp active_timestamps(attrs, "executing"),
-    do: Map.merge(attrs, %{started_at: now(), completed_at: nil, detail: nil})
+    do: Map.merge(attrs, %{started_at: now(), completed_at: nil})
 
   defp active_timestamps(attrs, status)
        when status in ["waiting_for_input", "waiting_for_approval"],
@@ -930,6 +1175,39 @@ defmodule Custode.OperatorMessages do
     end
   end
 
+  defp update_active(correlation_id, %{status: "executing"} = attrs) do
+    # A continued exchange must retain the question or approval text that
+    # caused the continuation. Ordinary queue/admission detail is transient
+    # and is cleared when execution starts.
+    statuses = ["waiting_for_input", "waiting_for_approval", "queued", "executing"]
+    targets = correlation_targets(correlation_id, statuses)
+    now = now()
+
+    {:ok, updated} =
+      Repo.transaction(fn ->
+        cleared =
+          persist_statuses(
+            correlation_id,
+            ["queued", "executing"],
+            Map.put(attrs, :detail, nil),
+            now
+          )
+
+        retained =
+          persist_statuses(
+            correlation_id,
+            ["waiting_for_input", "waiting_for_approval"],
+            attrs,
+            now
+          )
+
+        retained + cleared
+      end)
+
+    broadcast_message_changes(updated, targets)
+    :ok
+  end
+
   defp update_active(correlation_id, attrs) do
     update_statuses(correlation_id, @active, attrs)
   end
@@ -939,23 +1217,86 @@ defmodule Custode.OperatorMessages do
   # Let that immediately-following transition replace the provisional
   # completed state, while a failed row remains terminal.
   defp update_after_completion(correlation_id, attrs) do
-    update_statuses(correlation_id, ["completed" | @active], attrs)
+    statuses = ["completed" | @active]
+    targets = correlation_targets(correlation_id, statuses)
+    detail = attrs[:detail]
+    attrs = Map.delete(attrs, :detail)
+    now = now()
+
+    {:ok, updated} =
+      Repo.transaction(fn ->
+        updated = persist_statuses(correlation_id, statuses, attrs, now)
+
+        if updated > 0 and is_binary(detail),
+          do: persist_latest_detail(correlation_id, detail, now)
+
+        updated
+      end)
+
+    broadcast_message_changes(updated, targets)
+    :ok
   end
 
   defp update_statuses(correlation_id, statuses, attrs) do
     now = now()
-
-    Repo.update_all(
-      from(m in OperatorMessage,
-        where:
-          m.provider_correlation_id == ^correlation_id and m.status in ^statuses and
-            (is_nil(m.delivery) or m.delivery != "queued")
-      ),
-      set: Map.to_list(Map.put(attrs, :updated_at, now))
-    )
+    targets = correlation_targets(correlation_id, statuses)
+    updated = persist_statuses(correlation_id, statuses, attrs, now)
+    broadcast_message_changes(updated, targets)
 
     :ok
   end
+
+  defp persist_statuses(correlation_id, statuses, attrs, now) do
+    {updated, _rows} =
+      Repo.update_all(
+        from(m in OperatorMessage,
+          where:
+            m.provider_correlation_id == ^correlation_id and m.status in ^statuses and
+              (is_nil(m.delivery) or m.delivery != "queued")
+        ),
+        set: Map.to_list(Map.put(attrs, :updated_at, now))
+      )
+
+    updated
+  end
+
+  defp persist_latest_detail(correlation_id, detail, now) do
+    latest_id =
+      Repo.one(
+        from(m in OperatorMessage,
+          where:
+            m.provider_correlation_id == ^correlation_id and
+              (is_nil(m.delivery) or m.delivery != "queued"),
+          order_by: [desc: m.id],
+          select: m.id,
+          limit: 1
+        )
+      )
+
+    if latest_id do
+      Repo.update_all(from(m in OperatorMessage, where: m.id == ^latest_id),
+        set: [detail: detail, updated_at: now]
+      )
+    end
+  end
+
+  defp correlation_targets(correlation_id, statuses) do
+    Repo.all(
+      from(m in OperatorMessage,
+        where:
+          m.provider_correlation_id == ^correlation_id and m.status in ^statuses and
+            (is_nil(m.delivery) or m.delivery != "queued"),
+        distinct: true,
+        select: m.target_agent_id
+      )
+    )
+  end
+
+  defp broadcast_message_changes(updated, targets) when updated > 0 do
+    Enum.each(targets, &Custode.PubSubBridge.broadcast({:operator_message_changed, &1}))
+  end
+
+  defp broadcast_message_changes(_updated, _targets), do: :ok
 
   defp update!(message, attrs) do
     message |> OperatorMessage.update_changeset(attrs) |> Repo.update!()
