@@ -117,6 +117,7 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.OperatorTools.DropNote, name: "drop_note")
   component(Custode.MCP.OperatorTools.ListGates, name: "list_gates")
   component(Custode.MCP.OperatorTools.FeedTail, name: "feed_tail")
+  component(Custode.MCP.OperatorTools.ListOperatorMessages, name: "list_operator_messages")
   component(Custode.MCP.OperatorTools.PauseAgent)
   component(Custode.MCP.OperatorTools.SetPresence, name: "set_presence")
   component(Custode.MCP.OperatorTools.ResumeAgent, name: "resume_agent")

@@ -89,7 +89,7 @@ Routine instructions, prompt files, the `prompt_agent` tool, and an agent's stru
 
 | Endpoint | Server | Tools | Resources | Templates | Prompts |
 | --- | --- | ---: | ---: | ---: | ---: |
-| `/mcp` | custode 0.1.0 | 78 | 4 | 13 | 0 |
+| `/mcp` | custode 0.1.0 | 79 | 4 | 13 | 0 |
 | `/mcp/memory` | memory 0.1.0 | 4 | 0 | 0 | 0 |
 
 **`/mcp`**: protocol versions 2026-07-28, 2025-11-25, 2025-06-18; capabilities `{"resources":{},"tools":{}}`.
@@ -132,6 +132,7 @@ Categories are descriptive policy metadata, not an authorization guarantee.
 | [list_disowned](#tool-list_disowned) | read |
 | [list_gates](#tool-list_gates) | read |
 | [list_inbox](#tool-list_inbox) | read |
+| [list_operator_messages](#tool-list_operator_messages) | read |
 | [list_policies](#tool-list_policies) | read |
 | [list_roles](#tool-list_roles) | read |
 | [list_routines](#tool-list_routines) | read |
@@ -741,6 +742,26 @@ Read what the fleet has raised to the operator.
 **Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** unread_only defaults false. This is the operator attention inbox, distinct from inbox_list, which reads a routine's file-based notes. Action descriptors are not a promise that each action already has a same-named MCP tool.
+
+### Tool: list_operator_messages
+
+Discover this operator's durable messages after a fresh session or reconnect.
+
+**Endpoints:** /mcp. **Category:** read.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| agent_id | string | no | restrict to one target agent |  |
+| limit | integer | no | newest messages to return, default 20, capped at 100 |  |
+| status | string | no | restrict to queued, executing, waiting_for_input, waiting_for_approval, completed, failed or refused |  |
+
+**Result:** messages array of message_id, agent_id, status, delivery, provider, continuation message id, prompt preview and inserted, started and completed timestamps.
+
+**Side effects:** None; reads existing durable operator-message records.
+
+**Access:** Main endpoint capability: human operator only. The tool is named in no routine's exposure list, so only the operator discovers it, and the handler repeats the human-only check.
+
+**Behavior, defaults and errors:** Returns only messages authored by the authenticated operator identity, newest first. agent_id and status are optional exact filters. status accepts queued, executing, waiting_for_input, waiting_for_approval, completed, failed or refused. limit defaults to 20, must be positive and is capped at 100. Each row carries only a 160-character prompt preview for disambiguation; full prompts, idempotency keys and hashes, claim fields, results, errors and provider-turn/session details are omitted. Use the recovered agent_id and message_id with await_agent for the authoritative exact receipt.
 
 ### Tool: list_policies
 

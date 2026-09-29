@@ -215,6 +215,10 @@ what it returns.
 The [MCP client reference](docs/mcp-reference.md) documents every tool, prompt,
 resource and resource template, including arguments, results, side effects and
 access checks. A [JSON catalog](docs/mcp-reference.json) is available for clients.
+Install the shared external-operator workflow for Claude Code, Codex, or both
+with `mix custode.skill.install <claude|codex|all>`; the
+[fresh-machine guide](guides/install.md#7-give-interactive-agents-the-operator-skill)
+covers the host paths and connection boundary.
 
 ## How an agent works
 

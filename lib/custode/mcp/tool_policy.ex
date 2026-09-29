@@ -102,6 +102,7 @@ defmodule Custode.MCP.ToolPolicy do
     "drain" => :operator,
     "list_gates" => :read,
     "feed_tail" => :read,
+    "list_operator_messages" => :read,
     "spend_today" => :read,
     "provision_owned_checkout" => :operator,
     "refresh_owned_checkout" => :operator,

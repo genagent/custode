@@ -33,6 +33,7 @@ defmodule Custode.MCP.BootstrapToolsTest do
     operator = session(ctx.operator_token)
 
     assert "operator_bootstrap" in tool_names(operator)
+    assert "list_operator_messages" in tool_names(operator)
 
     text = call_text(operator, "operator_bootstrap", %{})
     result = Jason.decode!(text)
@@ -62,8 +63,14 @@ defmodule Custode.MCP.BootstrapToolsTest do
     worker = session(ctx.worker_token)
 
     refute "operator_bootstrap" in tool_names(worker)
+    refute "list_operator_messages" in tool_names(worker)
 
     response = rpc(worker, "tools/call", %{name: "operator_bootstrap", arguments: %{}})
+
+    assert get_in(response, ["error", "message"]) =~ "MCP capability refused"
+    refute get_in(response, ["result", "isError"]) == false
+
+    response = rpc(worker, "tools/call", %{name: "list_operator_messages", arguments: %{}})
 
     assert get_in(response, ["error", "message"]) =~ "MCP capability refused"
     refute get_in(response, ["result", "isError"]) == false

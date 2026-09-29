@@ -65,6 +65,7 @@
         "list_disowned",
         "list_gates",
         "list_inbox",
+        "list_operator_messages",
         "list_policies",
         "list_roles",
         "list_routines",
@@ -1568,6 +1569,42 @@
         "/mcp"
       ],
       "name": "list_inbox"
+    },
+    {
+      "behavior": {
+        "access": "Main endpoint capability: human operator only. The tool is named in no routine's exposure list, so only the operator discovers it, and the handler repeats the human-only check.",
+        "effects": "None; reads existing durable operator-message records.",
+        "notes": "Returns only messages authored by the authenticated operator identity, newest first. agent_id and status are optional exact filters. status accepts queued, executing, waiting_for_input, waiting_for_approval, completed, failed or refused. limit defaults to 20, must be positive and is capped at 100. Each row carries only a 160-character prompt preview for disambiguation; full prompts, idempotency keys and hashes, claim fields, results, errors and provider-turn/session details are omitted. Use the recovered agent_id and message_id with await_agent for the authoritative exact receipt.",
+        "result": "messages array of message_id, agent_id, status, delivery, provider, continuation message id, prompt preview and inserted, started and completed timestamps.",
+        "summary": "Discover this operator's durable messages after a fresh session or reconnect."
+      },
+      "category": "read",
+      "definition": {
+        "description": "Discover durable messages sent by this human operator so a fresh session can\nrecover an exact message id and continue with `await_agent`.\n\nThis is deliberately a compact index. It omits full prompts and idempotency\nkeys; exact results, errors and provider-session details remain available\nthrough `await_agent`.\n",
+        "inputSchema": {
+          "properties": {
+            "agent_id": {
+              "description": "restrict to one target agent",
+              "type": "string"
+            },
+            "limit": {
+              "description": "newest messages to return, default 20, capped at 100",
+              "type": "integer"
+            },
+            "status": {
+              "description": "restrict to queued, executing, waiting_for_input, waiting_for_approval, completed, failed or refused",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "name": "list_operator_messages",
+        "title": "list_operator_messages"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "list_operator_messages"
     },
     {
       "behavior": {
