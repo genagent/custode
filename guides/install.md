@@ -108,10 +108,33 @@ mix custode.skill.install codex
 mix custode.skill.install all
 ```
 
-The command writes `custode-operator/SKILL.md` under each host's normal skills
-directory, respects `CLAUDE_CONFIG_DIR` and `CODEX_HOME`, and refuses to
-replace changed instructions unless you pass `--force`. Restart the host after
-installing so it discovers the skill.
+The command writes the complete `custode-operator` package under each host's
+normal skills directory, including its focused lifecycle, troubleshooting and
+self-maintenance references. It respects `CLAUDE_CONFIG_DIR` and `CODEX_HOME`
+and refuses to replace locally changed managed files unless you pass `--force`.
+It preserves unrelated files in the skill directory.
+
+The package is explicit-only in both hosts so an ordinary Custode routine does
+not select the operator workflow from the global skill directory. Invoke it
+with `/custode-operator` in Claude Code or `$custode-operator` in Codex. Its
+first action, `operator_bootstrap`, also requires a verified human operator
+identity; routine and sub-agent identities cannot discover or call it. Restart
+the host after installing or updating the package so it discovers the current
+content.
+
+Routine launch also enforces the boundary. Claude routines and sub-agents load
+project and local settings without the user setting source, which retains the
+repository's `CLAUDE.md`, agents, and skills while excluding every global user
+skill, hook, agent, and setting. Claude authentication remains available.
+Codex routines keep other user and repository skills but disable the exact
+installed `custode-operator` path under strict configuration. Separately,
+routine and sub-agent server identities cannot discover or call
+`operator_bootstrap`.
+
+`mix custode doctor` reports each host's package as current, missing, stale or
+modified and prints the matching install command. Stale and modified packages
+require `--force`; inspect what is installed before replacing it. Skill
+findings are warnings because the package is optional for running the fleet.
 
 The skill does not configure MCP or copy a token. In the shell that will start
 Claude Code or Codex, read the current token and add the default main endpoint:
@@ -136,10 +159,12 @@ is rewritten on boot. The loopback endpoint is available only on the Custode
 host. Use the configured MCP port instead of `6161` when it differs, and
 verify from the same shell with `claude mcp list` or `codex mcp list`.
 
-A fresh session starts with `operator_bootstrap`, uses live tool discovery for
-schemas, sends correlated durable messages, and relays gates and asks to the
-human instead of deciding them itself. If Claude reports that the server is
-connected but its tools are denied, follow the
+A fresh operator session starts with `operator_bootstrap`, uses live tool
+discovery for schemas, sends correlated durable messages, and relays gates and
+asks to the human instead of deciding them itself. Its lazy references cover a
+safe local restart, symptom-led diagnosis and routing changes to the routine
+that owns `genagent/custode`. If Claude reports that the server is connected
+but its tools are denied, follow the
 [managed-policy troubleshooting path](../README.md#a-claude-worker-says-its-custode-mcp-tools-are-denied);
 an organization policy cannot be relaxed in local configuration. The
 [MCP client reference](../docs/mcp-reference.md) remains the maintained catalog

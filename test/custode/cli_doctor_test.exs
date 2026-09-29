@@ -5,6 +5,8 @@ defmodule Custode.CLI.DoctorTest do
 
   import Custode.TestHelpers, only: [put_env!: 2, uid: 1]
 
+  alias Custode.OperatorSkill
+
   test "every check reports as {label, {:ok, _} | {:error, _}}" do
     for {label, result} <- Custode.CLI.Doctor.checks() do
       assert is_binary(label)
@@ -67,5 +69,46 @@ defmodule Custode.CLI.DoctorTest do
     assert rules =~ "no managed allow rule matches the custode MCP server"
     assert bypass =~ "disableBypassPermissionsMode"
     assert {_text, true} = ObanClaude.CLI.Doctor.report(managed)
+  end
+
+  test "operator skill checks report missing, current, stale, and modified as optional" do
+    root = Path.join(System.tmp_dir!(), uid("doctor-operator-skill"))
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    opts = [claude_home: Path.join(root, "claude"), codex_home: Path.join(root, "codex")]
+
+    missing = Custode.CLI.Doctor.operator_skill_checks(opts)
+    assert [{_, {:ok, "warning: missing" <> _}}, {_, {:ok, "warning: missing" <> _}}] = missing
+    assert {_text, true} = ObanClaude.CLI.Doctor.report(missing)
+
+    assert {:ok, _results} = OperatorSkill.install(:all, opts)
+    current = Custode.CLI.Doctor.operator_skill_checks(opts)
+
+    assert Enum.all?(current, fn {_label, {:ok, info}} ->
+             info =~ "current (" and info =~ ") at "
+           end)
+
+    codex_dir = OperatorSkill.destination(:codex, opts)
+    File.write!(Path.join(codex_dir, "references/lifecycle.md"), "local edit\n")
+
+    modified = Custode.CLI.Doctor.operator_skill_checks(opts)
+    {_, {:ok, modified_info}} = Enum.find(modified, fn {label, _result} -> label =~ "Codex" end)
+    assert modified_info =~ "warning: locally modified or malformed"
+    assert modified_info =~ "mix custode.skill.install codex --force"
+    assert {_text, true} = ObanClaude.CLI.Doctor.report(modified)
+
+    File.rm_rf!(codex_dir)
+    File.mkdir_p!(codex_dir)
+
+    File.cp!(
+      Path.expand("../fixtures/operator_skill_v1.md", __DIR__),
+      Path.join(codex_dir, "SKILL.md")
+    )
+
+    stale = Custode.CLI.Doctor.operator_skill_checks(opts)
+    {_, {:ok, stale_info}} = Enum.find(stale, fn {label, _result} -> label =~ "Codex" end)
+    assert stale_info =~ "warning: stale"
+    assert stale_info =~ "mix custode.skill.install codex --force"
+    assert {_text, true} = ObanClaude.CLI.Doctor.report(stale)
   end
 end

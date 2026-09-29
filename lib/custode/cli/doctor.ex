@@ -25,6 +25,8 @@ defmodule Custode.CLI.Doctor do
       surfaces as a supervision-tree crash on a fleet that has already stopped
     * the checkout is not behind its upstream, which is the state where a
       merged fix and the running code have never met
+    * the optional Claude Code and Codex operator skill packages are current;
+      missing, stale, or modified copies are warnings with repair commands
     * the organization's managed Claude Code settings, read from the files
       Claude Code reads (`Custode.ClaudeManagedSettings`): whether they drop
       custode's `--allowed-tools` (`allowManagedPermissionRulesOnly` without
@@ -47,12 +49,11 @@ defmodule Custode.CLI.Doctor do
   alias Custode.ClaudeManagedSettings
   alias Custode.Config.Loader
   alias Custode.Home
+  alias Custode.OperatorSkill
   alias ObanClaude.CLI.Doctor, as: SharedDoctor
 
   command "doctor" do
-    about(
-      "Install preflight: claude, gh, timezone, home dir, roster and managed settings checks."
-    )
+    about("Install preflight: provider, host, roster, operator skill and policy checks.")
 
     long_about("""
     Runs the fleet's environment checks without starting (or contacting) a
@@ -83,7 +84,7 @@ defmodule Custode.CLI.Doctor do
 
   @doc false
   # The check list, each independent so one failure never hides another.
-  def checks do
+  def checks(opts \\ []) do
     [
       {"claude binary + version", claude_probe(&ClaudeWrapper.version/0)},
       {"claude authentication", claude_probe(&ClaudeWrapper.auth_status/0)},
@@ -94,8 +95,75 @@ defmodule Custode.CLI.Doctor do
       {"migrations", migrations_check()},
       {"pending migrations", pending_check()},
       {"checkout", checkout_check()}
-    ] ++ managed_settings_checks()
+    ] ++
+      operator_skill_checks(Keyword.get(opts, :operator_skill, [])) ++ managed_settings_checks()
   end
+
+  # The operator skill is optional, so its state is diagnostic rather than a
+  # boot gate. In particular, a fresh install runs doctor before installing
+  # this package.
+  @doc false
+  def operator_skill_checks(opts) do
+    [
+      operator_skill_check(:claude, "Claude Code", opts),
+      operator_skill_check(:codex, "Codex", opts)
+    ]
+  end
+
+  defp operator_skill_check(target, host, opts) do
+    label = "#{host} operator skill"
+    command = "mix custode.skill.install #{target}"
+
+    result =
+      case OperatorSkill.status(target, opts) do
+        {:ok, %{state: :current, expected_version: version, expected_digest: digest, path: path}} ->
+          {:ok, "#{version} current (#{short_digest(digest)}) at #{path}"}
+
+        {:ok, %{state: :missing, expected_digest: expected_digest, path: path}} ->
+          {:ok,
+           "warning: missing at #{path} (expected #{short_digest(expected_digest)}); install with #{command}"}
+
+        {:ok,
+         %{
+           state: :stale,
+           installed_version: installed,
+           installed_digest: installed_digest,
+           expected_version: expected,
+           expected_digest: expected_digest,
+           path: path
+         }} ->
+          version = installed || "legacy"
+
+          {:ok,
+           "warning: stale at #{path} (#{version} #{short_digest(installed_digest)}, " <>
+             "expected #{expected} #{short_digest(expected_digest)}); review and update with " <>
+             "#{command} --force"}
+
+        {:ok,
+         %{
+           state: :modified,
+           installed_digest: installed_digest,
+           expected_digest: expected_digest,
+           path: path
+         }} ->
+          {:ok,
+           "warning: locally modified or malformed at #{path} " <>
+             "(installed #{short_digest(installed_digest)}, expected #{short_digest(expected_digest)}); " <>
+             "review it, then repair with #{command} --force"}
+
+        {:error, reason} ->
+          {:ok, "warning: status unavailable: #{inspect(reason)}"}
+      end
+
+    {label, result}
+  rescue
+    error ->
+      {"#{host} operator skill",
+       {:ok, "warning: status unavailable: " <> Exception.message(error)}}
+  end
+
+  defp short_digest(nil), do: "pre-manifest"
+  defp short_digest(digest), do: String.slice(digest, 0, 12)
 
   # Hard failure, because Ecto refuses the ENTIRE migration run on a duplicate
   # version rather than just the offending pair -- so this is never survivable

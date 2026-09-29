@@ -5,6 +5,7 @@ defmodule Custode.RoutineTest do
 
   alias Custode.Gates.Class
   alias Custode.MCP.Identity
+  alias Custode.OperatorSkill
 
   describe "normalize and defaults" do
     test "fills model, budget, system prompt, and mcp from the shared defaults" do
@@ -194,9 +195,29 @@ defmodule Custode.RoutineTest do
 
       claude_args = Custode.Routine.tick_args(routine)["start"]["args"]
       assert claude_args["hermetic"] == true
+      refute Map.has_key?(claude_args, "setting_sources")
 
       plain = routine_fixture!(tmp_workspace!())
-      refute Map.has_key?(Custode.Routine.tick_args(plain)["start"]["args"], "hermetic")
+      plain_args = Custode.Routine.tick_args(plain)["start"]["args"]
+      refute Map.has_key?(plain_args, "hermetic")
+      assert plain_args["setting_sources"] == "project,local"
+
+      false_scope = routine_fixture!(tmp_workspace!(), %{hermetic: false})
+      assert false_scope.hermetic == nil
+
+      assert Custode.Routine.tick_args(false_scope)["start"]["args"]["setting_sources"] ==
+               "project,local"
+
+      full_scope = routine_fixture!(tmp_workspace!(), %{hermetic: :full})
+      full_args = Custode.Routine.tick_args(full_scope)["start"]["args"]
+      assert full_args["hermetic"] == "full"
+      refute Map.has_key?(full_args, "setting_sources")
+    end
+
+    test "rejects Claude's project hermetic scope because it loads user settings" do
+      assert_raise ArgumentError, ~r/project scope loads user settings/, fn ->
+        routine_fixture!(tmp_workspace!(), %{hermetic: :project})
+      end
     end
 
     test "workspace defaults to workspaces/<id> when omitted" do
@@ -225,7 +246,12 @@ defmodule Custode.RoutineTest do
       assert args["session"] == "fresh"
       assert args["if_busy"] == "skip"
       assert args["if_offline"] == "start"
-      assert args["start"]["approved_args"] == %{"permission_mode" => "bypass_permissions"}
+
+      assert args["start"]["approved_args"] == %{
+               "permission_mode" => "bypass_permissions",
+               "setting_sources" => "project,local"
+             }
+
       assert is_integer(args["start"]["job_timeout"])
       assert args["start"]["config_revision"] == Custode.Routine.execution_revision(routine)
       assert args["delivery_revision"] == Custode.Routine.delivery_revision(routine)
@@ -613,6 +639,7 @@ defmodule Custode.RoutineTest do
       assert args["sandbox"] == "read_only"
       assert args["approval_policy"] == "never"
       assert args["ignore_rules"] == true
+      assert args["strict_config"] == true
       assert args["skip_git_repo_check"] == true
 
       assert args["custode_context_path"] ==
@@ -634,6 +661,9 @@ defmodule Custode.RoutineTest do
       refute Map.has_key?(codex_schema["properties"]["summary"], "anyOf")
 
       overrides = args["config_overrides"]
+      operator_skill = Path.join(OperatorSkill.destination(:codex), "SKILL.md")
+
+      assert "skills.config=[{path=#{Jason.encode!(operator_skill)},enabled=false}]" in overrides
       assert Enum.any?(overrides, &String.starts_with?(&1, "developer_instructions="))
       assert Enum.any?(overrides, &String.contains?(&1, args["custode_context_path"]))
       assert "model_reasoning_effort=\"high\"" in overrides
@@ -646,6 +676,61 @@ defmodule Custode.RoutineTest do
 
       assert enabled =~ "repo_list_prs"
       refute enabled =~ "mcp__custode__"
+    end
+
+    test "a normal Codex routine cannot select the global operator skill" do
+      routine =
+        routine_fixture!(tmp_workspace!(), %{
+          provider: :codex,
+          approved_args: %{
+            "sandbox" => "workspace_write",
+            "strict_config" => false,
+            "config_overrides" => ["skills.config=[{path=\"bad\",enabled=true}]"]
+          }
+        })
+
+      start = Custode.Routine.tick_args(routine)["start"]
+      args = start["args"]
+      approved = start["approved_args"]
+      operator_skill = Path.join(OperatorSkill.destination(:codex), "SKILL.md")
+      disabled = "skills.config=[{path=#{Jason.encode!(operator_skill)},enabled=false}]"
+
+      assert disabled in args["config_overrides"]
+      assert args["strict_config"] == true
+      assert approved["config_overrides"] == args["config_overrides"]
+      assert approved["strict_config"] == true
+      refute Enum.any?(approved["config_overrides"], &String.contains?(&1, "path=\"bad\""))
+
+      refute args["ignore_rules"]
+    end
+
+    test "approved Claude continuations cannot restore the global user source" do
+      routine =
+        routine_fixture!(tmp_workspace!(), %{
+          approved_args: %{
+            "permission_mode" => "bypass_permissions",
+            "setting_sources" => "user,project,local",
+            "hermetic" => "project"
+          }
+        })
+
+      start = Custode.Routine.tick_args(routine)["start"]
+      assert start["args"]["setting_sources"] == "project,local"
+      refute Map.has_key?(start["args"], "hermetic")
+      assert start["approved_args"]["setting_sources"] == "project,local"
+      refute Map.has_key?(start["approved_args"], "hermetic")
+
+      sealed =
+        routine_fixture!(tmp_workspace!(), %{
+          hermetic: true,
+          approved_args: routine.approved_args
+        })
+
+      sealed_start = Custode.Routine.tick_args(sealed)["start"]
+      assert sealed_start["args"]["hermetic"] == true
+      refute Map.has_key?(sealed_start["args"], "setting_sources")
+      assert sealed_start["approved_args"]["hermetic"] == true
+      refute Map.has_key?(sealed_start["approved_args"], "setting_sources")
     end
   end
 
@@ -677,12 +762,19 @@ defmodule Custode.RoutineTest do
       dev = dev_fixture!()
 
       assert Custode.Routine.tick_args(dev)["start"]["approved_args"] ==
-               %{"permission_mode" => "bypass_permissions", "worktree" => "dev-wt"}
+               %{
+                 "permission_mode" => "bypass_permissions",
+                 "setting_sources" => "project,local",
+                 "worktree" => "dev-wt"
+               }
 
       plain = routine_fixture!("workspace")
 
       assert Custode.Routine.tick_args(plain)["start"]["approved_args"] ==
-               %{"permission_mode" => "bypass_permissions"}
+               %{
+                 "permission_mode" => "bypass_permissions",
+                 "setting_sources" => "project,local"
+               }
     end
 
     test "extra_allowed_tools append to the MCP allowlist" do
@@ -912,6 +1004,7 @@ defmodule Custode.RoutineTest do
       assert args["mcp_config"] == ["/tmp/sub.json"]
       assert args["allowed_tools"] == ["mcp__memory"]
       assert args["permission_mode"] == "accept_edits"
+      assert args["setting_sources"] == "project,local"
     end
 
     test "model and system_prompt overrides from tool params" do

@@ -8,7 +8,8 @@ defmodule Mix.Tasks.Custode.Skill.Install do
       mix custode.skill.install codex
       mix custode.skill.install all
 
-  Existing modified content is preserved unless `--force` is supplied. This
+  Older and locally modified package files are preserved unless `--force` is
+  supplied. Unrelated files in the skill directory are always preserved. This
   task compiles the artifact but never starts Custode.
   """
   use Mix.Task
@@ -28,7 +29,16 @@ defmodule Mix.Tasks.Custode.Skill.Install do
         Mix.shell().info("Restart the host to discover #{OperatorSkill.name()}.")
 
       {:error, {:conflict, path}} ->
-        Mix.raise("#{path} has local changes; rerun with --force to replace SKILL.md")
+        Mix.raise("#{path} has local changes; review them, then rerun with --force")
+
+      {:error, {:stale, path}} ->
+        Mix.raise("#{path} is an older package; review it, then rerun with --force")
+
+      {:error, {:install_busy, path}} ->
+        Mix.raise(
+          "another operator skill install owns #{path}; retry after it exits. " <>
+            "If no installer is running, inspect and remove the stale lock"
+        )
 
       {:error, reason} ->
         Mix.raise("operator skill install failed: #{inspect(reason)}")
@@ -42,8 +52,17 @@ defmodule Mix.Tasks.Custode.Skill.Install do
     Mix.raise("usage: mix custode.skill.install <claude|codex|all> [--force]")
   end
 
-  defp report(%{target: target, path: path, status: status, version: version}) do
-    Mix.shell().info("#{status_label(status)} #{version} for #{host_label(target)} at #{path}")
+  defp report(%{
+         target: target,
+         path: path,
+         status: status,
+         version: version,
+         digest: digest
+       }) do
+    Mix.shell().info(
+      "#{status_label(status)} #{version} (#{String.slice(digest, 0, 12)}) " <>
+        "for #{host_label(target)} at #{path}"
+    )
   end
 
   defp status_label(:installed), do: "Installed"
