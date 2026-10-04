@@ -21,7 +21,7 @@ defmodule Custode.MCP.Capabilities do
     ask_operator integration_list subject_context return_context read_composition
     peer_send peer_reply peer_list peer_read peer_ack
     list_routines agent_status start_agent prompt_agent await_agent
-    agent_history approve_action reject_action run_job owner_review
+    agent_history approve_action reject_action run_job owner_review assurance_read
     journal_append journal_read compact_journal
     todo_add todo_list todo_complete inbox_list inbox_mark_filed
     set_next_beat

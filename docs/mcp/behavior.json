@@ -771,6 +771,13 @@
       "summary": "Publish and activate, replace, disable or roll back the one scoped PR read definition.",
       "notes": "request publish carries definition {name,repo,description,steps}; steps allow repo_view_pr/repo_pr_checks/repo_pr_diff only with structural $arg references to repo and number. activate requires name,revision,expected_generation; disable requires name,expected_generation. Generation increases even on rollback to prevent ABA. A configured owner must currently own the served repository. No automatic activation or generated executable code.",
       "result": "Published immutable revision or activation pointer with monotonically increasing generation; stale expected generation is refused."
+    },
+    "assurance_read": {
+      "summary": "Read exact scoped assurance predicates and retained evidence and decision references.",
+      "access": "Main endpoint, authenticated human or current standing owner of this case. Helpers and cross-owner reads are refused by the shared operation. Recording remains operator-only internal operations.",
+      "effects": "Reads operations SQLite records and current configured policy. Never records, launches a model, applies an artifact, approves a gate or merges.",
+      "result": "custode.assurance.v1: case/assignment/owner, exact current case/artifact/policy/generation binding, bounded attempt history, satisfied/missing/contradictory predicates, recorder-issued custody and claim classes with explicit missing bindings, retained decision/evidence ids, and effect_authority=none. Source payload snapshots are omitted from this compact projection.",
+      "notes": "Opt-in assurance_assignments configuration defaults empty. One configured owner and designated human judge, frozen objective/input/criteria/artifact/policy and up to16 revision rounds; up to256 retained events. The shared recorder accepts exact existing source references, never caller trust classes or source payloads. Existing OwnerReviews are self-reported opinions; absent native run identity cannot satisfy independent predicates. Document publication/current bytes prove presence only. Existing repository check projections omit issuer and check head, so their propositions remain unknown. Read evaluates current policy; changed policy invalidates acceptance and old receipts never become current by relabeling. Historical decisions retain the exact evidence ids used. Accepted means all configured predicates and designated judge passed; it grants no effect authority. CLI assurance-read calls this same tool."
     }
   }
 }

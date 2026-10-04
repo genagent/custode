@@ -763,3 +763,31 @@ defmodule Custode.CLI.ReadComposition do
     end
   end
 end
+
+defmodule Custode.CLI.AssuranceRead do
+  @moduledoc false
+  use Cheer.Command
+
+  command "assurance-read" do
+    about("Read exact assurance predicates and retained evidence references; no effects.")
+    argument(:case_id, required: true, help: "Retained assurance case id.")
+    option(:json, type: :boolean, help: "Full scoped assurance read projection.")
+  end
+
+  @impl Cheer.Command
+  def run(args, _raw) do
+    Custode.CLI.emit(
+      "assurance_read",
+      %{case_id: args[:case_id]},
+      args[:json] == true,
+      fn result ->
+        evaluation = result["evaluation"]
+
+        "#{result["case_id"]}: #{evaluation["status"]}; " <>
+          "satisfied #{Enum.join(evaluation["satisfied"], ", ")}; " <>
+          "missing #{Enum.join(evaluation["missing"], ", ")}; " <>
+          "contradictory #{Enum.join(evaluation["contradictory"], ", ")}. Effect authority: none."
+      end
+    )
+  end
+end

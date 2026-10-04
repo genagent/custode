@@ -89,7 +89,7 @@ Routine instructions, prompt files, the `prompt_agent` tool, and an agent's stru
 
 | Endpoint | Server | Tools | Resources | Templates | Prompts |
 | --- | --- | ---: | ---: | ---: | ---: |
-| `/mcp` | custode 0.3.0 | 95 | 4 | 13 | 0 |
+| `/mcp` | custode 0.3.0 | 96 | 4 | 13 | 0 |
 | `/mcp/memory` | memory 0.3.0 | 7 | 0 | 0 | 0 |
 
 **`/mcp`**: protocol versions 2026-07-28, 2025-11-25, 2025-06-18; capabilities `{"resources":{},"tools":{}}`.
@@ -111,6 +111,7 @@ Categories are descriptive policy metadata, not an authorization guarantee.
 | [answer_ask](#tool-answer_ask) | operator |
 | [approve_action](#tool-approve_action) | delegate |
 | [ask_operator](#tool-ask_operator) | self_write |
+| [assurance_read](#tool-assurance_read) | read |
 | [await_agent](#tool-await_agent) | read |
 | [beat](#tool-beat) | operator |
 | [compact_journal](#tool-compact_journal) | self_write |
@@ -336,6 +337,24 @@ Ask a non-blocking question whose answer will arrive later.
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Authenticated agents may write only their own records; the operator may name any identity.
 
 **Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. question is runtime-required despite not being schema-required. detail is optional. Suggested replies are trimmed, deduplicated, limited to 3, and blank or over-120-character replies are discarded. The configured open-ask cap defaults to 2 per identity. This is not permission approval. Retrying can create another ask until the cap is reached.
+
+### Tool: assurance_read
+
+Read exact scoped assurance predicates and retained evidence and decision references.
+
+**Endpoints:** /mcp. **Category:** read.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| case_id | string | yes |  | {"maxLength":160,"minLength":1} |
+
+**Result:** custode.assurance.v1: case/assignment/owner, exact current case/artifact/policy/generation binding, bounded attempt history, satisfied/missing/contradictory predicates, recorder-issued custody and claim classes with explicit missing bindings, retained decision/evidence ids, and effect_authority=none. Source payload snapshots are omitted from this compact projection.
+
+**Side effects:** Reads operations SQLite records and current configured policy. Never records, launches a model, applies an artifact, approves a gate or merges.
+
+**Access:** Main endpoint, authenticated human or current standing owner of this case. Helpers and cross-owner reads are refused by the shared operation. Recording remains operator-only internal operations.
+
+**Behavior, defaults and errors:** Opt-in assurance_assignments configuration defaults empty. One configured owner and designated human judge, frozen objective/input/criteria/artifact/policy and up to16 revision rounds; up to256 retained events. The shared recorder accepts exact existing source references, never caller trust classes or source payloads. Existing OwnerReviews are self-reported opinions; absent native run identity cannot satisfy independent predicates. Document publication/current bytes prove presence only. Existing repository check projections omit issuer and check head, so their propositions remain unknown. Read evaluates current policy; changed policy invalidates acceptance and old receipts never become current by relabeling. Historical decisions retain the exact evidence ids used. Accepted means all configured predicates and designated judge passed; it grants no effect authority. CLI assurance-read calls this same tool.
 
 ### Tool: await_agent
 
