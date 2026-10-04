@@ -32,6 +32,38 @@ jobs:
       - run: mix credo --strict
       - run: mix custode.mcp.docs --check
       - run: mix test
+      - name: Integration catalog audit
+        run: |
+          sleep 32
+          mix test spikes/integration_catalog/audit_test.exs
+
+  design-proofs:
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.20"
+          otp-version: "29"
+      - name: Persistent subject contract
+        run: python3 -m unittest discover -s spikes/subject_context -v
+      - uses: actions/cache@v6
+        with:
+          path: |
+            spikes/gen_agent_compatibility/deps
+            spikes/gen_agent_compatibility/_build
+          key: gen-agent-proof-${{ runner.os }}-${{ hashFiles('spikes/gen_agent_compatibility/mix.lock') }}
+      - name: Released runtime and ensemble contract
+        working-directory: spikes/gen_agent_compatibility
+        run: |
+          mix deps.get
+          mix format --check-formatted
+          mix compile --warnings-as-errors
+          mix test --seed 1
+          mix test --seed 12345
+          mix test --seed 777
 
   # Dialyzer is its own job: the PLT build is slow and its cache key differs
   # from the deps cache, so keeping it out of `test` means a red type check
