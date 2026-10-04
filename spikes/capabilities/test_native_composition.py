@@ -5,25 +5,25 @@ from native_composition import native_metadata, objects, observation
 
 class MeasurementTests(unittest.TestCase):
     def test_json_and_sse(self):
-        self.assertEqual(objects(b'{"result":{}}'), [{"result": {}}])
+        self.assertEqual(objects(b'{"id":1,"result":{}}'), [{"id": 1, "result": {}}])
         self.assertEqual(objects(b'data: {"result":{}}\n\n'), [{"result": {}}])
         self.assertEqual(objects(b'data: invalid\n'), [])
 
     def test_does_not_retain_arguments_or_headers(self):
-        row = observation({"method": "tools/call", "params": {
+        row = observation({"id": 1, "method": "tools/call", "params": {
             "name": "read_composition", "arguments": {"secret": "hidden"}}},
-            200, b'{"result":{"content":[{"text":"hello"}]}}')
+            200, b'{"id":1,"result":{"content":[{"text":"hello"}]}}')
         self.assertEqual(row["text_bytes"], 5)
         self.assertNotIn("hidden", str(row))
         self.assertFalse(row["failed"])
 
     def test_failures_and_partial_are_distinct(self):
         self.assertTrue(observation({"method": "tools/call"}, 403, b'{}')["failed"])
-        row = observation({"method": "tools/call"}, 200,
-                          b'{"result":{"isError":true,"content":[]}}')
+        row = observation({"id": 1, "method": "tools/call"}, 200,
+                          b'{"id":1,"result":{"isError":true,"content":[]}}')
         self.assertTrue(row["failed"])
-        row = observation({"method": "tools/call"}, 200,
-                          b'{"result":{"content":[{"text":"{\\"status\\":\\"dependency_read_failed\\"}"}]}}')
+        row = observation({"id": 1, "method": "tools/call"}, 200,
+                          b'{"id":1,"result":{"content":[{"text":"{\\"status\\":\\"dependency_read_failed\\"}"}]}}')
         self.assertFalse(row["failed"])
         self.assertEqual(row["composition_status"], "dependency_read_failed")
 
@@ -35,7 +35,8 @@ class MeasurementTests(unittest.TestCase):
 
     def test_malformed_and_mismatched_responses_are_not_success(self):
         request = {"id": 1, "method": "tools/call", "params": {"name": "read_composition"}}
-        for body in [b"", b"not-json", b"{}", b'{"id":999,"result":{}}']:
+        for body in [b"", b"not-json", b"{}", b'{"id":999,"result":{}}', b'{"id":1,"result":null}',
+                     b'{"id":1,"result":[]}', b'{"id":1,"result":{}}']:
             row = observation(request, 200, body)
             self.assertTrue(row["failed"])
             self.assertEqual(row["text_bytes"], 0)

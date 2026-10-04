@@ -79,7 +79,11 @@ defmodule Custode.NativeCompositionTest do
     }
 
     report =
-      for provider <- ["claude", "codex"],
+      for provider <-
+            String.split(
+              System.get_env("CUSTODE_NATIVE_COMPOSITION_PROVIDERS", "claude,codex"),
+              ","
+            ),
           scenario <- ["original", "composition", "partial", "denied"],
           reduce: baseline do
         report ->
@@ -89,6 +93,7 @@ defmodule Custode.NativeCompositionTest do
 
           config = %{
             "provider" => provider,
+            "codex_model" => System.get_env("CUSTODE_NATIVE_CODEX_MODEL", "gpt-6.1-sol"),
             "scenario" => scenario,
             "repo" => if(scenario == "denied", do: "outside/repo", else: owner.repo),
             "url" => Custode.MCP.url(),
@@ -164,6 +169,13 @@ defmodule Custode.NativeCompositionTest do
 
       assert measurement["backend_reads"] ==
                Enum.take(~w(repo_view_pr repo_pr_checks repo_pr_diff), expected_reads(scenario))
+
+      if scenario in ["composition", "partial"] do
+        assert length(measurement["traces"]) == 1
+
+        assert hd(measurement["traces"])["status"] ==
+                 if(scenario == "composition", do: "complete", else: "dependency_read_failed")
+      end
 
       for trace <- measurement["traces"] do
         assert trace["revision"] == definition["revision"]

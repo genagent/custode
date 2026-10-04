@@ -37,7 +37,10 @@ def observation(request, status, body):
     method = request.get("method")
     row = {"method": method, "http_status": status}
     responses = [v for v in objects(body) if isinstance(v, dict) and v.get("id") == request.get("id")]
-    valid = len(responses) == 1 and ("result" in responses[0]) != ("error" in responses[0])
+    valid = request.get("id") is not None and len(responses) == 1 and ("result" in responses[0]) != ("error" in responses[0])
+    if method == "tools/call" and valid and "result" in responses[0]:
+        result = responses[0]["result"]
+        valid = isinstance(result, dict) and isinstance(result.get("content"), list)
     if method == "initialize":
         row["protocol"] = responses[0].get("result", {}).get("protocolVersion") if valid else None
     if method == "tools/call":
@@ -79,7 +82,7 @@ def native_metadata(provider, stdout):
         final = next((e for e in reversed(events) if e.get("type") == "result"), {})
         return {"session_id": init.get("session_id"), "model": init.get("model"),
                 "usage": final.get("usage"), "cost_usd": final.get("total_cost_usd"),
-                "terminal_event": final.get("subtype"), "native_error": final.get("is_error"),
+                "terminal_event": final.get("subtype"), "native_error": final.get("is_error", False) or final.get("subtype") != "success",
                 "event_count": len(events), "interpretation": interpretation(final.get("result", ""))}
     init = next((e for e in events if e.get("type") == "thread.started"), {})
     final = next((e for e in reversed(events) if e.get("type") in
@@ -157,7 +160,11 @@ def run(config):
             self.forward()
 
         def forward(self):
-            body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            length = int(self.headers.get("Content-Length", 0))
+            if not 0 <= length <= 100_000:
+                self.send_error(400, "body_limit")
+                return
+            body = self.rfile.read(length)
             if len(body) > 100_000 or body.lstrip().startswith(b"["):
                 self.send_error(400, "batch_or_body_limit")
                 return
@@ -169,7 +176,10 @@ def run(config):
             try:
                 connection.request(self.command, backend.path, body=body, headers=headers)
                 response = connection.getresponse()
-                output = response.read()
+                output = response.read(4_000_001)
+                if len(output) > 4_000_000:
+                    self.send_error(502, "response_limit")
+                    return
                 # Restrict experiment discovery to the four compared compiled tools.
                 if request.get("method") == "tools/list" and response.status == 200:
                     values = objects(output)
@@ -228,7 +238,7 @@ def run(config):
             environment["CUSTODE_NATIVE_PROOF_TOKEN"] = config["token"]
             command = ["codex", "exec", "--ignore-user-config", "--ignore-rules", "--ephemeral",
                        "--sandbox", "read-only", "--skip-git-repo-check", "--json", "--model",
-                       "gpt-6.1-sol", "-c", 'model_reasoning_effort="low"',
+                       config["codex_model"], "-c", 'model_reasoning_effort="low"',
                        "-c", 'approval_policy="never"', "-c", 'web_search="disabled"',
                        "-c", 'features.shell_tool=false', "-c", 'features.multi_agent=false',
                        "-c", "mcp_servers.custode.url=" + json.dumps(url),
@@ -248,6 +258,8 @@ def run(config):
                 descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
                 with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
                     handle.write(value)
+            if provider == "codex":
+                metadata["requested_model"] = config["codex_model"]
             metadata["exit_code"] = code
             metadata["capture"] = terminal
             metadata["stderr_bytes"] = len(captured["stderr"].encode())
