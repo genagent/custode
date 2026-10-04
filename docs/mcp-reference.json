@@ -91,6 +91,8 @@
         "project_progress",
         "prompt_agent",
         "provision_owned_checkout",
+        "read_composition",
+        "read_composition_configure",
         "recall",
         "refresh_owned_checkout",
         "reject_action",
@@ -2969,6 +2971,70 @@
         "/mcp"
       ],
       "name": "provision_owned_checkout"
+    },
+    {
+      "behavior": {
+        "access": "Main endpoint human or exactly the configured current read_composition_owner. Other owners and helpers cannot discover it. Invocation and each underlying read recheck current ownership, repository scope, activation generation, dependency revision and compiled read eligibility.",
+        "effects": "Reads served repository facts and retains bounded invocation traces. No job, approval, external write or source evaluation.",
+        "notes": "request actions list/invoke/trace. invoke uses name pr_review_context and arguments {repo,number}. Source imports remain inactive. Partial results preserve the stopping reason; disabled or replaced activations stop subsequent reads. Returned bytes cannot be retracted. GitHub reads are non-atomic and diff has no head binding. Maximum three reads, 100 check/file rows and 64KiB result payload. Source responses may allocate upstream before the output limit is checked. Per-operation result values are capped at 20KB, total values at 60KB, leaving envelope room below 64KiB. At most ten unconfirmed invocations may exist; crash uncertainty consumes capacity until explicitly investigated. Latest 100 terminal traces are retained; immutable definitions are not automatically deleted. Human list includes the current activation pointer even when disabled, allowing expected-generation recovery after a lost reply; routines see only eligible active logical definitions.",
+        "result": "Logical discovery entries or results keyed by compiled tool, exact definition revision/activation generation, trace_id and explicit coherence limitation. Traces retain digests/counts and omit raw input/results.",
+        "summary": "Fixed dispatcher for one human-published versioned PR read composition."
+      },
+      "category": "self_write",
+      "definition": {
+        "annotations": {},
+        "description": "List or invoke the explicitly activated PR read composition, or inspect its bounded trace.",
+        "inputSchema": {
+          "properties": {
+            "request": {
+              "description": "action list; invoke with name pr_review_context and arguments {repo,number}; trace with trace_id.",
+              "type": "object"
+            }
+          },
+          "required": [
+            "request"
+          ],
+          "type": "object"
+        },
+        "name": "read_composition",
+        "title": "read_composition"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "read_composition"
+    },
+    {
+      "behavior": {
+        "access": "Main endpoint, human operator only, enforced in shared operations.",
+        "effects": "SQLite immutable definition publication and compare-and-set activation/disable. Publishing never activates.",
+        "notes": "request publish carries definition {name,repo,description,steps}; steps allow repo_view_pr/repo_pr_checks/repo_pr_diff only with structural $arg references to repo and number. activate requires name,revision,expected_generation; disable requires name,expected_generation. Generation increases even on rollback to prevent ABA. A configured owner must currently own the served repository. No automatic activation or generated executable code.",
+        "result": "Published immutable revision or activation pointer with monotonically increasing generation; stale expected generation is refused.",
+        "summary": "Publish and activate, replace, disable or roll back the one scoped PR read definition."
+      },
+      "category": "operator",
+      "definition": {
+        "annotations": {},
+        "description": "Human-only publish, activate/rollback or disable a PR read composition. Import never activates.",
+        "inputSchema": {
+          "properties": {
+            "request": {
+              "description": "publish with definition {name,repo,description,steps}; activate with name,revision,expected_generation; disable with name,expected_generation.",
+              "type": "object"
+            }
+          },
+          "required": [
+            "request"
+          ],
+          "type": "object"
+        },
+        "name": "read_composition_configure",
+        "title": "read_composition_configure"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "read_composition_configure"
     },
     {
       "behavior": {

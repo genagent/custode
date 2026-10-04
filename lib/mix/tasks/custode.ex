@@ -38,6 +38,7 @@ defmodule Mix.Tasks.Custode do
     subcommand(Custode.CLI.CurrentRun)
     subcommand(Custode.CLI.WorkflowRetryStatus)
     subcommand(Custode.CLI.RoutePreview)
+    subcommand(Custode.CLI.ReadComposition)
     subcommand(Custode.CLI.Doctor)
     subcommand(Custode.CLI.Drain)
     subcommand(Custode.CLI.Attention)
