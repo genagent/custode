@@ -92,7 +92,10 @@ defmodule CustodeWeb.WorkflowsLiveTest do
 
     {:ok, view, _html} = live(conn, "/workflows")
 
-    html = view |> element("button[phx-value-id='#{proposal.id}'].btn-success") |> render_click()
+    html =
+      view
+      |> element("button[phx-click=approve_launch][phx-value-id='#{proposal.id}']")
+      |> render_click()
 
     assert html =~ "running"
     # every stage of the DEFINITION, including the ones not reached yet
@@ -111,10 +114,13 @@ defmodule CustodeWeb.WorkflowsLiveTest do
     {:ok, proposal} = Launch.propose(workflow.name, "owner/repo")
 
     {:ok, view, _html} = live(conn, "/workflows")
-    html = view |> element("button[phx-value-id='#{proposal.id}'].btn-ghost") |> render_click()
+
+    view
+    |> element("button[phx-click=reject_launch][phx-value-id='#{proposal.id}']")
+    |> render_click()
 
     assert Run.list() == []
-    refute html =~ "badge-warning badge-sm"
+    refute has_element?(view, "button[phx-click=approve_launch][phx-value-id='#{proposal.id}']")
     assert Launch.pending() == []
   end
 

@@ -179,11 +179,10 @@ defmodule CustodeWeb.InboxLive do
   def render(assigns) do
     ~H"""
     <.page attention_signals={@attention_signals} fleet_today={@fleet_today} active={:inbox} unread={@unread}>
-      <div class="mb-4 flex flex-wrap items-baseline gap-3">
-        <h1 class="text-xl font-bold">Inbox</h1>
-        <span :if={@unread > 0} class="badge badge-warning font-mono">{@unread} new</span>
-        <span class="text-xs text-base-content/40">{since_label(@since)}</span>
-      </div>
+      <.page_header
+        title="Inbox"
+        summary={"#{length(@items)} #{if length(@items) == 1, do: "item", else: "items"} · #{@unread} new · #{since_label(@since)}"}
+      />
 
       <div :if={@items == []} class="rounded-xl border border-base-300/60 p-8 text-center">
         <p class="font-medium">Nothing needs you.</p>
@@ -193,8 +192,8 @@ defmodule CustodeWeb.InboxLive do
         </p>
       </div>
 
-      <ul class="flex flex-col divide-y divide-base-300/60">
-        <li :for={item <- @items} class={["py-4", unread_tone(item, @since)]}>
+      <ul :if={@items != []} aria-label="Inbox items" class="divide-y divide-base-300 rounded-box border border-base-300 bg-base-100">
+        <li :for={item <- @items} class={["p-4", unread_tone(item, @since)]}>
           <div class="flex flex-wrap items-baseline gap-2">
             <.link
               :if={subject_path(item)}
@@ -204,7 +203,7 @@ defmodule CustodeWeb.InboxLive do
               {item.subject}
             </.link>
             <span :if={!subject_path(item)} class="font-mono font-bold">{item.subject}</span>
-            <span class={["badge badge-sm", kind_class(item.kind)]}>{kind_label(item.kind)}</span>
+            <.status_token tone={kind_tone(item.kind)}>{kind_label(item.kind)}</.status_token>
             <span class="ml-auto font-mono text-xs text-base-content/40">
               <.ago :if={item.at} at={item.at} />
             </span>
@@ -237,10 +236,10 @@ defmodule CustodeWeb.InboxLive do
             ></textarea>
             <p id={"inbox-reply-help-#{ask_id(item)}"} class="text-xs text-base-content/60">Sends your answer to this agent's question.</p>
             <div class="flex gap-2">
-              <button type="submit" class="btn btn-primary btn-xs">Send</button>
-              <button type="button" class="btn btn-ghost btn-xs" phx-click="reply_cancel">
+              <.action_button type="submit" variant={:primary}>Send</.action_button>
+              <.action_button type="button" variant={:quiet} phx-click="reply_cancel">
                 Cancel
-              </button>
+              </.action_button>
               <.action
                 :for={action <- item.actions}
                 :if={action.op == :dismiss_ask}
@@ -276,39 +275,39 @@ defmodule CustodeWeb.InboxLive do
   # A new signal kind arrives with working buttons and no edit here.
   defp action(%{action: %{op: :answer_ask}} = assigns) do
     ~H"""
-    <button
-      class="btn btn-primary btn-xs"
+    <.action_button
+      variant={:primary}
       phx-click="reply_open"
       phx-value-ask={@action.args[:ask]}
     >
       {@action.label}
-    </button>
+    </.action_button>
     """
   end
 
   defp action(%{action: %{op: :dismiss_ask}} = assigns) do
     ~H"""
-    <button
+    <.action_button
       type="button"
-      class="btn btn-ghost btn-xs"
+      variant={:quiet}
       phx-click="dismiss_ask"
       phx-value-ask={@action.args[:ask]}
     >
       {@action.label}
-    </button>
+    </.action_button>
     """
   end
 
   defp action(%{action: %{op: :approve}} = assigns) do
     ~H"""
-    <button
-      class="btn btn-success btn-xs"
+    <.action_button
+      variant={:primary}
       phx-click="approve"
       phx-value-agent={@action.args[:agent]}
       phx-value-action={@action.args[:action]}
     >
       {@action.label}
-    </button>
+    </.action_button>
     """
   end
 
@@ -320,74 +319,74 @@ defmodule CustodeWeb.InboxLive do
 
   defp action(%{action: %{op: :recover_gate}} = assigns) do
     ~H"""
-    <button
-      class="btn btn-warning btn-xs"
+    <.action_button
+      variant={:primary}
       phx-click="recover_gate"
       phx-value-agent={@action.args[:agent]}
       phx-value-action={@action.args[:action]}
     >
       {@action.label}
-    </button>
+    </.action_button>
     """
   end
 
   defp action(%{action: %{op: op}} = assigns)
        when op in [:apply_suggestion, :dismiss_suggestion] do
     ~H"""
-    <button
-      class={["btn btn-xs", (@action.op == :apply_suggestion && "btn-primary") || "btn-ghost"]}
+    <.action_button
+      variant={if @action.op == :apply_suggestion, do: :primary, else: :quiet}
       phx-click={to_string(@action.op)}
       phx-value-agent={@action.args[:agent]}
       phx-value-field={@action.args[:field]}
       phx-value-proposed={@action.args[:proposed]}
     >
       {@action.label}
-    </button>
+    </.action_button>
     """
   end
 
   defp action(%{action: %{op: :approve_launch}} = assigns) do
     ~H"""
-    <button
-      class="btn btn-success btn-xs"
+    <.action_button
+      variant={:primary}
       phx-click="approve_launch"
       phx-value-id={@action.args[:proposal]}
       data-confirm={"Launch #{@subject}?"}
     >
       {@action.label}
-    </button>
+    </.action_button>
     """
   end
 
   defp action(%{action: %{op: :reject_launch}} = assigns) do
     ~H"""
-    <button
-      class="btn btn-ghost btn-xs"
+    <.action_button
+      variant={:quiet}
       phx-click="reject_launch"
       phx-value-id={@action.args[:proposal]}
     >
       {@action.label}
-    </button>
+    </.action_button>
     """
   end
 
   defp action(%{action: %{op: :resume_run}} = assigns) do
     ~H"""
-    <button
-      class="btn btn-warning btn-xs"
+    <.action_button
+      variant={:primary}
       phx-click="resume_run"
       phx-value-id={@action.args[:run]}
       data-confirm="Double this run's rail and let it go on?"
     >
       {@action.label}
-    </button>
+    </.action_button>
     """
   end
 
   # A workflow signal has no agent page to fall through to (#447).
   defp action(%{action: %{op: :open_workflows}} = assigns) do
     ~H"""
-    <.link navigate="/workflows" class="btn btn-outline btn-xs">{@action.label}</.link>
+    <.link navigate="/workflows" class={action_classes(:secondary)}>{@action.label}</.link>
     """
   end
 
@@ -395,7 +394,7 @@ defmodule CustodeWeb.InboxLive do
   # operator where it can be dealt with rather than pretending to act.
   defp action(assigns) do
     ~H"""
-    <.link navigate={"/console/#{@subject}"} class="btn btn-outline btn-xs">
+    <.link navigate={"/console/#{@subject}"} class={action_classes(:secondary)}>
       {@action.label}
     </.link>
     """
@@ -450,15 +449,15 @@ defmodule CustodeWeb.InboxLive do
   defp kind_label(:suggestion), do: "suggestion"
   defp kind_label(kind), do: to_string(kind)
 
-  defp kind_class(:host_down), do: "badge-error"
-  defp kind_class(:red_main), do: "badge-error"
-  defp kind_class(:ci_infrastructure), do: "badge-warning"
-  defp kind_class(:turn_failing), do: "badge-error"
-  defp kind_class(:disowned_check), do: "badge-warning"
-  defp kind_class(:needs_answer), do: "badge-accent"
-  defp kind_class(:approval), do: "badge-warning"
-  defp kind_class(:workflow_launch), do: "badge-warning"
-  defp kind_class(:workflow_rail), do: "badge-warning"
-  defp kind_class(:rail_hit), do: "badge-error"
-  defp kind_class(_kind), do: "badge-ghost"
+  defp kind_tone(:host_down), do: :error
+  defp kind_tone(:red_main), do: :error
+  defp kind_tone(:ci_infrastructure), do: :warning
+  defp kind_tone(:turn_failing), do: :error
+  defp kind_tone(:disowned_check), do: :warning
+  defp kind_tone(:needs_answer), do: :warning
+  defp kind_tone(:approval), do: :warning
+  defp kind_tone(:workflow_launch), do: :warning
+  defp kind_tone(:workflow_rail), do: :warning
+  defp kind_tone(:rail_hit), do: :error
+  defp kind_tone(_kind), do: :neutral
 end

@@ -3,6 +3,8 @@ defmodule CustodeWeb.Console.NewAgent do
 
   use Phoenix.Component
 
+  import CustodeWeb.Components, only: [action_classes: 1]
+
   alias Custode.Operator.RoutineNew
 
   attr(:new_agent, :map, required: true)
@@ -34,8 +36,8 @@ defmodule CustodeWeb.Console.NewAgent do
         </button>
       </div>
       <div class="mt-4 flex gap-2">
-        <button type="button" class="btn btn-ghost btn-sm" phx-click="new_skip">Skip for now</button>
-        <button type="button" class="btn btn-ghost btn-sm" phx-click="new_close">Cancel</button>
+        <button type="button" class={action_classes(:quiet)} phx-click="new_skip">Skip for now</button>
+        <button type="button" class={action_classes(:quiet)} phx-click="new_close">Cancel</button>
       </div>
     </div>
 
@@ -48,7 +50,7 @@ defmodule CustodeWeb.Console.NewAgent do
             stay concise in the roster and remain editable later.
           </p>
         </div>
-        <button type="button" class="btn btn-ghost btn-sm ml-auto" phx-click="new_choose">
+        <button type="button" class={[action_classes(:quiet), "ml-auto"]} phx-click="new_choose">
           Change type
         </button>
       </div>
@@ -188,7 +190,7 @@ defmodule CustodeWeb.Console.NewAgent do
 
         <div class="mt-4 flex gap-2">
           <button type="submit" class="btn btn-primary btn-sm" disabled={@new_agent.error != nil}>Create</button>
-          <button type="button" class="btn btn-ghost btn-sm" phx-click="new_close">Cancel</button>
+          <button type="button" class={action_classes(:quiet)} phx-click="new_close">Cancel</button>
         </div>
       </form>
     </div>

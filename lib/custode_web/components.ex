@@ -8,6 +8,81 @@ defmodule CustodeWeb.Components do
   alias Custode.Attention
   alias Custode.Signal
 
+  attr(:variant, :atom, default: :secondary, values: [:primary, :secondary, :quiet, :destructive])
+  attr(:size, :atom, default: :sm, values: [:xs, :sm])
+  attr(:type, :string, default: "button", values: ["button", "submit", "reset"])
+  attr(:class, :any, default: nil)
+
+  attr(:rest, :global,
+    include: ~w(disabled name value form formaction formmethod formnovalidate autofocus)
+  )
+
+  slot(:inner_block, required: true)
+
+  @doc "A native operator button with shared emphasis and an explicit non-submit default."
+  def action_button(assigns) do
+    ~H"""
+    <button type={@type} class={[action_classes(@variant, @size), @class]} {@rest}>
+      {render_slot(@inner_block)}
+    </button>
+    """
+  end
+
+  @doc "Shared action styling for native links and disclosure summaries as well as buttons."
+  def action_classes(variant, size \\ :sm) do
+    ["btn font-medium", action_size(size), action_variant(variant)]
+  end
+
+  defp action_size(size) when size in [:xs, "btn-xs"], do: "btn-xs"
+  defp action_size(_size), do: "btn-sm"
+  defp action_variant(:primary), do: "btn-primary"
+  defp action_variant(:secondary), do: "btn-outline text-base-content"
+  defp action_variant(:quiet), do: "btn-ghost text-base-content"
+  defp action_variant(:destructive), do: "btn-error"
+
+  attr(:tone, :atom, default: :neutral, values: [:neutral, :info, :warning, :success, :error])
+  attr(:running, :boolean, default: false)
+  attr(:size, :string, default: "badge-sm", values: ["badge-xs", "badge-sm"])
+  attr(:class, :any, default: nil)
+  attr(:rest, :global)
+  slot(:inner_block, required: true)
+
+  @doc "A compact, text-bearing status token; only active execution carries the running marker."
+  def status_token(assigns) do
+    ~H"""
+    <span class={["badge gap-1 whitespace-nowrap", @size, token_tone(@tone), @class]} {@rest}>
+      <span :if={@running} data-running-indicator aria-hidden="true" class="size-1.5 rounded-full bg-current"></span>
+      {render_slot(@inner_block)}
+    </span>
+    """
+  end
+
+  defp token_tone(:info), do: "badge-info"
+  defp token_tone(:warning), do: "badge-warning"
+  defp token_tone(:success), do: "badge-success"
+  defp token_tone(:error), do: "badge-error"
+  defp token_tone(:neutral), do: "badge-ghost text-base-content/70"
+
+  attr(:title, :string, required: true)
+  attr(:summary, :string, required: true)
+  attr(:id, :string, default: "page-header")
+  slot(:action)
+
+  @doc "The title, current summary and optional action for an ordinary page."
+  def page_header(assigns) do
+    ~H"""
+    <header id={@id} aria-labelledby={"#{@id}-title"} class="mb-6 flex flex-wrap items-start gap-3">
+      <div class="min-w-0 flex-1">
+        <h1 id={"#{@id}-title"} class="text-2xl font-bold">{@title}</h1>
+        <p class="mt-1 text-sm text-base-content/70">{@summary}</p>
+      </div>
+      <div :if={@action != []} class="flex flex-wrap items-center gap-2 sm:ml-auto">
+        {render_slot(@action)}
+      </div>
+    </header>
+    """
+  end
+
   # The one status vocabulary (#31 slice 1). Every surface that shows what an
   # agent is doing -- fleet tile, agent page header, feed card -- reads its word
   # and its color from here, so "awaiting_permission" cannot read as one thing
@@ -25,11 +100,11 @@ defmodule CustodeWeb.Components do
   # The palette (guides/ui-hierarchy.md): red=blocked-on-you,
   # yellow=wants-you, blue=working. Ambient states carry NO badge color --
   # they render as muted text, because the absence of alarm is the signal.
-  @status_classes %{
-    running: "badge-info",
-    awaiting_permission: "badge-warning",
-    waiting_for_user: "badge-warning",
-    paused: "badge-error"
+  @status_tones %{
+    running: :info,
+    awaiting_permission: :warning,
+    waiting_for_user: :warning,
+    paused: :error
   }
 
   @ambient_states [:idle, :offline, :ended]
@@ -44,7 +119,12 @@ defmodule CustodeWeb.Components do
   end
 
   @doc "The badge class for a status (atom or gated `{state, payload}`)."
-  def status_class(status), do: Map.get(@status_classes, status_state(status), "badge-outline")
+  def status_class(status) do
+    case Map.fetch(@status_tones, status_state(status)) do
+      {:ok, tone} -> token_tone(tone)
+      :error -> "badge-outline"
+    end
+  end
 
   @doc "The status an agent is in, whether it arrives bare or gated."
   defdelegate status_state(status), to: Custode, as: :state_of
@@ -62,11 +142,13 @@ defmodule CustodeWeb.Components do
 
     ~H"""
     <span :if={@ambient} class="text-xs text-base-content/40">{status_label(@status)}</span>
-    <span :if={!@ambient} class={["badge whitespace-nowrap", @size, status_class(@status)]}>
+    <.status_token :if={!@ambient} tone={status_tone(@status)} running={status_state(@status) == :running} size={@size || "badge-sm"}>
       {status_label(@status)}
-    </span>
+    </.status_token>
     """
   end
+
+  defp status_tone(status), do: Map.get(@status_tones, status_state(status), :neutral)
 
   @doc """
   Why an agent is paused, when the evidence says so: spend at or past the
@@ -353,7 +435,7 @@ defmodule CustodeWeb.Components do
             class={nav_class(@active == :workflows)}
             aria-current={if @active == :workflows, do: "page"}
           >
-            Workflows<span :if={@launch_gates > 0} class="ml-1 font-mono text-warning">
+            Workflows<span :if={@launch_gates > 0} class="ml-1 whitespace-nowrap font-mono text-warning">
               {@launch_gates} pending {if @launch_gates == 1, do: "launch", else: "launches"}
             </span>
           </.link>
@@ -399,7 +481,7 @@ defmodule CustodeWeb.Components do
         unread={@unread}
         launch_gates={@launch_gates}
       />
-      <main class="mx-auto max-w-7xl p-6">
+      <main id="page-content" class="mx-auto max-w-7xl p-6">
         <.host_banner />
         {render_slot(@inner_block)}
       </main>
@@ -434,7 +516,7 @@ defmodule CustodeWeb.Components do
 
   attr(:agent, :string, required: true)
   attr(:action, :string, required: true)
-  attr(:size, :string, default: "btn-xs")
+  attr(:size, :string, default: "btn-sm")
   # what the button says: "cancel" reads better beside a plan's "do it"
   attr(:label, :string, default: "Reject")
 
@@ -451,7 +533,7 @@ defmodule CustodeWeb.Components do
   def reject_form(assigns) do
     ~H"""
     <details id={"reject-#{@action}"} phx-update="ignore" class="dropdown w-full sm:dropdown-end sm:w-auto">
-      <summary class={["btn btn-ghost", @size]}>{@label}</summary>
+      <summary class={action_classes(:quiet, @size)}>{@label}</summary>
       <form
         id={"reject-form-#{@action}"}
         phx-submit="reject"
@@ -476,7 +558,7 @@ defmodule CustodeWeb.Components do
           This proposal only
         </label>
         <p id={"reject-once-help-#{@action}"} class="text-xs text-base-content/70">Do not make a standing rule.</p>
-        <button type="submit" class="btn btn-error btn-xs self-end">Reject</button>
+        <.action_button type="submit" variant={:destructive} class="self-end">Reject</.action_button>
       </form>
     </details>
     """
@@ -999,25 +1081,25 @@ defmodule CustodeWeb.Components do
         </.link>
         <span class="font-mono">{@suggestion["field"]}</span>
         {@suggestion["current"]} &rarr; <b>{@suggestion["proposed"]}</b>
-        <button
+        <.action_button
           :if={Custode.Suggestions.applicable_field?(@suggestion["field"])}
-          class="btn btn-primary btn-xs ml-1"
+          variant={:primary} class="ml-1"
           phx-click="apply_suggestion"
           phx-value-agent={@suggestion["agent"]}
           phx-value-field={@suggestion["field"]}
           phx-value-proposed={@suggestion["proposed"]}
         >
           Apply
-        </button>
-        <button
-          class="btn btn-ghost btn-xs"
+        </.action_button>
+        <.action_button
+          variant={:quiet}
           phx-click="dismiss_suggestion"
           phx-value-agent={@suggestion["agent"]}
           phx-value-field={@suggestion["field"]}
           phx-value-proposed={@suggestion["proposed"]}
         >
           Dismiss
-        </button>
+        </.action_button>
       </p>
       <.foldable_text
         :if={@suggestion["evidence"]}
@@ -1125,6 +1207,9 @@ defmodule CustodeWeb.Components do
       "workflow signals. Inbox new items and advisor suggestions are separate."
   end
 
-  defp nav_class(true), do: "font-semibold underline underline-offset-4"
-  defp nav_class(false), do: "text-base-content/60 hover:text-base-content"
+  defp nav_class(true),
+    do: "shrink-0 whitespace-nowrap font-semibold underline underline-offset-4"
+
+  defp nav_class(false),
+    do: "shrink-0 whitespace-nowrap text-base-content/60 hover:text-base-content"
 end

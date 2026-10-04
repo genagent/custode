@@ -3,7 +3,8 @@ defmodule CustodeWeb.ManagerPanel do
 
   use Phoenix.Component
 
-  import CustodeWeb.Components, only: [ago: 1, feed_entry: 1, markdown: 1, reject_form: 1]
+  import CustodeWeb.Components,
+    only: [action_button: 1, ago: 1, feed_entry: 1, markdown: 1, reject_form: 1]
 
   alias Custode.Attention.Fleet
 
@@ -59,12 +60,12 @@ defmodule CustodeWeb.ManagerPanel do
       <h2 class="mb-2 text-sm font-semibold">custode will</h2>
       <.markdown text={@plan.detail || "(no detail recorded)"} />
       <div class="mt-3 flex flex-wrap items-start gap-3">
-        <button :if={not @recovery} type="button" class="btn btn-primary btn-sm" phx-click="do_it" phx-value-action={@plan.action_id}>
+        <.action_button :if={not @recovery} type="button" variant={:primary} phx-click="do_it" phx-value-action={@plan.action_id}>
           Approve plan
-        </button>
-        <button :if={@recovery} type="button" class="btn btn-primary btn-sm" phx-click="recover_plan" phx-value-action={@plan.action_id}>
+        </.action_button>
+        <.action_button :if={@recovery} type="button" variant={:primary} phx-click="recover_plan" phx-value-action={@plan.action_id}>
           Requeue for re-evaluation
-        </button>
+        </.action_button>
         <.reject_form :if={not @recovery} agent={@caretaker} action={@plan.action_id} label="Cancel" />
         <span class="self-center text-xs text-base-content/50">raised <.ago at={@plan.inserted_at} /></span>
       </div>

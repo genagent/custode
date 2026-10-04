@@ -43,16 +43,17 @@ defmodule CustodeWeb.ReposLive do
   def render(assigns) do
     ~H"""
     <.page attention_signals={@attention_signals} fleet_today={@fleet_today} active={:repos}>
+      <.page_header title="Repos" summary={"#{length(@repos)} #{if length(@repos) == 1, do: "repository", else: "repositories"} in the roster."} />
       <p :if={@repos == []} class="text-sm text-base-content/40">
         no repositories in the roster yet -- add a repo-tied agent on the fleet page
       </p>
       <div class="space-y-8">
-        <section :for={{repo, agents} <- @repos}>
-          <h3 class="mb-2 flex flex-wrap items-baseline gap-2 text-lg font-semibold text-base-content/70">
+        <section :for={{repo, agents} <- @repos} class="min-w-0 rounded-box border border-base-300 bg-base-100 p-4">
+          <h2 class="mb-2 flex flex-wrap items-baseline gap-2 text-lg font-semibold text-base-content/70">
             <a
               href={"https://github.com/#{repo}"}
               target="_blank"
-              class="link link-hover font-mono"
+              class="link link-hover font-mono [overflow-wrap:anywhere]"
             >
               {repo}
             </a>
@@ -75,7 +76,7 @@ defmodule CustodeWeb.ReposLive do
               standing={Map.get(@standing, repo, %{})}
               class="ml-auto"
             />
-          </h3>
+          </h2>
           <.repo_overview_panel overview={overview(@overviews, repo)} />
         </section>
       </div>

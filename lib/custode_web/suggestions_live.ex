@@ -67,17 +67,20 @@ defmodule CustodeWeb.SuggestionsLive do
   def render(assigns) do
     ~H"""
     <.page attention_signals={@attention_signals} fleet_today={@fleet_today} active={:suggestions}>
-      <p class="mb-4 text-sm text-base-content/50">
-        {length(@suggestions)} standing {if length(@suggestions) == 1, do: "suggestion", else: "suggestions"} from the fleet's advisors. Applying one
-        writes through the roster and takes effect at the next sweep; the advisor stops re-proposing it.
+      <.page_header
+        title="Suggestions"
+        summary={"#{length(@suggestions)} standing #{if length(@suggestions) == 1, do: "suggestion", else: "suggestions"} from the fleet's advisors."}
+      />
+      <p class="mb-4 text-sm text-base-content/70">
+        Applying a suggestion writes through the roster and takes effect at the next sweep; the advisor stops re-proposing it.
       </p>
 
       <p :if={@suggestions == []} class="text-sm text-base-content/40">
         no standing suggestions -- the advisors have nothing to propose right now.
       </p>
 
-      <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <div :for={s <- @suggestions} class="rounded-lg bg-base-100 p-3 shadow">
+      <ul :if={@suggestions != []} aria-label="Standing suggestions" class="divide-y divide-base-300 rounded-box border border-base-300 bg-base-100">
+        <li :for={s <- @suggestions} class="p-4">
           <div class="mb-1 flex items-center gap-2 text-xs text-base-content/50">
             <span class="badge badge-secondary badge-xs">{s["advisor"]}</span>
             <span class="font-mono"><.ago at={s["at"]} /></span>
@@ -90,25 +93,25 @@ defmodule CustodeWeb.SuggestionsLive do
             <span class="font-mono text-base-content/70">{s["field"]}</span>
             <span class="text-base-content/70">{s["current"]}</span>
             &rarr; <b>{s["proposed"]}</b>
-            <button
+            <.action_button
               :if={Custode.Suggestions.applicable_field?(s["field"])}
-              class="btn btn-primary btn-xs ml-1"
+              variant={:primary} class="ml-1"
               phx-click="apply_suggestion"
               phx-value-agent={s["agent"]}
               phx-value-field={s["field"]}
               phx-value-proposed={s["proposed"]}
             >
               Apply
-            </button>
-            <button
+            </.action_button>
+            <.action_button
               :if={!dismissing?(@dismissing, s)}
-              class="btn btn-ghost btn-xs"
+              variant={:quiet}
               phx-click="dismiss_open"
               phx-value-agent={s["agent"]}
               phx-value-field={s["field"]}
             >
               Dismiss
-            </button>
+            </.action_button>
           </p>
 
           <%!-- The reasons appear on click rather than sitting on every card
@@ -116,9 +119,9 @@ defmodule CustodeWeb.SuggestionsLive do
                 as a form, and the common path is still one click. --%>
           <div :if={dismissing?(@dismissing, s)} class="mt-2 flex flex-wrap items-center gap-2">
             <span class="text-xs text-base-content/50">Reason for dismissal</span>
-            <button
+            <.action_button
               :for={{reason, label} <- Custode.Suggestions.dismiss_reasons()}
-              class="btn btn-outline btn-xs"
+              variant={:secondary}
               phx-click="dismiss_suggestion"
               phx-value-agent={s["agent"]}
               phx-value-field={s["field"]}
@@ -126,15 +129,15 @@ defmodule CustodeWeb.SuggestionsLive do
               phx-value-reason={reason}
             >
               {String.capitalize(label)}
-            </button>
-            <button class="btn btn-ghost btn-xs" phx-click="dismiss_cancel">Cancel</button>
+            </.action_button>
+            <.action_button variant={:quiet} phx-click="dismiss_cancel">Cancel</.action_button>
           </div>
           <p :if={s["evidence"]} class="mt-2 text-sm text-base-content/60">{s["evidence"]}</p>
-        </div>
-      </div>
+        </li>
+      </ul>
       <%!-- Which advisor is worth listening to (#304). The decisions below
             are individual outcomes; this is the reputation they add up to. --%>
-      <h2 :if={@advisors != []} class="mt-8 mb-2 font-mono text-xs font-semibold uppercase tracking-wider text-base-content/40">
+      <h2 :if={@advisors != []} class="mt-8 mb-2 text-sm font-semibold text-base-content/70">
         advisors
       </h2>
       <ul :if={@advisors != []} class="flex flex-col divide-y divide-base-300/60 text-sm">
@@ -151,12 +154,12 @@ defmodule CustodeWeb.SuggestionsLive do
       <%!-- The record of judgment (#303). A suggestion used to have two
             states, standing and gone, so the system never learned whether
             the advice was any good and neither did the advisor. --%>
-      <h2 :if={@decisions != []} class="mt-8 mb-2 font-mono text-xs font-semibold uppercase tracking-wider text-base-content/40">
+      <h2 :if={@decisions != []} class="mt-8 mb-2 text-sm font-semibold text-base-content/70">
         decisions
       </h2>
       <ul :if={@decisions != []} class="flex flex-col divide-y divide-base-300/60 text-sm">
         <li :for={d <- @decisions} class="flex flex-wrap items-baseline gap-x-2 py-2">
-          <span class={["badge badge-xs", decision_class(d)]}>{d.status}</span>
+          <.status_token tone={decision_tone(d)}>{d.status}</.status_token>
           <.link navigate={"/console/#{d.agent}"} class="font-mono hover:underline">{d.agent}</.link>
           <span class="font-mono text-base-content/60">{d.field}</span>
           <span class="text-base-content/70">&rarr; {d.proposed}</span>
@@ -171,10 +174,10 @@ defmodule CustodeWeb.SuggestionsLive do
 
   # Only a reverted change is a bad outcome. Observing is not yet an answer,
   # and superseded is not a failure -- just not a lesson.
-  defp decision_class(%{status: :reverted}), do: "badge-error"
-  defp decision_class(%{status: :settled}), do: "badge-success"
-  defp decision_class(%{status: :observing}), do: "badge-info"
-  defp decision_class(_other), do: "badge-ghost"
+  defp decision_tone(%{status: :reverted}), do: :error
+  defp decision_tone(%{status: :settled}), do: :success
+  defp decision_tone(%{status: :observing}), do: :info
+  defp decision_tone(_other), do: :neutral
 
   defp refresh(socket) do
     socket = AttentionSnapshot.refresh(socket)
