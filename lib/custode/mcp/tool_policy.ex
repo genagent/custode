@@ -55,6 +55,7 @@ defmodule Custode.MCP.ToolPolicy do
     "read_composition" => :self_write,
     "read_composition_configure" => :operator,
     "assurance_read" => :read,
+    # Read actions retain root/context records; exact grants also guard Git reads.
     "subject_context" => :self_write,
     "return_context" => :self_write,
     # roster and profiles: a preview writes nothing

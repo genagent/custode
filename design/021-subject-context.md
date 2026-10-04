@@ -168,3 +168,26 @@ unrelated staged/unstaged work. Descriptor tests force ancestor swaps at open,
 read, browse and publication. These are controlled tests, not a native research
 or model-delivery proof. Git history/diff and assignment-scoped grant provisioning
 still keep #784 open.
+
+## Scoped Git production reads (#784)
+
+History and current-versus-HEAD diff now share the production exact path grant
+and identity checks. Current descriptor-read SHA256 is separate from pinned HEAD
+and historical blob identity. History returns bounded path-specific commit ids and
+dates without account metadata, never following a rename into an ungranted path.
+Diff includes current human/staged/unstaged source while preserving HEAD, index and
+unrelated files. These observations confer no source write or acceptance authority.
+
+Small plain local SHA-1 stores use a private no-follow object snapshot, fixed Git
+built-ins and no source config/hooks/attributes/remote actions. Copied and expanded
+objects, entries, stdout, returned diff/history, caches, CPU and operation time are
+bounded. Linked stores, alternates, packed deltas, oversized or malformed stores
+refuse explicitly. macOS hard RSS enforcement is unavailable and is not claimed.
+Root/metadata/HEAD/source and ancestor races are rechecked before source is emitted.
+Production descriptor and authenticated HTTP tests verify current human edits,
+exact grants, refusal, retrieval limits and repository state preservation.
+
+Automatic assignment provisioning remains a separate authority design: current
+run_job/SubAgents workspace or identity rows do not encode an operator-admitted
+exact subject/destination grant. Deriving grants from these would widen authority.
+Keep manual configured exact destinations and #784 open for that remainder.
