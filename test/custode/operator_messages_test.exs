@@ -537,6 +537,109 @@ defmodule Custode.OperatorMessagesTest do
     end)
   end
 
+  test "failed Codex telemetry preserves safe stdout diagnostics on the exact receipt" do
+    target = uid("codex-diagnostic")
+    actor = %{kind: :operator, id: uid("diagnostic-operator")}
+
+    {:ok, request, :created} =
+      OperatorMessages.submit(target, "inspect model compatibility", [actor: actor], fn _ ->
+        {:ok, :delivered}
+      end)
+
+    {:ok, queued, :created} =
+      OperatorMessages.submit(target, "keep this separate request queued", [actor: actor], fn _ ->
+        {:ok, :queued}
+      end)
+
+    stdout =
+      [
+        %{"type" => "thread.started", "thread_id" => "diagnostic-thread"},
+        %{"type" => "item.completed", "item" => %{"text" => "Error: PRIVATE_MODEL_OUTPUT"}},
+        %{"type" => "config", "message" => "PRIVATE_CONFIG_OUTPUT"},
+        %{
+          "type" => "turn.failed",
+          "error" => %{
+            "message" =>
+              "Selected model is unsupported. Authorization: Bearer PRIVATE_BEARER_SENTINEL"
+          }
+        }
+      ]
+      |> Enum.map_join("\n", &Jason.encode!/1)
+
+    result = CodexWrapper.Result.from_cmd({stdout, 2})
+
+    assert {{:error, {:command_failed, 2}}, ^result} =
+             failed_codex_run(request, result)
+
+    receipt = OperatorMessages.get(request.message_id)
+    assert receipt.status == "failed"
+    assert receipt.error["kind"] == "provider_result_error"
+    assert receipt.error["detail"] =~ "exit 2: Selected model is unsupported"
+    refute receipt.error["detail"] == inspect("")
+    assert receipt.result == %{"output" => nil}
+    assert OperatorMessages.get(queued.message_id) == queued
+
+    assert {:ok, conversation} = OperatorMessages.conversation(target)
+    exchange = Enum.find(conversation.exchanges, &(&1.id == request.provider_correlation_id))
+    assert exchange.answer == nil
+    assert exchange.error == receipt.error["detail"]
+
+    assert [failure] = Custode.Feed.recent_by_event("turn_failed", agent: target)
+    assert failure["detail"] == receipt.error["detail"]
+    assert failure["kind"] == "command_failed"
+    assert failure["category"] == "unknown_harness_error"
+    assert failure["retryable"]
+
+    public = Jason.encode!(%{conversation: conversation, feed: failure, result: receipt.result})
+
+    for secret <- ["PRIVATE_MODEL_OUTPUT", "PRIVATE_CONFIG_OUTPUT", "PRIVATE_BEARER_SENTINEL"] do
+      refute public =~ secret
+    end
+  end
+
+  test "a failed Codex continuation cannot revive an earlier answer or render nil as an answer" do
+    target = uid("codex-failed-continuation")
+    actor = %{kind: :operator, id: uid("continuation-operator")}
+
+    {:ok, original, :created} =
+      OperatorMessages.submit(target, "inspect the environment", [actor: actor], fn _ ->
+        {:ok, :delivered}
+      end)
+
+    original
+    |> Ecto.Changeset.change(
+      status: "waiting_for_input",
+      result: %{"output" => "EARLIER_ANSWER_MUST_NOT_RETURN"}
+    )
+    |> Repo.update!()
+
+    {:ok, continuation, :created} =
+      OperatorMessages.submit(target, "staging only", [actor: actor], fn _ ->
+        {:ok, :delivered}
+      end)
+
+    assert continuation.provider_correlation_id == original.provider_correlation_id
+
+    # A settled earlier row remains in the exchange, but is outside the
+    # failure update's active-row predicate.
+    OperatorMessages.get(original.message_id)
+    |> Ecto.Changeset.change(status: "completed")
+    |> Repo.update!()
+
+    result = CodexWrapper.Result.from_cmd({"Error: model access unavailable", 1})
+    assert {{:error, {:command_failed, 1}}, ^result} = failed_codex_run(continuation, result)
+
+    assert OperatorMessages.get(original.message_id).result ==
+             %{"output" => "EARLIER_ANSWER_MUST_NOT_RETURN"}
+
+    assert {:ok, %{exchanges: [exchange]}} = OperatorMessages.conversation(target)
+    assert exchange.status == "failed"
+    assert exchange.answer == nil
+    assert exchange.result == %{"output" => nil}
+    assert exchange.error == "exit 1: Error: model access unavailable"
+    assert Enum.map(exchange.prompts, & &1.id) == [original.message_id, continuation.message_id]
+  end
+
   test "restart reconciliation recovers durable jobs and fails orphaned deliveries" do
     assert {:ok, orphan, :created} = queued_message(uid("orphan"))
     assert {:ok, durable, :created} = queued_message(uid("durable"))
@@ -1103,6 +1206,20 @@ defmodule Custode.OperatorMessagesTest do
     on_exit(fn ->
       if persisted = Repo.get(Oban.Job, job.id), do: Repo.delete!(persisted)
     end)
+  end
+
+  defp failed_codex_run(message, result) do
+    ObanCodex.run(%{"prompt" => "fixture only"},
+      job: %Oban.Job{
+        meta: %{
+          "agent_id" => message.target_agent_id,
+          "correlation_id" => message.provider_correlation_id,
+          "agent_generation" => "diagnostic-generation",
+          "agent_turn_id" => "diagnostic-turn"
+        }
+      },
+      query_fun: ObanCodex.Testing.respond(result)
+    )
   end
 
   defp finish(provider, meta, result) do
