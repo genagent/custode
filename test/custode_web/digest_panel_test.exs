@@ -111,7 +111,7 @@ defmodule CustodeWeb.DigestPanelTest do
     assert length(nodes(document, "[data-digest-section=gates] li")) == 15
     assert length(nodes(document, "[data-digest-section=suggestions] li")) == 20
     assert text(document, "[data-digest-section=gates]") =~ "Recent gate sample"
-    assert text(document, "[data-digest-section=gates]") =~ "15 recent resolutions shown"
+    assert text(document, "[data-digest-section=gates]") =~ "Recent resolutions shown: 15"
     assert text(document, "[data-digest-section=gates]") =~ "median 8 min"
     assert text(document, "[data-digest-section=gates] li:last-child") =~ "proposal 15"
     assert text(document, "[data-digest-section=suggestions]") =~ "Suggestion history"

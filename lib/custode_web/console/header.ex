@@ -47,15 +47,22 @@ defmodule CustodeWeb.Console.Header do
           :if={@caretaker}
           id={"tell-#{@tell_gen}"}
           phx-submit="tell_custode"
-          class="order-last flex min-w-64 flex-1 sm:order-none"
+          class="order-last flex min-w-64 flex-1 flex-col gap-1 sm:order-none"
         >
+          <label for={"tell-input-#{@tell_gen}"} class="text-xs text-base-content/60">
+            Message {@caretaker}
+          </label>
           <input
+            id={"tell-input-#{@tell_gen}"}
+            aria-describedby={"tell-help-#{@tell_gen}"}
             type="text"
             name="text"
             autocomplete="off"
-            placeholder={"tell #{@caretaker}..."}
             class="input input-bordered input-sm w-full"
           />
+          <span id={"tell-help-#{@tell_gen}"} class="text-xs text-base-content/50">
+            Press Enter to send.
+          </span>
         </form>
         <div class={["ml-auto flex items-center gap-3", @caretaker && "sm:ml-0"]}>
           <button

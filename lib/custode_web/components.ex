@@ -234,21 +234,19 @@ defmodule CustodeWeb.Components do
     >
       {@text}
     </p>
-    <details
-      :if={@fold?}
-      id={@id}
-      data-foldable-text
-      class={["group", @class]}
-    >
-      <summary class="cursor-pointer list-none">
-        <span class="line-clamp-3 whitespace-pre-wrap break-words group-open:hidden">
-          {@preview}
-        </span>
-        <span class="link mt-1 inline-block text-xs group-open:hidden">show more</span>
-        <span class="link hidden text-xs group-open:inline">show less</span>
-      </summary>
-      <p class="mt-1 whitespace-pre-wrap break-words">{@text}</p>
-    </details>
+    <div :if={@fold?} id={@id} data-foldable-text class={@class}>
+      <div data-foldable-preview>
+        <p data-foldable-preview-text>{@preview}</p>
+        <span data-foldable-omission aria-hidden="true">…</span>
+      </div>
+      <details>
+        <summary class="link mt-1 inline-block cursor-pointer text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+          <span data-foldable-show-more>Show more</span>
+          <span data-foldable-show-less>Show less</span>
+        </summary>
+        <p data-foldable-full class="mt-1 whitespace-pre-wrap break-words">{@text}</p>
+      </details>
+    </div>
     """
   end
 
@@ -258,14 +256,28 @@ defmodule CustodeWeb.Components do
   end
 
   defp fold_preview(text) do
-    if String.length(text) > @fold_preview_chars do
-      text
-      |> String.slice(0, @fold_preview_chars)
-      |> String.trim_trailing()
-      |> Kernel.<>("…")
-    else
-      text
-    end
+    {prefix, rest} = String.split_at(text, @fold_preview_chars)
+
+    preview =
+      if rest == "" or String.match?(prefix, ~r/\s\z/u) or String.match?(rest, ~r/\A\s/u) do
+        prefix
+      else
+        complete_words = Regex.replace(~r/\S+\z/u, prefix, "")
+
+        if String.trim(complete_words) == "" do
+          # An unbroken first token has no word boundary. Keep it intact;
+          # the same three-line clip bounds it without horizontal overflow.
+          text |> String.split(~r/\s/u, parts: 2, trim: true) |> List.first()
+        else
+          complete_words
+        end
+      end
+
+    preview
+    |> String.trim_trailing()
+    # The preview owns one omission marker; the full source stays untouched.
+    |> String.replace(~r/(?:\s*(?:…|\.{3,}))+\z/u, "")
+    |> String.trim_trailing()
   end
 
   attr(:fleet_today, :any, required: true)
@@ -304,7 +316,7 @@ defmodule CustodeWeb.Components do
             class={nav_class(@active in [:console, :fleet])}
             aria-current={if @active in [:console, :fleet], do: "page"}
           >
-            console
+            Console
           </.link>
           <.link
             navigate="/custode"
@@ -312,35 +324,35 @@ defmodule CustodeWeb.Components do
             aria-current={if @active == :custode, do: "page"}
             title="Shift+Cmd/Ctrl+K"
           >
-            custode
+            Ask
           </.link>
           <.link
             navigate="/inbox"
             class={nav_class(@active == :inbox)}
             aria-current={if @active == :inbox, do: "page"}
           >
-            inbox<span :if={@unread > 0} class="ml-1 font-mono text-warning">{@unread}</span>
+            Inbox<span :if={@unread > 0} class="ml-1 font-mono text-warning">{@unread}</span>
           </.link>
           <.link
             navigate="/repos"
             class={nav_class(@active == :repos)}
             aria-current={if @active == :repos, do: "page"}
           >
-            repos
+            Repos
           </.link>
           <.link
             navigate="/suggestions"
             class={nav_class(@active == :suggestions)}
             aria-current={if @active == :suggestions, do: "page"}
           >
-            suggestions
+            Suggestions
           </.link>
           <.link
             navigate="/workflows"
             class={nav_class(@active == :workflows)}
             aria-current={if @active == :workflows, do: "page"}
           >
-            workflows<span :if={@launch_gates > 0} class="ml-1 font-mono text-warning">
+            Workflows<span :if={@launch_gates > 0} class="ml-1 font-mono text-warning">
               {@launch_gates}
             </span>
           </.link>
@@ -351,7 +363,7 @@ defmodule CustodeWeb.Components do
             class={nav_class(@active == :metrics)}
             aria-current={if @active == :metrics, do: "page"}
           >
-            metrics
+            Metrics
           </.link>
         </nav>
         <div class="ml-auto flex items-center gap-3">

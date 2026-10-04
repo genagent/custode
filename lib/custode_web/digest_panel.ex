@@ -74,7 +74,7 @@ defmodule CustodeWeb.DigestPanel do
           <section :if={@digest.gates.count > 0} data-digest-section="gates">
             <h4 class="font-semibold">Recent gate sample</h4>
             <p class="mt-1 text-xs text-base-content/60">
-              {@digest.gates.count} recent resolutions shown &middot;
+              Recent resolutions shown: {@digest.gates.count} &middot;
               median {@digest.gates.median_minutes} min to resolution
             </p>
             <ul class="mt-2 space-y-3">

@@ -67,9 +67,16 @@ defmodule CustodeWeb.ConversationLiveTest do
              ~s(form#message-0[phx-hook="SubjectDraft"][data-subject-draft][data-subject="#{agent.id}"])
            )
 
-    assert has_element?(view, "#message-0 textarea[data-draft-input]")
+    assert has_element?(view, "#message-0 label[for=message-input-0]", "Message #{agent.id}")
+
+    assert has_element?(
+             view,
+             "#message-input-0[data-draft-input][aria-describedby=message-help-0]"
+           )
+
+    assert has_element?(view, "#message-help-0", "Sending starts a turn with your message.")
     assert has_element?(view, "#message-0 input[type=file]")
-    assert has_element?(view, "#message-0 button[type=submit]", "start + send")
+    assert has_element?(view, "#message-0 button[type=submit]", "Start and send")
   end
 
   test "one durable exchange renders its question, continued reply, and markdown result together",

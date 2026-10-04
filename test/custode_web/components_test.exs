@@ -11,7 +11,7 @@ defmodule CustodeWeb.ComponentsTest do
 
       assert html =~ "a useful sentence"
       refute html =~ "<details"
-      refute html =~ "show more"
+      refute html =~ "Show more"
     end
 
     test "missing text stays plain and empty" do
@@ -19,19 +19,85 @@ defmodule CustodeWeb.ComponentsTest do
 
       assert html =~ "data-foldable-text"
       refute html =~ "<details"
-      refute html =~ "show more"
+      refute html =~ "Show more"
     end
 
-    test "long text has a preview and an explicit native disclosure" do
-      text = String.duplicate("a useful sentence ", 30)
-      html = render_component(&CustodeWeb.Components.foldable_text/1, text: text)
+    test "the preview stops at a complete word and has one separate omission marker" do
+      expected = String.duplicate("word ", 54) <> "boundary"
+      source = expected <> String.duplicate(" remaining words", 20)
+      document = fold_document(source, id: "word-preview", class: "min-w-0 flex-1")
 
-      assert html =~ "<details"
-      assert html =~ "show more"
-      assert html =~ "show less"
-      assert html =~ "line-clamp-3"
-      assert html =~ text
+      assert fold_text(document, "[data-foldable-preview-text]") == expected
+      assert fold_text(document, "[data-foldable-omission]") == "…"
+      assert length(fold_nodes(document, "[data-foldable-omission]")) == 1
+      assert length(fold_nodes(document, "#word-preview[data-foldable-text].flex-1")) == 1
+      assert fold_text(document, "[data-foldable-full]") == source
     end
+
+    test "a word that ends exactly at the preview budget is retained" do
+      expected = String.duplicate("word ", 55) <> "final"
+      document = fold_document(expected <> String.duplicate(" next", 30))
+
+      assert String.length(expected) == 280
+      assert fold_text(document, "[data-foldable-preview-text]") == expected
+    end
+
+    test "the preview stays outside the keyboard-accessible native disclosure control" do
+      document = fold_document(String.duplicate("a useful sentence ", 30))
+
+      assert fold_nodes(document, "details[open]") == []
+      assert length(fold_nodes(document, "[data-foldable-text] > details > summary")) == 1
+      assert fold_nodes(document, "summary [data-foldable-preview]") == []
+      assert fold_nodes(document, ".line-clamp-3") == []
+      assert fold_text(document, "summary [data-foldable-show-more]") == "Show more"
+      assert fold_text(document, "summary [data-foldable-show-less]") == "Show less"
+      assert length(fold_nodes(document, "[data-foldable-omission][aria-hidden=true]")) == 1
+    end
+
+    test "existing terminal ellipses do not double the preview's omission marker" do
+      expected = String.duplicate("word ", 54) |> String.trim_trailing()
+
+      for ending <- ["…", "...", "… ..."] do
+        source = expected <> " " <> ending <> " " <> String.duplicate("unbroken", 60)
+        document = fold_document(source)
+
+        assert fold_text(document, "[data-foldable-preview-text]") == expected
+        assert fold_text(document, "[data-foldable-omission]") == "…"
+        assert fold_text(document, "[data-foldable-full]") == source
+      end
+    end
+
+    test "an unbroken token remains intact for the three-line clip to wrap" do
+      source = String.duplicate("longtoken", 60)
+      document = fold_document(source)
+
+      assert fold_text(document, "[data-foldable-preview-text]") == source
+      assert length(fold_nodes(document, "[data-foldable-omission]")) == 1
+      assert fold_text(document, "[data-foldable-full]") == source
+    end
+
+    test "multiline source, code and links are preserved in the expanded text" do
+      source =
+        "line one\nline two\n`code(value)`\nhttps://example.test/?a=1&b=2\n<script>inert</script>\nlast line"
+
+      document = fold_document(source)
+
+      assert fold_text(document, "[data-foldable-preview-text]") == source
+      assert length(fold_nodes(document, "[data-foldable-omission]")) == 1
+      assert fold_text(document, "[data-foldable-full]") == source
+      assert fold_nodes(document, "script") == []
+    end
+
+    defp fold_document(text, attrs \\ []) do
+      render_component(&CustodeWeb.Components.foldable_text/1, Keyword.merge([text: text], attrs))
+      |> LazyHTML.from_document()
+    end
+
+    defp fold_nodes(document, selector),
+      do: document |> LazyHTML.query(selector) |> Enum.to_list()
+
+    defp fold_text(document, selector),
+      do: document |> LazyHTML.query(selector) |> LazyHTML.text() |> String.trim()
   end
 
   describe "usd/1" do
