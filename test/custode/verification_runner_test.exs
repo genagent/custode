@@ -18,6 +18,32 @@ defmodule Custode.Verification.RunnerTest do
     assert result["exit_code"] == 0
   end
 
+  test "explicit null stdin supplies EOF and preserves argv boundaries" do
+    spec =
+      spec!(
+        argv: [
+          "/bin/sh",
+          "-c",
+          "read input || printf '%s' \"$1\"",
+          "fixture",
+          "literal $(printf unsafe)"
+        ],
+        shell: true,
+        risk: "internal_write",
+        timeout_ms: 1_000
+      )
+
+    assert {:ok, result} = Runner.run(spec, File.cwd!(), stdin: :null)
+    assert result["status"] == "pass"
+    assert result["stdout_tail"] == "literal $(printf unsafe)"
+    assert result["stdin_mode"] == "null"
+    assert result["runner_version"] == "verification-runner-v3"
+
+    assert {:ok, inherited} = Runner.run(%{spec | timeout_ms: 100}, File.cwd!())
+    assert inherited["status"] == "timeout"
+    assert inherited["stdin_mode"] == "inherit"
+  end
+
   test "nonzero exit is a structured test failure" do
     spec = spec!(name: "failure", category: "test", argv: ["/usr/bin/false"])
 
