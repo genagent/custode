@@ -135,6 +135,9 @@ defmodule Custode.MCPToolsTest do
       assert json["execution"]["turns"] == [
                %{
                  "id" => historical.id,
+                 "attempt" => 0,
+                 "snoozed" => 0,
+                 "arc_id" => nil,
                  "state" => "available",
                  "provider" => "claude",
                  "model" => "haiku",

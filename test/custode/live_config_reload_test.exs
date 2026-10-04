@@ -390,7 +390,7 @@ defmodule Custode.LiveConfigReloadTest do
     :ok =
       ObanClaude.Agent.Job.handle_result(
         result,
-        %Oban.Job{meta: job.meta, attempt: 1, max_attempts: 1}
+        %Oban.Job{id: job.id, meta: job.meta, attempt: 1, max_attempts: 1}
       )
 
     complete_job!(job)
@@ -402,7 +402,7 @@ defmodule Custode.LiveConfigReloadTest do
     :ok =
       ObanCodex.Agent.Job.handle_result(
         result,
-        %Oban.Job{meta: job.meta, attempt: 1, max_attempts: 1}
+        %Oban.Job{id: job.id, meta: job.meta, attempt: 1, max_attempts: 1}
       )
 
     complete_job!(job)

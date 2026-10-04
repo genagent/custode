@@ -4,7 +4,7 @@ defmodule Custode.ConversationArcs do
 
   Provider session ids are local accelerators. This module selects an exact
   named arc before delivery, records why it chose fresh or resume, and updates
-  the durable row from the wrappers' completion telemetry.
+  the durable row from accepted provider execution and completion telemetry.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -14,11 +14,16 @@ defmodule Custode.ConversationArcs do
   alias Custode.{ConversationArc, ConversationArcEvent, Repo, Routine}
 
   @events [
+    [:oban_claude, :agent, :execution_started],
+    [:oban_codex, :agent, :execution_started],
+    [:oban_claude, :agent, :session_observed],
+    [:oban_codex, :agent, :session_observed],
     [:oban_claude, :agent, :turn_completed],
     [:oban_codex, :agent, :turn_completed]
   ]
 
   @resumable_kinds ~w(operator specialist)
+  @execution_job_keys [:job_id, :job_attempt, :job_snoozed]
 
   @type decision :: %{
           arc: ConversationArc.t(),
@@ -168,9 +173,10 @@ defmodule Custode.ConversationArcs do
   end
 
   @doc false
-  def handle_event([provider, :agent, :turn_completed], _measurements, meta, _config)
-      when provider in [:oban_claude, :oban_codex] do
-    record_completion(provider, meta)
+  def handle_event([provider, :agent, event], _measurements, meta, _config)
+      when provider in [:oban_claude, :oban_codex] and
+             event in [:execution_started, :session_observed, :turn_completed] do
+    record_execution_event(provider, event, meta)
   rescue
     exception ->
       Logger.error(
@@ -252,7 +258,7 @@ defmodule Custode.ConversationArcs do
     |> Repo.update!()
   end
 
-  defp continuation_for(%{last_outcome: "session_rejected"}, _kind),
+  defp continuation_for(%{last_outcome: "session_rejected", provider_session_id: nil}, _kind),
     do: {:fresh_fallback, :resume_failed}
 
   defp continuation_for(%{provider_session_id: session_id}, kind)
@@ -389,7 +395,7 @@ defmodule Custode.ConversationArcs do
     String.slice(logical_id, 0, 238) <> ":" <> suffix
   end
 
-  defp record_completion(provider, meta) do
+  defp record_execution_event(provider, event, meta) do
     provider = provider |> Atom.to_string() |> String.replace_prefix("oban_", "")
 
     result =
@@ -397,14 +403,14 @@ defmodule Custode.ConversationArcs do
         fn ->
           case completion_arc(meta.agent_id, meta.arc_id, provider) do
             nil -> :ok
-            arc -> update_from_completion(arc, meta)
+            arc -> apply_execution_event(arc, event, meta)
           end
         end,
         mode: :immediate
       )
 
     if match?({:error, _reason}, result) do
-      Logger.error("could not persist conversation completion: #{inspect(result)}")
+      Logger.error("could not persist conversation execution event: #{inspect(result)}")
     end
 
     :ok
@@ -413,9 +419,132 @@ defmodule Custode.ConversationArcs do
   defp completion_arc(routine_id, arc_id, provider) do
     Repo.one(
       from(a in ConversationArc,
-        where: a.routine_id == ^routine_id and a.arc_id == ^arc_id and a.provider == ^provider,
+        where:
+          a.routine_id == ^routine_id and a.arc_id == ^arc_id and a.provider == ^provider and
+            a.state == "active",
         order_by: [desc: a.opened_at],
         limit: 1
+      )
+    )
+  end
+
+  # These events are emitted synchronously by the owning provider agent only
+  # after it fences the actual worker attempt. Never call Agent.info here:
+  # telemetry handlers run in that same agent process.
+  defp apply_execution_event(arc, :execution_started, meta) do
+    with {:ok, identity} <- execution_identity(meta),
+         false <- recorded_execution?(arc, identity) do
+      record_event!(arc, %{kind: "execution_started", details: identity})
+    end
+  end
+
+  defp apply_execution_event(arc, :session_observed, meta) do
+    with {:ok, identity} <- execution_identity(meta),
+         true <- current_execution?(arc, identity),
+         true <- valid_observation?(arc.provider, meta),
+         false <- recorded_observation?(arc, identity) do
+      updated =
+        arc
+        |> ConversationArc.update_changeset(%{
+          provider_session_id: meta.session_id,
+          last_used_at: DateTime.utc_now()
+        })
+        |> Repo.update!()
+
+      record_event!(updated, %{
+        kind: "session_observed",
+        provider_session_id: meta.session_id,
+        details: Map.put(identity, "source", to_string(meta.source))
+      })
+    end
+  end
+
+  defp apply_execution_event(
+         arc,
+         :turn_completed,
+         %{execution_state: :not_started, outcome: outcome} = meta
+       )
+       when outcome in [:enqueue_failed, :timed_out] do
+    if tuple_free?(meta), do: update_from_completion(arc, Map.put(meta, :session_id, nil))
+  end
+
+  defp apply_execution_event(arc, :turn_completed, meta) do
+    case {latest_execution(arc), execution_identity(meta)} do
+      {nil, :error} ->
+        if legacy_completion?(meta), do: update_from_completion(arc, meta)
+
+      {%{details: identity}, {:ok, identity}} ->
+        if current_execution?(arc, identity), do: update_from_completion(arc, meta)
+
+      _stale_or_unstarted ->
+        :ok
+    end
+  end
+
+  defp legacy_completion?(meta),
+    do: not Map.has_key?(meta, :execution_state) and tuple_free?(meta)
+
+  defp tuple_free?(meta), do: Enum.all?(@execution_job_keys, &(not Map.has_key?(meta, &1)))
+
+  defp execution_identity(meta) do
+    strings = [:agent_id, :agent_generation, :agent_turn_id, :arc_id]
+    counters = [:job_id, :job_attempt]
+
+    if Enum.all?(strings, &nonblank?(Map.get(meta, &1))) and
+         Enum.all?(counters, &(is_integer(meta[&1]) and meta[&1] > 0)) and
+         is_integer(meta[:job_snoozed]) and meta[:job_snoozed] >= 0 do
+      {:ok,
+       Map.new(strings ++ counters ++ [:job_snoozed], fn key ->
+         {Atom.to_string(key), Map.fetch!(meta, key)}
+       end)}
+    else
+      :error
+    end
+  end
+
+  defp nonblank?(value) when is_binary(value), do: String.trim(value) != ""
+  defp nonblank?(_value), do: false
+
+  defp valid_observation?("claude", %{source: :system_init, session_id: id}), do: nonblank?(id)
+  defp valid_observation?("codex", %{source: :thread_started, session_id: id}), do: nonblank?(id)
+  defp valid_observation?(_provider, _meta), do: false
+
+  defp latest_execution(arc) do
+    Repo.one(
+      from(e in ConversationArcEvent,
+        where: e.conversation_arc_id == ^arc.id and e.kind == "execution_started",
+        order_by: [desc: e.id],
+        limit: 1
+      )
+    )
+  end
+
+  defp current_execution?(arc, identity) do
+    match?(%{details: ^identity}, latest_execution(arc)) and
+      not recorded_attempt_event?(arc, "completion", identity)
+  end
+
+  defp recorded_execution?(arc, identity) do
+    Repo.exists?(
+      from(e in ConversationArcEvent,
+        where:
+          e.conversation_arc_id == ^arc.id and e.kind == "execution_started" and
+            e.details == ^identity
+      )
+    )
+  end
+
+  defp recorded_observation?(arc, identity),
+    do: recorded_attempt_event?(arc, "session_observed", identity)
+
+  defp recorded_attempt_event?(arc, kind, identity) do
+    Repo.exists?(
+      from(e in ConversationArcEvent,
+        where:
+          e.conversation_arc_id == ^arc.id and e.kind == ^kind and
+            fragment("json_extract(?, '$.job_id')", e.details) == ^identity["job_id"] and
+            fragment("json_extract(?, '$.job_attempt')", e.details) == ^identity["job_attempt"] and
+            fragment("json_extract(?, '$.job_snoozed')", e.details) == ^identity["job_snoozed"]
       )
     )
   end
@@ -423,8 +552,12 @@ defmodule Custode.ConversationArcs do
   defp update_from_completion(arc, meta) do
     now = DateTime.utc_now()
     outcome = to_string(meta.outcome)
-    rejected? = outcome == "session_rejected"
-    session_id = if rejected?, do: nil, else: meta.session_id
+
+    rejected? =
+      outcome == "session_rejected" and Map.get(meta, :rejected_arc_id, arc.arc_id) == arc.arc_id
+
+    reject_fork_source(arc, meta, now)
+    session_id = if rejected?, do: nil, else: meta.session_id || arc.provider_session_id
 
     attrs = %{
       provider_session_id: session_id,
@@ -442,12 +575,55 @@ defmodule Custode.ConversationArcs do
       reason: to_string(meta.continuation_reason),
       outcome: outcome,
       provider_session_id: session_id,
-      details: %{"outcome_reason" => inspect(meta.outcome_reason, limit: 10)}
+      details: completion_details(meta)
     })
 
     if arc.kind in ["scheduled", "job", "attempt", "inbox"] do
       close!(arc, "completed", "turn_#{outcome}", "completed")
     end
+  end
+
+  defp reject_fork_source(arc, %{outcome: :session_rejected} = meta, now) do
+    source_id = Map.get(meta, :rejected_arc_id)
+    rejected_id = Map.get(meta, :rejected_session_id)
+
+    with true <- nonblank?(source_id) and source_id != arc.arc_id and nonblank?(rejected_id),
+         %{provider_session_id: ^rejected_id} = source <-
+           completion_arc(arc.routine_id, source_id, arc.provider) do
+      updated =
+        source
+        |> ConversationArc.update_changeset(%{
+          provider_session_id: nil,
+          last_outcome: "session_rejected",
+          last_used_at: now
+        })
+        |> Repo.update!()
+
+      record_event!(updated, %{
+        kind: "session_rejected",
+        outcome: "session_rejected",
+        details: Map.put(completion_details(meta), "reported_by_arc_id", arc.arc_id)
+      })
+    end
+  end
+
+  defp reject_fork_source(_arc, _meta, _now), do: :ok
+
+  defp completion_details(meta) do
+    identity =
+      case execution_identity(meta) do
+        {:ok, identity} -> identity
+        :error -> %{}
+      end
+
+    rejection =
+      meta
+      |> Map.take([:fork_from_arc_id, :rejected_arc_id, :rejected_session_id])
+      |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
+
+    identity
+    |> Map.merge(rejection)
+    |> Map.put("outcome_reason", inspect(meta.outcome_reason, limit: 10))
   end
 
   defp record_decision!(arc, decision, reason) do
