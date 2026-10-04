@@ -243,6 +243,7 @@ defmodule CustodeGenAgentProof.CompatibilityTest do
     name = start_pool(script, 1)
     {:ok, token} = GenAgentEnsemble.tell_with_completion(name, "cancel", self())
     assert_receive {:review_ready, "cancel", task}
+    task_monitor = Process.monitor(task)
     [{ensemble, _}] = Registry.lookup(GenAgentEnsemble.Registry, name)
     refs = for {ref, {agent, ^token}} <- :sys.get_state(ensemble).in_flight, do: {ref, agent}
     assert length(refs) == 1
@@ -250,7 +251,7 @@ defmodule CustodeGenAgentProof.CompatibilityTest do
     assert how in [:cancelled, :cancelled_unconfirmed]
     assert {:error, :cancelled} = GenAgentEnsemble.await(name, token)
     assert_receive {:gen_agent_ensemble, :completion, ^name, ^token, {:error, :cancelled}}
-    refute Process.alive?(task)
+    assert_receive {:DOWN, ^task_monitor, :process, ^task, _reason}, 5_000
     # Replay the actual child-completion envelope with the original ref.
     # This proves coordinator fencing, not OS subprocess settlement.
     for {ref, agent} <- refs do

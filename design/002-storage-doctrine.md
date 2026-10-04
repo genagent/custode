@@ -153,3 +153,15 @@ mirror, workspaces. cwd-relative stays fine for the source-repo phase.
   DESIGNED to lose state on restart).
 - No Postgres until federation actually ships a second node, and maybe
   not then.
+
+## Authored subject documents (design direction, 2026-10-04)
+
+The bounded spike in design/021 adds one narrow distinction: externally authored
+preferences, research, plans and decisions may use ordinary Markdown in a
+configured Git working tree as their source, including uncommitted edits. Search
+indexes and summaries of those documents are derived, not authoritative records.
+Operational notebook memories, todos, journals, gates, receipts and scheduling
+remain in SQLite; journal.md and TODO.md remain generated views. No existing
+records migrate under this amendment. Production document operations and scoped
+output grants are follow-up work; automatic replacement of existing documents is
+not enabled by the spike.
