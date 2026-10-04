@@ -54,6 +54,7 @@ defmodule Custode.MCP.ToolPolicy do
     "owner_review" => :delegate,
     "read_composition" => :self_write,
     "read_composition_configure" => :operator,
+    "assurance_read" => :read,
     "subject_context" => :self_write,
     "return_context" => :self_write,
     # roster and profiles: a preview writes nothing
