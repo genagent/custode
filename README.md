@@ -19,6 +19,13 @@ current plan is
 source install and operator setup. [guides/demo.md](guides/demo.md) preserves
 the v0.1.0 demonstration and its original acceptance path.
 
+The current source-installed release is [v0.3.0](https://github.com/genagent/custode/releases/tag/v0.3.0).
+It adds durable peer messages, the continuing project-manager conversation,
+provider session recovery, and clearer attention, metrics, and workflow failure
+views. See the [release summary](ROADMAP.md#status-public-operator-alpha-2026-10-04)
+and [upgrade note](guides/install.md#upgrading-from-v022-to-v030) before updating
+a running installation.
+
 ## Cost
 
 Every turn is a real `claude` call against the logged-in plan. The dashboard

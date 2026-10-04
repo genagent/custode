@@ -8,32 +8,40 @@ tracked by #453, which closed on 2026-09-24 once rungs 0 to 4 had shipped.
 This file keeps the current status, the standing architectural positions, the
 rungs, and the shipped-milestone history.
 
-## Status: public operator alpha (2026-09-29)
+## Status: public operator alpha (2026-10-04)
 
-Custode is public, GitHub Actions is live, and v0.2.1 is the current
-source-installed release. It includes the v0.2.0 transport, fleet reliability,
-and operator skill work, then adds a focused conversation view for every agent.
-The view keeps operator prompts, provider replies, questions, approvals, and
-outcomes together while preserving the full control-room view for fleet work.
-The design/013 spike in #700 remains separate from the dashboard and fleet
-product.
+Custode v0.3.0 is the current source-installed release. Since v0.2.2, it adds
+durable peer requests and replies, a continuing project-manager conversation
+at `/custode`, and early provider session recovery after an interrupted turn.
+The daily-use UI now has clearer attention actions and counts, comparable
+metrics charts, compact digests, accessible controls, and consistent ordinary
+page headers. Failed workflows show their recorded stopping stage and retain
+successful results; safe retry remains open under #750.
 
-To upgrade a running v0.1.0 installation:
+The manager reads current project evidence and coordinates authorized work
+through existing roles and gates. Direct project conversations remain
+available. Peer receipt is not work completion, and a provider session handle
+is not durable project context. The design/013 spike in #700 remains separate
+from the dashboard and fleet product.
 
-1. Drain Custode and wait for the process to exit. Do not update the live
-   checkout while the old node is still running.
-2. In that checkout, run `git pull --ff-only`, `mix deps.get`, then
-   `mix custode doctor`. Fix every failure before applying schema changes.
-3. Review the four migrations added since v0.1.0, take a recoverable backup of
-   `CUSTODE_HOME`, then run `mix ecto.migrate` and `mix custode doctor` again.
-4. Check each configured host with `mix custode.skill.install all` (or select
-   that host explicitly). If it reports a stale or modified package, inspect
-   the installed files before choosing the printed `--force` command. Restart
-   Custode, refresh the operator token in the host environment, and restart or
-   reconnect the host.
-5. Pick up from #599. #554 and #555 are the operator's decisions, #499 and
-   #556 are blocked, and the work kernel stays frozen (#423, #424, #439,
-   #630).
+To upgrade a running v0.2.2 installation:
+
+1. Drain Custode and wait for the process to exit before updating the live
+   checkout.
+2. Update the checkout, fetch the released dependencies with `mix deps.get`,
+   and run `mix custode doctor`. Review the pending peer-message migration
+   and resolve unrelated preflight failures.
+3. Take a recoverable backup of `CUSTODE_HOME`, run `mix ecto.migrate`, and run
+   doctor again. The new migration is
+   `20261004034345_create_peer_messages.exs`; older installations must review
+   all their pending migrations.
+4. Inspect any required operator-skill refresh, then restart to load the
+   revised caretaker prompt and MCP surface. Reload the regenerated operator
+   token and restart or reconnect provider clients. The
+   [install guide](guides/install.md#upgrading-from-v022-to-v030) has the
+   operating note and complete update procedure.
+5. Continue from #599. Decisions #554 and #555 remain operator-held. The
+   work kernel remains frozen under design/010.
 
 ## Labels
 
@@ -53,9 +61,9 @@ Each is used before the next starts.
 | 0 | Running again | done |
 | 1 | Attention that cannot be missed | done |
 | 2 | The console | done: it is the home page (#450, #552, #594) |
-| 3 | custode as the operator's right hand | mechanisms merged: gates record class and risk, grants bound an approved turn (observe mode), `/custode`, a cross-provider review on gates (#522). Left for the operator: #554, #555. The design stays open as #451 |
+| 3 | custode as the operator's right hand | done: the continuing manager conversation and project evidence reads (#451), durable peer requests and replies (#461), and cross-provider gate review (#522). Existing human approval and spend rules remain in force |
 | 4 | A routine can run on Codex | done (#452, #522, #523) |
-| later | Agent mesh (#461), missions (#459) | design only |
+| later | Missions (#459) | design only |
 
 Deferred by the operator: remote access, headless operation, MCP parity as a
 program of its own. The work-first kernel (design/008) is frozen: in the
@@ -116,3 +124,11 @@ tree, not running, deleted only when a fix touches it.
   agent, with correlated exchanges, stable history pagination, shared drafts,
   inline questions and approvals, and live updates that preserve scroll
   position.
+- 2026-10-04: v0.2.2 updates the MCP transport to Snodo 0.4.1 and verifies
+  resource-template compatibility and current-protocol client reads.
+- 2026-10-04: v0.3.0 adds durable peer messaging (#461), the continuing
+  project manager (#451), and early native session recovery (#708). The
+  daily-use UI work (#743 through #749 and #751) improves digest and chart
+  reading, attention clarity, shared controls, and page structure. #765 adds
+  recorded workflow failure display; safe retry stays open under #750. The
+  release includes the peer-message migration and revised caretaker prompt.
