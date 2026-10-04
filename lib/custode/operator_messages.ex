@@ -719,6 +719,7 @@ defmodule Custode.OperatorMessages do
     |> Enum.find_value(&Map.get(&1, field))
   end
 
+  defp conversation_answer(%{"output" => nil}), do: nil
   defp conversation_answer(%{"output" => output}), do: output_text(output)
   defp conversation_answer(_result), do: nil
 
@@ -954,8 +955,13 @@ defmodule Custode.OperatorMessages do
   defp run_result(:oban_codex, %CodexWrapper.Result{success: false} = result) do
     %{
       status: "failed",
-      result: output_map(ObanCodex.structured(result) || ObanCodex.text(result)),
-      error: error_map(:provider_result_error, result.stderr),
+      # A nil output also prevents an earlier continued answer from becoming
+      # the fallback result of this failed exchange.
+      result: output_map(nil),
+      error: %{
+        "kind" => "provider_result_error",
+        "detail" => Custode.CodexFailure.detail(result)
+      },
       completed_at: now()
     }
   end

@@ -255,16 +255,7 @@ defmodule Custode.Feed.Ingest do
   end
 
   defp error_facts(%CodexWrapper.Result{} = result) do
-    detail =
-      [
-        "exit #{result.exit_code}",
-        result.stderr && String.slice(result.stderr, 0, 300),
-        result.stdout && String.slice(result.stdout, 0, 300)
-      ]
-      |> Enum.reject(&(&1 in [nil, ""]))
-      |> Enum.join(": ")
-
-    {:command_failed, presence(detail)}
+    {:command_failed, Custode.CodexFailure.detail(result)}
   end
 
   defp error_facts(other), do: {:unknown, presence(inspect(other))}
