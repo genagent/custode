@@ -317,34 +317,63 @@ defmodule Custode.Workflow.Launch do
   end
 
   @doc """
-  A run as a stage checklist: one entry per stage with its state (`:done`,
-  `:running`, `:pending`) and the nodes that have landed in it.
+  A run as a stage checklist, including persisted successful node results.
 
-  Derived from the persisted results rather than tracked separately -- the
-  results table already knows everything the card shows, and a second copy
-  of the truth would be one more thing to get wrong.
+  For failed runs, the recorded stopping stage is `:failed` and later stages
+  are `:not_run`. The saved error belongs to that stopping stage, not to a
+  node inferred from error prose. A missing catalog entry or cursor yields
+  one `:unavailable` entry retaining the error and every saved node result.
+
+  Historical runs have no definition snapshot: this projection uses the
+  current catalog and cannot detect a definition that was reordered later.
   """
   def checklist(run) do
     case Catalog.fetch(run.workflow) do
-      :error ->
-        []
+      :error -> unavailable_checklist(run, :workflow_unavailable)
+      {:ok, definition} -> checklist_for(run, definition)
+    end
+  end
 
-      {:ok, definition} ->
-        cursor = cursor_index(definition, run.stage)
+  defp checklist_for(run, definition) do
+    cursor = cursor_index(definition, run.stage)
+
+    case {run.status, cursor} do
+      {"failed", :done} ->
+        unavailable_checklist(run, :stage_unavailable)
+
+      _ ->
         results = Results.for_run(run.run_id)
 
         definition.stages
         |> Enum.with_index()
         |> Enum.map(fn {stage, index} ->
+          state = stage_state(index, cursor, run.status)
+
           %{
             name: stage.name,
             per_item: stage.per_item,
-            state: stage_state(index, cursor, run.status),
-            nodes: Enum.filter(results, &(&1.stage == to_string(stage.name)))
+            state: state,
+            nodes: Enum.filter(results, &(&1.stage == to_string(stage.name))),
+            error: if(state == :failed, do: run.error)
           }
         end)
     end
   end
+
+  defp unavailable_checklist(%{status: "failed"} = run, reason) do
+    [
+      %{
+        name: run.stage,
+        per_item: false,
+        state: :unavailable,
+        nodes: Results.for_run(run.run_id),
+        error: run.error,
+        unavailable_reason: reason
+      }
+    ]
+  end
+
+  defp unavailable_checklist(_run, _reason), do: []
 
   @doc "What a run has spent, and against what rail (nil rail = unbounded)."
   def spend(run), do: %{spent_usd: Run.spent(run.run_id), budget_usd: run.budget_usd}
@@ -429,6 +458,8 @@ defmodule Custode.Workflow.Launch do
   defp stage_state(_index, :done, _status), do: :done
   defp stage_state(index, cursor, _status) when index < cursor, do: :done
   defp stage_state(index, cursor, "running") when index == cursor, do: :running
+  defp stage_state(index, cursor, "failed") when index == cursor, do: :failed
+  defp stage_state(_index, _cursor, "failed"), do: :not_run
   defp stage_state(index, cursor, _status) when index == cursor, do: :pending
   defp stage_state(_index, _cursor, _status), do: :pending
 

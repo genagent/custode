@@ -177,7 +177,7 @@ defmodule CustodeWeb.WorkflowsLive do
   # the stages it never reached instead of ending where it stopped.
   defp run_card(assigns) do
     ~H"""
-    <section role="listitem" class="p-4">
+    <section role="listitem" data-workflow-run={@entry.run.run_id} class="p-4">
       <div class="flex min-w-0 flex-col gap-2">
         <div class="flex flex-wrap items-center gap-2">
           <.status_token tone={run_tone(@entry.run.status)} running={@entry.run.status == "running"}>
@@ -194,20 +194,67 @@ defmodule CustodeWeb.WorkflowsLive do
           </span>
         </div>
 
-        <ol class="flex flex-col gap-1">
-          <li :for={stage <- @entry.checklist} class="flex items-baseline gap-2 text-sm">
-            <span class={["font-mono text-xs", stage_class(stage.state)]}>{mark(stage.state)}</span>
-            <span class={["font-mono", stage.state == :pending && "text-base-content/40"]}>
-              {stage.name}
-            </span>
-            <span :if={stage.per_item} class="badge badge-ghost badge-xs">per item</span>
-            <span :if={stage.nodes != []} class="text-xs text-base-content/50">
-              {Enum.map_join(stage.nodes, ", ", & &1.node_name)}
-            </span>
+        <ol class="flex flex-col gap-2">
+          <li
+            :for={stage <- @entry.checklist}
+            data-workflow-stage={stage.name}
+            data-stage-state={stage.state}
+            class="min-w-0 text-sm"
+          >
+            <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+              <span aria-hidden="true" class={["font-mono text-xs", stage_class(stage.state)]}>
+                {mark(stage.state)}
+              </span>
+              <span
+                :if={stage.state != :unavailable}
+                class={[
+                  "font-mono [overflow-wrap:anywhere]",
+                  stage.state in [:pending, :not_run] && "text-base-content/40"
+                ]}
+              >
+                {stage.name}
+              </span>
+              <span :if={stage.state == :unavailable} class="text-error">
+                Recorded stopping stage unavailable
+              </span>
+              <span
+                :if={stage.state in [:failed, :not_run]}
+                class={["text-xs", stage_class(stage.state)]}
+              >
+                {stage_label(stage.state)}
+              </span>
+              <span :if={stage.state in [:done, :running, :pending]} class="sr-only">
+                {stage_label(stage.state)}
+              </span>
+              <span :if={stage.per_item} class="badge badge-ghost badge-xs">per item</span>
+              <span
+                :if={stage.nodes != []}
+                class="text-xs text-base-content/60 [overflow-wrap:anywhere]"
+              >
+                <span :if={stage.state == :unavailable}>Recorded successful nodes: </span>
+                {Enum.map_join(stage.nodes, ", ", & &1.node_name)}
+              </span>
+            </div>
+            <p :if={stage.state == :unavailable} class="mt-1 text-xs text-base-content/70">
+              {unavailable_reason(stage.unavailable_reason)}
+              <span :if={stage.name} class="[overflow-wrap:anywhere]">
+                Recorded stage: <span class="font-mono">{stage.name}</span>.
+              </span>
+            </p>
+            <.foldable_text
+              :if={Map.get(stage, :error)}
+              text={stage.error}
+              class="mt-1 min-w-0 text-xs text-error [overflow-wrap:anywhere]"
+            />
           </li>
         </ol>
 
-        <p :if={@entry.run.error} class="text-xs text-error">{@entry.run.error}</p>
+        <p :if={@entry.run.status == "failed"} class="text-xs text-base-content/60">
+          The current workflow definition may differ from the one used for this run.
+        </p>
+        <p :if={@entry.run.error && @entry.run.status != "failed"} class="text-xs text-error">
+          {@entry.run.error}
+        </p>
 
         <div :if={@entry.artifacts != []} class="rounded bg-base-200/60 p-2">
           <span class="text-xs uppercase tracking-wide text-base-content/40">report</span>
@@ -249,10 +296,28 @@ defmodule CustodeWeb.WorkflowsLive do
   defp mark(:done), do: "[x]"
   defp mark(:running), do: "[~]"
   defp mark(:pending), do: "[ ]"
+  defp mark(:failed), do: "[!]"
+  defp mark(:not_run), do: "[-]"
+  defp mark(:unavailable), do: "[?]"
+
+  defp stage_label(:done), do: "Done"
+  defp stage_label(:running), do: "Running"
+  defp stage_label(:pending), do: "Pending"
+  defp stage_label(:failed), do: "Failed"
+  defp stage_label(:not_run), do: "Not run"
+
+  defp unavailable_reason(:workflow_unavailable),
+    do: "This workflow is no longer in the catalog. Stage positions cannot be determined."
+
+  defp unavailable_reason(:stage_unavailable),
+    do: "The saved stopping point does not identify a stage in the current definition."
 
   defp stage_class(:done), do: "text-success"
   defp stage_class(:running), do: "text-info"
   defp stage_class(:pending), do: "text-base-content/30"
+  defp stage_class(:failed), do: "text-error"
+  defp stage_class(:not_run), do: "text-base-content/50"
+  defp stage_class(:unavailable), do: "text-error"
 
   defp run_tone("running"), do: :info
   defp run_tone("complete"), do: :success

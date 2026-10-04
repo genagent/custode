@@ -306,6 +306,89 @@ defmodule Custode.WorkflowLaunchTest do
     end
   end
 
+  describe "recorded failure display (#750)" do
+    test "first, middle and final stopping stages are failed, with later stages not run" do
+      cases = [
+        {"code", ["spec"], [:failed, :not_run, :not_run]},
+        {"merge", ["spec", "code"], [:done, :failed, :not_run]},
+        {"check_1", ["spec", "code", "merge"], [:done, :done, :failed]}
+      ]
+
+      for {failed_node, finished_nodes, states} <- cases do
+        workflow = register(fanning_workflow(uid("stopping-stage")))
+        {:ok, run} = Runner.launch(workflow.name, "owner/repo", run_id: uid("run"))
+        for node <- finished_nodes, do: finish(run.run_id, node, %{"items" => ["finding"]})
+        job = Enum.find(jobs(run.run_id), &(&1.meta["node_name"] == failed_node))
+        Runner.node_failed(job.meta, {:cancel, :fixture_failure})
+        failed = Run.get(run.run_id)
+        saved = Results.for_run(run.run_id)
+        job_count = length(jobs(run.run_id))
+
+        checklist = Launch.checklist(failed)
+
+        assert Enum.map(checklist, & &1.state) == states
+        assert Enum.map(Enum.flat_map(checklist, & &1.nodes), & &1.node_name) == finished_nodes
+        assert [stopping_stage] = Enum.filter(checklist, &(&1.state == :failed))
+        assert to_string(stopping_stage.name) == failed.stage
+        assert stopping_stage.error == failed.error
+        assert Enum.all?(Enum.reject(checklist, &(&1.state == :failed)), &is_nil(&1.error))
+        assert Results.for_run(run.run_id) == saved
+        assert Run.get(run.run_id) == failed
+        assert length(jobs(run.run_id)) == job_count
+      end
+    end
+
+    test "unavailable catalog and nil or unknown cursor retain error and all saved results" do
+      workflow = register(fanning_workflow(uid("unavailable-stage")))
+      {:ok, run} = Runner.launch(workflow.name, "owner/repo", run_id: uid("run"))
+      finish(run.run_id, "spec")
+      failed = Run.fail(run.run_id, "node merge failed; code and check are mentioned as prose")
+      saved = Results.for_run(run.run_id)
+
+      cases = [
+        {%{failed | workflow: "removed-workflow"}, :workflow_unavailable},
+        {%{failed | stage: nil}, :stage_unavailable},
+        {%{failed | stage: "merge_missing"}, :stage_unavailable}
+      ]
+
+      for {recorded, reason} <- cases do
+        assert [entry] = Launch.checklist(recorded)
+        assert entry.state == :unavailable
+        assert entry.unavailable_reason == reason
+        assert entry.name == recorded.stage
+        assert entry.error == failed.error
+        assert entry.nodes == saved
+      end
+
+      assert Run.get(run.run_id) == failed
+      assert Results.for_run(run.run_id) == saved
+    end
+
+    test "a missing failure message still identifies the recorded stage" do
+      workflow = register(fanning_workflow(uid("no-error")))
+      {:ok, run} = Runner.launch(workflow.name, "owner/repo", run_id: uid("run"))
+
+      assert [failed, later, last] = Launch.checklist(%{run | status: "failed", error: nil})
+      assert failed.state == :failed
+      assert failed.error == nil
+      assert later.state == :not_run
+      assert last.state == :not_run
+    end
+
+    test "budget-paused cursor stays pending and its reason stays at run level" do
+      workflow = register(fanning_workflow(uid("paused-display")))
+      {:ok, run} = Runner.launch(workflow.name, "owner/repo", run_id: uid("run"))
+      finish(run.run_id, "spec")
+      finish(run.run_id, "code")
+      paused = Run.budget_pause(run.run_id, "budget rail hit")
+
+      assert [mine, merge, check] = Launch.checklist(paused)
+      assert [mine.state, merge.state, check.state] == [:done, :pending, :pending]
+      assert Enum.all?([mine, merge, check], &is_nil(&1.error))
+      assert paused.error == "budget rail hit"
+    end
+  end
+
   describe "attention (#447)" do
     alias Custode.Attention.Fleet
 
