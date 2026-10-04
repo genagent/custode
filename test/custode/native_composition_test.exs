@@ -84,7 +84,14 @@ defmodule Custode.NativeCompositionTest do
               System.get_env("CUSTODE_NATIVE_COMPOSITION_PROVIDERS", "claude,codex"),
               ","
             ),
-          scenario <- ["original", "composition", "partial", "denied"],
+          scenario <-
+            String.split(
+              System.get_env(
+                "CUSTODE_NATIVE_COMPOSITION_SCENARIOS",
+                "original,composition,partial,denied"
+              ),
+              ","
+            ),
           reduce: baseline do
         report ->
           Agent.update(collector, fn _reads -> [] end)

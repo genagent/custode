@@ -210,12 +210,12 @@ def run(config):
     repo = config["repo"]
     if config["scenario"] == "original":
         instruction = ("Call each of repo_view_pr, repo_pr_checks, repo_pr_diff exactly once, "
-                       "using repo=" + repo + " and number=9. Do not use read_composition.")
+                       "in that order using repo=" + repo + " and number=9. Do not use read_composition.")
     else:
         args = {"request": {"action": "invoke", "name": "pr_review_context",
                             "arguments": {"repo": repo, "number": 9}}}
         instruction = "Call read_composition exactly once with arguments " + json.dumps(args) + "."
-    prompt = (instruction + " Use only these MCP tools, no shell, files or other calls. "
+    prompt = (instruction + " Native tool discovery/search is allowed if these MCP tools are deferred. Use only these MCP tools for repository reads; no shell or files. "
               "Then quote both exact returned head revisions and briefly report whether they differ; "
               "the diff is not head-pinned. Report any error or partial status honestly; do not retry.")
     with tempfile.TemporaryDirectory(prefix="custode-native-") as directory:
