@@ -1,3 +1,6 @@
+import os
+import sys
+import tempfile
 import unittest
 from unittest.mock import Mock
 import native_catalog_probe as probe
@@ -18,6 +21,17 @@ class NonpaidBoundaryTest(unittest.TestCase):
             with self.subTest(method=method), self.assertRaises(ValueError):
                 app.request(method, {}, 1)
         app.send.assert_not_called()
+
+    def test_health_output_caps_and_deadlines_apply_during_collection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for channel in ["stdout", "stderr"]:
+                with self.subTest(channel=channel), self.assertRaises(RuntimeError):
+                    probe.command([sys.executable, "-c",
+                                   f"import sys; sys.{channel}.buffer.write(b'x' * 1000000)"],
+                                  os.environ, directory, output_limit=1024)
+            with self.assertRaises(TimeoutError):
+                probe.command([sys.executable, "-c", "import time; time.sleep(5)"],
+                              os.environ, directory, timeout=.05)
 
     def test_missing_or_failed_status_never_becomes_discovery_success(self):
         self.assertEqual(probe.inventory({"error": {"code": -32601}}),

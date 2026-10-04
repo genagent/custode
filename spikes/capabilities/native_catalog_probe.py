@@ -13,12 +13,55 @@ import urllib.request
 from urllib.parse import urlsplit
 
 
-def command(argv, env, cwd):
-    result = subprocess.run(argv, env=env, cwd=cwd, stdin=subprocess.DEVNULL,
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
-    if len(result.stdout) + len(result.stderr) > 512_000:
-        raise RuntimeError("native observation output bound exceeded")
-    return result.returncode, result.stdout.decode(errors="replace")
+def settle_group(process):
+    # A detached descendant may escape this group; this is not physical attestation.
+    for action in [signal.SIGTERM, signal.SIGKILL]:
+        try:
+            os.killpg(process.pid, action)
+        except ProcessLookupError:
+            pass
+        if action == signal.SIGTERM:
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                pass
+    process.wait(timeout=3)
+
+
+def command(argv, env, cwd, output_limit=512_000, timeout=15):
+    process = subprocess.Popen(argv, env=env, cwd=cwd, stdin=subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               start_new_session=True)
+    selector = selectors.DefaultSelector()
+    stdout = bytearray()
+    observed = 0
+    deadline = time.monotonic() + timeout
+    try:
+        selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+        selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+        while selector.get_map():
+            if time.monotonic() >= deadline:
+                raise TimeoutError("native observation deadline")
+            for key, _events in selector.select(timeout=min(.1, max(0, deadline - time.monotonic()))):
+                data = os.read(key.fileobj.fileno(), 65_536)
+                if not data:
+                    selector.unregister(key.fileobj)
+                    continue
+                observed += len(data)
+                if observed > output_limit:
+                    raise RuntimeError("native observation output bound exceeded")
+                if key.data == "stdout":
+                    stdout.extend(data)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("native observation deadline")
+        code = process.wait(timeout=remaining)
+        return code, stdout.decode(errors="replace")
+    finally:
+        selector.close()
+        settle_group(process)
+        process.stdout.close()
+        process.stderr.close()
 
 
 def publish(url, revision=2):
@@ -91,13 +134,9 @@ class AppServer:
 
     def close(self):
         self.selector.close()
-        if self.process.poll() is None:
-            os.killpg(self.process.pid, signal.SIGTERM)
-            try:
-                self.process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                os.killpg(self.process.pid, signal.SIGKILL)
-                self.process.wait(timeout=3)
+        settle_group(self.process)
+        self.process.stdin.close()
+        self.process.stdout.close()
 
 
 def claude_health(url, env, directory):
