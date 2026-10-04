@@ -50,7 +50,7 @@ defmodule Custode.ReturnNavigation do
 
     %{
       "request_id" => record["request_id"],
-      "published_at" => record["at"],
+      "recorded_at" => record["at"],
       "published_revision" => revision,
       "matches_current_revision" => revision == current_revision,
       "source" => "immutable_publication_receipt",

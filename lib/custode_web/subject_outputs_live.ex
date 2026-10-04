@@ -140,7 +140,7 @@ defmodule CustodeWeb.SubjectOutputsLive do
               <.link :if={@document["navigation"]["current_plan"]["link"]} navigate={@document["navigation"]["current_plan"]["link"]} class="link">Open current named plan</.link>
               <p :if={!@document["navigation"]["current_plan"]["link"]} class="text-base-content/60">No readable named current plan.</p>
               <div :for={production <- @document["navigation"]["productions"]} class="rounded-box border border-base-300 p-2">
-                <p>Published {production["published_at"]} · {if production["matches_current_revision"], do: "matches current source", else: "historical source revision"}</p>
+                <p>Publication record {production["recorded_at"]} · {if production["matches_current_revision"], do: "matches current source", else: "historical source revision"}</p>
                 <.link :if={production["recorded_owner"]["link"]} navigate={production["recorded_owner"]["link"]} class="link">Return to recorded owner {production["recorded_owner"]["id"]}</.link>
                 <details class="mt-2"><summary class="cursor-pointer">Recorded helper context</summary>
                   <p>{production["helper"]["availability"]}; native publication run binding unknown.</p>
