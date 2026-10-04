@@ -18,7 +18,7 @@ defmodule Custode.MCP.Capabilities do
   @memory_tools ~w(journal_read remember recall forget integration_list subject_context return_context)
 
   @worker_tools ~w(
-    ask_operator integration_list subject_context return_context
+    ask_operator integration_list subject_context return_context read_composition
     peer_send peer_reply peer_list peer_read peer_ack
     list_routines agent_status start_agent prompt_agent await_agent
     agent_history approve_action reject_action run_job owner_review
@@ -94,10 +94,10 @@ defmodule Custode.MCP.Capabilities do
   def authorized_tool_names(:main, %{kind: :routine, id: id}) do
     case AgentHandoff.authorization_role(id) do
       {:ok, :caretaker} ->
-        exposed_tool_names(:caretaker) ++ @caretaker_on_demand_tools
+        scoped_compositions(exposed_tool_names(:caretaker) ++ @caretaker_on_demand_tools, id)
 
       {:ok, role} when is_atom(role) ->
-        exposed_tool_names(role)
+        scoped_compositions(exposed_tool_names(role), id)
 
       _unavailable ->
         []
@@ -135,6 +135,12 @@ defmodule Custode.MCP.Capabilities do
       :all -> true
       names -> name in names
     end
+  end
+
+  defp scoped_compositions(names, id) do
+    if id == Custode.ReadCompositions.owner(),
+      do: names,
+      else: List.delete(names, "read_composition")
   end
 
   defp optional_tools do

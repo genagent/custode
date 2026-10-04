@@ -736,3 +736,30 @@ defmodule Custode.CLI.WorkflowRetryStatus do
     )
   end
 end
+
+defmodule Custode.CLI.ReadComposition do
+  @moduledoc false
+  use Cheer.Command
+
+  command "read-composition" do
+    about("Read or human-configure a versioned PR composition using a JSON request.")
+    argument(:file, type: :string, required: true, help: "JSON request file.")
+    option(:json, type: :boolean, help: "Full result JSON.")
+  end
+
+  @impl Cheer.Command
+  def run(args, _raw) do
+    with {:ok, bytes} <- File.read(args[:file]), {:ok, request} <- Jason.decode(bytes) do
+      tool =
+        if request["action"] in ~w(publish activate disable),
+          do: "read_composition_configure",
+          else: "read_composition"
+
+      Custode.CLI.emit(tool, %{request: request}, args[:json] == true, &Jason.encode!/1)
+    else
+      {:error, reason} ->
+        Mix.shell().error("cannot read composition request: #{inspect(reason)}")
+        {:error, :run_failed}
+    end
+  end
+end
