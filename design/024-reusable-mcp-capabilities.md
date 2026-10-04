@@ -1,7 +1,10 @@
 # 024: Reusable reads before dynamic agent-authored tools
 
-Status: decision spike for #577, 2026-10-04. Standalone data interpreter proof;
-no production catalog activation, native host refresh proof or generated code.
+Status: decision and implementation accounting for #577, 2026-10-04. The two
+bounded slices shipped in #800 and #807, with production shared operations from
+#798 and native comparison tracking in #799. Activation remains explicit and
+owner-scoped. Native long-lived refresh and individual dynamic publication remain
+unproven; no generated code or mining is enabled.
 
 ## Decision
 
@@ -62,11 +65,30 @@ outcome; raw arguments/secrets are not copied into a reusable definition.
 
 The measured consolidation is three client requests to one composition while
 retaining three backend reads. This is a fixture count, not a native model token,
-latency, cost or correctness improvement. There is no production activation or
-real host notification/reconnect measurement in this proof. Do not report those
-acceptance items complete.
+latency, cost or correctness improvement. That standalone interpreter remains a fixture. Production activation now exists
+through the fixed dispatcher; the subsequent [native and nonpaid compatibility
+proof](../docs/native-read-composition-proof.md) identifies its narrower actual
+observations and unknown native refresh behavior. Do not attribute those later
+observations to this interpreter.
 
-## At most two implementation slices
+## Shipped slices and remaining acceptance
+
+| Acceptance | Evidence | Scope still open |
+| --- | --- | --- |
+| Versioned read definition and one-owner activation | #800, `ReadCompositions`, [operator contract](../docs/read-compositions.md) | No automatic publication or authored executable code |
+| Caller-scoped invocation, denial and partial failures | Production shared operations and MCP tests | Does not widen current repository or role grants |
+| Replacement, disable, rollback and persistence | Real operations-store records and Repo process reopen | Full OS-process reconstruction is not established by that test |
+| Actual saved client calls | #807, eight controlled native comparisons | Three MCP reads become one; backend calls remain three; no general latency/token/quality gain |
+| Protocol catalogs and reconnect | Controlled real Snodo HTTP proof plus installed Codex nonpaid status and Claude health checks | Claude catalog contents, native prompts and held-session notification refresh remain unknown |
+
+The implementation budget is consumed by the shipped dispatcher/store slice and
+its bounded native proof. #799 retains protocol/native compatibility acceptance;
+#577 remains open until its named first-proof requirements are met or explicitly
+narrowed. Updating this accounting does not close either issue or authorize a
+third production extension slice. The desired future synthesis loop remains
+outside this first proof.
+
+## Original bounded slice plan
 
 1. Add one opt-in `pr_review_context` composition through shared operations with
    immutable definitions/activation, trace refs, exact caller propagation,
