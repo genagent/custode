@@ -138,10 +138,33 @@ published bytes; read always inspects current source, including uncommitted huma
 corrections. Temporary workers have exact, independently configured grants and
 retain output links after their spawn record/workspace is removed.
 
-Recursive directories, Git history/diff and automatic apply are explicitly
-unavailable. Native assignment-to-destination provisioning is still manual
+Git history/diff and automatic apply remain explicitly unavailable. Native
+assignment-to-destination provisioning is still manual
 operator configuration; no broad write grant or #554 policy posture is selected.
 Those parts keep #784 open. #785 may build views over this supported production
 surface without pretending the recursive Python spike is the runtime or treating
 prepared files as delivered context. Configuration and recovery instructions are
 in docs/subject-context.md.
+
+## Recursive production layouts (#784)
+
+The next slice accepts canonical relative Markdown paths in existing subject
+subdirectories, up to eight components and 200 UTF-8 bytes. Exact configured read,
+create and proposal grants include the full relative path. Every traversed
+ancestor is held by descriptor with no symlink following and rechecked for
+replacement before returning a read or confirming a publication. Create never
+creates directories, replaces source, changes HEAD/index or grants siblings.
+
+Browse/search share the existing limits across the entire traversal: 100 returned
+files, 500 scanned entries and 100 KiB of search bytes. Hidden trees and symlinks
+are skipped; exact grants prune unrelated subtrees. Depth/scan overflow refuses
+explicitly. The operator can use one Travel root for research/plans/decisions
+without configuring a separate root for each directory.
+
+Production application and both authenticated Snodo protocol tests cover nested
+exact grants, two fresh controlled helper identities, current human edits,
+retained output references and stale proposals while preserving HEAD/index and
+unrelated staged/unstaged work. Descriptor tests force ancestor swaps at open,
+read, browse and publication. These are controlled tests, not a native research
+or model-delivery proof. Git history/diff and assignment-scoped grant provisioning
+still keep #784 open.
