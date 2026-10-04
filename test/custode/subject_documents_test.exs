@@ -193,7 +193,7 @@ defmodule Custode.SubjectDocumentsTest do
     assert File.read!(Path.join(ctx.root, ".git/index")) == index
   end
 
-  test "symlinks, traversal, nested names, FIFOs and oversized files fail closed", ctx do
+  test "symlinks, traversal, missing directories, FIFOs and oversized files fail closed", ctx do
     outside = Path.join(tmp_workspace!(), "outside.md")
     File.write!(outside, "private outside bytes")
     File.ln_s!(outside, Path.join(ctx.root, "link.md"))
@@ -369,6 +369,197 @@ defmodule Custode.SubjectDocumentsTest do
                })
 
       assert :ok = Client.close(client)
+    end
+  end
+
+  test "nested exact grants survive fresh workers and preserve current human context", ctx do
+    for directory <- ~w(research plans), do: File.mkdir!(Path.join(ctx.root, directory))
+
+    definition = %{
+      ctx.definition
+      | grants: [
+          %{
+            kind: :sub_agent,
+            id: ctx.first.id,
+            read_paths: ["preferences.md"],
+            create_paths: ["research/liguria.md"]
+          },
+          %{
+            kind: :sub_agent,
+            id: ctx.second.id,
+            read_paths: ["preferences.md", "research/liguria.md"],
+            create_paths: ["plans/comparison.md"]
+          }
+        ]
+    }
+
+    put_env!(:subject_roots, [definition])
+    assert {:ok, initial} = call(ctx.first, ctx, "read", %{"path" => "preferences.md"})
+
+    params = %{
+      "path" => "research/liguria.md",
+      "content" =>
+        "Source: controlled fixture, 2026-10-04.\nUncertainty: trains unverified.\n#{initial["revision"]}",
+      "request_id" => uid("nested-create")
+    }
+
+    assert {:ok, output} = call(ctx.first, ctx, "create", params)
+    assert output["receipt"]["producer"]["identity"]["id"] == ctx.first.id
+    workspace = SubAgents.get(ctx.first.id).workspace
+    SubAgents.forget(ctx.first.id)
+    File.rm_rf!(workspace)
+    SubjectDocumentBridge.reset()
+    File.write!(Path.join(ctx.root, "preferences.md"), "Human update: Camogli, no car.\n")
+
+    assert {:ok, browse} = call(ctx.second, ctx, "browse")
+    assert browse["paths"] == ["preferences.md", "research/liguria.md"]
+    assert {:ok, current} = call(ctx.second, ctx, "read", %{"path" => "preferences.md"})
+    refute current["revision"] == initial["revision"]
+    assert {:ok, research} = call(ctx.second, ctx, "read", %{"path" => "research/liguria.md"})
+    assert research["content"] == params["content"]
+    assert :ok = SubjectDocuments.authorize_read(ctx.second, definition.id, "research/liguria.md")
+
+    assert {:ok, _comparison} =
+             call(ctx.second, ctx, "create", %{
+               "path" => "plans/comparison.md",
+               "content" =>
+                 "Use current #{current["revision"]} and research #{research["revision"]}",
+               "request_id" => uid("nested-followup")
+             })
+
+    assert {:error, "path_or_destination_not_granted"} =
+             call(ctx.second, ctx, "create", %{
+               "path" => "plans/unassigned.md",
+               "content" => "refuse",
+               "request_id" => uid("nested-denied")
+             })
+
+    assert {:ok, outputs} = SubjectDocuments.outputs(@human, definition.id)
+    assert length(outputs) == 2
+    assert File.regular?(Path.join(ctx.root, "research/liguria.md"))
+    assert File.regular?(Path.join(ctx.root, "plans/comparison.md"))
+    refute File.exists?(Path.join(ctx.root, "plans/unassigned.md"))
+  end
+
+  test "nested proposal preserves source HEAD index and unrelated human edits", ctx do
+    File.mkdir!(Path.join(ctx.root, "research"))
+    File.mkdir!(Path.join(ctx.root, "plans"))
+    File.write!(Path.join(ctx.root, "research/source.md"), "Initial research.\n")
+    File.write!(Path.join(ctx.root, "unrelated.txt"), "Initial unrelated.\n")
+    {_, 0} = System.cmd("git", ["init", "--quiet"], cd: ctx.root)
+    {_, 0} = System.cmd("git", ["add", "."], cd: ctx.root)
+
+    {_, 0} =
+      System.cmd(
+        "git",
+        [
+          "-c",
+          "user.name=joshrotenberg",
+          "-c",
+          "user.email=joshrotenberg@gmail.com",
+          "commit",
+          "--quiet",
+          "-m",
+          "feat: record controlled subject fixture"
+        ],
+        cd: ctx.root
+      )
+
+    File.write!(Path.join(ctx.root, "unrelated.txt"), "Staged unrelated correction.\n")
+    {_, 0} = System.cmd("git", ["add", "unrelated.txt"], cd: ctx.root)
+    File.write!(Path.join(ctx.root, "unrelated.txt"), "Unstaged unrelated correction.\n")
+    {head, 0} = System.cmd("git", ["rev-parse", "HEAD"], cd: ctx.root)
+    index = File.read!(Path.join(ctx.root, ".git/index"))
+    assert {:ok, initial} = call(@human, ctx, "read", %{"path" => "research/source.md"})
+    File.write!(Path.join(ctx.root, "research/source.md"), "Human source correction.\n")
+
+    params = %{
+      "path" => "research/source.md",
+      "destination" => "plans/proposal.md",
+      "content" => "Proposed correction.\n",
+      "expected_revision" => initial["revision"],
+      "request_id" => uid("nested-stale")
+    }
+
+    assert {:error, "stale_revision:" <> _current} = call(@human, ctx, "propose", params)
+    assert {:ok, current} = call(@human, ctx, "read", %{"path" => "research/source.md"})
+
+    assert {:ok, proposal} =
+             call(@human, ctx, "propose", %{
+               params
+               | "expected_revision" => current["revision"],
+                 "request_id" => uid("nested-current")
+             })
+
+    refute proposal["applied"]
+    assert proposal["proposal"]["path"] == "plans/proposal.md"
+    assert File.read!(Path.join(ctx.root, "research/source.md")) == "Human source correction.\n"
+    assert File.read!(Path.join(ctx.root, "unrelated.txt")) == "Unstaged unrelated correction.\n"
+    assert File.read!(Path.join(ctx.root, ".git/index")) == index
+    assert {^head, 0} = System.cmd("git", ["rev-parse", "HEAD"], cd: ctx.root)
+  end
+
+  test "nested reads share exact grants through both production MCP protocols", ctx do
+    File.mkdir!(Path.join(ctx.root, "research"))
+    File.write!(Path.join(ctx.root, "research/current.md"), "Current nested working source.\n")
+    File.ln_s!(tmp_workspace!(), Path.join(ctx.root, "linked"))
+
+    definition = %{
+      ctx.definition
+      | grants: [%{kind: :sub_agent, id: ctx.first.id, read_paths: ["research/current.md"]}]
+    }
+
+    put_env!(:subject_roots, [definition])
+    token = Identity.mint(:sub_agent, ctx.first.id)
+
+    for protocol <- ["2025-06-18", "2026-07-28"] do
+      assert {:ok, client} =
+               Client.connect({:http, Custode.MCP.memory_url()},
+                 protocol: protocol,
+                 headers: [{"authorization", "Bearer " <> token}]
+               )
+
+      assert {:ok, %{"content" => [%{"text" => body}]}} =
+               Client.call_tool(client, "subject_context", %{
+                 "action" => "read",
+                 "root_id" => definition.id,
+                 "path" => "research/current.md"
+               })
+
+      assert Jason.decode!(body)["content"] == "Current nested working source.\n"
+
+      for denied <- ["preferences.md", "linked/private.md", "research/../preferences.md"] do
+        assert {:ok, %{"isError" => true}} =
+                 Client.call_tool(client, "subject_context", %{
+                   "action" => "read",
+                   "root_id" => definition.id,
+                   "path" => denied
+                 })
+      end
+
+      assert :ok = Client.close(client)
+    end
+
+    assert {:ok, roots} = SubjectDocuments.invoke(ctx.first, %{"action" => "roots"})
+    assert hd(roots["roots"])["layout"] == "bounded_recursive_markdown"
+    assert hd(roots["roots"])["limits"]["path_components"] == 8
+
+    for invalid <- [
+          "../private.md",
+          "research//current.md",
+          "research/.hidden/current.md",
+          "research/./current.md",
+          "research/" <> String.duplicate("a", 200) <> ".md"
+        ] do
+      assert {:error, _reason} = call(@human, ctx, "read", %{"path" => invalid})
+
+      invalid_definition = %{
+        definition
+        | grants: [%{kind: :sub_agent, id: ctx.first.id, read_paths: [invalid]}]
+      }
+
+      put_env!(:subject_roots, [invalid_definition])
+      assert {:ok, %{"roots" => []}} = SubjectDocuments.invoke(ctx.first, %{"action" => "roots"})
     end
   end
 

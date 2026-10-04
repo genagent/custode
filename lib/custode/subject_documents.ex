@@ -31,14 +31,15 @@ defmodule Custode.SubjectDocuments do
         %{
           root_id: definition.id,
           subject: definition.subject,
-          limits: %{file_bytes: 16_384, files: 100, search_bytes: 100_000},
+          limits: %{file_bytes: 16_384, files: 100, search_bytes: 100_000, path_components: 8},
           binding: "persistent_directory_identity",
-          layout: "direct_child_markdown_only",
+          layout: "bounded_recursive_markdown",
           read_paths: grant.read_paths,
           create_paths: grant.create_paths,
           propose_paths: grant.propose_paths,
           proposal_destinations: grant.proposal_destinations,
-          unavailable: ~w(recursive_paths git_history git_diff automatic_apply automatic_commit)
+          unavailable:
+            ~w(directory_creation git_history git_diff automatic_apply automatic_commit)
         }
       end
 
@@ -286,17 +287,19 @@ defmodule Custode.SubjectDocuments do
   defp valid_paths?("all"), do: true
 
   defp valid_paths?(paths) when is_list(paths),
-    do: length(paths) <= 100 and Enum.all?(paths, &flat_name?/1)
+    do: length(paths) <= 100 and Enum.all?(paths, &relative_path?/1)
 
   defp valid_paths?(_paths), do: false
 
-  defp flat_name?(path) when is_binary(path) do
-    String.ends_with?(path, ".md") and not String.starts_with?(path, ".") and
-      byte_size(path) <= 200 and
-      not String.contains?(path, ["/", "\\"]) and not Regex.match?(~r/[\x00-\x1f]/u, path)
+  defp relative_path?(path) when is_binary(path) do
+    parts = String.split(path, "/")
+
+    String.ends_with?(path, ".md") and byte_size(path) <= 200 and length(parts) <= 8 and
+      Enum.all?(parts, &(&1 != "" and not String.starts_with?(&1, "."))) and
+      not String.contains?(path, "\\") and not Regex.match?(~r/[\x00-\x1f\x7f]/u, path)
   end
 
-  defp flat_name?(_path), do: false
+  defp relative_path?(_path), do: false
 
   defp current_identity(%{kind: :operator, id: id}) when is_binary(id) and id != "", do: :ok
 
@@ -391,7 +394,7 @@ defmodule Custode.SubjectDocuments do
     with :ok <- current_identity(actor),
          {:ok, _definition, _access} <-
            authorized_root(actor, %{"action" => "read", "root_id" => root_id, "path" => path}),
-         true <- flat_name?(path) do
+         true <- relative_path?(path) do
       :ok
     else
       false -> {:error, "invalid_path"}

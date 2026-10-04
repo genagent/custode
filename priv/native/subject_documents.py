@@ -1,4 +1,5 @@
 """Custode's optional POSIX descriptor helper. JSON data only; no commands or imports from clients."""
+from contextlib import contextmanager
 import difflib
 import hashlib
 import json
@@ -9,6 +10,7 @@ import uuid
 
 MAX_BYTES = 16_384
 MAX_NAMES = 100
+MAX_DEPTH = 8
 MAX_SCAN = 500
 MAX_SEARCH_BYTES = 100_000
 MAX_FRAME = 200_000
@@ -21,9 +23,11 @@ class Refused(Exception):
 def name(value):
     if not isinstance(value, str) or len(value.encode()) > 200:
         raise Refused("invalid_name")
-    if (not value.endswith(".md") or value.startswith(".") or "/" in value
-            or "\\" in value or any(ord(c) < 32 for c in value)):
-        raise Refused("flat_markdown_name_required")
+    parts = value.split("/")
+    if (not value.endswith(".md") or len(parts) > MAX_DEPTH or "\\" in value
+            or any(not part or part.startswith(".") for part in parts)
+            or any(ord(c) < 32 or ord(c) == 127 for c in value)):
+        raise Refused("relative_markdown_path_required")
     return value
 
 
@@ -88,95 +92,150 @@ class Root:
         finally:
             os.close(current)
 
-    def read(self, relative, budget=MAX_BYTES):
+    def check_chain(self, chain):
+        self.check_binding()
+        parent = self.fd
+        opened = []
+        try:
+            for part, expected in chain:
+                current = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                  dir_fd=parent)
+                opened.append(current)
+                if identity(current) != expected:
+                    raise Refused("directory_replaced")
+                parent = current
+            self.check_binding()
+        except OSError:
+            raise Refused("directory_replaced") from None
+        finally:
+            for fd in reversed(opened):
+                os.close(fd)
+
+    @contextmanager
+    def parent(self, relative):
         relative = name(relative)
         self.check_binding()
-        fd = os.open(relative, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=self.fd)
+        fd, opened, chain = self.fd, [], []
         try:
-            info = os.fstat(fd)
-            if not stat.S_ISREG(info.st_mode):
-                raise Refused("regular_file_required")
-            limit = min(MAX_BYTES, budget)
-            if info.st_size > limit:
-                raise Refused("search_budget" if limit < MAX_BYTES else "content_too_large")
-            chunks, size = [], 0
-            while size <= limit:
-                chunk = os.read(fd, min(4096, limit + 1 - size))
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                size += len(chunk)
-            if size > limit:
-                raise Refused("search_budget" if limit < MAX_BYTES else "content_too_large")
-            data = b"".join(chunks)
-            try:
-                content = data.decode("utf-8")
-            except UnicodeDecodeError:
-                raise Refused("invalid_utf8") from None
-            after = os.fstat(fd)
-            current = os.stat(relative, dir_fd=self.fd, follow_symlinks=False)
-            original_stamp = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
-            after_stamp = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns)
-            if original_stamp != after_stamp or (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
-                raise Refused("document_changed_during_read")
-            self.check_binding()
-            return {"path": relative, "content": content,
-                    "revision": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+            for part in relative.split("/")[:-1]:
+                fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                             dir_fd=fd)
+                opened.append(fd)
+                chain.append((part, identity(fd)))
+            self.check_chain(chain)
+            yield fd, relative.split("/")[-1], chain
         finally:
-            os.close(fd)
+            for child in reversed(opened):
+                os.close(child)
+
+    def read(self, relative, budget=MAX_BYTES):
+        with self.parent(relative) as (parent, leaf, chain):
+            fd = os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=parent)
+            try:
+                info = os.fstat(fd)
+                if not stat.S_ISREG(info.st_mode):
+                    raise Refused("regular_file_required")
+                limit = min(MAX_BYTES, budget)
+                if info.st_size > limit:
+                    raise Refused("search_budget" if limit < MAX_BYTES else "content_too_large")
+                chunks, size = [], 0
+                while size <= limit:
+                    chunk = os.read(fd, min(4096, limit + 1 - size))
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    size += len(chunk)
+                if size > limit:
+                    raise Refused("search_budget" if limit < MAX_BYTES else "content_too_large")
+                data = b"".join(chunks)
+                try:
+                    content = data.decode("utf-8")
+                except UnicodeDecodeError:
+                    raise Refused("invalid_utf8") from None
+                after = os.fstat(fd)
+                current = os.stat(leaf, dir_fd=parent, follow_symlinks=False)
+                original_stamp = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+                after_stamp = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+                if original_stamp != after_stamp or (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
+                    raise Refused("document_changed_during_read")
+                self.check_chain(chain)
+                return {"path": relative, "content": content,
+                        "revision": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+            finally:
+                os.close(fd)
 
     def browse(self, allowed):
         self.check_binding()
         found, scanned = [], 0
-        with os.scandir(self.fd) as entries:
-            for entry in entries:
-                scanned += 1
-                if scanned > MAX_SCAN:
-                    raise Refused("directory_scan_limit")
-                if (not entry.name.endswith(".md") or entry.name.startswith(".")
-                        or not entry.is_file(follow_symlinks=False)):
-                    continue
-                name(entry.name)
-                if allowed != "all" and entry.name not in allowed:
-                    continue
-                found.append(entry.name)
-                if len(found) > MAX_NAMES:
-                    raise Refused("browse_limit")
-        self.check_binding()
+
+        def walk(fd, prefix, chain):
+            nonlocal scanned
+            with os.scandir(fd) as entries:
+                for entry in entries:
+                    scanned += 1
+                    if scanned > MAX_SCAN:
+                        raise Refused("directory_scan_limit")
+                    if entry.name.startswith("."):
+                        continue
+                    relative = prefix + entry.name
+                    if entry.is_dir(follow_symlinks=False):
+                        if allowed != "all" and not any(path.startswith(relative + "/") for path in allowed):
+                            continue
+                        if len(chain) + 1 >= MAX_DEPTH:
+                            raise Refused("directory_depth_limit")
+                        # Validate components before descending, even for a directory named *.md.
+                        name(relative + "/a.md")
+                        child = os.open(entry.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                        dir_fd=fd)
+                        child_chain = chain + [(entry.name, identity(child))]
+                        try:
+                            self.check_chain(child_chain)
+                            walk(child, relative + "/", child_chain)
+                            self.check_chain(child_chain)
+                        finally:
+                            os.close(child)
+                    elif (entry.name.endswith(".md") and entry.is_file(follow_symlinks=False)
+                          and (allowed == "all" or relative in allowed)):
+                        name(relative)
+                        found.append(relative)
+                        if len(found) > MAX_NAMES:
+                            raise Refused("browse_limit")
+            self.check_chain(chain)
+
+        walk(self.fd, "", [])
         return sorted(found)
 
     def create(self, relative, content):
-        relative = name(relative)
         if not isinstance(content, str) or len(content.encode()) > MAX_BYTES:
             raise Refused("content_too_large")
-        self.check_binding()
-        temporary = ".custode-" + uuid.uuid4().hex
-        fd = os.open(temporary, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
-                     0o600, dir_fd=self.fd)
-        owned = identity(fd)
-        try:
-            with os.fdopen(fd, "wb", closefd=False) as output:
-                output.write(content.encode())
-                output.flush()
-                os.fsync(output.fileno())
-            self.check_binding()
-            os.link(temporary, relative, src_dir_fd=self.fd, dst_dir_fd=self.fd, follow_symlinks=False)
-            published = os.stat(relative, dir_fd=self.fd, follow_symlinks=False)
-            if (published.st_dev, published.st_ino) != (owned["device"], owned["inode"]):
-                raise Refused("publication_changed")
-            os.lseek(fd, 0, os.SEEK_SET)
-            if os.read(fd, MAX_BYTES + 1) != content.encode():
-                raise Refused("publication_changed")
-            self.check_binding()
-            os.fsync(self.fd)
-        finally:
-            os.close(fd)
+        with self.parent(relative) as (parent, leaf, chain):
+            temporary = ".custode-" + uuid.uuid4().hex
+            fd = os.open(temporary, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                         0o600, dir_fd=parent)
+            owned = identity(fd)
             try:
-                temporary_info = os.stat(temporary, dir_fd=self.fd, follow_symlinks=False)
-                if (temporary_info.st_dev, temporary_info.st_ino) == (owned["device"], owned["inode"]):
-                    os.unlink(temporary, dir_fd=self.fd)
-            except FileNotFoundError:
-                pass
+                with os.fdopen(fd, "wb", closefd=False) as output:
+                    output.write(content.encode())
+                    output.flush()
+                    os.fsync(output.fileno())
+                self.check_chain(chain)
+                os.link(temporary, leaf, src_dir_fd=parent, dst_dir_fd=parent, follow_symlinks=False)
+                published = os.stat(leaf, dir_fd=parent, follow_symlinks=False)
+                if (published.st_dev, published.st_ino) != (owned["device"], owned["inode"]):
+                    raise Refused("publication_changed")
+                os.lseek(fd, 0, os.SEEK_SET)
+                if os.read(fd, MAX_BYTES + 1) != content.encode():
+                    raise Refused("publication_changed")
+                self.check_chain(chain)
+                os.fsync(parent)
+            finally:
+                os.close(fd)
+                try:
+                    temporary_info = os.stat(temporary, dir_fd=parent, follow_symlinks=False)
+                    if (temporary_info.st_dev, temporary_info.st_ino) == (owned["device"], owned["inode"]):
+                        os.unlink(temporary, dir_fd=parent)
+                except FileNotFoundError:
+                    pass
         # Return the bytes published, not a later external editor's version.
         data = content.encode()
         return {"path": relative, "content": content, "bytes": len(data),

@@ -11,18 +11,18 @@ Configure roots in the deployment's normal Elixir application configuration
 config :custode,
   subject_roots: [
     %{
-      id: "travel-research",
+      id: "travel",
       subject: "Travel",
-      path: "/absolute/path/to/travel/research",
+      path: "/absolute/path/to/travel",
       grants: [
         %{kind: :routine, id: "travel", read_paths: "all"},
         %{
           kind: :sub_agent,
           id: "the-exact-assigned-helper-id",
-          read_paths: ["preferences.md", "liguria.md"],
-          create_paths: ["november-comparison.md"],
+          read_paths: ["preferences.md", "research/liguria.md"],
+          create_paths: ["plans/november-comparison.md"],
           propose_paths: ["preferences.md"],
-          proposal_destinations: ["preferences-proposal.md"]
+          proposal_destinations: ["plans/preferences-proposal.md"]
         }
       ]
     }
@@ -31,26 +31,35 @@ config :custode,
 
 The human can operate on configured roots. Other identities need an explicit
 entry. Read grants may name `"all"`; creation and proposal grants must list exact
-filenames. Naming a reference, owning a repo or retaining an old connection does
-not grant a destination. Helpers also need their recorded spawn and a currently
+relative Markdown paths. Naming a reference, owning a repo or retaining an old
+connection does not grant a destination. Helpers also need their recorded spawn and a currently
 authorized parent. After helper cleanup, a human or authorized owner still sees
 its files and operation receipts. Broad native shell permissions are separate.
 
-The current layout is direct child `.md` files only. Use separate roots for
-research, plans and decisions. Nested paths, `.git`, hidden files, symlinks and
-nonregular files are refused. Limits are 16 KiB per file, 100 returned file names,
-500 scanned directory entries and 100 KiB per search, with a 5-second helper
-response timeout. Retrieval may make a one-byte overflow probe; excess content
-is refused rather than returned. Missing Python 3 or POSIX descriptor support is
-an explicit unavailable capability. An optional absolute `subject_python` setting
-selects the interpreter. No external Python packages are needed.
+Use an existing subject tree with directories such as `research/`, `plans/` and
+`decisions/`. A document path is canonical relative Markdown, at most 200 UTF-8
+bytes and eight components including the filename. Empty components, traversal,
+backslashes, control characters, hidden components including `.git`, symlinks and
+nonregular files are refused. Every ancestor is opened without following symlinks
+and checked again before returning source or confirming publication. Direct child
+paths keep working. The operator creates directories; an exact file destination
+grant never implicitly creates a directory or grants other files under it.
+
+Limits are 16 KiB per file, 100 returned file names, 500 scanned entries across
+all traversed directories and 100 KiB per search, with a 5-second helper response
+timeout. Exact read grants prune ungranted subtrees. A tree exceeding depth or
+scan limits refuses explicitly; results are never silently incomplete. Retrieval
+may make a one-byte overflow probe; excess content is refused rather than returned.
+Missing Python 3 or POSIX descriptor support is an explicit unavailable capability.
+An optional absolute `subject_python` setting selects the interpreter. No external
+Python packages are needed.
 
 Examples of tool arguments:
 
 ```json
-{"action":"read","root_id":"travel-research","path":"preferences.md"}
-{"action":"search","root_id":"travel-research","query":"November"}
-{"action":"create","root_id":"travel-research","path":"november-comparison.md","content":"# Comparison\nSources and uncertainty...\n","request_id":"a-unique-operation-id"}
+{"action":"read","root_id":"travel","path":"preferences.md"}
+{"action":"search","root_id":"travel","query":"November"}
+{"action":"create","root_id":"travel","path":"plans/november-comparison.md","content":"# Comparison\nSources and uncertainty...\n","request_id":"a-unique-operation-id"}
 ```
 
 Create publishes a new file exclusively; existing files or symlinks refuse. A
@@ -71,9 +80,13 @@ the configured pathname no longer names that identity. Restore the original
 directory or deliberately configure a new root id; the service will not silently
 rebind an old id. A failed or interrupted mutation may be unconfirmed. Inspect its
 receipt and files; do not automatically retry the write under a new operation id.
-An admitted operation acts on its held original directory descriptor, so a rename
-can leave a file there without making it appear in the replacement directory.
+An admitted operation acts on its held original directory descriptors, so a root
+or ancestor rename can leave an unconfirmed file in the original directory without
+redirecting publication into a replacement. `directory_replaced` refuses a changed
+ancestor during an operation. Re-read after reconciling the layout; never claim an
+unconfirmed publication as a durable result.
 
-Pull, migrate and restart to install this surface. The feature starts with no
+Pull, migrate and restart to install the initial surface. For the recursive-layout
+update, pull and restart; no new migration is required. The feature starts with no
 roots and no new file authority. Document grants are explicit configuration, not
 a change to the held standing shell approval-policy decision.
