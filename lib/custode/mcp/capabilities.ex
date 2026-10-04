@@ -15,10 +15,10 @@ defmodule Custode.MCP.Capabilities do
   alias Snodo.Authorization.Component
   alias Snodo.Error, as: SnodoError
 
-  @memory_tools ~w(journal_read remember recall forget)
+  @memory_tools ~w(journal_read remember recall forget integration_list)
 
   @worker_tools ~w(
-    ask_operator
+    ask_operator integration_list
     peer_send peer_reply peer_list peer_read peer_ack
     list_routines agent_status start_agent prompt_agent await_agent
     agent_history approve_action reject_action run_job

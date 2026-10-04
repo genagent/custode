@@ -324,13 +324,29 @@ config :custode,
     }
   ]
 
-# Fleet-wide external MCP servers (#46): written into one shared config file
-# every mcp: true routine references, tool grants appended to every
-# allowlist. hexpm for the Elixir repos, cratesio for the Rust ones.
+# Shared read integrations (#782): exact tools captured for each eligible
+# admission. Broad prefixes and write-capable declarations are not admitted.
+# Approved Claude bypass continuations exclude external servers.
 config :custode,
   external_mcp_servers: [
-    %{name: "hexpm", type: :http, url: "https://hexpm-mcp.fly.dev/mcp"},
-    %{name: "cratesio", type: :http, url: "https://cratesio-mcp.fly.dev/"}
+    %{
+      name: "hexpm",
+      type: :http,
+      url: "https://hexpm-mcp.fly.dev/mcp",
+      read_only: true,
+      allowed: Enum.map(~w(info search docs readme dependencies), &("mcp__hexpm__" <> &1))
+    },
+    %{
+      name: "cratesio",
+      type: :http,
+      url: "https://cratesio-mcp.fly.dev/",
+      read_only: true,
+      allowed:
+        Enum.map(
+          ~w(get_crate_info search_crates get_crate_docs get_crate_readme get_dependencies),
+          &("mcp__cratesio__" <> &1)
+        )
+    }
   ]
 
 # The dashboard (localhost only, no auth -- same caveat as the MCP endpoint).

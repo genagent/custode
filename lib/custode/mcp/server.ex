@@ -62,6 +62,8 @@ defmodule Custode.MCP.Server do
     Custode.MCP.ReadTools.ExecutingTurns,
     Custode.MCP.ProjectProgressTools.Read,
     Custode.MCP.CurrentRunTools.Read,
+    Custode.MCP.IntegrationTools.List,
+    Custode.MCP.IntegrationTools.UpdateAccess,
     Custode.MCP.BootstrapTools.OperatorBootstrap,
     Custode.MCP.OperatorTools.Beat,
     Custode.MCP.OperatorTools.DropNote,
@@ -96,6 +98,7 @@ end
 defmodule Custode.MCP.MemoryServer do
   @moduledoc "Static native Snodo tool catalog for the memory endpoint."
   @tools [
+    Custode.MCP.IntegrationTools.List,
     Custode.MCP.NotebookTools.JournalRead,
     Custode.MCP.MemoryTools.Remember,
     Custode.MCP.MemoryTools.Recall,

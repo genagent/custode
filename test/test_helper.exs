@@ -23,6 +23,8 @@ for table <- [
       "conversation_arcs",
       "operator_messages",
       "helper_records",
+      "integration_overrides",
+      "integration_requests",
       "peer_messages",
       "disowned_prs",
       "asks",

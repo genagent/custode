@@ -89,8 +89,8 @@ Routine instructions, prompt files, the `prompt_agent` tool, and an agent's stru
 
 | Endpoint | Server | Tools | Resources | Templates | Prompts |
 | --- | --- | ---: | ---: | ---: | ---: |
-| `/mcp` | custode 0.3.0 | 86 | 4 | 13 | 0 |
-| `/mcp/memory` | memory 0.3.0 | 4 | 0 | 0 | 0 |
+| `/mcp` | custode 0.3.0 | 87 | 4 | 13 | 0 |
+| `/mcp/memory` | memory 0.3.0 | 5 | 0 | 0 | 0 |
 
 **`/mcp`**: protocol versions 2026-07-28, 2025-11-25, 2025-06-18; capabilities `{"resources":{},"tools":{}}`.
 
@@ -125,6 +125,8 @@ Categories are descriptive policy metadata, not an authorization guarantee.
 | [forget](#tool-forget) | self_write |
 | [inbox_list](#tool-inbox_list) | read |
 | [inbox_mark_filed](#tool-inbox_mark_filed) | self_write |
+| [integration_access_update](#tool-integration_access_update) | operator |
+| [integration_list](#tool-integration_list) | read |
 | [journal_append](#tool-journal_append) | self_write |
 | [journal_read](#tool-journal_read) | read |
 | [list_advisors](#tool-list_advisors) | read |
@@ -615,6 +617,46 @@ Mark an inbox note as already incorporated.
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Authenticated routines may file only their own notes. The operator may file ordinary notes for any identity, but only the verified recipient routine may file a peer projection.
 
 **Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. name is runtime-required, must be a filename rather than a path, and must exist in the routine inbox. Peer notes require the verified recipient routine before any file mutation, including when the caller is the operator; sender, unrelated routines, orphan projections and unverified callers are refused. The inbox path uses the authorization snapshot for the target's active execution revision, so a mid-turn roster workspace or working_dir edit does not redirect an old turn. Caller is expected to journal relevant content first. An existing FILED prefix makes ordinary retries a no-op; peer receipt retries remain idempotent. Unknown routine, invalid name and file errors become tool errors.
+
+### Tool: integration_access_update
+
+Enable or deny access to an existing integration with a revision check.
+
+**Endpoints:** /mcp. **Category:** operator.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| denied_agents | array | no |  | {"items":{"type":"string"}} |
+| enabled | boolean | no |  |  |
+| expected_revision | string | yes |  |  |
+| name | string | yes |  |  |
+| request_id | string | yes |  |  |
+
+**Result:** Integration name, updated revision and enabled state.
+
+**Side effects:** Atomically records a durable access override, idempotent request result and audit event in SQLite. New admissions capture the updated revision; existing captured files are unchanged. No endpoint installation, network probe or agent launch.
+
+**Access:** Authenticated human operator only, repeated in the shared application operation. Caretakers and workers cannot mutate this catalog.
+
+**Behavior, defaults and errors:** Requires name, expected_revision from integration_list and request_id. Provide enabled and/or denied_agents (exact agent ids, replacing the deny list). An identical successful request reuses its result; changed payload under that key conflicts. A stale revision or unknown integration is refused. This does not add endpoint/command editing or write-capability activation.
+
+### Tool: integration_list
+
+Inspect caller-filtered shared integration configuration.
+
+**Endpoints:** /mcp, /mcp/memory. **Category:** read.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| provider | string | no | Client whose transport support to inspect; default claude. | {"enum":["claude","codex"]} |
+
+**Result:** A custode.integration_catalog.v1 object with revision, observed_at and entries. Each entry distinguishes configured/disabled/worker_denied/audience_denied/unsupported or invalid definitions, exact allowed read tool names, transport, endpoint or launch, credential reference, and advertised context unknowns. Availability/authentication/client context support and invocation evidence remain explicitly unobserved rather than inferred from a configuration file.
+
+**Side effects:** Read only. Does not resolve credentials, write config files, connect to external servers or start agents.
+
+**Access:** Main endpoint: authenticated operator or configured routine. Memory endpoint: authenticated temporary agent. Shared read validates the identity and filters audience/worker access; denied endpoints and tool names are omitted.
+
+**Behavior, defaults and errors:** provider is claude (default) or codex. Codex SSE support is explicitly unavailable. Human-authored configuration must declare read_only=true and exact integration-qualified tool names; broad prefixes are not admitted. This is native client configuration, not a per-call Custode write-grant broker. Disable affects new admissions; existing native connections may survive until actually revoked.
 
 ### Tool: journal_append
 
@@ -1784,7 +1826,7 @@ Queue a bounded one-shot task with an inbox completion report.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. A routine is limited to its configured working directory or deterministic owned checkout and its own notebook inbox. Elevated routine jobs require a live approved continuation whose action class permits shell work. The human operator may use any existing directories and run elevated jobs directly. Any caller may lower max_turns; raising it above the default requires the operator or a routine with a live approved continuation whose action class permits shell work, the same rule as elevated jobs. That approved action's text must also name the cap with one stable max_turns=&lt;N&gt; marker, and a raised request must equal N exactly, so the approved gate detail names the resolved cap; a missing marker, more than one distinct marker, or a raised request other than N is refused.
 
-**Behavior, defaults and errors:** prompt and report_inbox are required; report_inbox and any workspace must already be directories. A routine that omits workspace uses its configured working directory. Lexical and physical path containment prevent traversal and symlink escapes. Path and elevation checks occur before a job is inserted. model and max_budget_usd default to configuration; tag defaults to 'job'. max_turns defaults to run_job_max_turns (15). A named max_turns must be a positive integer no greater than run_job_max_turns_ceiling (150); invalid, zero, over-ceiling or unauthorized values are tool errors and no job is inserted. The configured bounds are validated on every call, including an omitted max_turns: both must be positive integers and the default may not exceed the ceiling, or the call is a tool error and no job is inserted. Runs have a 200000 ms timeout, or 900000 ms when elevated. The completion note's custode-report header carries the resolved max_turns, and a failure note names the turn cap. Acceptance is asynchronous and not idempotent. Final report requires status and summary, with optional artifacts array and cost_note.
+**Behavior, defaults and errors:** prompt and report_inbox are required; report_inbox and any workspace must already be directories. A routine that omits workspace uses its configured working directory. Lexical and physical path containment prevent traversal and symlink escapes. Path and elevation checks occur before a job is inserted. model and max_budget_usd default to configuration; tag defaults to 'job'. max_turns defaults to run_job_max_turns (15). A named max_turns must be a positive integer no greater than run_job_max_turns_ceiling (150); invalid, zero, over-ceiling or unauthorized values are tool errors and no job is inserted. The configured bounds are validated on every call, including an omitted max_turns: both must be positive integers and the default may not exceed the ceiling, or the call is a tool error and no job is inserted. Runs have a 200000 ms timeout, or 900000 ms when elevated. The completion note's custode-report header carries the resolved max_turns, and a failure note names the turn cap. Acceptance is asynchronous and not idempotent. Final report requires status and summary, with optional artifacts array and cost_note. Eligible explicitly read-only external integrations use a captured immutable catalog config. Elevated permission-bypass jobs do not receive them. Ambient MCP configuration is excluded; captured revision/dispositions are retained in job args.
 
 ### Tool: set_next_beat
 
@@ -1880,7 +1922,7 @@ Start a persistent helper agent in an existing directory.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may start a new temporary identity or restart its recorded child, but cannot use a configured routine ID or take over another parent's child. The operator may override target scope. Temporary agents are refused at the endpoint and by the shared delegation check.
 
-**Behavior, defaults and errors:** agent_id and workspace are required. workspace must exist and is expanded to an absolute path. model defaults to configuration. The child has a 240000 ms turn timeout and elevated approved continuations. Retry is not idempotent: credentials/config are written before the start result. Errors include a nonexistent workspace and 'start failed'.
+**Behavior, defaults and errors:** agent_id and workspace are required. workspace must exist and is expanded to an absolute path. model defaults to configuration. The child has a 240000 ms turn timeout and elevated approved continuations. Retry is not idempotent: credentials/config are written before the start result. Errors include a nonexistent workspace and 'start failed'. Temporary helpers receive eligible captured external read integrations without fleet control or recursive delegation. The memory endpoint also offers caller-filtered integration_list.
 
 ### Tool: todo_add
 

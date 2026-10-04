@@ -87,3 +87,40 @@ for temporary readers. Later broker/account integration is independently scoped.
 Coordinate generated capabilities #577 through the same filtered discovery.
 
 Implementation follow-up: #782.
+
+## #782 implementation
+
+The shared application catalog now captures exact declared read tools for Claude
+routines, memory-scoped helpers, one-shot jobs and workflow nodes. Codex standing
+routines use native exact enabled_tools; SSE is explicitly unsupported. Invalid
+broad prefixes, undeclared read-only servers, denied audiences/workers, disabled
+entries and missing credentials produce no admission grants. Native provider
+permissions remain the enforcement boundary; an administrator must ensure that
+the declared read tools are actually reads. Claude bypass continuations receive
+only Custode's own identity configuration, with strict MCP configuration enabled.
+Approved normal continuations cannot replace the captured external catalog.
+
+integration_list exposes filtered configured facts, including unknown advertised
+schemas, unprobed authentication and availability. integration_access_update is a
+human-only revision-checked, request-idempotent enable/worker-deny operation over
+existing definitions. SQLite overrides survive restarts; no agent gains a new
+write or lifecycle capability. Endpoint/credential-reference registration and
+refresh probes remain outside this slice.
+
+Claude captures credentials in immutable private 0600 files inside a 0700
+directory. Rotation changes future captures, retaining old admitted files. Codex
+captures the credential reference and resolves its environment value at native
+process launch; it does not freeze the resolved secret across queue delay. Neither
+inspection nor job overrides contain a plaintext external secret. Disable affects
+new admissions and does not revoke a native connection already running. Urgent
+revocation requires revoking credentials or an enforcing broker.
+
+Local fake provider harnesses exercise the real Oban argument converters, load
+effective native configuration and invoke a fixture HTTP MCP tool through Snodo.
+This proves adapter invocation paths and exact allowlist generation without paid
+model runs; it does not claim native Claude/Codex runtime conformance or a central
+per-call broker. A newly advertised write tool remains outside the captured
+allowlist. Discovery does not contact endpoints or create capture files.
+
+Operating note: pull, migrate and restart. Existing custom broad-prefix entries
+must be replaced with exact qualified read tool names and read_only: true.
