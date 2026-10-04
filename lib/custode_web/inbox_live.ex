@@ -226,17 +226,20 @@ defmodule CustodeWeb.InboxLive do
             phx-submit="reply_send"
           >
             <input type="hidden" name="ask" value={ask_id(item)} />
+            <label for={"inbox-reply-#{ask_id(item)}"} class="text-sm font-medium">Reply to {item.subject}</label>
             <textarea
+              id={"inbox-reply-#{ask_id(item)}"}
               name="text"
               rows="3"
               autofocus
               class="textarea textarea-bordered w-full text-sm"
-              placeholder={"reply to #{item.subject}..."}
+              aria-describedby={"inbox-reply-help-#{ask_id(item)}"}
             ></textarea>
+            <p id={"inbox-reply-help-#{ask_id(item)}"} class="text-xs text-base-content/60">Sends your answer to this agent's question.</p>
             <div class="flex gap-2">
-              <button type="submit" class="btn btn-primary btn-xs">send</button>
+              <button type="submit" class="btn btn-primary btn-xs">Send</button>
               <button type="button" class="btn btn-ghost btn-xs" phx-click="reply_cancel">
-                cancel
+                Cancel
               </button>
               <.action
                 :for={action <- item.actions}

@@ -158,7 +158,7 @@ defmodule CustodeWeb.ConversationLiveTest do
     assert has_element?(
              view,
              ~s(main a[href="/agents/#{agent.id}/conversation"]),
-             "conversation"
+             "Conversation"
            )
   end
 

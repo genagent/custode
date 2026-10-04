@@ -248,7 +248,7 @@ defmodule CustodeWeb.ConversationLive do
           <p :if={@subject} class="ml-auto font-mono text-xs text-base-content/50">
             {execution_label(@subject)}
           </p>
-          <.link :if={@manager} navigate="/" class="link text-xs text-base-content/50">esc to close</.link>
+          <.link :if={@manager} navigate="/" class="link text-xs text-base-content/50">Close (Esc)</.link>
         </div>
       </header>
 
@@ -269,7 +269,7 @@ defmodule CustodeWeb.ConversationLive do
           <section :if={@manager && @agent_id == nil} id="manager-setup" class="rounded-box border border-base-300 bg-base-100 p-6">
             <h2 class="font-semibold">Set up your caretaker</h2>
             <p class="mt-2 text-sm text-base-content/60">There is no custode to talk to yet. The existing setup form lets you review a caretaker before creating it.</p>
-            <.link navigate="/console?new=caretaker" class="btn btn-primary btn-sm mt-4">set up caretaker</.link>
+            <.link navigate="/console?new=caretaker" class="btn btn-primary btn-sm mt-4">Set up caretaker</.link>
           </section>
           <button
             :if={@has_older}
@@ -278,7 +278,7 @@ defmodule CustodeWeb.ConversationLive do
             class="btn btn-ghost btn-sm self-center"
             phx-click="older"
           >
-            load older messages
+            Load older messages
           </button>
 
           <p

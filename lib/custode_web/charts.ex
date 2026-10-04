@@ -132,7 +132,7 @@ defmodule CustodeWeb.Charts do
 
     ~H"""
     <p class="mb-2 text-xs text-base-content/50">
-      median wait <b>{@median}m</b> over the last {length(@gates)} gates
+      median wait <b>{@median}m</b> over the last {length(@gates)} {if length(@gates) == 1, do: "gate", else: "gates"}
     </p>
     <div :for={gate <- @gates} class="mb-1 text-xs">
       <div class="flex items-baseline justify-between gap-2">

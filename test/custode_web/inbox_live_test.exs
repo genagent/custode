@@ -130,7 +130,16 @@ defmodule CustodeWeb.InboxLiveTest do
 
     # a question is a conversation, so the affordance is a reply box
     html = view |> element("button", "Answer") |> render_click()
-    assert html =~ "reply to #{routine.id}"
+    assert html =~ "Reply to #{routine.id}"
+    assert has_element?(view, ~s(label[for="inbox-reply-#{ask.id}"]), "Reply to #{routine.id}")
+
+    assert has_element?(
+             view,
+             ~s(textarea[name=text][aria-describedby="inbox-reply-help-#{ask.id}"])
+           )
+
+    assert has_element?(view, "#inbox-reply-help-#{ask.id}", "Sends your answer")
+    refute has_element?(view, "form[phx-submit=reply_send] textarea[placeholder]")
 
     view
     |> form("form[phx-submit=reply_send]", %{"ask" => ask.id, "text" => "staging"})

@@ -320,7 +320,7 @@ defmodule CustodeWeb.Console.Item do
             phx-click="drop_draft"
             phx-value-id={draft.id}
           >
-            drop
+            Drop
           </button>
           <button
             :if={draft.status == "dropped"}
@@ -328,11 +328,11 @@ defmodule CustodeWeb.Console.Item do
             phx-click="keep_draft"
             phx-value-id={draft.id}
           >
-            keep
+            Keep
           </button>
         </div>
         <details :if={draft.body not in [nil, ""]} class="mt-1">
-          <summary class="cursor-pointer text-xs text-base-content/50">evidence</summary>
+          <summary class="cursor-pointer text-xs text-base-content/50">Evidence</summary>
           <pre class="mt-1 max-h-60 overflow-y-auto whitespace-pre-wrap text-xs">{draft.body}</pre>
         </details>
       </li>
@@ -352,14 +352,17 @@ defmodule CustodeWeb.Console.Item do
       class="flex w-full flex-col gap-2"
     >
       <input type="hidden" name="op" value={@op.op} />
+      <label for={"reply-text-#{@op.op}-#{@message_gen}"} class="text-sm font-medium">Your answer</label>
       <textarea
+        id={"reply-text-#{@op.op}-#{@message_gen}"}
         name="text"
         rows="4"
         required
         class="textarea textarea-bordered w-full text-sm"
-        placeholder="your answer..."
+        aria-describedby={"reply-help-#{@op.op}-#{@message_gen}"}
       ></textarea>
-      <button type="submit" class="btn btn-primary btn-sm self-end">answer</button>
+      <p id={"reply-help-#{@op.op}-#{@message_gen}"} class="text-xs text-base-content/60">Send an answer to this question.</p>
+      <button type="submit" class="btn btn-primary btn-sm self-end">Answer</button>
     </form>
     <%!-- question-inline.png's "or just say": answers the agent said it would
           accept. The click sends an INDEX; the text is read back from the
@@ -391,14 +394,18 @@ defmodule CustodeWeb.Console.Item do
     >
       <input type="hidden" name="op" value="dismiss_ask" />
       <input type="hidden" name="ask_id" value={@op.args.ask} />
-      <input
-        name="reason"
-        type="text"
-        aria-label="Reason for dismissing this ask (optional)"
-        placeholder="reason (optional)"
-        class="input input-bordered input-sm min-w-0 flex-1"
-      />
-      <button type="submit" class="btn btn-ghost btn-sm">dismiss</button>
+      <div class="min-w-0 flex-1">
+        <label for={"dismiss-reason-#{@op.args.ask}-#{@message_gen}"} class="mb-1 block text-sm font-medium">Reason for dismissal (optional)</label>
+        <input
+          id={"dismiss-reason-#{@op.args.ask}-#{@message_gen}"}
+          name="reason"
+          type="text"
+          aria-describedby={"dismiss-help-#{@op.args.ask}-#{@message_gen}"}
+          class="input input-bordered input-sm w-full"
+        />
+        <p id={"dismiss-help-#{@op.args.ask}-#{@message_gen}"} class="mt-1 text-xs text-base-content/60">Dismisses the question without sending an answer.</p>
+      </div>
+      <button type="submit" class="btn btn-ghost btn-sm">Dismiss</button>
     </form>
     """
   end
@@ -416,7 +423,7 @@ defmodule CustodeWeb.Console.Item do
       phx-click="op"
       phx-value-op={@op.op}
     >
-      {String.downcase(@op.label)}
+      {@op.label}
     </button>
     """
   end

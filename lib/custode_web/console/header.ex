@@ -39,7 +39,7 @@ defmodule CustodeWeb.Console.Header do
           class="btn btn-ghost btn-xs"
           title="Search commands (Cmd/Ctrl+K)"
         >
-          commands <kbd class="kbd kbd-xs">⌘K</kbd>
+          Commands <kbd class="kbd kbd-xs">⌘K</kbd>
         </button>
         <%!-- Most of what the operator wants is a sentence to the caretaker,
               not a visit to one agent (#451). --%>
@@ -86,12 +86,12 @@ defmodule CustodeWeb.Console.Header do
             <ul class="menu dropdown-content z-10 mt-1 w-full max-w-[calc(100vw-2rem)] rounded-box bg-base-100 p-2 shadow-lg sm:w-72">
               <li>
                 <button phx-click="pause_all" data-confirm="Pause every running agent?" aria-describedby="pause-all-help">
-                  pause all
+                  Pause all
                 </button>
                 <p id="pause-all-help" class="text-xs text-base-content/60">Pause every running agent.</p>
               </li>
               <li>
-                <button phx-click="resume_all" aria-describedby="resume-all-help">resume all</button>
+                <button phx-click="resume_all" aria-describedby="resume-all-help">Resume all</button>
                 <p id="resume-all-help" class="text-xs text-base-content/60">Resume paused agents.</p>
               </li>
               <li>
@@ -100,7 +100,7 @@ defmodule CustodeWeb.Console.Header do
                   aria-describedby="drain-help"
                   data-confirm="Drain for a restart? Queues pause, executing turns finish, then the node STOPS and this page goes away."
                 >
-                  drain for restart
+                  Drain for restart
                 </button>
                 <p id="drain-help" class="text-xs text-base-content/60">
                   Pause queues, finish active turns, then stop Custode. This page goes away.

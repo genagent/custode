@@ -65,7 +65,7 @@ defmodule CustodeWeb.MetricsLive do
         <div class="stat">
           <div class="stat-title">median gate wait</div>
           <div class="stat-value text-2xl">{@gate_median}m</div>
-          <div class="stat-desc">last {length(@gates)} gates</div>
+          <div class="stat-desc">last {length(@gates)} {if length(@gates) == 1, do: "gate", else: "gates"}</div>
         </div>
       </div>
 
