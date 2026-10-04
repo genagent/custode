@@ -45,15 +45,26 @@ defmodule Custode.SubjectDocuments do
             if(includes?(grant.read_paths, definition[:current_plan]),
               do: definition[:current_plan]
             ),
-          limits: %{file_bytes: 16_384, files: 100, search_bytes: 100_000, path_components: 8},
+          limits: %{
+            file_bytes: 16_384,
+            files: 100,
+            search_bytes: 100_000,
+            path_components: 8,
+            git_object_bytes: 10_000_000,
+            git_expanded_object_bytes: 64_000,
+            git_expanded_store_bytes: 10_000_000,
+            git_object_entries: 5000,
+            git_history: 20,
+            git_diff_bytes: 32_000
+          },
           binding: "persistent_directory_identity",
+          git: "per_path_read_checked_at_invocation_plain_local_sha1_store",
           layout: "bounded_recursive_markdown",
           read_paths: grant.read_paths,
           create_paths: grant.create_paths,
           propose_paths: grant.propose_paths,
           proposal_destinations: grant.proposal_destinations,
-          unavailable:
-            ~w(directory_creation git_history git_diff automatic_apply automatic_commit)
+          unavailable: ~w(directory_creation automatic_apply automatic_commit)
         }
       end
 
@@ -65,10 +76,6 @@ defmodule Custode.SubjectDocuments do
       operation(actor, definition, access, params)
     end
   end
-
-  defp operation(_actor, _definition, _access, %{"action" => action})
-       when action in ~w(history diff),
-       do: {:error, "git_boundary_unavailable"}
 
   defp operation(actor, definition, _access, %{"action" => action} = params)
        when action in @mutation_actions,
@@ -213,8 +220,8 @@ defmodule Custode.SubjectDocuments do
     |> Map.put("schema_version", "custode.subject_document.v1")
     |> Map.put("root_id", definition.id)
     |> Map.put("subject", definition.subject)
-    |> Map.put("source", "current_working_bytes_uncommitted_edits_included")
-    |> Map.put("git_revision", nil)
+    |> Map.put_new("source", "current_working_bytes_uncommitted_edits_included")
+    |> Map.put_new("git_revision", nil)
     |> Map.put("read_is_not_write_authority", true)
   end
 

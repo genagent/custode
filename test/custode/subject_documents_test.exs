@@ -210,7 +210,7 @@ defmodule Custode.SubjectDocumentsTest do
     refute "link.md" in browse["paths"]
     refute "pipe.md" in browse["paths"]
 
-    assert {:error, "git_boundary_unavailable"} =
+    assert {:error, "git_repository_or_metadata_unavailable"} =
              call(@human, ctx, "history", %{"path" => "preferences.md"})
   end
 

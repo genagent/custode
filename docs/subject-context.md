@@ -66,8 +66,8 @@ Examples of tool arguments:
 Create publishes a new file exclusively; existing files or symlinks refuse. A
 proposal needs `path`, `destination`, `expected_revision`, `content` and a fresh
 `request_id`. It produces a separate Markdown diff with `applied=false`. It never
-changes the source, index or HEAD. History/diff through Git and automatic apply
-remain unavailable.
+changes the source, index or HEAD. Read-only Git history/diff use the bounded boundary described below; automatic
+apply remains unavailable.
 
 A revision is SHA256 of the bytes returned, independent of HEAD. External editors
 and uncommitted changes remain authoritative. A successful create retry returns
@@ -122,3 +122,64 @@ payload receipts still describe server emission only; native instruction layers,
 model receipt/use and hidden context are not inferred from these links.
 
 Pull and restart for this update. No new migration or prompt change is required.
+
+## Bounded Git history and current diff
+
+`history` and `diff` require the same current identity and exact document read
+grant as `read`. They accept only `root_id` and the existing canonical relative
+Markdown `path`; no caller-selected command, ref, Git directory or option is
+accepted. A read reference still grants no file creation, apply or commit.
+
+```json
+{"action":"history","root_id":"travel","path":"research/liguria.md"}
+{"action":"diff","root_id":"travel","path":"research/liguria.md"}
+```
+
+The current file's `revision` remains SHA256 of descriptor-read working bytes,
+including human uncommitted edits. `git_revision` separately identifies the pinned
+HEAD used for the read. History returns at most 20 path-specific commit ids and
+Unix commit timestamps, with `has_more` when bounded; these timestamps are commit
+metadata, not research/source dates. No author/email/account data or commit prose
+is returned. Renames are never followed into an old, ungranted path.
+
+Diff compares the pinned HEAD blob against current working bytes, including staged
+and unstaged source changes. `base_revision` is the historical content SHA256;
+`git_blob_id` is the distinct Git object id. A current untracked file has no base
+revision and is shown as an addition. An unborn repository has `git_revision=null`.
+The index, HEAD and unrelated files are never staged, updated or otherwise changed.
+The result is a read observation, not approval, repository acceptance or an edit.
+
+This first boundary supports small local SHA-1 repositories with a real `.git`
+directory directly under the configured subject root. It does not discover parent
+repositories. Linked worktrees/submodule gitfiles, common stores, alternates,
+SHA-256 refs, packed deltas, oversized stores and malformed metadata are explicitly
+unavailable. A read of ordinary current Markdown still works without Git. Missing
+Git returns `git_executable_unavailable`; absent/unsupported metadata returns a
+specific refusal rather than invented empty history. Ordinary software repositories
+with linked worktrees or large stores are outside this first context-root slice.
+
+Git never receives the source repository configuration, index, hooks, attributes
+or remote settings. No-follow descriptors copy a bounded object snapshot into a
+private temporary bare store; fixed local `log`, `ls-tree` and `cat-file` reads run
+there with a minimal environment. Loose objects and non-delta pack/index formats
+are validated before Git. The implementation uses the documented
+[Git pack format](https://git-scm.com/docs/pack-format), and refuses unsupported
+representations instead of reconstructing arbitrary deltas.
+
+Limits are 5,000 object-store entries, 10 MB copied object data, 64 KB per expanded
+object and 10 MB aggregate expanded data, 16 KiB returned historical blob, 32 KB
+diff, 64 KB per subprocess stdout and a 3.5-second operation deadline. CPU time is
+limited to two seconds per Git process and pack caches/windows are explicitly
+bounded. Where supported, the subprocess also gets a 256 MiB address-space limit.
+macOS does not enforce that limit here; `process_memory` explicitly reports expanded
+input/cache bounds without a hard RSS attestation. These reads are not an OS sandbox
+for an agent's other native tools.
+
+Root, Git directory/object identity, HEAD/ref and held source file/ancestor state
+are checked again before returning. Concurrent replacement or an in-place source
+change refuses instead of emitting a stale or redirected result. The snapshot is
+transient read machinery, not new source authority or retained notebook state.
+
+Pull and restart. No migration or prompt change is required for Git reads.
+Automatic assignment-to-destination provisioning remains manual configuration;
+existing workspaces and references do not authorize inferred grants.
