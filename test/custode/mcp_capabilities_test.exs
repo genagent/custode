@@ -110,7 +110,7 @@ defmodule Custode.MCPCapabilitiesTest do
     refute "answer_ask" in caretaker_tools
     refute "dismiss_ask" in caretaker_tools
 
-    assert tool_names(sub) == ~w(forget journal_read recall remember)
+    assert tool_names(sub) == ~w(forget integration_list journal_read recall remember)
   end
 
   test "discovery follows the durable contract of an active old-revision turn", ctx do

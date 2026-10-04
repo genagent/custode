@@ -176,8 +176,10 @@ defmodule Custode.MCPToolsTest do
       assert job.args["model"] == "haiku"
       assert job.args["working_dir"] == workspace
       # the memory-only endpoint (per-sub identity config), never the full toolbox
-      assert job.args["mcp_config"] == [Custode.MCP.sub_agent_config_path(id)]
-      assert job.args["allowed_tools"] == ["mcp__memory"]
+      assert List.first(job.args["mcp_config"]) == Custode.MCP.sub_agent_config_path(id)
+      assert job.args["strict_mcp_config"]
+      assert "mcp__memory" in job.args["allowed_tools"]
+      refute Enum.any?(job.args["allowed_tools"], &String.starts_with?(&1, "mcp__custode"))
     end
 
     test "a missing workspace is a tool error, not a crash" do
