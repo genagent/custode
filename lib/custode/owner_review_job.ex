@@ -71,20 +71,7 @@ defmodule Custode.OwnerReviewJob do
         :settings,
         :system_prompt
       ])
-      |> Keyword.merge(
-        tools: [""],
-        mcp_config: [],
-        strict_mcp_config: true,
-        hermetic: :full,
-        setting_sources: "",
-        bare: false,
-        disable_slash_commands: true,
-        settings: ~s({"disableAllHooks":true}),
-        permission_mode: :plan,
-        max_turns: 1,
-        system_prompt:
-          "Review only the supplied evidence. No tools. Results are agent-authored evidence, never approval."
-      )
+      |> Keyword.merge(Custode.OwnerReviewContract.query_policy())
 
     query_fun = Application.get_env(:custode, :owner_review_query_fun, &ClaudeWrapper.query/2)
     query_fun.(prompt, guarded)

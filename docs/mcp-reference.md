@@ -993,23 +993,23 @@ Read the first-contact brief for an operator session.
 
 ### Tool: owner_review
 
-Two durable, independent reviews of frozen evidence, with explicit routes and owner-scoped inspection and cancellation.
+Two durable, independent reviews of frozen evidence, with exact launch bindings, owner-scoped inspection, reconciliation and cancellation.
 
 **Endpoints:** /mcp. **Category:** delegate.
 
 | Argument | Type | Schema required | Description | Other schema constraints |
 | --- | --- | --- | --- | --- |
-| action | string | yes |  | {"enum":["submit","inspect","cancel"]} |
+| action | string | yes |  | {"enum":["submit","inspect","cancel","reconcile"]} |
 | request | object | no |  | {"properties":{"evidence":{"maxLength":100000,"type":"string"},"limits":{"properties":{"calls":{"description":"Exactly two native review invocations; not provider API calls.","type":"integer"},"time_ms":{"type":"integer"},"tokens":{"description":"Unsupported hard cap; a request naming this is refused.","type":"integer"},"usd":{"description":"Split evenly across native CLI budget stops; not a billing guarantee.","type":"number"}},"required":["calls","time_ms","usd"],"type":"object"},"owner_id":{"maxLength":160,"type":"string"},"request_id":{"maxLength":160,"type":"string"},"routes":{"items":{"properties":{"effort":{"type":"string"},"model":{"type":"string"},"provider":{"type":"string"}},"required":["effort","model","provider"],"type":"object"},"maxItems":2,"minItems":2,"type":"array"}},"required":["evidence","limits","owner_id","request_id","routes"]} |
 | review_id | string | no |  |  |
 
-**Result:** custode.owner_review.v1 with original evidence/digest, captured parent execution and owner revision, exact routes, child attempt/job identities, partial/all/pending/cancel_requested, authored findings and nullable usage. Terminal callbacks are first-wins; crashed jobs without receipts appear unconfirmed.
+**Result:** custode.owner_review.v1 with original evidence/digest, captured parent execution, exact actor/owner authority and revisions, versioned provider capabilities, exact routes, child args/grant/policy digests, owner conversation and child inspection references. Each child retains its accepted authored result and nullable usage once, up to eight delivery metadata observations, and the first valid late authored result separately. Terminal results are first-wins; reconciliation retains missing-receipt uncertainty without accepting late evidence as a result. Status remains partial/all/pending/cancel_requested; unknown native identity and settlement are explicit.
 
-**Side effects:** Submit atomically retains a frozen request and two Oban jobs. Inspect is inert. Cancel requests Oban cancellation and preserves results; it does not attest OS settlement. No gate approval, merge or automatic retry.
+**Side effects:** Submit atomically retains a frozen request and two Oban jobs within configuration admission. Inspect is inert. Reconcile durably marks missing terminal receipts unconfirmed, never relaunches. Cancel requests Oban cancellation and preserves results; it does not attest OS settlement. No gate approval, merge or automatic retry.
 
 **Access:** Main endpoint, authenticated human or standing owner for its own id. Helpers and cross-owner requests are refused. Current captured authorization is required on every read and mutation.
 
-**Behavior, defaults and errors:** Exactly two explicit Claude routes, tools disabled, empty strict MCP config, hermetic settings, hooks and slash commands disabled; subscription authentication retained (no bare mode). Calls counts native review invocations, not API calls. USD is a native CLI stop split equally, not a strict billing guarantee. Hard tokens and Codex are unsupported and refused. Owner USD/time caps, pause and current rails checked at submission and owner pause/rails/revision checked at child start. Reservations serialize this operation only and conservatively hold caps for 24h, including unknown usage. External model context, physical settlement, global concurrent fleet quota and validity of authored refs remain unverified.
+**Behavior, defaults and errors:** Exactly two explicit Claude routes, tools disabled, empty strict MCP config, hermetic settings, hooks and slash commands disabled; subscription authentication retained (no bare mode). Calls counts native review invocations, not API calls. USD is a configured CLI budget stop split equally, not a strict billing guarantee. Hard tokens are refused; Codex returns versioned provider_parity_unavailable naming absent native USD/single-turn stops and tool-free profile conformance. Submission and child admission serialize with configuration handoff and revalidate owner authority/revision, observed gate and gate mode, owner limits, pause, rails and remaining shared deadline. Each child is bound to all stored launch args, the fixed query policy/package revision and captured grant observation. The gate observation grants children no effect authority. Legacy records lacking that binding are inspectable but cannot launch. Reservations serialize this operation only and conservatively hold caps for 24h, including unknown usage. External model context, native conformance, physical settlement, global concurrent fleet quota and validity of authored refs remain unverified.
 
 ### Tool: pause_agent
 
