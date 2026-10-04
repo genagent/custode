@@ -252,7 +252,9 @@ defmodule CustodeWeb.ConsoleLiveTest do
 
     {:ok, view, html} = live(conn, "/console")
     assert html =~ "while you were away"
-    assert html =~ "Fleet digest"
+    assert has_element?(view, "#away-digest-panel[data-digest-panel]", "Fleet digest")
+    refute has_element?(view, "#away-digest > pre")
+    refute has_element?(view, "#away-digest-panel details[open]")
 
     view |> element("#away-digest button", "dismiss") |> render_click()
     refute render(view) =~ "while you were away"
