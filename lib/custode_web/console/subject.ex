@@ -243,7 +243,7 @@ defmodule CustodeWeb.Console.Subject do
       <h3 class="mb-2 text-xs font-bold uppercase tracking-widest text-base-content/50">
         open work
         <span class="font-normal normal-case tracking-normal">
-          {@prs.total} pull request(s), {@issues.total} issue(s)
+          {count_label(@prs.total, "pull request")}, {count_label(@issues.total, "issue")}
         </span>
       </h3>
       <div class="rounded-lg bg-base-100 p-3 shadow-sm">
@@ -854,4 +854,7 @@ defmodule CustodeWeb.Console.Subject do
 
   defp signal_frame(%Signal{group: :needs_you}), do: "border-warning/50 bg-warning/5"
   defp signal_frame(%Signal{}), do: "border-base-300/60"
+
+  defp count_label(1, noun), do: "1 #{noun}"
+  defp count_label(count, noun), do: "#{count} #{noun}s"
 end
