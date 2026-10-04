@@ -228,7 +228,7 @@ defmodule Custode.Operator.ActionsTest do
 
       :ok =
         finish_agent_turn(
-          turn.meta,
+          turn,
           structured_result(
             %{
               "directive" => "request_permission",

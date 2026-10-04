@@ -31,10 +31,10 @@ defmodule Custode.MixProject do
 
   defp deps do
     [
-      wrapper_dep(:oban_claude, "~> 0.9.1", "OBAN_CLAUDE_PATH"),
-      wrapper_dep(:oban_codex, "~> 0.6.0", "OBAN_CODEX_PATH"),
+      wrapper_dep(:oban_claude, "~> 0.10.0", "OBAN_CLAUDE_PATH"),
+      wrapper_dep(:oban_codex, "~> 0.7.0", "OBAN_CODEX_PATH"),
       # Terminate the CLI process group on turn timeout or worker death.
-      {:forcola, "~> 0.3.3"},
+      {:forcola, "~> 0.6.0"},
       {:oban, "~> 2.23"},
       {:ecto_sqlite3, "~> 0.17"},
       {:jason, "~> 1.4"},

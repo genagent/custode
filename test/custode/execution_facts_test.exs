@@ -32,6 +32,7 @@ defmodule Custode.ExecutionFactsTest do
              @captured
              |> Map.put(:lifecycle_state, "running")
              |> Map.put(:process_revision, "applied-revision")
+             |> Map.put(:provider_session_id, nil)
              |> Map.put(:revision_mismatch, true)
 
     assert facts.applied == %{
@@ -166,6 +167,47 @@ defmodule Custode.ExecutionFactsTest do
 
     assert %{active: nil, turns: [^legacy]} =
              ExecutionFacts.project(@desired, unidentified, [legacy])
+  end
+
+  test "an early session belongs only to the exact captured execution attempt" do
+    captured = Map.merge(@captured, %{arc_id: "operator:arc", attempt: 2, snoozed: 1})
+
+    live =
+      process(:running, "applied-revision")
+      |> update_in([:continuation], fn continuation ->
+        Map.merge(continuation, %{
+          arc_id: "operator:arc",
+          job_id: 41,
+          job_attempt: 2,
+          job_snoozed: 1,
+          session_id: "early-native"
+        })
+      end)
+
+    assert %{active: %{provider_session_id: "early-native", state: "executing"}} =
+             ExecutionFacts.project(@desired, live, [captured])
+
+    for {key, value} <- [
+          job_id: 42,
+          job_attempt: 3,
+          job_snoozed: 2,
+          arc_id: "operator:other",
+          session_id: nil
+        ] do
+      stale = put_in(live, [:continuation, key], value)
+
+      assert %{active: %{provider_session_id: nil}} =
+               ExecutionFacts.project(@desired, stale, [captured])
+    end
+
+    for key <- [:agent_generation, :agent_turn_id] do
+      stale = put_in(live, [:continuation, key], "older")
+      assert %{active: nil} = ExecutionFacts.project(@desired, stale, [captured])
+    end
+
+    # A prior completed turn cannot attach a handle to an idle process.
+    assert %{active: nil} =
+             ExecutionFacts.project(@desired, %{live | state: :idle}, [captured])
   end
 
   defp process(state, revision) do
