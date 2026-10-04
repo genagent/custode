@@ -1161,11 +1161,12 @@ defmodule CustodeWeb.ConsoleLiveTest do
   } do
     value = String.duplicate("bounded context stays readable. ", 20)
     Custode.Memory.remember(sleeper.id, "long-context", value)
+    memory = Enum.find(Custode.Memory.recall(sleeper.id), &(&1.key == "long-context"))
 
     {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
     view |> element("button[phx-value-tab=notebook]") |> render_click()
 
-    disclosure = view |> element("[data-foldable-text]") |> render()
+    disclosure = view |> element("#memory-#{memory.id}[data-foldable-text]") |> render()
     assert disclosure =~ "Show more"
     assert disclosure =~ "Show less"
     assert disclosure =~ value
