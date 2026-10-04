@@ -1,6 +1,6 @@
 # 014: Interval reports
 
-Status: implementation plan for #770.
+Status: implementation contract for #770.
 
 Domain owners publish short reports for the human and caretaker. The report
 is optional and separate from execution facts, direct answers and directives.
@@ -41,4 +41,5 @@ provider transcript. Conversation presentation is the next slice, #771.
 
 ## Operating note
 
-This changes priv/prompts guidance. Pull and restart the fleet to apply it.
+This adds a feed ingestion-key migration and changes priv/prompts guidance.
+Drain and stop the fleet, pull, migrate and restart to apply it.

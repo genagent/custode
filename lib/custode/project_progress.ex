@@ -46,6 +46,7 @@ defmodule Custode.ProjectProgress do
          execution: execution(routine),
          continuity: ConversationArcs.read_model(routine.id),
          pending_wake: InboxWakes.read_model(routine.id),
+         reports: Custode.IntervalReports.recent(routine.id, options[:limit]),
          attention: Fleet.signals_by_id() |> Map.get(routine.id) |> signal_facts(),
          blocker: routine.id |> Fleet.blocking_signal() |> signal_facts(),
          conversation:

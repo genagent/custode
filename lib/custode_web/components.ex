@@ -271,6 +271,7 @@ defmodule CustodeWeb.Components do
           </span>
         </div>
         <.foldable_text text={feed_text(@entry)} class="text-base-content/80" />
+        <.interval_report report={@entry["report"]} error={@entry["report_error"]} />
         <.prompt_answer entry={@entry} />
         <.peer_exchange_link entry={@entry} />
         <button
@@ -784,11 +785,32 @@ defmodule CustodeWeb.Components do
           </span>
         </div>
         <.foldable_text text={feed_text(@entry)} class="text-base-content/80" />
+        <.interval_report report={@entry["report"]} error={@entry["report_error"]} />
         <.prompt_answer entry={@entry} />
         <.peer_exchange_link entry={@entry} />
       </div>
       <hr />
     </li>
+    """
+  end
+
+  attr(:report, :map, default: nil)
+  attr(:error, :string, default: nil)
+
+  @doc "A brief authored report, never an execution or approval verdict."
+  def interval_report(assigns) do
+    assigns = assign(assigns, :sections, Custode.IntervalReports.sections())
+
+    ~H"""
+    <div :if={@report} class="mt-2 space-y-2 text-sm" data-interval-report>
+      <section :for={{key, label} <- @sections} :if={@report[key] != nil && @report[key] != []}>
+        <h4 class="font-semibold text-base-content">{label}</h4>
+        <ul class="list-disc space-y-1 pl-5">
+          <li :for={text <- @report[key]}><.markdown text={text} /></li>
+        </ul>
+      </section>
+    </div>
+    <p :if={@error} class="mt-2 text-xs text-warning" role="status">Report unavailable: {@error}</p>
     """
   end
 

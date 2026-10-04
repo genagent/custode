@@ -94,6 +94,22 @@ defmodule Custode.ProjectProgressTest do
     assert :offline = Agents.live_provider(ctx.claude.id)
   end
 
+  test "caretaker reads owner reports without acquiring helper or sibling authority", ctx do
+    Custode.Feed.record(%{
+      event: "turn",
+      agent: ctx.claude.id,
+      summary: "Owner update.",
+      report: %{"done" => ["Evaluated helper findings."]}
+    })
+
+    Custode.Feed.record(%{event: "turn", agent: ctx.codex.id, summary: "Other project."})
+    assert {:ok, progress} = ProjectProgress.read(ctx.actor, ctx.claude.id)
+    assert [%{"agent" => agent, "summary" => "Owner update."}] = progress.reports.entries
+    assert agent == ctx.claude.id
+    assert progress.reports.evidence == "agent_authored"
+    assert {:error, _} = ProjectProgress.read(identity(ctx.codex.id), ctx.claude.id)
+  end
+
   test "older pages retain their cutoff while a fresh read sees the newest continuation", ctx do
     oldest = message!(ctx.claude.id, "original question")
     middle = message!(ctx.claude.id, "middle exchange")

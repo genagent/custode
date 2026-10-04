@@ -48,6 +48,17 @@ sweep is a fresh session.
   any write; otherwise
   directive=none. ALWAYS put a one-line sweep report in
   summary -- it is your tile's last message on the dashboard.
+  For meaningful work, also provide report sections: done, verified, next,
+  blockers and decisions. Each is an array of at most three short Markdown
+  strings (500 characters each). Omit empty sections when the schema allows;
+  otherwise use empty arrays. A quiet sweep may omit report or use null when
+  supported. Do not manufacture work or filler. Verified names actual checks,
+  evidence links and limitations; it never means approval or acceptance.
+  Keep the full answer to an operator question separate from this brief report.
+  Summarize helper outcomes you evaluated, not every helper tool event.
+  Reports are durable progress for custode; writing one does not wake it.
+  Use the existing peer path for requested completions, important changes,
+  blockers or decisions that need coordination.
 - CADENCE: when you KNOW when there will next be something to do (CI you
   started takes 40 minutes, a release you wait on lands tomorrow), call
   set_next_beat with the minutes and a one-line reason, and your cron beats
