@@ -42,6 +42,8 @@ defmodule CustodeWeb.SuggestionsLiveTest do
     {:ok, _view, html} = live(conn, "/suggestions")
 
     # all five appear (the rail would cap at 3; this page does not)
+    assert html =~ "5 standing suggestions"
+
     for n <- 1..5 do
       assert html =~ "routine-#{n}"
       assert html =~ "full evidence sentence number #{n}"
@@ -66,9 +68,10 @@ defmodule CustodeWeb.SuggestionsLiveTest do
 
     {:ok, view, html} = live(conn, "/suggestions")
     assert html =~ id
+    assert html =~ "1 standing suggestion from"
 
     view
-    |> element("button[phx-value-agent='#{id}'][phx-value-field='model']", "apply")
+    |> element("button[phx-value-agent='#{id}'][phx-value-field='model']", "Apply")
     |> render_click()
 
     assert Custode.Routine.get(id).model == "haiku"
@@ -78,5 +81,6 @@ defmodule CustodeWeb.SuggestionsLiveTest do
   test "an empty board explains itself", %{conn: conn} do
     {:ok, _view, html} = live(conn, "/suggestions")
     assert html =~ "no standing suggestions"
+    assert html =~ "0 standing suggestions"
   end
 end

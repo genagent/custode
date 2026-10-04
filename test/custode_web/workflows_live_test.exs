@@ -131,7 +131,7 @@ defmodule CustodeWeb.WorkflowsLiveTest do
 
     assert html =~ "budget_paused"
     assert html =~ "what it did not do"
-    assert html =~ "raise the rail and resume"
+    assert html =~ "Raise the rail and resume"
 
     resumed = view |> element("button[phx-click='resume_run']") |> render_click()
     assert resumed =~ "running"

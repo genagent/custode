@@ -68,7 +68,7 @@ defmodule CustodeWeb.SuggestionsLive do
     ~H"""
     <.page attention_signals={@attention_signals} fleet_today={@fleet_today} active={:suggestions}>
       <p class="mb-4 text-sm text-base-content/50">
-        {length(@suggestions)} standing suggestion(s) from the fleet's advisors. Applying one
+        {length(@suggestions)} standing {if length(@suggestions) == 1, do: "suggestion", else: "suggestions"} from the fleet's advisors. Applying one
         writes through the roster and takes effect at the next sweep; the advisor stops re-proposing it.
       </p>
 
@@ -98,7 +98,7 @@ defmodule CustodeWeb.SuggestionsLive do
               phx-value-field={s["field"]}
               phx-value-proposed={s["proposed"]}
             >
-              apply
+              Apply
             </button>
             <button
               :if={!dismissing?(@dismissing, s)}
@@ -107,7 +107,7 @@ defmodule CustodeWeb.SuggestionsLive do
               phx-value-agent={s["agent"]}
               phx-value-field={s["field"]}
             >
-              dismiss
+              Dismiss
             </button>
           </p>
 
@@ -115,7 +115,7 @@ defmodule CustodeWeb.SuggestionsLive do
                 (#303): three buttons per suggestion would make the page read
                 as a form, and the common path is still one click. --%>
           <div :if={dismissing?(@dismissing, s)} class="mt-2 flex flex-wrap items-center gap-2">
-            <span class="text-xs text-base-content/50">why?</span>
+            <span class="text-xs text-base-content/50">Reason for dismissal</span>
             <button
               :for={{reason, label} <- Custode.Suggestions.dismiss_reasons()}
               class="btn btn-outline btn-xs"
@@ -125,9 +125,9 @@ defmodule CustodeWeb.SuggestionsLive do
               phx-value-proposed={s["proposed"]}
               phx-value-reason={reason}
             >
-              {label}
+              {String.capitalize(label)}
             </button>
-            <button class="btn btn-ghost btn-xs" phx-click="dismiss_cancel">cancel</button>
+            <button class="btn btn-ghost btn-xs" phx-click="dismiss_cancel">Cancel</button>
           </div>
           <p :if={s["evidence"]} class="mt-2 text-sm text-base-content/60">{s["evidence"]}</p>
         </div>

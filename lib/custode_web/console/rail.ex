@@ -32,19 +32,22 @@ defmodule CustodeWeb.Console.Rail do
     ~H"""
     <nav id="subject-rail" class="bg-base-100 p-4" aria-label="subjects" phx-hook="SubjectRail">
       <form id="rail-filter" phx-change="filter" phx-submit="filter" class="mb-4">
+        <label for="rail-filter-query" class="mb-1 block text-sm font-medium">Filter subjects</label>
         <input
+          id="rail-filter-query"
           type="search"
           name="q"
           value={@filter}
-          placeholder="filter: name, repo, tag, state"
+          aria-describedby="rail-filter-help"
           autocomplete="off"
           phx-debounce="150"
           class="input input-bordered input-sm w-full"
         />
+        <p id="rail-filter-help" class="mt-1 text-xs text-base-content/60">Filter by name, repository, tag, or state.</p>
       </form>
 
       <p :if={@groups == []} class="text-sm text-base-content/50">nothing matches</p>
-      <button class="btn btn-outline btn-xs mb-4 w-full" phx-click="new_open">new agent</button>
+      <button class="btn btn-outline btn-xs mb-4 w-full" phx-click="new_open">New agent</button>
 
       <section :for={{group, signals} <- @groups} class="mb-5">
         <div

@@ -9,6 +9,19 @@ defmodule CustodeWeb.ChartsTest do
   @quiet "2026-10-02"
   @today "2026-10-03"
 
+  test "gate counts read naturally for zero, one and many" do
+    gate = %{agent: "project", detail: "Review", minutes: 5, status: "resolved"}
+
+    for {count, noun} <- [{0, "gates"}, {1, "gate"}, {2, "gates"}] do
+      html =
+        render_component(&Charts.gate_latency/1, gates: List.duplicate(gate, count), median: 5)
+
+      text = html |> LazyHTML.from_fragment() |> LazyHTML.query("p") |> LazyHTML.text()
+      assert text =~ "last #{count} #{noun}"
+      refute text =~ "1 gates"
+    end
+  end
+
   test "daily stacks share the supplied maximum and the legend and table keep its series order" do
     document = render_chart(chart())
 

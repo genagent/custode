@@ -198,7 +198,7 @@ defmodule CustodeWeb.Components do
           phx-click="restore_message"
           phx-value-text={restore_text(@entry)}
         >
-          edit and send again
+          Edit and send again
         </button>
       </div>
     </div>
@@ -436,7 +436,7 @@ defmodule CustodeWeb.Components do
   attr(:action, :string, required: true)
   attr(:size, :string, default: "btn-xs")
   # what the button says: "cancel" reads better beside a plan's "do it"
-  attr(:label, :string, default: "reject")
+  attr(:label, :string, default: "Reject")
 
   @doc """
   Reject, with a reason (#438). One disclosure shared by every surface that
@@ -459,18 +459,24 @@ defmodule CustodeWeb.Components do
       >
         <input type="hidden" name="agent" value={@agent} />
         <input type="hidden" name="action" value={@action} />
+        <label for={"reject-reason-#{@action}"} class="text-xs font-medium">Reason for rejection</label>
         <textarea
+          id={"reject-reason-#{@action}"}
           name="reason"
           rows="3"
           required
+          aria-describedby={"reject-reason-help-#{@action}"}
           class="textarea textarea-bordered w-full text-sm"
-          placeholder="why? the agent reads this, and may make it a rule"
         ></textarea>
-        <label class="flex cursor-pointer items-center gap-2 text-xs text-base-content/70">
-          <input type="checkbox" name="one_off" value="true" class="checkbox checkbox-xs" />
-          one-off: this proposal only, not a standing rule
+        <p id={"reject-reason-help-#{@action}"} class="text-xs text-base-content/70">
+          The agent reads this reason and may make it a standing rule.
+        </p>
+        <label for={"reject-once-#{@action}"} class="flex cursor-pointer items-center gap-2 text-xs text-base-content/70">
+          <input id={"reject-once-#{@action}"} type="checkbox" name="one_off" value="true" aria-describedby={"reject-once-help-#{@action}"} class="checkbox checkbox-xs" />
+          This proposal only
         </label>
-        <button type="submit" class="btn btn-error btn-xs self-end">reject</button>
+        <p id={"reject-once-help-#{@action}"} class="text-xs text-base-content/70">Do not make a standing rule.</p>
+        <button type="submit" class="btn btn-error btn-xs self-end">Reject</button>
       </form>
     </details>
     """
@@ -503,12 +509,24 @@ defmodule CustodeWeb.Components do
   def theme_toggle(assigns) do
     ~H"""
     <button
+      id="theme-toggle"
       type="button"
-      class="btn btn-ghost btn-xs font-mono"
-      title="switch between the paper and ink themes"
-      onclick="(()=>{const r=document.documentElement;const t=r.dataset.theme==='ink'?'paper':'ink';r.dataset.theme=t;localStorage.setItem('custode-theme',t);})()"
+      data-theme-toggle
+      phx-hook="ThemeToggle"
+      class="btn btn-ghost btn-xs btn-square"
+      aria-label="Dark theme"
+      aria-pressed="false"
+      aria-describedby="theme-current"
+      title="Current theme: Paper (light). Switch to Ink (dark)."
     >
-      theme
+      <svg data-theme-icon="paper" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" class="size-4">
+        <circle cx="12" cy="12" r="4"></circle>
+        <path stroke-linecap="round" d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path>
+      </svg>
+      <svg data-theme-icon="ink" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" class="size-4">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M20.8 13.2A9 9 0 0 1 10.8 3.2a9 9 0 1 0 10 10Z"></path>
+      </svg>
+      <span id="theme-current" data-theme-current class="sr-only">Current theme: Paper (light).</span>
     </button>
     """
   end
@@ -989,7 +1007,7 @@ defmodule CustodeWeb.Components do
           phx-value-field={@suggestion["field"]}
           phx-value-proposed={@suggestion["proposed"]}
         >
-          apply
+          Apply
         </button>
         <button
           class="btn btn-ghost btn-xs"
@@ -998,7 +1016,7 @@ defmodule CustodeWeb.Components do
           phx-value-field={@suggestion["field"]}
           phx-value-proposed={@suggestion["proposed"]}
         >
-          dismiss
+          Dismiss
         </button>
       </p>
       <.foldable_text

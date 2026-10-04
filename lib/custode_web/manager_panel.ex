@@ -60,12 +60,12 @@ defmodule CustodeWeb.ManagerPanel do
       <.markdown text={@plan.detail || "(no detail recorded)"} />
       <div class="mt-3 flex flex-wrap items-start gap-3">
         <button :if={not @recovery} type="button" class="btn btn-primary btn-sm" phx-click="do_it" phx-value-action={@plan.action_id}>
-          do it
+          Approve plan
         </button>
         <button :if={@recovery} type="button" class="btn btn-primary btn-sm" phx-click="recover_plan" phx-value-action={@plan.action_id}>
           Requeue for re-evaluation
         </button>
-        <.reject_form :if={not @recovery} agent={@caretaker} action={@plan.action_id} label="cancel" />
+        <.reject_form :if={not @recovery} agent={@caretaker} action={@plan.action_id} label="Cancel" />
         <span class="self-center text-xs text-base-content/50">raised <.ago at={@plan.inserted_at} /></span>
       </div>
     </section>
@@ -113,7 +113,7 @@ defmodule CustodeWeb.ManagerPanel do
   def prompts(assigns) do
     ~H"""
     <details id="manager-prompts" class="text-sm">
-      <summary class="cursor-pointer text-base-content/60">also try</summary>
+      <summary class="cursor-pointer text-base-content/60">Also try</summary>
       <button :for={sentence <- @sentences} type="button" phx-click="try" phx-value-sentence={sentence} class="mt-2 block w-full rounded-box bg-base-200 px-3 py-2 text-left hover:bg-base-300">
         {sentence}
       </button>

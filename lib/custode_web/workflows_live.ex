@@ -150,7 +150,7 @@ defmodule CustodeWeb.WorkflowsLive do
             phx-click="reject_launch"
             phx-value-id={@proposal["proposal"]}
           >
-            reject
+            Reject
           </button>
           <button
             class="btn btn-success btn-sm"
@@ -158,7 +158,7 @@ defmodule CustodeWeb.WorkflowsLive do
             phx-value-id={@proposal["proposal"]}
             data-confirm={"Launch #{@proposal["workflow"]} on #{@proposal["repo"]}?"}
           >
-            approve
+            Approve
           </button>
         </div>
       </div>
@@ -228,7 +228,7 @@ defmodule CustodeWeb.WorkflowsLive do
             phx-value-id={@entry.run.run_id}
             data-confirm="Double this run's rail and let it go on?"
           >
-            raise the rail and resume
+            Raise the rail and resume
           </button>
         </div>
       </div>
@@ -236,7 +236,9 @@ defmodule CustodeWeb.WorkflowsLive do
     """
   end
 
-  defp basis(%{"basis" => "observed", "sample" => sample}), do: "observed over #{sample} turns"
+  defp basis(%{"basis" => "observed", "sample" => sample}),
+    do: "observed over #{sample} #{if sample == 1, do: "turn", else: "turns"}"
+
   defp basis(%{"basis" => "default"}), do: "the per-node cap (no history)"
   defp basis(_estimate), do: ""
 
