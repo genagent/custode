@@ -183,6 +183,11 @@ defmodule CustodeWeb.Layouts do
                 }
               },
 
+              DisclosureState: {
+                mounted() { this.wasOpen = this.el.open; },
+                beforeUpdate() { this.wasOpen = this.el.open; },
+                updated() { this.el.open = this.wasOpen; }
+              },
               ConversationScroll: {
                 mounted() {
                   this.previousHeight = 0;

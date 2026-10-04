@@ -87,11 +87,13 @@ defmodule CustodeWeb.ManagerPanel do
 
   attr(:context, :map, required: true)
 
+  attr(:include_said, :boolean, default: true)
+
   def activity(assigns) do
     ~H"""
     <details id="manager-context" class="rounded-box border border-base-300 bg-base-100 p-4">
-      <summary class="cursor-pointer text-sm font-semibold">Caretaker reports and activity</summary>
-      <section :if={@context.said != []} id="custode-said" class="mt-4">
+      <summary class="cursor-pointer text-sm font-semibold">Caretaker activity</summary>
+      <section :if={@include_said && @context.said != []} id="custode-said" class="mt-4">
         <h2 class="mb-2 text-xs font-semibold text-base-content/60">custode said</h2>
         <div class="flex flex-col gap-2">
           <.feed_entry :for={entry <- @context.said} entry={entry} show_agent={false} />
