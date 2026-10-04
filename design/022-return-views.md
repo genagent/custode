@@ -111,3 +111,26 @@ research or instruction delivery proof. Routine HTTP identities still lack a
 turn-scoped credential; observed execution snapshots cannot bind a tool call to
 one native turn. Native hidden context, model receipt/use and physical settlement
 stay unknown. Native acceptance and finer span/hunk review keep #785 open.
+
+## Adapter-entry receipts (#785)
+
+New Claude/Codex run:start observations retain exact inline prompt, system prompt
+and appended system prompt arguments, with layer byte counts/hashes and the
+durable job, generation, turn, arc, configuration and attempt identity. The
+callback arguments must match that exact executing job. This is adapter entry,
+not native receipt or proof of model use. File-based instructions, hidden native
+context and document-tool-to-turn attribution remain unknown. No historical
+backfill uses mutable current files or archived jobs.
+
+The operator-only shared return_context reads and /contexts/:agent_id detail
+keep at most128KiB per payload and the newest100 payloads per agent for seven
+days. Metadata remains historical; expired, retired or over-budget payloads are
+explicit. Context inspection is folded and never resumes work. A running fleet
+needs the generated migration and restart to collect future adapter entries.
+Native tool-read binding and finer span/hunk feedback keep #785 open.
+
+Run-context payload expiry is logical at seven days, with physical cleanup on
+capture, read or list. Inactive records are not subject to a timed erasure job.
+Same-execution replay also binds the captured execution identity, including its
+configuration revision and correlation, so changed metadata cannot retarget an
+earlier receipt.
