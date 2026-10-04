@@ -33,6 +33,7 @@ for table <- [
       "subject_root_bindings",
       "subject_document_operations",
       "context_receipts",
+      "run_context_receipts",
       "document_feedback",
       "peer_messages",
       "disowned_prs",

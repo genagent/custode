@@ -1,7 +1,7 @@
 defmodule Custode.ReturnViews do
   @moduledoc "Current documents, historical production and context receipts remain distinct facts."
   import Ecto.Query, only: [from: 2]
-  alias Custode.{ContextReceipts, Repo, ReturnNavigation, SubjectDocuments}
+  alias Custode.{ContextReceipts, Repo, ReturnNavigation, RunContextReceipts, SubjectDocuments}
   alias Snodo.Schema.Validator.Basic
 
   defmodule Feedback do
@@ -72,6 +72,14 @@ defmodule Custode.ReturnViews do
 
   defp perform(actor, %{"action" => "contexts", "root_id" => root}),
     do: ContextReceipts.list(actor, root)
+
+  defp perform(actor, %{"action" => "run_context", "receipt_id" => id}),
+    do: RunContextReceipts.read(actor, id)
+
+  defp perform(actor, %{"action" => "run_contexts", "agent_id" => id}) do
+    with {:ok, records} <- RunContextReceipts.list(actor, id),
+         do: {:ok, %{"receipts" => records, "opening_resumes_work" => false}}
+  end
 
   defp perform(actor, %{"action" => "feedback"} = params) do
     required = ~w(root_id path expected_revision start_line end_line comment request_id)
@@ -175,8 +183,12 @@ defmodule Custode.ReturnViews do
       "additionalProperties" => false,
       "required" => ["action"],
       "properties" => %{
-        "action" => %{"type" => "string", "enum" => ~w(outputs detail contexts context feedback)},
+        "action" => %{
+          "type" => "string",
+          "enum" => ~w(outputs detail contexts context feedback run_contexts run_context)
+        },
         "root_id" => text.(160),
+        "agent_id" => text.(160),
         "path" => text.(200),
         "receipt_id" => text.(160),
         "request_id" => text.(160),

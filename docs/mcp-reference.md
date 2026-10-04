@@ -1893,7 +1893,8 @@ Read current subject outputs and exact retained tool payloads, or store revision
 
 | Argument | Type | Schema required | Description | Other schema constraints |
 | --- | --- | --- | --- | --- |
-| action | string | yes |  | {"enum":["outputs","detail","contexts","context","feedback"]} |
+| action | string | yes |  | {"enum":["outputs","detail","contexts","context","feedback","run_contexts","run_context"]} |
+| agent_id | string | no |  | {"maxLength":160,"minLength":1} |
 | comment | string | no |  | {"maxLength":2000,"minLength":1} |
 | end_line | integer | no |  | {"minimum":1} |
 | expected_revision | string | no |  | {"maxLength":64,"minLength":1} |
@@ -1905,11 +1906,11 @@ Read current subject outputs and exact retained tool payloads, or store revision
 
 **Result:** Current working revisions separate from historical receipts and self-authored reports. Detail includes guarded current named-plan revision/link, up to three immutable publication/recorded-owner references and exact retained helper epochs. Exact bounded tool text retained up to seven days and 100 payloads per actor; emission is server-side only.
 
-**Side effects:** Reads current files and historical production/context. Feedback stores comments only. Opening never starts or resumes an agent; no source apply, repository approval or merge. New publication receipts capture the exact host-owned helper epoch without native run attribution.
+**Side effects:** Reads current files and historical production/context. Feedback stores comments only. Opening never starts or resumes an agent; no source apply, repository approval or merge. New publication receipts capture the exact host-owned helper epoch without native run attribution. Operator run-context reads and lists lazily clear expired stored inline payloads while retaining their metadata.
 
-**Access:** Current configured root/path read grants; private receipt payloads are the requesting actor or human only. Feedback uses current revision and exact line span. Named current_plan references use current exact document read grants. Private retained helper excerpts require the human or the currently authorized original parent; other root readers get explicit private state.
+**Access:** Current configured root/path read grants; private receipt payloads are the requesting actor or human only. Feedback uses current revision and exact line span. Named current_plan references use current exact document read grants. Private retained helper excerpts require the human or the currently authorized original parent; other root readers get explicit private state. Adapter-entry run receipts require an authenticated operator, including the agent's own receipts.
 
-**Behavior, defaults and errors:** Changed source refuses feedback with reread/reanchor. Prepared response is not server emission. Expired payload stays expired; native hidden context and model receipt are unknown. Reused helper ids never retarget historical epochs; missing legacy epochs stay unavailable. Private helper previews use at most three message receipts/two authored reports, 1000 UTF-8 bytes per excerpt and 64KiB navigation. Current plan references are not grants or inferred execution plans. Parent requests and authored reports are not delivery/acceptance proof.
+**Behavior, defaults and errors:** Changed source refuses feedback with reread/reanchor. Prepared response is not server emission. Expired payload stays expired; native hidden context and model receipt are unknown. Reused helper ids never retarget historical epochs; missing legacy epochs stay unavailable. Private helper previews use at most three message receipts/two authored reports, 1000 UTF-8 bytes per excerpt and 64KiB navigation. Current plan references are not grants or inferred execution plans. Parent requests and authored reports are not delivery/acceptance proof. Operator-only run_contexts (agent_id) and run_context (receipt_id) inspect exact inline prompt/instruction arguments (including Custode-serialized Codex developer_instructions, with arbitrary credential-bearing overrides omitted) captured at the actual released adapter run:start seam, bound to the matching executing job/generation/turn/configuration/attempt. Adapter entry is not native provider receipt or model use. File-based/native hidden context and turn attribution of MCP reads remain unknown. Payloads retain at most128KiB each, newest100 per agent, with seven-day logical expiry and lazy physical cleanup on capture/read/list; expired, retired or over-budget content never substitutes current bytes. Reads never resume work; earlier turns are not backfilled. Duplicate same-execution captures preserve the first snapshot; conflicting payloads or execution identities refuse.
 
 ### Tool: route_preview
 
