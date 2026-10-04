@@ -34,6 +34,7 @@ defmodule Custode.ProjectProgress do
     with :ok <- authorize(actor),
          {:ok, routine} <- configured_routine(routine_id),
          {:ok, options} <- options(opts),
+         {:ok, current_run} <- Custode.CurrentRun.read(actor, routine.id),
          {:ok, conversation} <- OperatorMessages.conversation(routine.id, options) do
       {:ok,
        %{
@@ -44,6 +45,7 @@ defmodule Custode.ProjectProgress do
            conversation: "/agents/#{URI.encode(routine.id, &URI.char_unreserved?/1)}/conversation"
          },
          execution: execution(routine),
+         current_run: current_run,
          continuity: ConversationArcs.read_model(routine.id),
          pending_wake: InboxWakes.read_model(routine.id),
          reports: Custode.IntervalReports.recent(routine.id, options[:limit]),

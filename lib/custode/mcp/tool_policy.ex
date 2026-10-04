@@ -109,6 +109,7 @@ defmodule Custode.MCP.ToolPolicy do
     "executing_turns" => :read,
     "operator_bootstrap" => :read,
     "project_progress" => :read,
+    "current_run" => :read,
     # the operator tier
     "beat" => :operator,
     "drop_note" => :operator,
