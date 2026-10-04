@@ -44,8 +44,11 @@ defmodule Custode.Verification.RunnerTest do
     assert byte_size(result["stdout_tail"]) <= 128
   end
 
+  @tag timeout: 15_000
   test "timeout kills descendants in the owned process tree" do
     fixture = process_tree_fixture(:wait)
+    test_pid = self()
+    timeout_check = make_ref()
 
     spec =
       spec!(
@@ -54,15 +57,31 @@ defmodule Custode.Verification.RunnerTest do
         timeout_ms: 100
       )
 
-    task = Task.async(fn -> Runner.run(spec, File.cwd!()) end)
+    task =
+      Task.async(fn ->
+        Runner.run(spec, File.cwd!(),
+          cancelled?: fn ->
+            send(test_pid, {:checking_timeout, timeout_check})
+
+            receive do
+              ^timeout_check -> false
+            end
+          end
+        )
+      end)
+
+    # Hold the runner at its existing cancellation check until the fixture is
+    # ready. Return false after the command deadline so its real timeout path
+    # performs cleanup; a slow CI startup cannot kill the tree before it exists.
+    assert_receive {:checking_timeout, ^timeout_check}, 5_000
     assert eventually(fn -> File.exists?(fixture.ready) end)
-
-    :erlang.suspend_process(task.pid)
-    Process.sleep(150)
     assert File.exists?(fixture.side_effect)
-    :erlang.resume_process(task.pid)
+    assert Enum.all?(fixture_pids(fixture), &process_alive?/1)
+    Process.send_after(task.pid, timeout_check, spec.timeout_ms)
 
-    assert {:ok, result} = Task.await(task, 5_000)
+    # ExUnit bounds the test separately from the command's 100 ms deadline.
+    # The 30-second descendant sentinel cannot expire within this test budget.
+    assert {:ok, result} = Task.await(task, :infinity)
     assert result["status"] == "timeout"
     assert_processes_dead(fixture)
   end
