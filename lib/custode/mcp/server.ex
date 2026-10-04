@@ -61,6 +61,7 @@ defmodule Custode.MCP.Server do
     Custode.MCP.ReadTools.Workflows,
     Custode.MCP.ReadTools.ExecutingTurns,
     Custode.MCP.ProjectProgressTools.Read,
+    Custode.MCP.CurrentRunTools.Read,
     Custode.MCP.BootstrapTools.OperatorBootstrap,
     Custode.MCP.OperatorTools.Beat,
     Custode.MCP.OperatorTools.DropNote,

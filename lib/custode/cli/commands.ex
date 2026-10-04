@@ -652,3 +652,30 @@ defmodule Custode.CLI.Back do
     end)
   end
 end
+
+defmodule Custode.CLI.CurrentRun do
+  @moduledoc false
+  use Cheer.Command
+
+  command "current-run" do
+    about("Inspect actual execution, queued input and retained helper receipts.")
+    argument(:routine_id, required: true, help: "Configured routine id.")
+    option(:json, type: :boolean, help: "Raw JSON.")
+  end
+
+  @impl Cheer.Command
+  def run(args, _raw) do
+    Custode.CLI.emit(
+      "current_run",
+      %{routine_id: args[:routine_id]},
+      args[:json] == true,
+      fn facts ->
+        input = facts["input"]
+
+        "#{facts["routine_id"]}: #{input["queued"]} queued, #{input["admitting"]} admitting, " <>
+          "#{input["executing"]} executing; #{length(facts["helpers"]["entries"])} retained helpers\n" <>
+          "Independently observed at #{facts["observed_at"]}; use --json for exact receipts."
+      end
+    )
+  end
+end

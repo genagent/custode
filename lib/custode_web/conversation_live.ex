@@ -56,6 +56,7 @@ defmodule CustodeWeb.ConversationLive do
        manager: false,
        manager_context: nil,
        subject: nil,
+       current_run: nil,
        signal: nil,
        pending_exchange_id: nil,
        exchanges: [],
@@ -273,6 +274,9 @@ defmodule CustodeWeb.ConversationLive do
         <ManagerPanel.plan plan={@manager_context.plan} caretaker={@agent_id} recovery={@manager_context.recovery} />
       </div>
 
+      <div :if={@current_run} class="shrink-0 px-4 py-2 sm:px-6">
+        <div class="mx-auto max-w-5xl"><CustodeWeb.CurrentRunView.strip facts={@current_run} /></div>
+      </div>
       <main
         id="conversation-scroll"
         phx-hook="ConversationScroll"
@@ -515,7 +519,7 @@ defmodule CustodeWeb.ConversationLive do
 
   defp refresh_subject(%{assigns: %{agent_id: nil}} = socket) do
     socket
-    |> assign(subject: nil, signal: nil, pending_exchange_id: nil)
+    |> assign(subject: nil, current_run: nil, signal: nil, pending_exchange_id: nil)
     |> refresh_context()
   end
 
@@ -543,10 +547,18 @@ defmodule CustodeWeb.ConversationLive do
 
     assign(socket,
       subject: subject,
+      current_run: current_run(subject.id),
       signal: signal,
       pending_exchange_id: pending_exchange_id
     )
     |> refresh_context()
+  end
+
+  defp current_run(id) do
+    case Custode.CurrentRun.read(%{kind: :operator, id: "local-ui"}, id) do
+      {:ok, facts} -> facts
+      {:error, _reason} -> nil
+    end
   end
 
   defp refresh_context(socket) do

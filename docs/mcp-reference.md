@@ -89,7 +89,7 @@ Routine instructions, prompt files, the `prompt_agent` tool, and an agent's stru
 
 | Endpoint | Server | Tools | Resources | Templates | Prompts |
 | --- | --- | ---: | ---: | ---: | ---: |
-| `/mcp` | custode 0.3.0 | 85 | 4 | 13 | 0 |
+| `/mcp` | custode 0.3.0 | 86 | 4 | 13 | 0 |
 | `/mcp/memory` | memory 0.3.0 | 4 | 0 | 0 | 0 |
 
 **`/mcp`**: protocol versions 2026-07-28, 2025-11-25, 2025-06-18; capabilities `{"resources":{},"tools":{}}`.
@@ -114,6 +114,7 @@ Categories are descriptive policy metadata, not an authorization guarantee.
 | [await_agent](#tool-await_agent) | read |
 | [beat](#tool-beat) | operator |
 | [compact_journal](#tool-compact_journal) | self_write |
+| [current_run](#tool-current_run) | read |
 | [define_profile](#tool-define_profile) | roster_write |
 | [digest](#tool-digest) | read |
 | [dismiss_ask](#tool-dismiss_ask) | operator |
@@ -384,6 +385,24 @@ Replace the live journal view with an authored summary.
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Authenticated agents may write only their own records; the operator may name any identity.
 
 **Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. summary is runtime-required despite optional discovery schema. This is an authored distillation, not automatic summarization. Repeating it creates another summary and compacts the previous summary too. Render destinations use the authorization snapshot for the target's active execution revision, so a mid-turn roster workspace or working_dir edit does not redirect an old turn.
+
+### Tool: current_run
+
+Read actual execution, all pending input counts and retained helper result references.
+
+**Endpoints:** /mcp. **Category:** read.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| routine_id | string | no | required configured project routine id |  |
+
+**Result:** A custode.current_run.v1 object containing independently observed execution.facts (active/applied/desired), input counts and up to 20 exact public receipts, retained helper records with result receipt references, explicit unavailable plan reference/revision, and unsupported control reasons. Queued and admitting counts query all matching direct operator inputs, independently of the receipt limit. Registry removal never proves subprocess settlement. Helper results remain agent-authored evidence. Reading neither resumes work nor restores removed ownership.
+
+**Side effects:** Read only. Does not prompt or wake a routine, acknowledge messages, mark conversations read, dispatch work, change schedules or resolve gates.
+
+**Access:** Main endpoint only. Verified human operator or configured caretaker, checked again by the shared service against the captured execution role. Specialists, temporary agents, missing identities and unknown routine callers are refused. This read does not widen sibling control or peer-message visibility.
+
+**Behavior, defaults and errors:** Sources carry observed_at; this is not one atomic snapshot. Pending direct operator input and parent-owned helper receipts remain separate; unrelated delegated input and peer bodies are omitted. Use await_agent with the exact result reference to read an accepted helper message outcome, even after spawn cleanup. Current plan remains unavailable until an identified document revision exists. No queue edit/remove or recursive cancellation operation is added. Helper receipt bodies remain restricted to the original parent or the human; other caretakers see references and restricted availability. Completed initial turns are retained feed evidence, subject to normal feed retention.
 
 ### Tool: define_profile
 
@@ -1201,7 +1220,7 @@ Read current project evidence and full operator constraints for coordination.
 | limit | integer | no | exchanges per page, 1..20; default 5 |  |
 | routine_id | string | no | required configured project routine id |  |
 
-**Result:** A custode.project_progress.v1 object with schema_version, observed_at, project (routine_id, repo, role), links.conversation, execution, continuity, pending_wake, attention, blocker and conversation. Execution distinguishes desired configuration, applied configuration and actual turns. Its active.provider_session_id is an optional early native handle correlated to the exact execution attempt, not proof of completion. Continuity retains an accepted handle through failure so a compatible later turn can resume; explicit provider session rejection clears the rejected handle while preserving a different fork target or replacement source. Attention is the routine's ranked current signal, including pause, budget and repository-check states; blocker is the narrower blocking question or approval. Both expose facts without resolving actions. Host, workflow and repository-wide infrastructure signals remain on list_attention. Conversation includes page (latest or older), snapshot_id, full exchanges with durable message IDs, before and has_older. The watermark covers conversation rows; execution, attention and blocker facts are independently observed at read time. Reports contains recent retained turn entries, latest_at, evidence=agent_authored and a scope note. Entries carry recorded owner, timestamp, optional typed report or validation error, and available provider/job/attempt/origin/correlation/configuration/turn identity. Legacy turns retain summary-only evidence. Reports are independent current reads even on older conversation pages; they never imply verified acceptance.
+**Result:** A custode.project_progress.v1 object with schema_version, observed_at, project (routine_id, repo, role), links.conversation, execution, continuity, pending_wake, attention, blocker and conversation. Execution distinguishes desired configuration, applied configuration and actual turns. Its active.provider_session_id is an optional early native handle correlated to the exact execution attempt, not proof of completion. Continuity retains an accepted handle through failure so a compatible later turn can resume; explicit provider session rejection clears the rejected handle while preserving a different fork target or replacement source. Attention is the routine's ranked current signal, including pause, budget and repository-check states; blocker is the narrower blocking question or approval. Both expose facts without resolving actions. Host, workflow and repository-wide infrastructure signals remain on list_attention. Conversation includes page (latest or older), snapshot_id, full exchanges with durable message IDs, before and has_older. The watermark covers conversation rows; execution, attention and blocker facts are independently observed at read time. Reports contains recent retained turn entries, latest_at, evidence=agent_authored and a scope note. Entries carry recorded owner, timestamp, optional typed report or validation error, and available provider/job/attempt/origin/correlation/configuration/turn identity. Legacy turns retain summary-only evidence. Reports are independent current reads even on older conversation pages; they never imply verified acceptance. current_run embeds the independently observed custode.current_run.v1 projection.
 
 **Side effects:** Read only. Does not prompt or wake a routine, acknowledge messages, mark conversations read, dispatch work, change schedules or resolve gates.
 

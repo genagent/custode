@@ -40,6 +40,14 @@ defmodule CustodeWeb.Console.Subject do
         ExecutionFacts.read(assigns.subject.id, routine: assigns.subject.routine)
       )
 
+    current_run =
+      case Custode.CurrentRun.read(%{kind: :operator, id: "local-ui"}, assigns.subject.id) do
+        {:ok, facts} -> facts
+        {:error, _reason} -> nil
+      end
+
+    assigns = assign(assigns, :current_run, current_run)
+
     ~H"""
     <div class="flex flex-wrap items-center gap-3">
       <h1 class="min-w-0 break-words font-mono text-2xl font-bold">{@subject.id}</h1>
@@ -84,6 +92,7 @@ defmodule CustodeWeb.Console.Subject do
         @execution.desired
       )}
     </p>
+    <CustodeWeb.CurrentRunView.strip facts={@current_run} />
     <p :if={@subject.conversation.current} class="mt-1 font-mono text-xs text-base-content/50">
       {conversation_facts(@subject.conversation.current)}
     </p>

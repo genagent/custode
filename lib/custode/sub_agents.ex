@@ -42,24 +42,36 @@ defmodule Custode.SubAgents do
 
   @doc "Record a spawn: the row is the sub-agent's spec (upsert on agent_id)."
   def record_spawn!(agent_id, parent, attrs) do
-    Repo.insert!(
-      %Row{
-        agent_id: agent_id,
-        parent: parent,
-        workspace: Map.fetch!(attrs, :workspace),
-        system_prompt: Map.get(attrs, :system_prompt),
-        model: Map.get(attrs, :model),
-        spawned_at: DateTime.utc_now()
-      },
-      on_conflict: {:replace, [:parent, :workspace, :system_prompt, :model, :spawned_at]},
-      conflict_target: :agent_id
-    )
+    Repo.transaction(fn ->
+      Custode.HelperRecords.spawn!(agent_id, parent)
+
+      Repo.insert!(
+        %Row{
+          agent_id: agent_id,
+          parent: parent,
+          workspace: Map.fetch!(attrs, :workspace),
+          system_prompt: Map.get(attrs, :system_prompt),
+          model: Map.get(attrs, :model),
+          spawned_at: DateTime.utc_now()
+        },
+        on_conflict: {:replace, [:parent, :workspace, :system_prompt, :model, :spawned_at]},
+        conflict_target: :agent_id
+      )
+    end)
 
     :ok
   end
 
   @doc "Remove a sub-agent's row (it ended and nobody needs the spec)."
-  def forget(agent_id), do: Repo.delete_all(from(r in Row, where: r.agent_id == ^agent_id))
+  def forget(agent_id) do
+    {:ok, removed} =
+      Repo.transaction(fn ->
+        Custode.HelperRecords.remove!(agent_id)
+        Repo.delete_all(from(r in Row, where: r.agent_id == ^agent_id))
+      end)
+
+    removed
+  end
 
   @doc "The recorded rows, oldest first (test/introspection surface)."
   def all, do: Repo.all(from(r in Row, order_by: r.spawned_at))

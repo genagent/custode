@@ -81,6 +81,33 @@ defmodule CustodeWeb.ConversationLiveTest do
     assert has_element?(view, "#message-0 button[type=submit]", "Start and send")
   end
 
+  test "current input survives a new view and refreshes without starting the agent", %{
+    agent: agent,
+    conn: conn
+  } do
+    {:ok, first, _html} = live(conn, "/agents/#{agent.id}/conversation")
+    assert has_element?(first, "#current-run-facts summary", "0 queued")
+
+    {:ok, receipt, :created} =
+      OperatorMessages.submit(
+        agent.id,
+        "retain this pending constraint",
+        [actor: %{kind: :operator, id: "operator"}, idempotency_key: uid("queue-ui")],
+        fn _message -> {:ok, :queued} end
+      )
+
+    send(first.pid, {:status_changed, agent.id})
+    assert has_element?(first, "#current-run-facts summary", "1 queued")
+    assert has_element?(first, "#current-run-facts", receipt.message_id)
+    {:ok, reloaded, _html} = live(build_conn(), "/agents/#{agent.id}/conversation")
+    assert has_element?(reloaded, "#current-run-facts summary", "1 queued")
+    assert :offline = Custode.Agents.live_provider(agent.id)
+    assert {:ok, _claimed} = OperatorMessages.claim_delivery(receipt)
+    send(reloaded.pid, {:status_changed, agent.id})
+    assert has_element?(reloaded, "#current-run-facts summary", "0 queued · 1 admitting")
+    assert :offline = Custode.Agents.live_provider(agent.id)
+  end
+
   test "one durable exchange renders its question, continued reply, and markdown result together",
        %{
          agent: agent,

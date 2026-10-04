@@ -91,3 +91,27 @@ explicit physical cancellation remains subject to the existing reliability
 contract rather than an invented Stop button. No prompt, grant or runtime change.
 
 Implementation follow-up: #780.
+
+## Implemented current-run projection
+
+#780 adds `current_run`, `mix custode current-run ID --json`, and one shared
+compact renderer in both operator views. ProjectProgress embeds the same
+projection. Observations are labeled independent; no composite atomic snapshot
+is claimed. Pending direct-operator counts cover the full set, with the oldest
+20 exact receipt references. Private delegated input remains outside that set.
+
+Helper spawn/removal navigation is retained in helper_records independently of
+SubAgents' active ownership registry. Results use the original durable receipt,
+including later accepted completion; removed helpers never regain control
+authority. Reusing an id creates a separate record. Receipt bodies remain
+restricted to the original parent or human; other caretakers see metadata and
+restricted result availability. Initial helper turns retain bounded authored
+feed evidence subject to normal feed retention. Native process settlement
+remains unknown. Plan reference/revision remains explicitly unavailable until
+a document is identified; the roster prompt and approval gate are not plans.
+
+The fixtures cover a queue larger than a page, admitting versus executing and
+waiting, view reload, helper cleanup, late receipt completion, helper id reuse,
+reader denial and MCP/project projection parity. Existing ExecutionFacts
+fixtures continue to exercise changed defaults and stale execution identity.
+These are controlled tests, not live-fleet delivery proof.
