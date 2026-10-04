@@ -44,6 +44,7 @@ defmodule Custode.Feed do
       field(:event, :string)
       field(:entry, :string)
       field(:at, :utc_datetime_usec)
+      field(:ingestion_key, :string)
     end
   end
 
@@ -279,6 +280,32 @@ defmodule Custode.Feed do
   desktop notification.
   """
   def record(entry, opts \\ []) when is_map(entry), do: write(entry, opts)
+
+  @doc "Record one correlated completion exactly once, publishing only a new row."
+  def record_turn(entry, nil), do: record(entry)
+
+  def record_turn(entry, ingestion_key) when is_binary(ingestion_key) do
+    at = DateTime.utc_now()
+    decoded = entry |> Map.put(:at, DateTime.to_iso8601(at)) |> Jason.encode!() |> Jason.decode!()
+
+    {inserted, _rows} =
+      Repo.insert_all(
+        Entry,
+        [
+          %{
+            agent: decoded["agent"],
+            event: "turn",
+            entry: Jason.encode!(decoded),
+            at: at,
+            ingestion_key: ingestion_key
+          }
+        ],
+        on_conflict: :nothing
+      )
+
+    if inserted == 1, do: publish_committed(decoded)
+    :ok
+  end
 
   @prompt_cap 2_000
 

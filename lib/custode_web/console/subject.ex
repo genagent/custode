@@ -519,7 +519,18 @@ defmodule CustodeWeb.Console.Subject do
   # turn. The process history remains raw below them, but a routine edit must
   # never relabel a live or completed turn with its new defaults.
   defp turns_tab(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :reports,
+        Enum.filter(assigns.subject.feed, &(&1["report"] || &1["report_error"]))
+      )
+
     ~H"""
+    <section :if={@reports != []} id="interval-reports" class="mb-4 space-y-2">
+      <h3 class="text-xs font-semibold text-base-content/60">Recent interval reports</h3>
+      <.feed_entry :for={entry <- @reports} entry={entry} show_agent={false} />
+    </section>
     <p :if={@subject.history == [] and @execution.turns == []} class="text-sm text-base-content/50">
       no machine log: the agent has not run since the node started
     </p>

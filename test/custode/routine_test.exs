@@ -532,6 +532,8 @@ defmodule Custode.RoutineTest do
       assert schema["properties"]["issues_touched"]["items"] == %{"type" => "integer"}
       # a sweep that touched nothing must still validate
       assert schema["required"] == ["directive", "summary"]
+      assert schema["properties"]["report"]["additionalProperties"] == false
+      assert schema["properties"]["report"]["properties"]["done"]["maxItems"] == 3
 
       # the class of a gated action (#451): an enum of the one list, and
       # optional, so a turn that omits it is still valid output
@@ -656,6 +658,11 @@ defmodule Custode.RoutineTest do
         assert %{"anyOf" => choices} = codex_schema["properties"][field]
         assert %{"type" => "null"} in choices
       end
+
+      [report_schema, %{"type" => "null"}] = codex_schema["properties"]["report"]["anyOf"]
+
+      assert MapSet.new(report_schema["required"]) ==
+               MapSet.new(Map.keys(report_schema["properties"]))
 
       refute Map.has_key?(codex_schema["properties"]["directive"], "anyOf")
       refute Map.has_key?(codex_schema["properties"]["summary"], "anyOf")

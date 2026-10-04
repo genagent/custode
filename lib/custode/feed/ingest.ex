@@ -81,7 +81,8 @@ defmodule Custode.Feed.Ingest do
     |> put_repo(out)
     |> put_wake_reason(meta)
     |> put_hydration(meta)
-    |> Custode.Feed.record()
+    |> Custode.IntervalReports.decorate(out, provider, meta)
+    |> Custode.Feed.record_turn(Custode.IntervalReports.ingestion_key(provider, meta))
   end
 
   defp do_handle_event([provider, :run, :exception], _measurements, meta, _config)

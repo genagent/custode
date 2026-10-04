@@ -929,6 +929,12 @@ defmodule Custode.Routine do
         {key, property} when key in [:directive, :summary] ->
           {key, property}
 
+        {:report, property} ->
+          property =
+            Map.put(property, :required, Enum.map(Map.keys(property.properties), &to_string/1))
+
+          {:report, %{anyOf: [property, %{type: "null"}]}}
+
         {key, property} ->
           {key, %{anyOf: [property, %{type: "null"}]}}
       end)
@@ -950,6 +956,7 @@ defmodule Custode.Routine do
       properties: %{
         directive: %{type: "string", enum: ["none", "ask_user", "request_permission"]},
         summary: %{type: "string", description: "one-line sweep report"},
+        report: Custode.IntervalReports.schema(),
         question: %{type: "string", description: "set when directive=ask_user"},
         action: %{type: "string", description: "set when directive=request_permission"},
         # Optional on purpose (#451): a turn that omits it is still valid
