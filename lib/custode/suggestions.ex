@@ -45,7 +45,8 @@ defmodule Custode.Suggestions do
         {suggestion["agent"], suggestion["field"], suggestion["proposed"]}
 
       # already decided, or the parameter is resting after a recent change
-      {agent, field, proposed} in resolved or {agent, field} in resting
+      {agent, field, proposed} in resolved or {agent, field} in resting or
+        suggestion["advisor"] == "model"
     end)
     |> Enum.uniq_by(&{&1["advisor"], &1["agent"], &1["field"]})
   end

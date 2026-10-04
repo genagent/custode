@@ -89,7 +89,7 @@ Routine instructions, prompt files, the `prompt_agent` tool, and an agent's stru
 
 | Endpoint | Server | Tools | Resources | Templates | Prompts |
 | --- | --- | ---: | ---: | ---: | ---: |
-| `/mcp` | custode 0.3.0 | 88 | 4 | 13 | 0 |
+| `/mcp` | custode 0.3.0 | 89 | 4 | 13 | 0 |
 | `/mcp/memory` | memory 0.3.0 | 5 | 0 | 0 | 0 |
 
 **`/mcp`**: protocol versions 2026-07-28, 2025-11-25, 2025-06-18; capabilities `{"resources":{},"tools":{}}`.
@@ -182,6 +182,7 @@ Categories are descriptive policy metadata, not an authorization guarantee.
 | [repo_view_issue](#tool-repo_view_issue) | read |
 | [repo_view_pr](#tool-repo_view_pr) | read |
 | [resume_agent](#tool-resume_agent) | operator |
+| [route_preview](#tool-route_preview) | read |
 | [run_job](#tool-run_job) | delegate |
 | [set_next_beat](#tool-set_next_beat) | self_write |
 | [set_panel](#tool-set_panel) | self_write |
@@ -1802,6 +1803,25 @@ Resume a paused agent.
 **Access:** Main endpoint capability: operator or caretaker routine. The shared operator action repeats that boundary, so specialists, temporary agents and alternate clients are refused before agent state changes.
 
 **Behavior, defaults and errors:** agent_id is required. Failed transitions return 'resume failed'. It does not increase budget settings or undo effects from before the pause.
+
+### Tool: route_preview
+
+Preview exact configured task routes without changing execution.
+
+**Endpoints:** /mcp. **Category:** read.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| decision_id | string | no | Read an existing decision instead of previewing a new request. |  |
+| request | object | no |  | {"additionalProperties":false,"properties":{"candidate_ids":{"items":{"type":"string"},"maxItems":20,"minItems":1,"type":"array"},"class":{"type":"string"},"configured_route":{"type":"string"},"context_provider":{"enum":["claude","codex"],"type":"string"},"context_refs":{"items":{"type":"string"},"type":"array"},"input_revision":{"type":"string"},"isolation":{"enum":["any","read_only","local"],"type":"string"},"limits":{"additionalProperties":false,"properties":{"calls":{"maximum":100,"minimum":1,"type":"integer"},"time_ms":{"maximum":3600000,"minimum":1,"type":"integer"},"usd":{"exclusiveMinimum":0,"maximum":100,"type":"number"}},"required":["calls","time_ms","usd"],"type":"object"},"phase":{"enum":["plan","execute","verify"],"type":"string"},"pin":{"additionalProperties":false,"properties":{"effort":{"type":"string"},"id":{"type":"string"},"model":{"type":"string"},"provider":{"type":"string"}},"type":"object"},"request_id":{"type":"string"},"required_capabilities":{"items":{"type":"string"},"type":"array"},"required_tools":{"items":{"type":"string"},"type":"array"},"task_id":{"type":"string"}},"required":["candidate_ids","class","context_refs","input_revision","isolation","limits","phase","request_id","required_capabilities","required_tools","task_id"]} |
+
+**Result:** custode.route_preview.v1: selected/deferred/unsupported_pin, exact configured triple and revisions, effective limits, frozen task inputs, versioned policy, timestamped observations and rejected alternatives.
+
+**Side effects:** Reads current configuration and cached provider observations; atomically persists a frozen shadow decision keyed by request_id. No network probes, prompts, reservations or live routing changes.
+
+**Access:** Authenticated human or configured caretaker, repeated by the shared service. Temporary agents and ordinary owners cannot inspect fleet routes.
+
+**Behavior, defaults and errors:** Provide request or decision_id, exclusively. Request fields: request_id, task_id, input_revision, class, phase (plan/execute/verify), candidate_ids, required_tools, required_capabilities, isolation (any/read_only/local), context_refs and limits (calls/usd/time_ms). Optional configured_route, context_provider (native context restriction) and pin (id/provider/model/effort). Exact triples and quality tiers come from operator policy, not caller claims. Unknown/stale capacity cannot win as free capacity. Interactive reserve is a configured fraction, not a live lease. Identical retries return the original decision; changed payload conflicts. Promotion requires a separate natural shadow corpus and authorized evaluation; fixture decisions prove no task quality. A selected preview grants no authority, and execution admission must revalidate current grants/configuration/capacity.
 
 ### Tool: run_job
 

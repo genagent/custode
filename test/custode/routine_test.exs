@@ -832,14 +832,14 @@ defmodule Custode.RoutineTest do
       # routine firing moved to Custode.Scheduler (#142), so no routine ticks
       # ride the static crontab, and the lease reconciler (#430) is disabled
       # by config/test.exs so its */15 inserts cannot land inside other tests
-      assert length(crontab) == 7
+      assert length(crontab) == 6
+      refute Enum.any?(crontab, &(elem(&1, 1) == Custode.Advisors.Model))
       refute Enum.any?(crontab, &(elem(&1, 1) == Custode.RoutineTick))
       refute Enum.any?(crontab, &(elem(&1, 1) == ObanClaude.Agent.Tick))
       refute Enum.any?(crontab, &(elem(&1, 1) == Custode.WorkspaceLeases.ReconcileJob))
 
       for advisor <- [
             Custode.Advisors.Cadence,
-            Custode.Advisors.Model,
             Custode.Advisors.Budget,
             Custode.Advisors.Retro,
             Custode.Advisors.Dryness
@@ -881,7 +881,7 @@ defmodule Custode.RoutineTest do
       Application.put_env(:custode, :workspace_lease_reconcile_cron, false)
       disabled = Custode.Routine.crontab()
       refute Enum.any?(disabled, &(elem(&1, 1) == Custode.WorkspaceLeases.ReconcileJob))
-      assert length(disabled) == 7
+      assert length(disabled) == 6
     end
 
     test "on_note defaults to :beat and accepts :ignore" do

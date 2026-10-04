@@ -679,3 +679,37 @@ defmodule Custode.CLI.CurrentRun do
     )
   end
 end
+
+defmodule Custode.CLI.RoutePreview do
+  @moduledoc false
+  use Cheer.Command
+
+  command "route-preview" do
+    about("Preview configured task routes from a JSON request without launching work.")
+    argument(:file, type: :string, required: true, help: "JSON request file.")
+    option(:json, type: :boolean, help: "Full frozen decision JSON.")
+  end
+
+  @impl Cheer.Command
+  def run(args, _raw) do
+    with {:ok, bytes} <- File.read(args[:file]), {:ok, request} <- Jason.decode(bytes) do
+      Custode.CLI.emit("route_preview", %{request: request}, args[:json] == true, &render/1)
+    else
+      {:error, reason} ->
+        Mix.shell().error("cannot read routing request: #{inspect(reason)}")
+        {:error, :run_failed}
+    end
+  end
+
+  defp render(decision) do
+    selected = decision["selected"]
+
+    route =
+      if selected,
+        do:
+          "#{selected["id"]} (#{selected["provider"]}/#{selected["model"]}/#{selected["effort"]})",
+        else: "no eligible route"
+
+    "#{decision["status"]}: #{route}\nPreview only; execution unchanged."
+  end
+end

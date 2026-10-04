@@ -96,3 +96,49 @@ new scheduler or grant/prompt change. The capped experiment remains an explicit
 later action after instrumentation and cancellation are reliable.
 
 Implementation follow-up: #781.
+
+## #781 implementation
+
+route_preview and mix custode route-preview request.json share the same selector.
+Only a human or configured caretaker can preview fleet candidates. Request pins
+and requirements narrow configured routine ids; they cannot add a provider route,
+MCP grant or parent authority. The selector freezes exact model/effort, execution
+and profile revisions, task input references, requested limits, policy and every
+alternative's reasons. Decisions are durable SQLite records: an identical request
+id returns the original observation, and a changed payload conflicts. decision_id
+reads that frozen record without refreshing it.
+
+The operator-authored routing_preview_policy defines exact triple quality tiers,
+relative work weights, class or class/phase floors, observation freshness and an
+interactive reserve fraction. These are declared conservative heuristics, not
+learned quality or measured class costs. Unknown exact triples are unsupported.
+The built-in policy includes explicit Claude specialist/review routes only;
+operators can add reviewed Codex triples without treating provider effort names
+as interchangeable. A required capability must be declared in that policy, and
+required tools must also occur in the routine's captured argument contract.
+Claude's current local execution is not represented as a read-only sandbox;
+Codex's actual sweep read_only contract is distinct. Native context references
+can restrict a request to their provider; portable references do not transfer a
+provider session id.
+
+Pressure uses the most constraining observed provider window. Available fraction
+minus configured interactive reserve, divided by the route's work weight, gives
+the rank; exact route id breaks ties. This is a subscription-pressure heuristic,
+not a live reserved-capacity allocator. Unknown/stale/future timestamps and
+partially unknown windows cannot win as zero usage. Provider rejection and daily
+rails reject a candidate despite spare-looking quota. Unknown task classes retain
+only an eligible configured specialist or defer. Effective limits are a proposed
+bounded envelope, not a changed running configuration. A subsequent execution
+operation must revalidate configuration, authority and admission independently.
+
+Model advisor jobs now emit no recommendations. Historical model suggestions
+remain in Feed but are hidden from the standing recommendation projection; the
+default schedule is disabled. No correction of model-attribution or meaningful
+quality measurement is claimed. Existing configured models remain unchanged.
+
+Fixtures prove deterministic selection, constraints and durable replay; they are
+not counted as the 20 natural shadow requests required before a separately
+authorized promotion/evaluation. No provider call or automatic fallback is made.
+
+Operating note: pull, migrate and restart for the decision table and retired
+advisor. The default runtime, scheduling, grants and live routes are unchanged.

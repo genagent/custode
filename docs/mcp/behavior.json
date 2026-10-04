@@ -722,6 +722,13 @@
       "effects": "Atomically records a durable access override, idempotent request result and audit event in SQLite. New admissions capture the updated revision; existing captured files are unchanged. No endpoint installation, network probe or agent launch.",
       "result": "Integration name, updated revision and enabled state.",
       "notes": "Requires name, expected_revision from integration_list and request_id. Provide enabled and/or denied_agents (exact agent ids, replacing the deny list). An identical successful request reuses its result; changed payload under that key conflicts. A stale revision or unknown integration is refused. This does not add endpoint/command editing or write-capability activation."
+    },
+    "route_preview": {
+      "summary": "Preview exact configured task routes without changing execution.",
+      "access": "Authenticated human or configured caretaker, repeated by the shared service. Temporary agents and ordinary owners cannot inspect fleet routes.",
+      "effects": "Reads current configuration and cached provider observations; atomically persists a frozen shadow decision keyed by request_id. No network probes, prompts, reservations or live routing changes.",
+      "result": "custode.route_preview.v1: selected/deferred/unsupported_pin, exact configured triple and revisions, effective limits, frozen task inputs, versioned policy, timestamped observations and rejected alternatives.",
+      "notes": "Provide request or decision_id, exclusively. Request fields: request_id, task_id, input_revision, class, phase (plan/execute/verify), candidate_ids, required_tools, required_capabilities, isolation (any/read_only/local), context_refs and limits (calls/usd/time_ms). Optional configured_route, context_provider (native context restriction) and pin (id/provider/model/effort). Exact triples and quality tiers come from operator policy, not caller claims. Unknown/stale capacity cannot win as free capacity. Interactive reserve is a configured fraction, not a live lease. Identical retries return the original decision; changed payload conflicts. Promotion requires a separate natural shadow corpus and authorized evaluation; fixture decisions prove no task quality. A selected preview grants no authority, and execution admission must revalidate current grants/configuration/capacity."
     }
   }
 }

@@ -21,7 +21,7 @@ defmodule Custode.AdvisorTrioTest do
     do:
       for(_i <- 1..n, do: Custode.Feed.record(%{event: "repo_verb", agent: agent, summary: "ok"}))
 
-  test "model: an opus sweeper yielding like the sonnet fleet gets the downgrade suggestion" do
+  test "model: unattributed historical activity never produces downgrade advice" do
     workspace = tmp_workspace!()
     heavy = uid("heavy")
     peer = uid("peer")
@@ -37,10 +37,11 @@ defmodule Custode.AdvisorTrioTest do
     seed_turns(heavy, 20)
     seed_yields(heavy, 4)
 
-    suggestions = Model.observe() |> Model.suggest()
-    assert [s] = Enum.filter(suggestions, &(&1.routine_id == heavy))
-    assert s.proposed == "sonnet"
-    assert s.evidence =~ "approved turns keep opus"
+    assert Model.observe() == []
+
+    assert Model.suggest([
+             %{routine_id: heavy, model: "opus", provider: :claude, sweeps: 20, yields: 4}
+           ]) == []
   end
 
   test "model: an opus sweeper OUT-yielding the fleet is left alone" do
