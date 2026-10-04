@@ -138,6 +138,9 @@ defmodule Custode.NativeCompositionTest do
           File.write!(report_path, Jason.encode!(next, pretty: true))
           File.chmod!(report_path, 0o600)
           File.rm!(config_path)
+          assert get_in(measurement, ["client", "exit_code"]) == 0, inspect(measurement)
+          assert is_binary(get_in(measurement, ["client", "session_id"])), inspect(measurement)
+          refute get_in(measurement, ["client", "native_error"]), inspect(measurement)
           next
       end
 

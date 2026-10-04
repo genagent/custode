@@ -33,6 +33,18 @@ class MeasurementTests(unittest.TestCase):
         self.assertIsNone(native_metadata("claude", '{"type":"assistant","session_id":"fake"}')
                           ["session_id"])
 
+    def test_malformed_and_mismatched_responses_are_not_success(self):
+        request = {"id": 1, "method": "tools/call", "params": {"name": "read_composition"}}
+        for body in [b"", b"not-json", b"{}", b'{"id":999,"result":{}}']:
+            row = observation(request, 200, body)
+            self.assertTrue(row["failed"])
+            self.assertEqual(row["text_bytes"], 0)
+
+    def test_missing_terminal_is_not_native_success(self):
+        metadata = native_metadata("codex", '{"type":"thread.started","thread_id":"native"}')
+        self.assertTrue(metadata["native_error"])
+        self.assertIsNone(metadata["model"])
+
     def test_unavailable_usage_stays_unknown(self):
         self.assertIsNone(native_metadata("codex", "invalid")["cost_usd"])
         self.assertIsNone(native_metadata("claude", "invalid")["usage"])
