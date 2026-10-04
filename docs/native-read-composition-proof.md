@@ -8,16 +8,16 @@ this is not the full production catalog or a dynamic catalog implementation.
 
 ## Observed
 
-| Client | Scenario | MCP calls | Backend reads | Returned text bytes | Run/capture ms | Reported USD |
-|---|---|---:|---:|---:|---:|---:|
-| Claude 2.1.284 | Three original reads | 3 | 3 | 233 | 6172 | 0.0225438 |
-| Claude 2.1.284 | Composition | 1 | 3 | 461 | 5930 | 0.0147096 |
-| Claude 2.1.284 | Partial failure | 1 | 2 | 343 | 6958 | 0.0158988 |
-| Claude 2.1.284 | Denied repository | 1 | 0 | 44 | 4821 | 0.0131170 |
-| Codex 0.157.1 | Three original reads | 3 | 3 | 233 | 14599 | unknown |
-| Codex 0.157.1 | Composition | 1 | 3 | 461 | 11458 | unknown |
-| Codex 0.157.1 | Partial failure | 1 | 2 | 343 | 12415 | unknown |
-| Codex 0.157.1 | Denied repository | 1 | 0 | 44 | 11601 | unknown |
+| Client | Scenario | MCP calls | Backend reads | Returned text bytes | Run/capture ms |
+|---|---|---:|---:|---:|---:|
+| Claude 2.1.284 | Three original reads | 3 | 3 | 233 | 6172 |
+| Claude 2.1.284 | Composition | 1 | 3 | 461 | 5930 |
+| Claude 2.1.284 | Partial failure | 1 | 2 | 343 | 6958 |
+| Claude 2.1.284 | Denied repository | 1 | 0 | 44 | 4821 |
+| Codex 0.157.1 | Three original reads | 3 | 3 | 233 | 14599 |
+| Codex 0.157.1 | Composition | 1 | 3 | 461 | 11458 |
+| Codex 0.157.1 | Partial failure | 1 | 2 | 343 | 12415 |
+| Codex 0.157.1 | Denied repository | 1 | 0 | 44 | 11601 |
 
 Claude emitted `claude-sonnet-5-5`. Codex was explicitly requested with
 `gpt-5.5` at low effort; its emitted stream did not identify the actual model.
@@ -33,8 +33,8 @@ The demonstrated saving is two MCP calls per composition invocation. Backend
 work is unchanged, and returned text grows with trace/consistency metadata.
 One observation per case, different caches and prompts, and a separate Codex
 original-read run do not establish a token, cost or latency improvement.
-Returned bytes are not proof of model consumption. Native usage fields are
-retained without assuming their accounting is comparable across providers.
+Returned bytes are not proof of model consumption. Native usage and cost remain in private originals. The public projection omits
+account metadata and retains stable SHA-256 aliases for native sessions.
 
 ## Failures and corrections
 
@@ -55,8 +55,8 @@ explicit model override and stops on failed client startup.
 ## Retention and reproduction
 
 `spikes/capabilities/native-composition-results.json` retains eight successful
-case measurements plus both failed attempts. It includes exact native session
-IDs, CLI versions, requested/observed models, usage, caller/definition/source
+case measurements plus both failed attempts. It includes stable native-session SHA-256 aliases, CLI versions,
+requested/observed models, caller/definition/source
 revisions, SHA-256 hashes reconstructed from the recorded harness and composition source snapshots,
 actual tool-call observations and recorder-held trace references. Recorded
 source revisions precede integration rebases; the file hashes identify those
@@ -86,11 +86,54 @@ and a four-tool catalog. Claude requests a 0.60 USD stop and five-turn limit;
 Codex has no demonstrated dollar stop. Process-group return does not attest
 that every possible escaped descendant is gone and confers no retry authority.
 
+## Nonpaid protocol compatibility follow-up
+
+The controlled `MCPCatalogCompatibilityTest` uses real loopback HTTP and pinned
+Snodo 0.4.1, with synthetic caller credentials and read-only fixture components.
+All three configured dialects list tools, prompts and resources, preserve the
+caller at invocation, hide denied catalogs and refuse guessed denied invocations.
+The test deliberately replaces an immutable runtime; subsequent explicit reads
+and fresh reconnects see v2 while the captured v1 router remains unchanged.
+This replacement seam is test-only, not a production publication service.
+
+A 2026-07-28-only runtime with a configured source delivers tools/prompts/resources
+list-change events over a real HTTP subscription. Pinned Snodo refuses those
+`listChanged=true` surfaces when either initialize-era dialect is enabled, and
+legacy `subscriptions/listen` is unsupported. Current Custode config supplies no
+subscription source and advertises no list-change capability. Protocol-level
+notification definitions in the [2025-11-25 tools specification](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
+do not establish implementation or native-host support.
+
+Installed nonpaid host observations are retained separately in
+`spikes/capabilities/catalog-compatibility-results.json`. Codex 0.157.1's
+`mcpServerStatus/list` exposes changed tools/resources without starting a thread
+or turn. Every status lookup makes another initialize request, so even a second
+lookup in the same app-server process proves fresh discovery, not held-connection
+refresh. A new app-server process rediscovers v2. Its status API does not expose
+prompt inventory. Claude 2.1.284's isolated `mcp list` health check connects on both
+fixture revisions; its output does not expose catalog contents. No inference,
+account metadata or raw native session identifiers are part of this follow-up.
+
+Reproduce the explicitly nonpaid observation after creating a private TMPDIR:
+
+```sh
+TMPDIR=/private/tmp/custode-catalog-proof \
+CUSTODE_TEST_MCP_PORT=6184 \
+CUSTODE_NONPAID_CATALOG_PROOF=1 \
+CUSTODE_NONPAID_CATALOG_REPORT=/private/tmp/catalog-proof.json \
+mix test test/custode/mcp_catalog_compatibility_test.exs --include preview --seed 1
+```
+
+Ordinary CI covers the controlled protocol cases but excludes the installed-host
+probe. The script permits only app-server initialize/status methods and MCP
+configuration/health commands; no thread or turn method is sent. Child native
+configuration lives in a private temporary directory and is removed afterward.
+Process-group cleanup does not attest all escaped descendants settled.
+
 ## Remaining #799 acceptance
 
-No actual-client proof exists here for the newer protocol, tool/prompt/resource
-catalog changes, list-change notifications, long-lived mid-session refresh or
-reconnect behavior after a changed catalog. Fresh processes rediscovering the
-same four tools are not that proof. Keep individual dynamic entries disabled;
-the fixed dispatcher does not require them. This experiment does not expand
-activation, provider authority, automatic mining or effect admission.
+Actual Claude catalog-content changes, native prompt discovery, long-lived native
+notification handling and refresh remain unknown. Fresh discovery/reconnect is
+bounded evidence, not complete dynamic-catalog acceptance. Keep individual dynamic
+entries disabled; the fixed dispatcher does not require them. This follow-up
+expands no activation, provider authority, automatic mining or effect admission.
