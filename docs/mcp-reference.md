@@ -89,8 +89,8 @@ Routine instructions, prompt files, the `prompt_agent` tool, and an agent's stru
 
 | Endpoint | Server | Tools | Resources | Templates | Prompts |
 | --- | --- | ---: | ---: | ---: | ---: |
-| `/mcp` | custode 0.3.0 | 91 | 4 | 13 | 0 |
-| `/mcp/memory` | memory 0.3.0 | 6 | 0 | 0 | 0 |
+| `/mcp` | custode 0.3.0 | 92 | 4 | 13 | 0 |
+| `/mcp/memory` | memory 0.3.0 | 7 | 0 | 0 | 0 |
 
 **`/mcp`**: protocol versions 2026-07-28, 2025-11-25, 2025-06-18; capabilities `{"resources":{},"tools":{}}`.
 
@@ -183,6 +183,7 @@ Categories are descriptive policy metadata, not an authorization guarantee.
 | [repo_view_issue](#tool-repo_view_issue) | read |
 | [repo_view_pr](#tool-repo_view_pr) | read |
 | [resume_agent](#tool-resume_agent) | operator |
+| [return_context](#tool-return_context) | self_write |
 | [route_preview](#tool-route_preview) | read |
 | [run_job](#tool-run_job) | delegate |
 | [set_next_beat](#tool-set_next_beat) | self_write |
@@ -1825,6 +1826,32 @@ Resume a paused agent.
 **Access:** Main endpoint capability: operator or caretaker routine. The shared operator action repeats that boundary, so specialists, temporary agents and alternate clients are refused before agent state changes.
 
 **Behavior, defaults and errors:** agent_id is required. Failed transitions return 'resume failed'. It does not increase budget settings or undo effects from before the pause.
+
+### Tool: return_context
+
+Read current subject outputs and exact retained tool payloads, or store revision-bound feedback.
+
+**Endpoints:** /mcp, /mcp/memory. **Category:** self_write.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| action | string | yes |  | {"enum":["outputs","detail","contexts","context","feedback"]} |
+| comment | string | no |  | {"maxLength":2000,"minLength":1} |
+| end_line | integer | no |  | {"minimum":1} |
+| expected_revision | string | no |  | {"maxLength":64,"minLength":1} |
+| path | string | no |  | {"maxLength":200,"minLength":1} |
+| receipt_id | string | no |  | {"maxLength":160,"minLength":1} |
+| request_id | string | no |  | {"maxLength":160,"minLength":1} |
+| root_id | string | no |  | {"maxLength":160,"minLength":1} |
+| start_line | integer | no |  | {"minimum":1} |
+
+**Result:** Current working revisions separate from historical receipts and self-authored reports. Exact bounded tool text retained up to seven days and 100 payloads per actor; emission is server-side only.
+
+**Side effects:** Reads current files and historical production/context. Feedback stores comments only. Opening never starts or resumes an agent; no source apply, repository approval or merge.
+
+**Access:** Current configured root/path read grants; private receipt payloads are the requesting actor or human only. Feedback uses current revision and exact line span.
+
+**Behavior, defaults and errors:** Changed source refuses feedback with reread/reanchor. Prepared response is not server emission. Expired payload stays expired; native hidden context and model receipt are unknown.
 
 ### Tool: route_preview
 

@@ -5,9 +5,16 @@ defmodule Custode.MCP.Snodo.Adapter do
   alias Snodo.{Error, Result}
 
   @spec caller(Snodo.Context.t()) :: {:ok, CallContext.t()} | {:error, Error.t()}
-  def caller(%Snodo.Context{auth: %{identity: identity, origin: origin}})
+  def caller(%Snodo.Context{auth: %{identity: identity, origin: origin} = auth})
       when is_map(identity) and origin in [:cli, :mcp] do
-    {:ok, %CallContext{assigns: %{custode_identity: identity, custode_transport: origin}}}
+    {:ok,
+     %CallContext{
+       assigns: %{
+         custode_identity: identity,
+         custode_transport: origin,
+         custode_delivery_id: auth[:delivery_id]
+       }
+     }}
   end
 
   def caller(_context), do: {:error, Error.internal("Missing verified Custode identity")}

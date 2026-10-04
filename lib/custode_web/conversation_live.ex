@@ -255,6 +255,7 @@ defmodule CustodeWeb.ConversationLive do
           >
             &larr; control room
           </.link>
+          <.link navigate="/subjects" class="link text-xs">Outputs</.link>
           <span class="text-base-content/30">/</span>
           <h1 class="font-mono text-lg font-bold">{if @manager, do: "Ask custode", else: @agent_id}</h1>
           <span :if={@manager && @agent_id} class="text-xs text-base-content/60">{@agent_id}</span>
