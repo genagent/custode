@@ -6,12 +6,27 @@ defmodule Custode.DurabilityTest do
   alias Custode.Sensors.Deadman
   alias ObanClaude.Agent
 
+  test "fixture cleanup stops a live agent and tolerates repeated cleanup" do
+    id = uid("durability-cleanup")
+    {:ok, pid} = Agent.start_agent(id)
+    on_exit(fn -> stop_fixture_agent(id) end)
+    monitor = Process.monitor(pid)
+
+    assert :ok = stop_fixture_agent(id)
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :shutdown}, 1_000
+
+    # A retained PID covers a registry lookup that raced with another stop.
+    assert :ok = terminate_fixture_agent(pid)
+    assert {:ok, :offline} = Agent.await(id, :offline, 1_000)
+    assert :ok = stop_fixture_agent(id)
+  end
+
   describe "budget reconcile (#6)" do
     test "an over-rail routine boots PAUSED after restart; within-rail boots nothing" do
       workspace = tmp_workspace!()
       over = routine_fixture!(workspace, %{daily_budget_usd: 1.0})
       :ok = Custode.SpendLedger.record(over.id, 2.0, "turn")
-      on_exit(fn -> Agent.stop_agent(over.id) end)
+      on_exit(fn -> stop_fixture_agent(over.id) end)
 
       :ok = Custode.SpendLedger.reconcile_pauses!()
 
@@ -75,7 +90,7 @@ defmodule Custode.DurabilityTest do
           end
         )
 
-      on_exit(fn -> Agent.stop_agent(routine.id) end)
+      on_exit(fn -> stop_fixture_agent(routine.id) end)
 
       :processing = Agent.submit_prompt(routine.id, "go")
 
@@ -117,7 +132,7 @@ defmodule Custode.DurabilityTest do
           end
         )
 
-      on_exit(fn -> Agent.stop_agent(routine.id) end)
+      on_exit(fn -> stop_fixture_agent(routine.id) end)
 
       :processing = Agent.submit_prompt(routine.id, "go")
 
@@ -211,7 +226,7 @@ defmodule Custode.DurabilityTest do
           end
         )
 
-      on_exit(fn -> Agent.stop_agent(routine.id) end)
+      on_exit(fn -> stop_fixture_agent(routine.id) end)
 
       :processing = Agent.submit_prompt(routine.id, "go")
 
@@ -330,6 +345,22 @@ defmodule Custode.DurabilityTest do
       assert Deadman.interval_minutes("@daily") == 1_440
       assert Deadman.interval_minutes("@hourly") == 60
       assert Deadman.interval_minutes("0 3 * * *") == 60
+    end
+  end
+
+  # Handoff reconciliation can stop the fixture concurrently. Let its owning
+  # supervisor serialize cleanup instead of stopping a possibly stale PID.
+  defp stop_fixture_agent(id) do
+    case Registry.lookup(ObanClaude.Agent.Registry, id) do
+      [] -> :ok
+      [{pid, _state}] -> terminate_fixture_agent(pid)
+    end
+  end
+
+  defp terminate_fixture_agent(pid) do
+    case DynamicSupervisor.terminate_child(ObanClaude.Agent.InstanceSupervisor, pid) do
+      :ok -> :ok
+      {:error, :not_found} -> :ok
     end
   end
 end
