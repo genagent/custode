@@ -81,3 +81,34 @@ unresolved questions, not every helper event. #596 owns the navigation to inspec
 children; #575 owns route selection. No current authority or runtime changes.
 
 Implementation follow-up: #778; runtime proof adapter: #777.
+
+## First implementation slice (#778)
+
+The opt-in owner_review operation retains exact supplied evidence, its digest,
+observed parent execution (active may be absent), owner configuration revision,
+two explicit Claude routes, two Oban jobs and independently fenced results.
+Both jobs are inserted with the parent record in one SQLite transaction. Owner
+scope is rechecked for each operation, and child start checks the captured owner
+revision, current pause/rails and shared deadline. Reading never reruns a job.
+Results and missing completion receipts survive restarts. Every accepted callback
+records one durable feed event; findings remain agent-authored, not approval.
+
+Native query arguments disable all built-in tools with `--tools ""`, use an
+empty strict MCP inventory, seal user/project/local settings, disable hooks and
+slash commands, and exclude dynamic prompt sections. They do not force `--bare`
+API billing. This is a constrained native CLI contract, not an independent OS
+sandbox or a claim that hidden provider context was measured. Real option
+conversion is covered by fixtures; paid native client conformance is outstanding.
+
+Limits count two native invocations, not individual provider API requests. Each
+invocation has one native turn, half the requested native USD stop and the
+remaining shared deadline. USD stops are not a hard billing guarantee. Review
+reservations are serialized for this operation and conservatively held for 24h
+at at least their cap, including missing usage and cancellation. Other fleet
+surfaces retain their existing rails; no global concurrency quota is claimed.
+The hard token limit and cross-provider parity are unavailable and explicitly
+refused, so #778 remains open for those guarantees. Native failures and crashes
+never fabricate clean reviews or zero usage. Cancel requests Oban cancellation;
+a returned query and Oban state do not attest OS settlement. A duplicate job
+cannot relaunch or replace an already running or terminal review. No automatic
+retry, recurring fan-out, synthesis by vote or recursive helper delegation.

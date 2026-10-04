@@ -89,7 +89,7 @@ Routine instructions, prompt files, the `prompt_agent` tool, and an agent's stru
 
 | Endpoint | Server | Tools | Resources | Templates | Prompts |
 | --- | --- | ---: | ---: | ---: | ---: |
-| `/mcp` | custode 0.3.0 | 89 | 4 | 13 | 0 |
+| `/mcp` | custode 0.3.0 | 90 | 4 | 13 | 0 |
 | `/mcp/memory` | memory 0.3.0 | 5 | 0 | 0 | 0 |
 
 **`/mcp`**: protocol versions 2026-07-28, 2025-11-25, 2025-06-18; capabilities `{"resources":{},"tools":{}}`.
@@ -144,6 +144,7 @@ Categories are descriptive policy metadata, not an authorization guarantee.
 | [list_workflows](#tool-list_workflows) | read |
 | [metrics](#tool-metrics) | read |
 | [operator_bootstrap](#tool-operator_bootstrap) | read |
+| [owner_review](#tool-owner_review) | delegate |
 | [pause_agent](#tool-pause_agent) | operator |
 | [peer_ack](#tool-peer_ack) | peer_message |
 | [peer_list](#tool-peer_list) | read |
@@ -965,6 +966,26 @@ Read the first-contact brief for an operator session.
 **Access:** Main endpoint capability: human operator only. The tool is named in no routine's exposure list, so only the operator discovers it, and the handler refuses every routine before building the result. The shared builder does not repeat the check.
 
 **Behavior, defaults and errors:** No arguments. schema_version is custode.operator_bootstrap.v1. installation.id is a stable non-secret id for this instance, provisioned at boot; host is null if the hostname lookup fails and timezone is the configured fleet timezone or null. caller.transport is mcp or cli. caller.verified is true only when the router attached an authenticated identity, and false for a direct call with no request context. authority is fixed at scope all and endpoint main; tool_count is the number of tools in the tool policy, not a per-call grant. fleet.caretaker is null when no caretaker is configured. Fleet counts come from the sources the console reads: attention groups, open gates, open asks, agent lifecycle state and executing jobs. expand pairs each topic with an existing read operation; tool discovery remains authoritative for schemas. The result holds no token, filesystem path, prompt text or provider transcript.
+
+### Tool: owner_review
+
+Two durable, independent reviews of frozen evidence, with explicit routes and owner-scoped inspection and cancellation.
+
+**Endpoints:** /mcp. **Category:** delegate.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| action | string | yes |  | {"enum":["submit","inspect","cancel"]} |
+| request | object | no |  | {"properties":{"evidence":{"maxLength":100000,"type":"string"},"limits":{"properties":{"calls":{"description":"Exactly two native review invocations; not provider API calls.","type":"integer"},"time_ms":{"type":"integer"},"tokens":{"description":"Unsupported hard cap; a request naming this is refused.","type":"integer"},"usd":{"description":"Split evenly across native CLI budget stops; not a billing guarantee.","type":"number"}},"required":["calls","time_ms","usd"],"type":"object"},"owner_id":{"maxLength":160,"type":"string"},"request_id":{"maxLength":160,"type":"string"},"routes":{"items":{"properties":{"effort":{"type":"string"},"model":{"type":"string"},"provider":{"type":"string"}},"required":["effort","model","provider"],"type":"object"},"maxItems":2,"minItems":2,"type":"array"}},"required":["evidence","limits","owner_id","request_id","routes"]} |
+| review_id | string | no |  |  |
+
+**Result:** custode.owner_review.v1 with original evidence/digest, captured parent execution and owner revision, exact routes, child attempt/job identities, partial/all/pending/cancel_requested, authored findings and nullable usage. Terminal callbacks are first-wins; crashed jobs without receipts appear unconfirmed.
+
+**Side effects:** Submit atomically retains a frozen request and two Oban jobs. Inspect is inert. Cancel requests Oban cancellation and preserves results; it does not attest OS settlement. No gate approval, merge or automatic retry.
+
+**Access:** Main endpoint, authenticated human or standing owner for its own id. Helpers and cross-owner requests are refused. Current captured authorization is required on every read and mutation.
+
+**Behavior, defaults and errors:** Exactly two explicit Claude routes, tools disabled, empty strict MCP config, hermetic settings, hooks and slash commands disabled; subscription authentication retained (no bare mode). Calls counts native review invocations, not API calls. USD is a native CLI stop split equally, not a strict billing guarantee. Hard tokens and Codex are unsupported and refused. Owner USD/time caps, pause and current rails checked at submission and owner pause/rails/revision checked at child start. Reservations serialize this operation only and conservatively hold caps for 24h, including unknown usage. External model context, physical settlement, global concurrent fleet quota and validity of authored refs remain unverified.
 
 ### Tool: pause_agent
 

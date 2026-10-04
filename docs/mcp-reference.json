@@ -77,6 +77,7 @@
         "list_workflows",
         "metrics",
         "operator_bootstrap",
+        "owner_review",
         "pause_agent",
         "peer_ack",
         "peer_list",
@@ -1969,6 +1970,118 @@
         "/mcp"
       ],
       "name": "operator_bootstrap"
+    },
+    {
+      "behavior": {
+        "access": "Main endpoint, authenticated human or standing owner for its own id. Helpers and cross-owner requests are refused. Current captured authorization is required on every read and mutation.",
+        "effects": "Submit atomically retains a frozen request and two Oban jobs. Inspect is inert. Cancel requests Oban cancellation and preserves results; it does not attest OS settlement. No gate approval, merge or automatic retry.",
+        "notes": "Exactly two explicit Claude routes, tools disabled, empty strict MCP config, hermetic settings, hooks and slash commands disabled; subscription authentication retained (no bare mode). Calls counts native review invocations, not API calls. USD is a native CLI stop split equally, not a strict billing guarantee. Hard tokens and Codex are unsupported and refused. Owner USD/time caps, pause and current rails checked at submission and owner pause/rails/revision checked at child start. Reservations serialize this operation only and conservatively hold caps for 24h, including unknown usage. External model context, physical settlement, global concurrent fleet quota and validity of authored refs remain unverified.",
+        "result": "custode.owner_review.v1 with original evidence/digest, captured parent execution and owner revision, exact routes, child attempt/job identities, partial/all/pending/cancel_requested, authored findings and nullable usage. Terminal callbacks are first-wins; crashed jobs without receipts appear unconfirmed.",
+        "summary": "Two durable, independent reviews of frozen evidence, with explicit routes and owner-scoped inspection and cancellation."
+      },
+      "category": "delegate",
+      "definition": {
+        "annotations": {},
+        "description": "Submit, inspect or cancel two durable evidence-only reviews. Results never approve work.",
+        "inputSchema": {
+          "properties": {
+            "action": {
+              "enum": [
+                "submit",
+                "inspect",
+                "cancel"
+              ],
+              "type": "string"
+            },
+            "request": {
+              "properties": {
+                "evidence": {
+                  "maxLength": 100000,
+                  "type": "string"
+                },
+                "limits": {
+                  "properties": {
+                    "calls": {
+                      "description": "Exactly two native review invocations; not provider API calls.",
+                      "type": "integer"
+                    },
+                    "time_ms": {
+                      "type": "integer"
+                    },
+                    "tokens": {
+                      "description": "Unsupported hard cap; a request naming this is refused.",
+                      "type": "integer"
+                    },
+                    "usd": {
+                      "description": "Split evenly across native CLI budget stops; not a billing guarantee.",
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "calls",
+                    "time_ms",
+                    "usd"
+                  ],
+                  "type": "object"
+                },
+                "owner_id": {
+                  "maxLength": 160,
+                  "type": "string"
+                },
+                "request_id": {
+                  "maxLength": 160,
+                  "type": "string"
+                },
+                "routes": {
+                  "items": {
+                    "properties": {
+                      "effort": {
+                        "type": "string"
+                      },
+                      "model": {
+                        "type": "string"
+                      },
+                      "provider": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "effort",
+                      "model",
+                      "provider"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "evidence",
+                "limits",
+                "owner_id",
+                "request_id",
+                "routes"
+              ],
+              "type": "object"
+            },
+            "review_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "type": "object"
+        },
+        "name": "owner_review",
+        "title": "owner_review"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "owner_review"
     },
     {
       "behavior": {

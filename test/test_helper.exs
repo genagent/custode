@@ -26,6 +26,7 @@ for table <- [
       "integration_overrides",
       "integration_requests",
       "route_decisions",
+      "owner_reviews",
       "peer_messages",
       "disowned_prs",
       "asks",
