@@ -51,6 +51,7 @@ defmodule Custode.MCP.ToolPolicy do
     "approve_action" => :delegate,
     "reject_action" => :delegate,
     "run_job" => :delegate,
+    "owner_review" => :delegate,
     # roster and profiles: a preview writes nothing
     "preview_routine" => :read,
     "preview_routine_edit" => :read,
