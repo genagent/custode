@@ -184,7 +184,7 @@ defmodule Custode.Routine do
 
   @default_advisors [
     cadence: "@daily",
-    model: "@daily",
+    model: false,
     budget: "@daily",
     retro: "@weekly",
     dryness: "@daily"

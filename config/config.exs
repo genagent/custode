@@ -259,7 +259,7 @@ config :custode, legacy_mission_mappings: %{}
 config :custode,
   advisors: [
     cadence: "@daily",
-    model: "@daily",
+    model: false,
     budget: "@daily",
     retro: "@weekly",
     dryness: "@daily"

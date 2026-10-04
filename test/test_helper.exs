@@ -25,6 +25,7 @@ for table <- [
       "helper_records",
       "integration_overrides",
       "integration_requests",
+      "route_decisions",
       "peer_messages",
       "disowned_prs",
       "asks",

@@ -112,6 +112,7 @@ defmodule Custode.MCP.ToolPolicy do
     "current_run" => :read,
     "integration_list" => :read,
     "integration_access_update" => :operator,
+    "route_preview" => :read,
     # the operator tier
     "beat" => :operator,
     "drop_note" => :operator,
