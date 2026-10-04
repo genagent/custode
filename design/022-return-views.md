@@ -78,3 +78,13 @@ transcript-mining system or archive-as-loaded-context claim. Default main
 conversation remains simple; operational detail stays available.
 
 Implementation follow-up: #785.
+
+## First production slice (#785)
+
+Current output/detail and line-bound feedback use the #784 shared operations.
+The `/subjects` view keeps historical producer facts folded beside current bytes.
+HTTP subject reads freeze exact tool text and observe only completed JSON server
+emission. Client/model receipt, exact native run binding and instruction layers
+remain unavailable; an active execution observation is not binding evidence.
+Retained payloads expire explicitly. Native delivery and richer navigation remain
+on the implementation issue rather than being inferred from archive membership.
