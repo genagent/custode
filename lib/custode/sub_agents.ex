@@ -43,7 +43,7 @@ defmodule Custode.SubAgents do
   @doc "Record a spawn: the row is the sub-agent's spec (upsert on agent_id)."
   def record_spawn!(agent_id, parent, attrs) do
     Repo.transaction(fn ->
-      Custode.HelperRecords.spawn!(agent_id, parent)
+      helper = Custode.HelperRecords.spawn!(agent_id, parent)
 
       Repo.insert!(
         %Row{
@@ -52,7 +52,7 @@ defmodule Custode.SubAgents do
           workspace: Map.fetch!(attrs, :workspace),
           system_prompt: Map.get(attrs, :system_prompt),
           model: Map.get(attrs, :model),
-          spawned_at: DateTime.utc_now()
+          spawned_at: helper.spawned_at
         },
         on_conflict: {:replace, [:parent, :workspace, :system_prompt, :model, :spawned_at]},
         conflict_target: :agent_id

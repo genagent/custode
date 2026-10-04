@@ -14,6 +14,7 @@ config :custode,
       id: "travel",
       subject: "Travel",
       path: "/absolute/path/to/travel",
+      current_plan: "plans/current.md",
       grants: [
         %{kind: :routine, id: "travel", read_paths: "all"},
         %{
@@ -90,3 +91,34 @@ Pull, migrate and restart to install the initial surface. For the recursive-layo
 update, pull and restart; no new migration is required. The feature starts with no
 roots and no new file authority. Document grants are explicit configuration, not
 a change to the held standing shell approval-policy decision.
+
+## Return to a plan and recorded producer
+
+Optional `current_plan` names an existing Markdown document under the same root.
+It is a configured reference, not a grant or a claim about a native execution's
+plan. A caller sees it only through its current read grant. `return_context` detail
+returns that plan's current content revision and a link; human edits change the
+next read. No plan is inferred from filenames, a transcript or a helper report.
+
+The folded return context on `/subjects` links to the recorded owner and retains
+up to three successful publication references. A publication revision is historical;
+it is labelled separately when the current file has changed. Owner navigation
+opens the current conversation without relabelling the original producer or
+starting/resuming work.
+
+New helper publications capture the exact host-owned retained spawn record.
+After cleanup its original parent, brief/result receipts and authored reports
+remain inspectable by the human or the currently authorized original parent.
+Other document readers receive only the epoch reference and an explicit private
+availability state. Helper ids reused later never select the newest worker's
+brief/results. Old publications without an epoch, or old registry rows whose
+spawn timestamps cannot be matched, remain unavailable rather than guessed.
+
+Previews are limited to three message receipts and two authored reports per epoch,
+1,000 UTF-8 bytes per brief/result/report and 64 KiB per navigation projection.
+Briefs are parent-authored request excerpts; reports remain authored evidence.
+Physical settlement and native publication run attribution are unknown. Tool
+payload receipts still describe server emission only; native instruction layers,
+model receipt/use and hidden context are not inferred from these links.
+
+Pull and restart for this update. No new migration or prompt change is required.

@@ -1,7 +1,17 @@
 defmodule Custode.SubjectDocuments do
   @moduledoc "Bounded documents in explicitly granted, persistent roots; references confer no writes."
   import Ecto.Query, only: [from: 2]
-  alias Custode.{AgentHandoff, ExecutionFacts, Feed, Repo, SubAgents, SubjectDocumentBridge}
+
+  alias Custode.{
+    AgentHandoff,
+    ExecutionFacts,
+    Feed,
+    HelperRecords,
+    Repo,
+    SubAgents,
+    SubjectDocumentBridge
+  }
+
   alias Snodo.Schema.Validator.Basic
 
   defmodule Operation do
@@ -31,6 +41,10 @@ defmodule Custode.SubjectDocuments do
         %{
           root_id: definition.id,
           subject: definition.subject,
+          current_plan:
+            if(includes?(grant.read_paths, definition[:current_plan]),
+              do: definition[:current_plan]
+            ),
           limits: %{file_bytes: 16_384, files: 100, search_bytes: 100_000, path_components: 8},
           binding: "persistent_directory_identity",
           layout: "bounded_recursive_markdown",
@@ -268,10 +282,11 @@ defmodule Custode.SubjectDocuments do
     |> Enum.filter(&valid_definition?/1)
   end
 
-  defp valid_definition?(%{id: id, path: path, subject: subject, grants: grants}),
+  defp valid_definition?(%{id: id, path: path, subject: subject, grants: grants} = definition),
     do:
       is_binary(id) and id != "" and is_binary(path) and Path.type(path) == :absolute and
-        is_binary(subject) and is_list(grants) and Enum.all?(grants, &valid_grant?/1)
+        is_binary(subject) and is_list(grants) and Enum.all?(grants, &valid_grant?/1) and
+        (is_nil(definition[:current_plan]) or relative_path?(definition[:current_plan]))
 
   defp valid_definition?(_definition), do: false
 
@@ -323,16 +338,26 @@ defmodule Custode.SubjectDocuments do
     do: json(%{identity: actor, observed_execution: ExecutionFacts.read(id)})
 
   defp producer(%{kind: :sub_agent, id: id} = actor) do
-    spec = SubAgents.get(id)
+    case HelperRecords.publication_reference(id) do
+      {:ok, reference} ->
+        json(%{
+          identity: actor,
+          parent: reference.parent,
+          recorded_session_id: reference.recorded_session_id,
+          helper_epoch: reference.helper_epoch,
+          provider: "claude",
+          active_turn: nil,
+          observation: "spawn_record_not_delivery_proof"
+        })
 
-    json(%{
-      identity: actor,
-      parent: spec.parent,
-      recorded_session_id: spec.session_id,
-      provider: "claude",
-      active_turn: nil,
-      observation: "spawn_record_not_delivery_proof"
-    })
+      {:error, _reason} ->
+        json(%{
+          identity: actor,
+          parent: nil,
+          helper_epoch: nil,
+          observation: "helper_removed_before_producer_observation"
+        })
+    end
   end
 
   defp producer(actor), do: json(%{identity: actor, observed_execution: nil})

@@ -1903,13 +1903,13 @@ Read current subject outputs and exact retained tool payloads, or store revision
 | root_id | string | no |  | {"maxLength":160,"minLength":1} |
 | start_line | integer | no |  | {"minimum":1} |
 
-**Result:** Current working revisions separate from historical receipts and self-authored reports. Exact bounded tool text retained up to seven days and 100 payloads per actor; emission is server-side only.
+**Result:** Current working revisions separate from historical receipts and self-authored reports. Detail includes guarded current named-plan revision/link, up to three immutable publication/recorded-owner references and exact retained helper epochs. Exact bounded tool text retained up to seven days and 100 payloads per actor; emission is server-side only.
 
-**Side effects:** Reads current files and historical production/context. Feedback stores comments only. Opening never starts or resumes an agent; no source apply, repository approval or merge.
+**Side effects:** Reads current files and historical production/context. Feedback stores comments only. Opening never starts or resumes an agent; no source apply, repository approval or merge. New publication receipts capture the exact host-owned helper epoch without native run attribution.
 
-**Access:** Current configured root/path read grants; private receipt payloads are the requesting actor or human only. Feedback uses current revision and exact line span.
+**Access:** Current configured root/path read grants; private receipt payloads are the requesting actor or human only. Feedback uses current revision and exact line span. Named current_plan references use current exact document read grants. Private retained helper excerpts require the human or the currently authorized original parent; other root readers get explicit private state.
 
-**Behavior, defaults and errors:** Changed source refuses feedback with reread/reanchor. Prepared response is not server emission. Expired payload stays expired; native hidden context and model receipt are unknown.
+**Behavior, defaults and errors:** Changed source refuses feedback with reread/reanchor. Prepared response is not server emission. Expired payload stays expired; native hidden context and model receipt are unknown. Reused helper ids never retarget historical epochs; missing legacy epochs stay unavailable. Private helper previews use at most three message receipts/two authored reports, 1000 UTF-8 bytes per excerpt and 64KiB navigation. Current plan references are not grants or inferred execution plans. Parent requests and authored reports are not delivery/acceptance proof.
 
 ### Tool: route_preview
 
@@ -2074,7 +2074,7 @@ Bounded access to current working Markdown in independently retained subject roo
 
 **Access:** Authenticated human, or a current standing owner/temporary helper with an explicit configured root grant. Helpers require their retained live spawn record and current parent authorization. References do not grant creation. Exact destinations and proposed source paths are separately granted.
 
-**Behavior, defaults and errors:** Opt-in subject_roots configuration; default empty. Optional Python 3 POSIX stdlib port holds a directory descriptor and accepts data-only JSON. Canonical relative .md paths in existing directories, up to 200 UTF-8 bytes and eight components; hidden paths, symlinks, traversal, nonregular files and changed root/ancestor directories are refused. 16KiB file, 100-file/500-entry recursive browse, 100KiB search and 5s helper timeout bounds shared across traversal; exact grants prune ungranted subtrees. Over-depth/scan results refuse explicitly. Directory creation, git history/diff and auto apply are unsupported. Root authority is its retained directory identity, not a movable pathname or an OS sandbox. Existing native shell tools are unaffected. Source bytes include external uncommitted edits; historical mutation receipts never substitute for current reads. Missing producer execution/session/usage remains unknown.
+**Behavior, defaults and errors:** Opt-in subject_roots configuration; default empty. Optional Python 3 POSIX stdlib port holds a directory descriptor and accepts data-only JSON. Canonical relative .md paths in existing directories, up to 200 UTF-8 bytes and eight components; hidden paths, symlinks, traversal, nonregular files and changed root/ancestor directories are refused. 16KiB file, 100-file/500-entry recursive browse, 100KiB search and 5s helper timeout bounds shared across traversal; exact grants prune ungranted subtrees. Over-depth/scan results refuse explicitly. Directory creation, git history/diff and auto apply are unsupported. Root authority is its retained directory identity, not a movable pathname or an OS sandbox. Existing native shell tools are unaffected. Source bytes include external uncommitted edits; historical mutation receipts never substitute for current reads. Optional configured current_plan paths are exposed only under current read grants. New helper publications retain a host-owned spawn epoch reference; missing legacy epochs and native delivery attribution remain unavailable. Missing producer execution/session/usage remains unknown.
 
 ### Tool: todo_add
 
