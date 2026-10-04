@@ -7,6 +7,8 @@ defmodule Custode.ReturnViewsTest do
 
   alias Custode.{
     ContextReceipts,
+    HelperRecords,
+    OperatorMessages,
     Repo,
     ReturnViews,
     SubAgents,
@@ -55,6 +57,7 @@ defmodule Custode.ReturnViewsTest do
     %{
       root: root,
       definition: definition,
+      parent: parent,
       first: %{kind: :sub_agent, id: first},
       second: %{kind: :sub_agent, id: second}
     }
@@ -264,6 +267,210 @@ defmodule Custode.ReturnViewsTest do
     SubAgents.forget(ctx.first.id)
     assert {:error, "current_helper_unavailable"} = ContextReceipts.read(ctx.first, id)
     assert {:ok, _retained} = ContextReceipts.read(@human, id)
+  end
+
+  test "named current plan reads current bytes and never extends an exact grant", ctx do
+    File.mkdir!(Path.join(ctx.root, "plans"))
+    File.write!(Path.join(ctx.root, "plans/current.md"), "Current Travel comparison.\n")
+    definition = Map.put(ctx.definition, :current_plan, "plans/current.md")
+    restricted = %{kind: :sub_agent, id: ctx.first.id, read_paths: ["preferences.md"]}
+    put_env!(:subject_roots, [%{definition | grants: [restricted]}])
+    assert {:ok, detail} = view(ctx.first, ctx, "detail", %{"path" => "preferences.md"})
+    assert detail["navigation"]["current_plan"]["availability"] == "no_granted_named_plan"
+    refute Jason.encode!(detail) =~ "plans/current.md"
+    assert {:ok, first} = view(@human, ctx, "detail", %{"path" => "preferences.md"})
+    plan = first["navigation"]["current_plan"]
+    assert plan["path"] == "plans/current.md"
+    assert plan["execution_plan_binding"] == "not_inferred"
+    File.write!(Path.join(ctx.root, "plans/current.md"), "Human corrected Travel plan.\n")
+    assert {:ok, second} = view(@human, ctx, "detail", %{"path" => "preferences.md"})
+    refute second["navigation"]["current_plan"]["revision"] == plan["revision"]
+    assert second["navigation"]["native_delivery_binding"] == "unknown"
+    put_env!(:subject_roots, [Map.put(definition, :current_plan, "../outside.md")])
+
+    assert {:error, "root_not_granted"} =
+             view(@human, ctx, "detail", %{"path" => "preferences.md"})
+  end
+
+  test "retained output pins helper epoch after cleanup and reused helper ids never retarget",
+       ctx do
+    owner = %{kind: :routine, id: ctx.parent.id}
+
+    definition = %{
+      ctx.definition
+      | grants: ctx.definition.grants ++ [%{kind: :routine, id: ctx.parent.id, read_paths: "all"}]
+    }
+
+    put_env!(:subject_roots, [definition])
+    message = helper_message!(ctx.first.id, "Private Tower upstream brief", owner)
+
+    message
+    |> Ecto.Changeset.change(
+      status: "completed",
+      result: %{"output" => "Original private Tower result"}
+    )
+    |> Repo.update!()
+
+    Custode.Feed.record(%{
+      event: "turn",
+      agent: ctx.first.id,
+      summary: "Historical authored Tower finding"
+    })
+
+    created =
+      publish!(
+        ctx,
+        "Tower finding, source fixture, checked 2026-10-04. Uncertainty: upstream unverified."
+      )
+
+    reference = created["receipt"]["producer"]["helper_epoch"]
+    assert is_integer(reference["record_id"])
+    assert {:ok, before} = view(owner, ctx, "detail", %{"path" => "research.md"})
+
+    assert hd(before["navigation"]["productions"])["helper"]["record"]["receipts"]
+           |> hd()
+           |> Map.get("brief_preview") == "Private Tower upstream brief"
+
+    workspace = SubAgents.get(ctx.first.id).workspace
+    SubAgents.forget(ctx.first.id)
+    File.rm_rf!(workspace)
+    SubAgents.record_spawn!(ctx.first.id, ctx.parent.id, %{workspace: tmp_workspace!()})
+    helper_message!(ctx.first.id, "New epoch must not attach to old output", owner)
+    Custode.Feed.record(%{event: "turn", agent: ctx.first.id, summary: "New epoch report"})
+    File.write!(Path.join(ctx.root, "research.md"), "Human corrected Tower finding.\n")
+    jobs = Repo.aggregate(Oban.Job, :count)
+    assert {:ok, after_reuse} = view(owner, ctx, "detail", %{"path" => "research.md"})
+    production = hd(after_reuse["navigation"]["productions"])
+    assert production["helper"]["reference"] == reference
+    assert production["helper"]["record"]["registry_state"] == "removed"
+
+    assert production["helper"]["record"]["receipts"] |> hd() |> Map.get("result_preview") ==
+             "Original private Tower result"
+
+    refute Jason.encode!(after_reuse["navigation"]) =~ "New epoch"
+    refute production["matches_current_revision"]
+    assert production["published_revision"] == created["revision"]
+    assert production["recorded_owner"]["id"] == ctx.parent.id
+    assert production["recorded_owner"]["current_execution"] == "not_read_or_relabelled"
+    assert {:ok, restricted} = view(ctx.second, ctx, "detail", %{"path" => "research.md"})
+
+    assert hd(restricted["navigation"]["productions"])["helper"]["availability"] ==
+             "helper_details_not_granted"
+
+    refute Jason.encode!(restricted) =~ "Private Tower"
+    refute Jason.encode!(restricted) =~ "Original private Tower result"
+    assert Repo.aggregate(Oban.Job, :count) == jobs
+    assert {:ok, helper} = HelperRecords.read_epoch(@human, reference)
+    assert helper.record_id == reference["record_id"]
+  end
+
+  test "legacy missing epochs and withdrawn parent authority stay unavailable", ctx do
+    created = publish!(ctx, "Travel sourced comparison, uncertain seasonal schedule.")
+    row = Repo.get!(SubjectDocuments.Operation, created["receipt"]["request_id"])
+    legacy = update_in(row.record, ["producer"], &Map.delete(&1, "helper_epoch"))
+    row |> Ecto.Changeset.change(record: legacy) |> Repo.update!()
+    assert {:ok, detail} = view(@human, ctx, "detail", %{"path" => "research.md"})
+
+    assert hd(detail["navigation"]["productions"])["helper"]["availability"] ==
+             "no_captured_helper_epoch"
+
+    reference = created["receipt"]["producer"]["helper_epoch"]
+    put_env!(:routines, [])
+
+    assert {:error, "current_original_parent_unavailable"} =
+             HelperRecords.read_epoch(%{kind: :routine, id: ctx.parent.id}, reference)
+
+    assert {:ok, _historical} = HelperRecords.read_epoch(@human, reference)
+
+    assert {:error, "retained_helper_epoch_unavailable"} =
+             HelperRecords.read_epoch(@human, %{reference | "spawned_at" => "invented"})
+  end
+
+  test "HTTP and keyboard-accessible view share bounded private return navigation", ctx do
+    File.mkdir!(Path.join(ctx.root, "decisions"))
+
+    File.write!(
+      Path.join(ctx.root, "decisions/current.md"),
+      "Tower PR decision reference; acceptance not inferred.\n"
+    )
+
+    put_env!(:subject_roots, [Map.put(ctx.definition, :current_plan, "decisions/current.md")])
+    owner = %{kind: :routine, id: ctx.parent.id}
+    for _ <- 1..4, do: helper_message!(ctx.first.id, String.duplicate("é", 1000), owner)
+    publish!(ctx, "Current Tower source finding.")
+    assert {:ok, expected} = view(@human, ctx, "detail", %{"path" => "research.md"})
+    assert expected["disposition"] == "document_not_acceptance"
+    navigation = expected["navigation"]
+    helper = hd(navigation["productions"])["helper"]["record"]
+    assert length(helper["receipts"]) == 3
+    assert helper["has_more_receipts"]
+
+    assert Enum.all?(
+             helper["receipts"],
+             &(byte_size(&1["brief_preview"]) <= 1000 and String.valid?(&1["brief_preview"]))
+           )
+
+    assert byte_size(Jason.encode!(navigation)) <= 64_000
+    token = Identity.mint(:operator, @human.id)
+
+    for protocol <- ["2025-06-18", "2026-07-28"] do
+      assert {:ok, client} =
+               Client.connect({:http, Custode.MCP.url()},
+                 protocol: protocol,
+                 headers: [{"authorization", "Bearer " <> token}]
+               )
+
+      assert {:ok, %{"content" => [%{"text" => body}]}} =
+               Client.call_tool(client, "return_context", %{
+                 "action" => "detail",
+                 "root_id" => ctx.definition.id,
+                 "path" => "research.md"
+               })
+
+      assert Jason.decode!(body)["navigation"] == navigation
+      assert :ok = Client.close(client)
+    end
+
+    jobs = Repo.aggregate(Oban.Job, :count)
+
+    assert {:ok, liveview, _} =
+             live(build_conn(), "/subjects/#{ctx.definition.id}?file=research.md")
+
+    assert has_element?(liveview, "#document-return-navigation a", "Open current named plan")
+    assert has_element?(liveview, "#document-return-navigation a", "Return to recorded owner")
+
+    assert has_element?(
+             liveview,
+             "#document-return-navigation details summary",
+             "Recorded helper context"
+           )
+
+    assert Repo.aggregate(Oban.Job, :count) == jobs
+  end
+
+  defp publish!(ctx, content) do
+    {:ok, created} =
+      SubjectDocuments.invoke(ctx.first, %{
+        "action" => "create",
+        "root_id" => ctx.definition.id,
+        "path" => "research.md",
+        "content" => content,
+        "request_id" => uid("navigation-output")
+      })
+
+    created
+  end
+
+  defp helper_message!(target, prompt, owner) do
+    {:ok, message, :created} =
+      OperatorMessages.submit(
+        target,
+        prompt,
+        [actor: owner, idempotency_key: uid("navigation-message")],
+        fn _ -> {:ok, :queued} end
+      )
+
+    message
   end
 
   defp wait_until(fun, tries \\ 50)
