@@ -1,0 +1,5 @@
+%{
+  "gen_agent": {:hex, :gen_agent, "0.6.2", "3eb51234975c74ffbb592c08f8972468b21d753f988d5a701f83661b41ff8702", [:mix], [{:telemetry, "~> 1.0", [hex: :telemetry, repo: "hexpm", optional: false]}], "hexpm", "c918a64fdfbbe16fcba328fe2ebe9f263a03065481b5e2f87ed20de2b77f453b"},
+  "gen_agent_ensemble": {:hex, :gen_agent_ensemble, "0.6.1", "1eb3fbe0aab0651503298bc630ff5c8ca3e70595e4c472741f328f3934247883", [:mix], [{:gen_agent, "~> 0.6.0 or ~> 0.7.0", [hex: :gen_agent, repo: "hexpm", optional: false]}, {:telemetry, "~> 1.0", [hex: :telemetry, repo: "hexpm", optional: false]}], "hexpm", "51f38426674e5e5af0a996b9d5841e24ff32c1c3748f70fbe39e64c94b04fc7b"},
+  "telemetry": {:hex, :telemetry, "1.4.2", "a0cb522801dffb1c49fe6e30561badffc7b6d0e180db1300df759faa22062855", [:rebar3], [], "hexpm", "928f6495066506077862c0d1646609eed891a4326bee3126ba54b60af61febb1"},
+}
