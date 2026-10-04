@@ -37,7 +37,7 @@ defmodule Custode.MCP.ReferenceTest do
     assert memory["resourceTemplates"] == []
 
     assert memory["tools"] |> Enum.sort() ==
-             ~w(forget integration_list journal_read recall remember subject_context)
+             ~w(forget integration_list journal_read recall remember return_context subject_context)
   end
 
   test "missing, stale and blank semantics fail instead of producing incomplete documentation" do

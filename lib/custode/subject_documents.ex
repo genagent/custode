@@ -378,6 +378,27 @@ defmodule Custode.SubjectDocuments do
   defp required("propose"), do: ~w(root_id path destination content expected_revision request_id)
   defp required(_read), do: ~w(root_id path)
 
+  @doc "Check current root read authority without touching source content."
+  def authorize_root(actor, root_id) do
+    with :ok <- current_identity(actor),
+         {:ok, _definition, _access} <-
+           authorized_root(actor, %{"action" => "browse", "root_id" => root_id}),
+         do: :ok
+  end
+
+  @doc "Check current document read authority without substituting current bytes for historical content."
+  def authorize_read(actor, root_id, path) do
+    with :ok <- current_identity(actor),
+         {:ok, _definition, _access} <-
+           authorized_root(actor, %{"action" => "read", "root_id" => root_id, "path" => path}),
+         true <- flat_name?(path) do
+      :ok
+    else
+      false -> {:error, "invalid_path"}
+      error -> error
+    end
+  end
+
   @doc "Durable operation references, restricted by current root and path read grants."
   def outputs(actor, root_id) do
     with :ok <- current_identity(actor),

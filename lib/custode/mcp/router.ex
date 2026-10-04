@@ -14,7 +14,20 @@ defmodule Custode.MCP.Router do
   def call(conn, catalogs) do
     conn
     |> authenticate()
+    |> observe_response()
     |> dispatch(catalogs)
+  end
+
+  defp observe_response(%Plug.Conn{halted: true} = conn), do: conn
+
+  defp observe_response(conn) do
+    Plug.Conn.register_before_send(conn, fn prepared ->
+      body = IO.iodata_to_binary(prepared.resp_body || "")
+
+      if byte_size(body) <= 100_000,
+        do: Plug.Conn.assign(prepared, :custode_response_body, body),
+        else: prepared
+    end)
   end
 
   # #1 + #2: no request proceeds without a verified bearer token, and the
@@ -23,11 +36,17 @@ defmodule Custode.MCP.Router do
     with ["Bearer " <> token] <- Plug.Conn.get_req_header(conn, "authorization"),
          {:ok, identity} <- Identity.verify(token) do
       origin = origin_transport(conn, identity)
+      delivery_id = Ecto.UUID.generate()
 
       conn
       |> Plug.Conn.assign(:custode_identity, identity)
       |> Plug.Conn.assign(:custode_transport, origin)
-      |> Plug.Conn.assign(:mcp_auth, %{identity: identity, origin: origin})
+      |> Plug.Conn.assign(:custode_delivery_id, delivery_id)
+      |> Plug.Conn.assign(:mcp_auth, %{
+        identity: identity,
+        origin: origin,
+        delivery_id: delivery_id
+      })
     else
       _missing_or_invalid ->
         conn
@@ -55,7 +74,7 @@ defmodule Custode.MCP.Router do
 
     case Capabilities.authorize_endpoint(endpoint, conn.assigns.custode_identity) do
       :ok ->
-        SnodoPlug.call(conn, Map.fetch!(catalogs, path))
+        SnodoPlug.call(conn, Map.fetch!(catalogs, path)) |> Custode.ContextReceipts.emitted()
 
       {:error, reason} ->
         conn

@@ -116,6 +116,7 @@
         "repo_view_issue",
         "repo_view_pr",
         "resume_agent",
+        "return_context",
         "route_preview",
         "run_job",
         "set_next_beat",
@@ -154,6 +155,7 @@
         "journal_read",
         "recall",
         "remember",
+        "return_context",
         "subject_context"
       ]
     }
@@ -3975,6 +3977,84 @@
         "/mcp"
       ],
       "name": "resume_agent"
+    },
+    {
+      "behavior": {
+        "access": "Current configured root/path read grants; private receipt payloads are the requesting actor or human only. Feedback uses current revision and exact line span.",
+        "effects": "Reads current files and historical production/context. Feedback stores comments only. Opening never starts or resumes an agent; no source apply, repository approval or merge.",
+        "notes": "Changed source refuses feedback with reread/reanchor. Prepared response is not server emission. Expired payload stays expired; native hidden context and model receipt are unknown.",
+        "result": "Current working revisions separate from historical receipts and self-authored reports. Exact bounded tool text retained up to seven days and 100 payloads per actor; emission is server-side only.",
+        "summary": "Read current subject outputs and exact retained tool payloads, or store revision-bound feedback."
+      },
+      "category": "self_write",
+      "definition": {
+        "annotations": {},
+        "description": "Inspect current documents, historical tool text or submit revision-bound comments without resuming or approving work.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "enum": [
+                "outputs",
+                "detail",
+                "contexts",
+                "context",
+                "feedback"
+              ],
+              "type": "string"
+            },
+            "comment": {
+              "maxLength": 2000,
+              "minLength": 1,
+              "type": "string"
+            },
+            "end_line": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "expected_revision": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "receipt_id": {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            },
+            "request_id": {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            },
+            "root_id": {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            },
+            "start_line": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "type": "object"
+        },
+        "name": "return_context",
+        "title": "return_context"
+      },
+      "endpoints": [
+        "/mcp",
+        "/mcp/memory"
+      ],
+      "name": "return_context"
     },
     {
       "behavior": {

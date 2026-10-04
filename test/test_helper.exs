@@ -29,6 +29,8 @@ for table <- [
       "owner_reviews",
       "subject_root_bindings",
       "subject_document_operations",
+      "context_receipts",
+      "document_feedback",
       "peer_messages",
       "disowned_prs",
       "asks",
