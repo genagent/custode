@@ -1,7 +1,7 @@
 defmodule CustodeWeb.MetricsLive do
   @moduledoc """
-  The metrics page (#78): spend and token throughput per day (stacked by
-  agent), turn outcomes, and gate latency -- the human-loop health metric.
+  The metrics page (#78): spend and token throughput per day (grouped by
+  agent and workflow), turn outcomes, and gate latency -- the human-loop health metric.
   Computed on mount from the ledger and gates tables; refreshed on the
   same PubSub events as everything else, coalesced to at most once per
   few seconds since these queries scan more than a tile refresh.
@@ -70,43 +70,41 @@ defmodule CustodeWeb.MetricsLive do
       </div>
 
       <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <section class="rounded-lg bg-base-100 p-4 shadow-sm">
+        <section class="min-w-0 rounded-lg bg-base-100 p-4 shadow-sm">
           <h3 class="mb-3 font-semibold text-base-content/70">
-            spend per day <span class="text-xs font-normal">(last {@days_shown}d, stacked by agent)</span>
+            Spend per day <span class="text-xs font-normal">(last {@days_shown} days)</span>
           </h3>
-          <.stacked_days days={@daily} agents={@agents} metric={:usd} format={&"$#{usd(&1)}"} />
-          <.legend agents={@agents} />
+          <.daily_chart
+            id="daily-spend"
+            chart={@charts.usd}
+            label="Spend per day"
+            format={&chart_usd/1}
+            exact_format={&"#{&1} USD"}
+          />
         </section>
 
-        <section class="rounded-lg bg-base-100 p-4 shadow-sm">
+        <section class="min-w-0 rounded-lg bg-base-100 p-4 shadow-sm">
           <h3 class="mb-3 font-semibold text-base-content/70">
-            tokens per day <span class="text-xs font-normal">(throughput, stacked by agent)</span>
+            Tokens per day <span class="text-xs font-normal">(throughput)</span>
           </h3>
-          <.stacked_days days={@daily} agents={@agents} metric={:tokens} format={&tok/1} />
-          <.legend agents={@agents} />
+          <.daily_chart
+            id="daily-tokens"
+            chart={@charts.tokens}
+            label="Tokens per day"
+            format={&tok/1}
+            exact_format={&"#{&1} tokens"}
+          />
         </section>
 
-        <section class="rounded-lg bg-base-100 p-4 shadow-sm">
-          <h3 class="mb-3 font-semibold text-base-content/70">
-            turns per day <span class="text-xs font-normal">(green ok, red failed)</span>
-          </h3>
-          <div class="flex h-32 items-end gap-1">
-            <div
-              :for={{date, counts} <- Enum.sort(@turns)}
-              class="relative flex h-full flex-1 flex-col-reverse"
-              title={"#{date}: #{counts.ok} ok, #{counts.failed} failed"}
-            >
-              <div class="mt-auto"></div>
-              <div class="w-full bg-success" style={"height: #{turn_percent(counts.ok, @turn_max)}%"}>
-              </div>
-              <div class="w-full bg-error" style={"height: #{turn_percent(counts.failed, @turn_max)}%"}>
-              </div>
-              <span class="absolute -bottom-5 left-0 right-0 truncate text-center text-[9px] text-base-content/40">
-                {String.slice(date, 8, 2)}
-              </span>
-            </div>
-          </div>
-          <div class="h-5"></div>
+        <section class="min-w-0 rounded-lg bg-base-100 p-4 shadow-sm">
+          <h3 class="mb-3 font-semibold text-base-content/70">Turns per day</h3>
+          <.daily_chart
+            id="daily-turns"
+            chart={@turn_chart}
+            label="Turns per day"
+            format={&to_string/1}
+            exact_format={&"#{&1} #{if &1 == 1, do: "turn", else: "turns"}"}
+          />
         </section>
 
         <section class="rounded-lg bg-base-100 p-4 shadow-sm">
@@ -263,20 +261,9 @@ defmodule CustodeWeb.MetricsLive do
   defp refresh(socket) do
     socket = AttentionSnapshot.refresh(socket)
 
-    daily = Custode.Metrics.daily_by_agent(@days)
+    charts = Custode.Metrics.daily_charts(@days)
     turns = Custode.Metrics.turns_by_day(@days)
     {gates, gate_median} = Custode.Metrics.gate_latencies()
-
-    agents =
-      daily
-      |> Enum.flat_map(fn {_date, by_agent} -> Map.keys(by_agent) end)
-      |> Enum.uniq()
-      |> Enum.sort()
-
-    turn_max =
-      turns
-      |> Enum.map(fn {_date, counts} -> counts.ok + counts.failed end)
-      |> Enum.max(fn -> 1 end)
 
     today = Date.utc_today() |> Date.to_iso8601()
 
@@ -290,15 +277,37 @@ defmodule CustodeWeb.MetricsLive do
       tokens_today: Custode.SpendLedger.fleet_today_tokens(),
       turns_today: Map.get(turns, today, %{ok: 0, failed: 0}),
       days_shown: @days,
-      daily: daily,
-      turns: turns,
-      turn_max: max(turn_max, 1),
-      agents: agents,
+      charts: charts,
+      turn_chart: turn_chart(turns, today),
       gates: gates,
       gate_median: gate_median,
       fleet_today: Custode.SpendLedger.fleet_today()
     )
   end
 
-  defp turn_percent(count, max), do: Float.round(count / max * 100, 2)
+  defp turn_chart(turns, today) do
+    days =
+      for {date, counts} <- Enum.sort(turns) do
+        %{date: date, total: counts.ok + counts.failed, values: counts}
+      end
+
+    series =
+      for {key, label} <- [ok: "Successful", failed: "Failed"] do
+        total = Enum.sum(Enum.map(days, &Map.fetch!(&1.values, key)))
+        %{key: key, kind: :outcome, label: label, total: total}
+      end
+      |> Enum.sort_by(&{-&1.total, &1.key})
+
+    %{
+      metric: :turns,
+      today: today,
+      days: days,
+      series: series,
+      max: Enum.max(Enum.map(days, & &1.total), fn -> 0 end),
+      total: Enum.sum(Enum.map(days, & &1.total))
+    }
+  end
+
+  defp chart_usd(value) when value > 0 and value < 0.01, do: "$#{value}"
+  defp chart_usd(value), do: "$#{usd(value)}"
 end

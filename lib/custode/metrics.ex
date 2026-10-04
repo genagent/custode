@@ -10,6 +10,9 @@ defmodule Custode.Metrics do
 
   alias Custode.Repo
   alias Custode.SpendLedger.Entry
+  alias Custode.Workflow.Run
+
+  @chart_named_limit 5
 
   @doc """
   Per-day, per-agent spend and throughput tokens over the last `days` UTC
@@ -48,6 +51,28 @@ defmodule Custode.Metrics do
       date = Date.utc_today() |> Date.add(-offset) |> Date.to_iso8601()
       {date, Map.get(by_day, date, %{})}
     end
+  end
+
+  @doc """
+  Bounded display charts for daily USD and throughput tokens. Each chart has
+  oldest-first `days` (`date`, `total`, and `values` by opaque series key),
+  ordered `series` (`key`, `kind`, `label`, and window `total`), the actual
+  daily `max`, window `total`, and UTC `today`.
+
+  Persisted workflow runs share a contributor by workflow name, including
+  runs with custom IDs. Unmatched IDs remain agents. Each metric selects its
+  own five largest positive contributors, groups the rest into `Other`, and
+  orders the displayed series by total with stable identity tie-breaking.
+  Values remain exact and every day is retained, including quiet days.
+  `daily_by_agent/1` and agent sparklines retain their original identities.
+  """
+  def daily_charts(days) do
+    daily = daily_by_agent(days)
+    owners = workflow_owners(daily)
+    grouped = Enum.map(daily, fn {date, agents} -> {date, group_contributors(agents, owners)} end)
+    today = Date.to_iso8601(Date.utc_today())
+
+    Map.new([:usd, :tokens], fn metric -> {metric, daily_chart(grouped, metric, today)} end)
   end
 
   @doc "Per-day turn outcomes over the last `days`: `%{date => %{ok: n, failed: n}}`."
@@ -221,6 +246,106 @@ defmodule Custode.Metrics do
       {agent, Enum.map(dates, &(get_in(daily, [&1, agent, :usd]) || 0.0))}
     end
   end
+
+  defp workflow_owners(daily) do
+    prefix = Run.spend_agent_id("")
+
+    daily
+    |> Enum.flat_map(fn {_date, agents} -> Map.keys(agents) end)
+    |> Enum.uniq()
+    |> Enum.chunk_every(500)
+    |> Enum.flat_map(fn ids ->
+      Repo.all(
+        from(r in Run.Row,
+          where: fragment("? || ?", ^prefix, r.run_id) in ^ids,
+          select: {r.run_id, r.workflow}
+        )
+      )
+    end)
+    |> Map.new(fn {run_id, workflow} -> {Run.spend_agent_id(run_id), workflow} end)
+  end
+
+  defp group_contributors(agents, owners) do
+    Enum.reduce(agents, %{}, fn {agent, values}, grouped ->
+      key = contributor_key(agent, owners)
+      Map.update(grouped, key, values, &sum_metrics(&1, values))
+    end)
+  end
+
+  defp contributor_key(agent, owners) do
+    case Map.fetch(owners, agent) do
+      {:ok, workflow} -> {:workflow, workflow}
+      :error -> {:agent, agent}
+    end
+  end
+
+  defp sum_metrics(left, right) do
+    %{usd: left.usd + right.usd, tokens: left.tokens + right.tokens}
+  end
+
+  defp daily_chart(grouped, metric, today) do
+    named = named_contributors(grouped, metric)
+
+    days =
+      grouped
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.map(fn {date, contributors} -> chart_day(date, contributors, metric, named) end)
+
+    series =
+      days
+      |> Enum.reduce(%{}, fn day, totals -> sum_values(totals, day.values) end)
+      |> Enum.map(fn {key, total} -> chart_series(key, total) end)
+      |> Enum.sort_by(&{-&1.total, &1.key})
+
+    %{
+      metric: metric,
+      today: today,
+      days: days,
+      series: series,
+      max: days |> Enum.map(& &1.total) |> Enum.max(fn -> 0 end),
+      total: Enum.sum(Enum.map(days, & &1.total))
+    }
+  end
+
+  defp named_contributors(grouped, metric) do
+    grouped
+    |> Enum.flat_map(fn {_date, contributors} ->
+      Enum.map(contributors, fn {key, values} -> {key, Map.fetch!(values, metric)} end)
+    end)
+    |> Enum.reduce(%{}, fn {key, value}, totals ->
+      Map.update(totals, key, value, &(&1 + value))
+    end)
+    |> Enum.filter(fn {_key, total} -> total > 0 end)
+    |> Enum.sort_by(fn {key, total} -> {-total, key} end)
+    |> Enum.take(@chart_named_limit)
+    |> MapSet.new(&elem(&1, 0))
+  end
+
+  defp chart_day(date, contributors, metric, named) do
+    values =
+      Enum.reduce(contributors, %{}, fn {key, metrics}, values ->
+        add_chart_value(values, key, Map.fetch!(metrics, metric), named)
+      end)
+
+    %{date: date, values: values, total: Enum.sum(Map.values(values))}
+  end
+
+  defp add_chart_value(values, _key, value, _named) when value == 0, do: values
+
+  defp add_chart_value(values, key, value, named) do
+    shown_key = if MapSet.member?(named, key), do: key, else: :other
+    Map.update(values, shown_key, value, &(&1 + value))
+  end
+
+  defp sum_values(left, right), do: Map.merge(left, right, fn _key, a, b -> a + b end)
+
+  defp chart_series(:other, total), do: %{key: :other, kind: :other, label: "Other", total: total}
+
+  defp chart_series({:agent, id} = key, total),
+    do: %{key: key, kind: :agent, label: "Agent: #{id}", total: total}
+
+  defp chart_series({:workflow, name} = key, total),
+    do: %{key: key, kind: :workflow, label: "Workflow: #{name}", total: total}
 
   defp diff_minutes(%DateTime{} = closed, %DateTime{} = opened),
     do: div(DateTime.diff(closed, opened), 60)

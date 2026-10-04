@@ -1,73 +1,125 @@
 defmodule CustodeWeb.Charts do
   @moduledoc """
-  Dependency-free charts for the metrics page (#78): stacked CSS columns
-  (theme-aware for free -- heights are percentages, colors come from a
-  fixed palette), CSS horizontal bars for the gate-latency list, and one
-  small SVG polyline for tile sparklines. No JS, no chart library until
-  interactivity earns it.
+  Dependency-free charts for the metrics page: daily CSS stacks with a
+  shared baseline and exact-value table, horizontal gate-latency bars, and
+  small SVG sparklines. Semantic colors follow the active theme.
   """
 
   use Phoenix.Component
 
-  # distinguishable at 12px, stable per agent via index
-  @palette ~w(#6366f1 #22c55e #f59e0b #ef4444 #06b6d4 #a855f7 #84cc16 #f97316 #14b8a6 #e11d48 #64748b #eab308)
+  # Series identities and order come from the read model. These semantic
+  # colors follow both themes; exact values never depend on color alone.
+  @series_tones ~w(bg-primary bg-secondary bg-info bg-success bg-neutral)
 
-  @doc "Stable color per agent from the fleet-ordered agent list."
-  def color_for(agent, agents) do
-    index = Enum.find_index(agents, &(&1 == agent)) || 0
-    Enum.at(@palette, rem(index, length(@palette)))
-  end
-
-  attr(:days, :map, required: true, doc: "%{date => %{agent => %{usd:, tokens:}}}")
-  attr(:agents, :list, required: true)
-  attr(:metric, :atom, default: :usd)
+  attr(:id, :string, required: true)
+  attr(:chart, :map, required: true)
+  attr(:label, :string, required: true)
   attr(:format, :any, required: true)
+  attr(:exact_format, :any, required: true)
 
-  @doc "Stacked per-agent daily columns for a metric (:usd or :tokens)."
-  def stacked_days(assigns) do
-    totals =
-      for {_date, by_agent} <- assigns.days do
-        by_agent |> Map.values() |> Enum.map(&Map.get(&1, assigns.metric, 0)) |> Enum.sum()
-      end
-
-    assigns = assign(assigns, :max, Enum.max([1.0e-9 | totals]))
+  @doc """
+  A prepared daily chart: one scale, ordered stacks and legend, and exact
+  values in a native disclosure. The caller owns aggregation and ranking.
+  """
+  def daily_chart(assigns) do
+    assigns = assign(assigns, :series, indexed_series(assigns.chart.series))
 
     ~H"""
-    <div class="flex h-44 items-end gap-1">
-      <div
-        :for={{date, by_agent} <- Enum.sort(@days)}
-        class="group relative flex h-full flex-1 flex-col-reverse"
-        title={"#{date}: #{@format.(day_total(by_agent, @metric))}"}
-      >
-        <div class="mt-auto"></div>
-        <div
-          :for={{agent, values} <- Enum.sort(by_agent)}
-          style={"height: #{percent(Map.get(values, @metric, 0), @max)}%; background: #{color_for(agent, @agents)}"}
-          class="w-full min-h-0"
-          title={"#{date} #{agent}: #{@format.(Map.get(values, @metric, 0))}"}
-        >
+    <figure id={@id} aria-labelledby={@id <> "-caption"} class="min-w-0">
+      <figcaption id={@id <> "-caption"} class="mb-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-base-content/60">
+        <span class="sr-only">{@label}.</span>
+        <span>↑ Today: <time datetime={@chart.today}>{@chart.today}</time> (UTC)</span>
+        <span class="ml-auto" title={@exact_format.(@chart.total)}>Total: {@format.(@chart.total)}</span>
+      </figcaption>
+      <div class="flex min-w-0">
+        <div class="relative h-44 w-16 shrink-0 font-mono text-[10px] text-base-content/60" aria-label="Chart scale">
+          <span data-chart-max class="absolute left-0 right-2 top-0 break-words text-right [overflow-wrap:anywhere]" title={@exact_format.(@chart.max)}>
+            Max {@format.(@chart.max)}
+          </span>
+          <span data-chart-baseline class="absolute bottom-0 right-2" title={@exact_format.(0)}>
+            {@format.(0)}
+          </span>
         </div>
-        <span class="absolute -bottom-5 left-0 right-0 truncate text-center text-[9px] text-base-content/40">
-          {String.slice(date, 8, 2)}
-        </span>
+        <div class="min-w-0 flex-1">
+          <div data-chart-plot class="flex h-44 items-end gap-1 border-b border-base-content/40">
+            <div
+              :for={day <- @chart.days}
+              data-chart-day={day.date}
+              data-chart-today={to_string(day.date == @chart.today)}
+              data-chart-total={day.total}
+              role="img"
+              aria-label={day_description(day, @chart.series, @chart.today, @exact_format)}
+              title={day_description(day, @chart.series, @chart.today, @exact_format)}
+              class="relative flex h-full min-w-0 flex-1 flex-col-reverse"
+            >
+              <div
+                :for={{series, index} <- @series}
+                :if={value(day, series) > 0}
+                data-chart-series={series.label}
+                data-chart-value={value(day, series)}
+                class={["w-full shrink-0", series_tone(series, index)]}
+                style={"height: #{percent(value(day, series), @chart.max)}%"}
+                title={"#{day.date} #{series.label}: #{@exact_format.(value(day, series))}"}
+              >
+              </div>
+              <span
+                :if={day.total == 0}
+                data-chart-zero
+                aria-hidden="true"
+                class="absolute bottom-0 h-0.5 w-full bg-base-content/40"
+              >
+              </span>
+            </div>
+          </div>
+          <div class="mt-1 flex gap-1 text-center font-mono text-[9px] text-base-content/70">
+            <span
+              :for={day <- @chart.days}
+              data-chart-date={day.date}
+              class={["min-w-0 flex-1", day.date == @chart.today && "font-bold underline decoration-2 underline-offset-2"]}
+              title={if day.date == @chart.today, do: "#{day.date} (Today)", else: day.date}
+            >
+              <span :if={day.date == @chart.today} aria-hidden="true">↑</span>{String.slice(day.date, 8, 2)}
+            </span>
+          </div>
+        </div>
       </div>
-    </div>
-    <div class="h-5"></div>
-    """
-  end
-
-  attr(:agents, :list, required: true)
-
-  @doc "The shared agent color legend."
-  def legend(assigns) do
-    ~H"""
-    <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-base-content/60">
-      <span :for={agent <- @agents} class="flex items-center gap-1">
-        <span class="inline-block h-2 w-2 rounded-sm" style={"background: #{color_for(agent, @agents)}"}>
-        </span>
-        {agent}
-      </span>
-    </div>
+      <p :if={@chart.total == 0} class="mt-3 text-xs text-base-content/60">No recorded value in this period.</p>
+      <ul id={@id <> "-legend"} aria-label={@label <> " series totals"} class="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-base-content/70">
+        <li :for={{series, index} <- @series} class="flex min-w-0 max-w-full items-start gap-1.5" title={@exact_format.(series.total)}>
+          <span aria-hidden="true" class={["mt-1 inline-block size-2 shrink-0 rounded-sm", series_tone(series, index)]}></span>
+          <span class="min-w-0 break-words [overflow-wrap:anywhere]">{series.label}: <span class="font-mono">{@format.(series.total)}</span></span>
+        </li>
+      </ul>
+      <details id={@id <> "-values-disclosure"} class="mt-3">
+        <summary class="link cursor-pointer text-xs text-base-content/70">Exact daily values</summary>
+        <div
+          role="region"
+          aria-label={@label <> " exact daily values"}
+          tabindex="0"
+          class="mt-2 max-w-full overflow-x-auto rounded focus-visible:outline focus-visible:outline-2"
+        >
+          <table id={@id <> "-values"} class="table table-xs w-full">
+            <caption class="sr-only">{@label}, exact values by UTC date</caption>
+            <thead>
+              <tr>
+                <th scope="col">Date (UTC)</th>
+                <th :for={series <- @chart.series} scope="col" class="max-w-40 whitespace-normal break-words text-right [overflow-wrap:anywhere]">{series.label}</th>
+                <th scope="col" class="text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={day <- @chart.days}>
+                <th scope="row" class="whitespace-nowrap font-normal">
+                  {day.date}<span :if={day.date == @chart.today} class="ml-1 font-semibold">Today</span>
+                </th>
+                <td :for={series <- @chart.series} class="whitespace-nowrap text-right font-mono">{@exact_format.(value(day, series))}</td>
+                <td class="whitespace-nowrap text-right font-mono">{@exact_format.(day.total)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </figure>
     """
   end
 
@@ -134,9 +186,35 @@ defmodule CustodeWeb.Charts do
     """
   end
 
-  defp day_total(by_agent, metric) do
-    by_agent |> Map.values() |> Enum.map(&Map.get(&1, metric, 0)) |> Enum.sum()
+  defp value(day, series), do: Map.get(day.values, series.key, 0)
+
+  defp day_description(day, series, today, format) do
+    date = if day.date == today, do: "#{day.date} (Today)", else: day.date
+
+    values =
+      Enum.map_join(series, "; ", fn item ->
+        "#{item.label}: #{format.(value(day, item))}"
+      end)
+
+    "#{date}: total #{format.(day.total)}" <> if(values == "", do: "", else: "; " <> values)
   end
+
+  # Other owns its muted tone and must not consume a named contributor's
+  # palette slot when its total places it in the middle of the ranking.
+  defp indexed_series(series) do
+    {indexed, _next} =
+      Enum.map_reduce(series, 0, fn
+        %{kind: :other} = item, index -> {{item, index}, index}
+        item, index -> {{item, index}, index + 1}
+      end)
+
+    indexed
+  end
+
+  defp series_tone(%{kind: :other}, _index), do: "bg-base-content/30"
+  defp series_tone(%{kind: :outcome, key: :ok}, _index), do: "bg-success"
+  defp series_tone(%{kind: :outcome, key: :failed}, _index), do: "bg-error"
+  defp series_tone(_series, index), do: Enum.at(@series_tones, rem(index, length(@series_tones)))
 
   defp percent(value, max) when max > 0, do: Float.round(value / max * 100, 2)
   defp percent(_value, _max), do: 0.0
