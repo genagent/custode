@@ -24,6 +24,23 @@ defmodule Custode.MCP.NotebookTools do
   @doc false
   def fetch_render_routine(routine_id), do: authorization_routine(routine_id)
 
+  @doc false
+  def peer_note_access(frame, routine_id, name, action) do
+    identity =
+      case frame do
+        %{assigns: %{custode_identity: _identity}} -> Custode.MCP.caller(frame)
+        _unverified -> nil
+      end
+
+    case Custode.PeerMessages.authorize_note(identity, routine_id, name, action) do
+      :ok ->
+        :ok
+
+      {:error, _reason} ->
+        {:error, "peer note access denied; only the authenticated recipient may file it"}
+    end
+  end
+
   defp authorization_routine(routine_id) do
     case Custode.AgentHandoff.authorization_routine(routine_id) do
       {:ok, routine} -> {:ok, routine}
@@ -356,7 +373,11 @@ defmodule Custode.MCP.NotebookTools.TodoComplete do
 end
 
 defmodule Custode.MCP.NotebookTools.InboxList do
-  @moduledoc "The routine's unfiled inbox notes, names and contents in one call."
+  @moduledoc """
+  Unfiled inbox notes, names and contents in one call. Ordinary notes retain
+  cross-routine visibility; peer messages are shown only to their authenticated
+  participants or the operator. Reading never acknowledges a peer message.
+  """
   use Anubis.Server.Component, type: :tool
 
   import Custode.MCP.Tools
@@ -368,12 +389,20 @@ defmodule Custode.MCP.NotebookTools.InboxList do
     field(:agent_id, :string, description: alias_for("routine_id"))
   end
 
-  # A read, so no check_self/2 (see TodoList).
+  # Ordinary notes remain transparent. Peer envelopes retain their narrower
+  # participant scope even when read through this older surface.
   @impl true
   def execute(params, frame) do
     with {:ok, routine_id} <- fetch_self(params, frame),
          {:ok, routine} <- NotebookTools.fetch_routine(routine_id) do
-      reply(frame, %{notes: Custode.Notebook.unfiled_notes(routine)})
+      notes =
+        routine
+        |> Custode.Notebook.unfiled_notes()
+        |> Enum.filter(
+          &(NotebookTools.peer_note_access(frame, routine_id, &1.name, :read) == :ok)
+        )
+
+      reply(frame, %{notes: notes})
     else
       {:error, message} -> fail(frame, message)
     end
@@ -381,7 +410,11 @@ defmodule Custode.MCP.NotebookTools.InboxList do
 end
 
 defmodule Custode.MCP.NotebookTools.InboxMarkFiled do
-  @moduledoc "Mark an inbox note as FILED after journaling it (idempotent)."
+  @moduledoc """
+  Mark an inbox note as FILED after journaling it (idempotent). Filing a peer
+  message also acknowledges receipt and requires its authenticated recipient;
+  the operator cannot file a peer note on the recipient's behalf.
+  """
   use Anubis.Server.Component, type: :tool
 
   import Custode.MCP.Tools
@@ -409,6 +442,7 @@ defmodule Custode.MCP.NotebookTools.InboxMarkFiled do
 
   defp mark(routine_id, name, frame) do
     with {:ok, routine} <- NotebookTools.fetch_routine(routine_id),
+         :ok <- NotebookTools.peer_note_access(frame, routine_id, name, :file),
          :ok <- safe_mark(routine, name) do
       reply(frame, %{filed: name})
     else

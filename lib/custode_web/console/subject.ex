@@ -53,6 +53,13 @@ defmodule CustodeWeb.Console.Subject do
         >
           conversation
         </.link>
+        <.link
+          :if={@subject.kind == :routine}
+          navigate={"/messages?" <> URI.encode_query(%{"agent" => @subject.id})}
+          class="btn btn-ghost btn-sm"
+        >
+          Agent messages
+        </.link>
         <button :if={@subject.kind == :routine} class="btn btn-outline btn-sm" phx-click="beat">
           beat now
         </button>

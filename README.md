@@ -197,6 +197,7 @@ toggles them ([guides/ui-hierarchy.md](guides/ui-hierarchy.md)).
 | `/` | **The console.** A rail of every subject grouped by what it needs (needs you, watching, working, scheduled, quiet), filterable by name, repository, tag or state. A subject pane with a message box that works in any state and tabs: attention, activity, work, notebook, panel, turns, config. An item pane with the evidence (failing checks, risk, the agent's context) and one control per thing you can do. |
 | `/agents/:id/conversation` | **A focused agent conversation.** Operator prompts, provider replies, questions, approvals, and their outcomes appear as correlated exchanges in one full-height transcript, with stable older-history loading and the same saved draft as the console. |
 | `/custode` | **Talking to custode**, `Cmd/Ctrl+K` from anywhere. A sentence box, custode's pending proposal as a plan with `do it` and `cancel`, its answers, and what it did while you were away. |
+| `/messages`, `/messages/:id` | Durable agent-to-agent messages and correlated exchanges. Reach them from either agent or fleet activity; reads never acknowledge a message. |
 | `/metrics` | Spend, approval rates by agent, by gate class and risk, and writes observed outside an approval. |
 | `/inbox`, `/repos`, `/workflows`, `/suggestions` | The needs-you queue, repository overviews, workflow runs, advisor suggestions. |
 | `/fleet`, `/agents/:id` | Legacy bookmarks; redirect to the console and selected subject. |
@@ -281,6 +282,34 @@ Each entry has `id`, nullable `title`, `body`, `inserted_at` (ISO 8601), and
 `compacted_at` (ISO 8601 or null for live entries). No entries returns an empty
 list. Invalid argument types are MCP invalid-params errors; an out-of-range
 limit, unauthorized identity or missing operator selection is a tool error.
+
+### Peer requests and replies
+
+Configured routines can exchange durable messages across Claude and Codex.
+Use `list_routines` to find a recipient, then `peer_send` with its routine ID,
+`kind` (`request` or `fyi`), a subject, body, and stable `idempotency_key`.
+The authenticated caller supplies the sender identity. Retrying the same key
+with the same envelope returns the original message; changing its content
+requires a new key.
+
+The recipient uses `peer_list` and `peer_read` to inspect messages, `peer_ack`
+to acknowledge receipt, and `peer_reply` to respond. Replies name the original
+message ID and derive their recipient and correlation automatically. Only the
+recipient can acknowledge or reply. The operator can inspect every exchange;
+routines can inspect only exchanges in which they participate.
+
+Acceptance persists the envelope and its delivery job together. Delivery writes
+a deterministic inbox note and uses the existing coalesced inbox wake rules.
+A paused or gated agent stays held, spend rails remain in force, and
+`on_note = "ignore"` suppresses the wake. Failed delivery remains visible.
+Filing the peer inbox note also acknowledges it; acknowledging through MCP
+queues the file projection. Reading either surface does neither.
+
+Messages are requests or evidence, not approvals or operator answers. An
+acknowledgment means receipt, not completion. Return results and evidence in a
+correlated reply; the recipient still proposes any gated action itself. Bounded
+message size, sender rate and reply-chain limits prevent an unbounded exchange.
+The [MCP reference](docs/mcp-reference.md) gives exact defaults and errors.
 
 ## Development
 

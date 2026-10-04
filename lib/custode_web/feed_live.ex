@@ -65,6 +65,7 @@ defmodule CustodeWeb.FeedLive do
     ~H"""
     <.page fleet_today={@fleet_today} active={:feed}>
       <div class="mx-auto mb-3 flex max-w-3xl flex-wrap items-center gap-2">
+        <.link navigate="/messages" class="link mr-auto text-sm">Agent messages</.link>
         <span class="text-xs text-base-content/50">show:</span>
         <.link patch={feed_path(@agent_filter, nil)} class={["badge badge-sm", filter_class(@kind_filter == nil)]}>
           all

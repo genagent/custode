@@ -22,6 +22,9 @@ defmodule Custode.MCP.ToolPolicy do
       `granted/3` or `check_grant/2` (`Custode.MCP.Tools`).
     * `:delegate` -- drives another agent: start, prompt, decide its gate.
       Worker-tier, over the caller's own sub-agents (`check_gate_target/2`).
+    * `:peer_message` -- sends or acknowledges routine-to-routine messages.
+      The shared peer service checks authenticated participants. Messages are
+      requests or evidence and confer no authority over the recipient.
     * `:roster_write` -- mutates the roster or a profile. Caretaker-only
       (`RosterTools.check_roster_writer/1`).
     * `:operator` -- runs the fleet. Endpoint and role admission is enforced by
@@ -29,7 +32,13 @@ defmodule Custode.MCP.ToolPolicy do
   """
 
   @type category ::
-          :read | :self_write | {:repo_write, atom()} | :delegate | :roster_write | :operator
+          :read
+          | :self_write
+          | {:repo_write, atom()}
+          | :delegate
+          | :peer_message
+          | :roster_write
+          | :operator
 
   @policy %{
     # delegation
@@ -80,6 +89,12 @@ defmodule Custode.MCP.ToolPolicy do
     "list_asks" => :read,
     "answer_ask" => :operator,
     "dismiss_ask" => :operator,
+    # peer correspondence never delegates approval or lifecycle authority
+    "peer_send" => :peer_message,
+    "peer_reply" => :peer_message,
+    "peer_ack" => :peer_message,
+    "peer_list" => :read,
+    "peer_read" => :read,
     # the fleet-wide reads (#346)
     "list_attention" => :read,
     "list_inbox" => :read,

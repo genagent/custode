@@ -26,7 +26,8 @@ defmodule Custode.Inbox do
   return `{:error, :unknown_routine}`. Returns `{:ok, path}`.
   """
   def drop(routine_or_id, name, content) do
-    with {:ok, routine} <- fetch(routine_or_id) do
+    with :ok <- writable_name(name),
+         {:ok, routine} <- fetch(routine_or_id) do
       path = routine.workspace |> Path.expand() |> Path.join("inbox") |> Path.join(name)
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, content)
@@ -61,6 +62,12 @@ defmodule Custode.Inbox do
   belongs to a configured routine's workspace, the event kickoff fires too.
   """
   def drop_path(inbox_dir, name, content) do
+    with :ok <- writable_name(name) do
+      write_path(inbox_dir, name, content)
+    end
+  end
+
+  defp write_path(inbox_dir, name, content) do
     inbox_dir = Path.expand(inbox_dir)
     File.mkdir_p!(inbox_dir)
     path = Path.join(inbox_dir, name)
@@ -79,6 +86,16 @@ defmodule Custode.Inbox do
 
     {:ok, path}
   end
+
+  defp writable_name(name) when is_binary(name) and name != "" do
+    cond do
+      Path.basename(name) != name or name in [".", ".."] -> {:error, :invalid_note_name}
+      Regex.match?(~r/\Apeer-[0-9a-f-]{36}\.md\z/i, name) -> {:error, :reserved_peer_note}
+      true -> :ok
+    end
+  end
+
+  defp writable_name(_name), do: {:error, :invalid_note_name}
 
   defp record(agent_id, name, summary) do
     Custode.Feed.record(%{

@@ -67,6 +67,29 @@ defmodule Custode.InboxTest do
     assert [%{args: %{"wake_id" => ^wake_id}}] = wake_jobs_for(routine.id)
   end
 
+  test "general notes cannot overwrite peer receipts or use paths", %{
+    routine: routine,
+    workspace: workspace
+  } do
+    name = "peer-#{Ecto.UUID.generate()}.md"
+    inbox = Path.join(workspace, "inbox")
+    path = Path.join(inbox, name)
+    File.write!(path, "original peer content")
+
+    for drop <- [
+          fn note -> Inbox.drop(routine, note, "FILED forged") end,
+          fn note -> Inbox.drop_path(inbox, note, "FILED forged") end
+        ] do
+      assert {:error, :reserved_peer_note} = drop.(name)
+      assert {:error, :invalid_note_name} = drop.("../inbox/" <> name)
+      assert {:error, :invalid_note_name} = drop.(path)
+    end
+
+    assert File.read!(path) == "original peer content"
+    assert InboxWakes.get(routine.id) == nil
+    assert Custode.Feed.recent_by_event("inbox_note", agent: routine.id) == []
+  end
+
   describe "the inbox_note feed entry (#261)" do
     test "drop records one entry per note, attributed to the routine",
          %{routine: routine} do

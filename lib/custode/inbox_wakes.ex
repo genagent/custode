@@ -199,6 +199,51 @@ defmodule Custode.InboxWakes do
     end
   end
 
+  @doc """
+  Add a wave and its kickoff inside the caller's transaction. No monitor or
+  PubSub work runs until the caller invokes `notify_committed/1` after commit.
+  An enqueue failure rolls back the entire caller transaction.
+  """
+  def request_in_transaction(routine_or_id, opts \\ []) do
+    unless Repo.in_transaction?(), do: raise(ArgumentError, "a transaction is required")
+
+    with {:ok, routine} <- fetch_routine(routine_or_id),
+         :ok <- accepts_wakes(routine) do
+      now = opts |> Keyword.get_lazy(:now, &DateTime.utc_now/0) |> with_usec()
+      due_at = DateTime.add(now, Keyword.get(opts, :debounce_seconds, @debounce_seconds), :second)
+      wake = upsert_wave(routine, now, due_at)
+      enqueue = Keyword.get(opts, :enqueue, &insert_kickoff(&1, now))
+
+      enqueue_in_transaction(wake, enqueue)
+      {:ok, wake}
+    end
+  end
+
+  defp enqueue_in_transaction(%{blocked_by: blocker}, _enqueue) when blocker in @held_blockers,
+    do: :ok
+
+  defp enqueue_in_transaction(wake, enqueue) do
+    case enqueue.(wake) do
+      :ok -> :ok
+      {:error, reason} -> Repo.rollback({:wake_enqueue_failed, reason})
+      other -> Repo.rollback({:unexpected_wake_enqueue_reply, other})
+    end
+  end
+
+  @doc "Publish a committed wave and restore monitors for any retained hold."
+  def notify_committed(%InboxWake{} = observed) do
+    case get(observed.routine_id) do
+      %InboxWake{wake_id: wake_id} = current when wake_id == observed.wake_id ->
+        retain_hold(current)
+        broadcast(current.routine_id)
+
+      _other ->
+        :ok
+    end
+  end
+
+  def notify_committed(nil), do: :ok
+
   @doc "One routine's durable wake row, or `nil`."
   @spec get(String.t()) :: InboxWake.t() | nil
   def get(routine_id) when is_binary(routine_id), do: Repo.get(InboxWake, routine_id)

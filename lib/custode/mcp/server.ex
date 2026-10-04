@@ -92,6 +92,14 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.AskTools.AnswerAsk, name: "answer_ask")
   component(Custode.MCP.AskTools.DismissAsk, name: "dismiss_ask")
 
+  # Peer messages request work without granting authority (#461). The shared
+  # service binds writes and exchange visibility to the authenticated caller.
+  component(Custode.MCP.PeerTools.Send, name: "peer_send")
+  component(Custode.MCP.PeerTools.Reply, name: "peer_reply")
+  component(Custode.MCP.PeerTools.List, name: "peer_list")
+  component(Custode.MCP.PeerTools.Read, name: "peer_read")
+  component(Custode.MCP.PeerTools.Ack, name: "peer_ack")
+
   # The reads a client could not reach (#346 / survey #345). Registered here
   # and granted to NO agent: Custode.Routine's allowlists decide who may call
   # what, and eleven fleet-wide reads in every sweep's tool list would be

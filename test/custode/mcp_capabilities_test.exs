@@ -2,6 +2,7 @@ defmodule Custode.MCPCapabilitiesTest do
   use ExUnit.Case, async: false
 
   import Custode.TestHelpers
+  import Ecto.Query, only: [from: 2]
 
   alias Custode.{AgentAuthorizationSnapshot, Repo, Routine}
   alias Custode.MCP.{Capabilities, Identity, Tools}
@@ -90,6 +91,13 @@ defmodule Custode.MCPCapabilitiesTest do
     refute "beat" in worker_tools
     refute "list_attention" in worker_tools
 
+    for tool <- ~w(peer_send peer_reply peer_list peer_read peer_ack) do
+      assert tool in worker_tools
+      assert tool in caretaker_tools
+      assert tool in operator_tools
+      assert ("mcp__custode__" <> tool) in Custode.Routine.mcp_tools(:backlog_worker)
+    end
+
     assert "journal_append" in caretaker_tools
     assert "beat" in caretaker_tools
     assert "list_attention" in caretaker_tools
@@ -157,6 +165,48 @@ defmodule Custode.MCPCapabilitiesTest do
            })
 
     assert "beat" in tool_names(worker)
+  end
+
+  test "peer calls preserve authenticated authorship through the HTTP adapter", ctx do
+    worker = session(ctx.worker_token, "/mcp")
+    caretaker = session(ctx.caretaker_token, "/mcp")
+    operator = session(ctx.operator_token, "/mcp")
+
+    args = %{
+      recipient: ctx.caretaker_id,
+      sender: ctx.caretaker_id,
+      kind: "request",
+      subject: "Inspect a dependency",
+      body: "This request is not permission to merge anything.",
+      idempotency_key: uid("http-peer")
+    }
+
+    %{"message" => message} = call(worker, "peer_send", args)
+
+    on_exit(fn ->
+      Repo.delete_all(from(m in Custode.PeerMessage, where: m.id == ^message["id"]))
+    end)
+
+    assert message["sender"] == ctx.worker_id
+    assert message["recipient"] == ctx.caretaker_id
+    refute Map.has_key?(message, "idempotency_key")
+    assert %{"message" => %{"id" => id}} = call(worker, "peer_send", args)
+    assert id == message["id"]
+
+    assert %{"messages" => [%{"id" => ^id}]} =
+             call(caretaker, "peer_list", %{direction: "received", counterpart: ctx.worker_id})
+
+    assert %{"message" => %{"acknowledged_at" => nil}} =
+             call(operator, "peer_read", %{message_id: id})
+
+    assert tool_error(operator, "peer_send", Map.delete(args, :sender)) =~ "access denied"
+    assert tool_error(operator, "peer_ack", %{message_id: id}) =~ "access denied"
+    assert tool_error(worker, "peer_ack", %{message_id: id}) =~ "access denied"
+
+    assert %{"message" => %{"acknowledged_at" => acknowledged_at}} =
+             call(caretaker, "peer_ack", %{message_id: id})
+
+    assert is_binary(acknowledged_at)
   end
 
   test "routine discovery does not normalize unrelated roster fields" do

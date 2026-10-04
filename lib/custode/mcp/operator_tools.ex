@@ -60,7 +60,11 @@ defmodule Custode.MCP.OperatorTools.DropNote do
       description: "the routine whose inbox gets the note"
     )
 
-    field(:name, :string, description: "note filename (a timestamped default applies)")
+    field(:name, :string,
+      description:
+        "note basename only (a timestamped default applies); peer-UUID.md names are reserved"
+    )
+
     field(:content, :string, required: true, description: "markdown body of the note")
   end
 
