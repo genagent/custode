@@ -73,7 +73,15 @@ defmodule CustodeWeb.RootLiveTest do
     {:ok, view, html} = live(conn, "/custode")
 
     assert html =~ "speaks for you"
-    assert has_element?(view, "form[phx-submit=tell] textarea[name=text]")
+    assert has_element?(view, "label[for=root-message-0]", "Message #{caretaker.id}")
+    assert has_element?(view, "#root-message-0[name=text][aria-describedby=root-message-help-0]")
+
+    assert has_element?(
+             view,
+             "#root-message-help-0",
+             "Discuss an idea, ask about the fleet, or request work."
+           )
+
     # what it SAID and what it DID are different lists, and a ping is neither
     assert view |> element("#custode-said") |> render() =~ "fleet is quiet"
     did = view |> element("#custode-did") |> render()
@@ -90,21 +98,21 @@ defmodule CustodeWeb.RootLiveTest do
     {:ok, repos, repos_html} = live(conn, "/repos")
 
     expected = [
-      {"console", "/console"},
-      {"custode", "/custode"},
-      {"inbox", "/inbox"},
-      {"repos", "/repos"},
-      {"suggestions", "/suggestions"},
-      {"workflows", "/workflows"},
-      {"metrics", "/metrics"}
+      {"Console", "/console"},
+      {"Ask", "/custode"},
+      {"Inbox", "/inbox"},
+      {"Repos", "/repos"},
+      {"Suggestions", "/suggestions"},
+      {"Workflows", "/workflows"},
+      {"Metrics", "/metrics"}
     ]
 
     assert primary_nav(root_html) == expected
     assert primary_nav(console_html) == expected
     assert primary_nav(repos_html) == expected
-    assert has_element?(root, "#application-header a[aria-current=page]", "custode")
-    assert has_element?(console, "#application-header a[aria-current=page]", "console")
-    assert has_element?(repos, "#application-header a[aria-current=page]", "repos")
+    assert has_element?(root, "#application-header a[aria-current=page]", "Ask")
+    assert has_element?(console, "#application-header a[aria-current=page]", "Console")
+    assert has_element?(repos, "#application-header a[aria-current=page]", "Repos")
     assert has_element?(root, "#custode-root.max-w-4xl")
   end
 

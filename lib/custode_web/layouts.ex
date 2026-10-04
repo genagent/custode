@@ -266,6 +266,18 @@ defmodule CustodeWeb.Layouts do
           });
         </script>
         <style>
+          /* Native long-text disclosure: one marker and at most three lines. */
+          [data-foldable-preview] { position: relative; padding-inline-end: 1.25em; }
+          [data-foldable-preview-text] { margin: 0; line-height: 1.5; max-height: 4.5em; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
+          [data-foldable-omission] { position: absolute; inset-inline-end: 0; bottom: 0; line-height: 1.5; }
+          [data-foldable-text]:has(> details[open]) > [data-foldable-preview] { display: none; }
+          [data-foldable-text] > details > summary { list-style: none; }
+          [data-foldable-text] > details > summary::-webkit-details-marker { display: none; }
+          [data-foldable-text] > details > summary > [data-foldable-show-less] { display: none; }
+          [data-foldable-text] > details[open] > summary > [data-foldable-show-more] { display: none; }
+          [data-foldable-text] > details[open] > summary > [data-foldable-show-less] { display: inline; }
+          [data-foldable-full] { overflow-wrap: anywhere; }
+
           /* agent-output markdown (journal tables and friends) */
           .agent-md table { border-collapse: collapse; margin: 0.5rem 0; font-size: 0.8rem; }
           .agent-md th, .agent-md td { border: 1px solid color-mix(in oklab, currentColor 20%, transparent); padding: 0.2rem 0.5rem; text-align: left; }

@@ -35,7 +35,7 @@ defmodule CustodeWeb.Console.Composer do
           phx-click="drop_image"
           phx-value-ref={entry.ref}
         >
-          remove
+          Remove
         </button>
         <span :for={error <- upload_errors(@upload, entry)} class="text-error">
           {upload_error_text(error)}
@@ -45,26 +45,33 @@ defmodule CustodeWeb.Console.Composer do
         {upload_error_text(error)}
       </p>
 
+      <label for={"message-input-#{@message_gen}"} class="mb-1 block text-sm font-medium">
+        Message {@subject_id}
+      </label>
       <div class="flex flex-col gap-2 sm:flex-row" phx-drop-target={@routine && @upload.ref}>
         <textarea
+          id={"message-input-#{@message_gen}"}
+          aria-describedby={"message-help-#{@message_gen}"}
           name="text"
           rows="2"
           data-draft-input
           class="textarea textarea-bordered w-full text-sm"
-          placeholder={"message #{@subject_id}... #{message_hint(@state)}"}
         ></textarea>
         <button
           type="submit"
           class="btn btn-primary btn-sm self-end"
-          phx-disable-with="sending..."
+          phx-disable-with="Sending..."
         >
           {message_label(@state)}
         </button>
       </div>
 
+      <p id={"message-help-#{@message_gen}"} class="mt-1 text-xs text-base-content/60">
+        {message_hint(@state)}
+      </p>
       <div class="mt-1 flex items-center gap-2 text-xs text-base-content/50">
         <span data-draft-state hidden>unsent draft saved in this browser</span>
-        <button type="button" data-discard-draft hidden class="link">discard draft</button>
+        <button type="button" data-discard-draft hidden class="link">Discard draft</button>
       </div>
 
       <label :if={@routine} class="mt-1 flex items-center gap-2 text-xs text-base-content/40">
@@ -80,15 +87,17 @@ defmodule CustodeWeb.Console.Composer do
   defp upload_error_text(:not_accepted), do: "not an image type custode accepts"
   defp upload_error_text(other), do: to_string(other)
 
-  defp message_label(:running), do: "queue"
-  defp message_label(:waiting_for_user), do: "answer"
-  defp message_label(:paused), do: "resume + send"
-  defp message_label(:offline), do: "start + send"
-  defp message_label(_state), do: "send"
+  defp message_label(:running), do: "Queue message"
+  defp message_label(:waiting_for_user), do: "Answer"
+  defp message_label(:paused), do: "Resume and send"
+  defp message_label(:offline), do: "Start and send"
+  defp message_label(_state), do: "Send"
 
-  defp message_hint(:running), do: "(it is mid-turn: this queues)"
-  defp message_hint(:paused), do: "(paused: sending resumes it)"
-  defp message_hint(:offline), do: "(offline: this starts a turn with your message)"
-  defp message_hint(:waiting_for_user), do: "(it is waiting on you: this is the answer)"
-  defp message_hint(_state), do: ""
+  defp message_hint(:running),
+    do: "The agent is working. Your message will be queued after its current turn."
+
+  defp message_hint(:paused), do: "Sending resumes this paused agent with your message."
+  defp message_hint(:offline), do: "Sending starts a turn with your message."
+  defp message_hint(:waiting_for_user), do: "The agent is waiting for your answer."
+  defp message_hint(_state), do: "Send a message to continue this agent’s work."
 end

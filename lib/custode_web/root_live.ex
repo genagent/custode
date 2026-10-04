@@ -127,18 +127,24 @@ defmodule CustodeWeb.RootLive do
         :if={@caretaker}
         id={"tell-#{@sent_gen}"}
         phx-submit="tell"
-        class="mt-6 flex items-start gap-3 rounded-xl border border-base-300 bg-base-100 px-4 py-3"
+        class="mt-6 flex flex-wrap items-start gap-3 rounded-xl border border-base-300 bg-base-100 px-4 py-3"
       >
-        <span class="pt-1 font-mono text-base-content/40">&rsaquo;</span>
+        <label for={"root-message-#{@sent_gen}"} class="w-full text-sm font-medium">
+          Message {@caretaker}
+        </label>
         <textarea
+          id={"root-message-#{@sent_gen}"}
+          aria-describedby={"root-message-help-#{@sent_gen}"}
           name="text"
           rows="2"
           required
           autofocus
-          placeholder="tell custode..."
-          class="w-full resize-none border-0 bg-transparent font-mono text-lg outline-none ring-0 placeholder:text-base-content/30 focus:outline-none focus:ring-0"
+          class="min-w-0 flex-1 resize-none border-0 bg-transparent font-mono text-lg outline-none ring-0 focus:outline-none focus:ring-0"
         >{@draft}</textarea>
-        <button type="submit" class="btn btn-primary btn-sm">send</button>
+        <button type="submit" class="btn btn-primary btn-sm">Send</button>
+        <p id={"root-message-help-#{@sent_gen}"} class="w-full text-xs text-base-content/60">
+          Discuss an idea, ask about the fleet, or request work.
+        </p>
       </form>
       <p :if={@notice} id="root-notice" class="mt-2 font-mono text-xs text-base-content/60">
         {@notice}

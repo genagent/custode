@@ -454,13 +454,13 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert {:ok, prepared} = Custode.ConversationArcs.prepare(sleeper, :operator)
     {:ok, view, html} = live(conn, "/console/#{sleeper.id}")
 
-    assert html =~ "start + send"
-    assert html =~ "this starts a turn with your message"
+    assert html =~ "Start and send"
+    assert html =~ "Sending starts a turn with your message."
     assert html =~ prepared.arc_id
     assert html =~ "fresh/no_session"
     assert has_element?(view, ~s(form[phx-hook="SubjectDraft"][data-subject="#{sleeper.id}"]))
     assert has_element?(view, "[data-draft-state][hidden]", "unsent draft saved in this browser")
-    assert has_element?(view, "button[data-discard-draft][hidden]", "discard draft")
+    assert has_element?(view, "button[data-discard-draft][hidden]", "Discard draft")
 
     html = view |> form("form[phx-submit=message]", %{"text" => "look at 42"}) |> render_submit()
     assert_push_event(view, "draft:clear", %{subject: ^subject})
@@ -619,8 +619,10 @@ defmodule CustodeWeb.ConsoleLiveTest do
         %{id: uid("worker"), cron: "@daily", workspace: workspace, prompt: "sweep"}
       ])
 
-      {:ok, view, html} = live(conn, "/console")
-      assert html =~ "tell #{caretaker}..."
+      {:ok, view, _html} = live(conn, "/console")
+      assert has_element?(view, "label[for=tell-input-0]", "Message #{caretaker}")
+      assert has_element?(view, "input#tell-input-0[aria-describedby=tell-help-0]")
+      assert has_element?(view, "#tell-help-0", "Press Enter to send.")
 
       html =
         view
@@ -1161,9 +1163,9 @@ defmodule CustodeWeb.ConsoleLiveTest do
     {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
     view |> element("button[phx-value-tab=notebook]") |> render_click()
 
-    disclosure = view |> element("details[data-foldable-text]") |> render()
-    assert disclosure =~ "show more"
-    assert disclosure =~ "show less"
+    disclosure = view |> element("[data-foldable-text]") |> render()
+    assert disclosure =~ "Show more"
+    assert disclosure =~ "Show less"
     assert disclosure =~ value
   end
 
@@ -1312,7 +1314,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
       # the first render races the async fetch; the broadcast settles it
       work = eventually(fn -> view |> element("#open-work") |> render() end)
 
-      assert work =~ "1 pull request(s), 7 issue(s)"
+      assert work =~ "1 pull request, 7 issues"
       assert work =~ "convert ignore to no_run"
       assert work =~ "bg-error"
       assert work =~ "backlog item 5"
@@ -1321,6 +1323,31 @@ defmodule CustodeWeb.ConsoleLiveTest do
       # the rest is one click away, and nothing left the work tab
       html = view |> element("#open-work button", "all 7 on the work tab") |> render_click()
       assert html =~ "backlog item 7"
+    end
+
+    test "work counts read naturally for zero, one and many", %{conn: conn} do
+      for {prs, issues, expected} <- [
+            {0, 1, "0 pull requests, 1 issue"},
+            {2, 0, "2 pull requests, 0 issues"}
+          ] do
+        repo = "acme/" <> uid("count-copy")
+        on_exit(fn -> Cache.forget(repo) end)
+        item = %{number: 1, title: "Tracked work", url: "https://example.com", at: nil}
+
+        overview = %{
+          open_issues: %{total: issues, items: List.duplicate(item, issues)},
+          closed_issues: %{total: 0, items: []},
+          open_prs: %{total: prs, items: List.duplicate(item, prs)},
+          merged_prs: %{total: 0, items: []}
+        }
+
+        overviews = Application.get_env(:custode, :fake_repo_overviews, %{})
+        put_env!(:fake_repo_overviews, Map.put(overviews, repo, {:ok, overview}))
+        routine = routine_fixture!(tmp_workspace!(), %{repo: repo})
+        {:ok, view, _html} = live(conn, "/console/#{routine.id}")
+
+        eventually(fn -> assert has_element?(view, "#open-work h3", expected) end)
+      end
     end
 
     test "a subject with no repository and no panel draws neither section",
