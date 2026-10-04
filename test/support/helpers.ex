@@ -113,12 +113,20 @@ defmodule Custode.TestHelpers do
   end
 
   @doc """
-  Complete the turn whose metadata was captured from its enqueue message.
+  Complete a captured persisted job, or metadata from a stub enqueue.
+  Persisted jobs keep their id so the engine can reject other job callbacks.
 
   Route through the real worker callback so this fixture preserves the
   engine's correlation contract. Never reconstruct metadata from an agent's
   current state: a queued prompt or replacement agent may already own it.
   """
+  def finish_agent_turn(%{id: id, meta: meta}, %ClaudeWrapper.Result{} = result) do
+    ObanClaude.Agent.Job.handle_result(
+      result,
+      %Oban.Job{id: id, meta: meta, attempt: 1, max_attempts: 1}
+    )
+  end
+
   def finish_agent_turn(%{"agent_id" => _id} = meta, %ClaudeWrapper.Result{} = result) do
     ObanClaude.Agent.Job.handle_result(result, %Oban.Job{meta: meta, attempt: 1, max_attempts: 1})
   end

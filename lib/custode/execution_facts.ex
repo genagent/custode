@@ -157,10 +157,29 @@ defmodule Custode.ExecutionFacts do
     turn
     |> Map.put(:lifecycle_state, stringify(process.state))
     |> Map.put(:process_revision, process.config_revision)
+    |> Map.put(:provider_session_id, observed_session(turn, process))
     |> Map.put(
       :revision_mismatch,
       revision_mismatch?(turn.config_revision, process.config_revision)
     )
+  end
+
+  defp observed_session(turn, process) do
+    expected = [
+      {:id, :job_id},
+      {:attempt, :job_attempt},
+      {:snoozed, :job_snoozed},
+      {:arc_id, :arc_id}
+    ]
+
+    matched? =
+      Enum.all?(expected, fn {captured_key, live_key} ->
+        captured = Map.get(turn, captured_key)
+        not is_nil(captured) and captured == continuation_value(process, live_key)
+      end)
+
+    session_id = continuation_value(process, :session_id)
+    if matched? and durable_identity?(session_id), do: session_id
   end
 
   defp captured_turns(agent_id) do
@@ -178,6 +197,9 @@ defmodule Custode.ExecutionFacts do
   defp captured_turn(%Oban.Job{} = job) do
     %{
       id: job.id,
+      attempt: job.attempt,
+      snoozed: job.meta["snoozed"] || 0,
+      arc_id: job.meta["arc_id"],
       state: job.state,
       provider: provider_for(job.worker),
       model: job.args["model"],

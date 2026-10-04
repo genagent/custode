@@ -144,9 +144,23 @@ for the exact arc.
 
 ## Recovery
 
-Custode records the intended continuation decision before launch. A successful
-turn records the observed provider session id against the same logical turn
-and arc.
+Custode records the intended continuation decision before launch. The provider
+agent then announces its accepted execution attempt before delivering an early
+native session identity. Custode matches the routine, generation, logical turn,
+arc, job ID, attempt and snooze count before storing that identity. Duplicate,
+retired and rotated observations cannot replace the current handle.
+
+A timeout, cancellation, rail stop or worker failure retains an already
+observed handle. Terminal completion with no handle cannot erase it; explicit
+provider session rejection clears it. A rejected fork source clears only that
+source's exact stored handle; a different target or a newer source handle survives.
+If a fresh fallback announces a valid
+replacement and then stops before completion, that replacement can resume.
+The handle establishes identity only, not successful work. Execution-start
+telemetry records an accepted worker attempt, not proof that a CLI spawned.
+An enqueue failure or watchdog timeout before worker registration records a
+diagnostic outcome without changing the retained handle or claiming that
+provider execution started.
 
 If the process restarts while idle, Custode seeds the named arc from its stored
 handle after verifying the compatibility fingerprint. If the provider reports

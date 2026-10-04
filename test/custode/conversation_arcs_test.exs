@@ -269,7 +269,7 @@ defmodule Custode.ConversationArcsTest do
     :ok =
       Job.handle_result(
         result(session_id: session_id),
-        %Oban.Job{meta: job.meta, attempt: 1, max_attempts: 1}
+        %Oban.Job{id: job.id, meta: job.meta, attempt: 1, max_attempts: 1}
       )
 
     # handle_result/2 simulates the worker callback. Real Oban marks the row
