@@ -40,7 +40,7 @@ defmodule Custode.MixProject do
       {:jason, "~> 1.4"},
       # The MCP server: agents running here can drive sibling agents/jobs.
       {:anubis_mcp, "~> 2.0"},
-      {:snodo_plug, "~> 0.3.0"},
+      {:snodo_plug, "~> 0.4.1"},
       # Typed GitHub client: repo panels on agent pages (reads); verb tools later.
       {:gh_ex, "~> 0.3"},
       # HTTP client (also a gh_ex dep): the boot MCP probe and CLI transport.

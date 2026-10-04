@@ -1,6 +1,6 @@
 # Snodo transport rollout
 
-Custode consumes `snodo_plug ~> 0.3.0` from Hex. Snodo supplies the stateless
+Custode consumes `snodo_plug ~> 0.4.1` from Hex. Snodo supplies the stateless
 HTTP MCP transport while the existing Anubis tool components, Peri validation,
 Frames, Responses and work-resource reads remain the callback layer.
 
@@ -26,12 +26,21 @@ Both `snodo` and `snodo_plug` are public Hex packages. A fresh checkout uses
 ordinary `mix deps.get`; CI needs no source checkout, SSH credential or deploy
 key for them.
 
-Snodo 0.3 bounds request bodies at 2 MB and requires `Content-Length`; a request
+Snodo 0.4 bounds request bodies at 2 MB and requires `Content-Length`; a request
 that declares `Transfer-Encoding` receives HTTP 411. Custode's JSON clients send
 a fixed body with a content length. When a handler is still silent after five
 seconds, the Plug changes the response to SSE and writes keepalives so a client
 disconnect can cancel abandoned work. The Custode CLI accepts both JSON and SSE
 terminal responses.
+
+Snodo 0.4 compiles resource templates against its supported RFC 6570 shapes and
+refuses unsupported forms, templates longer than 1,024 bytes and templates with
+more than 32 variables. Custode's 13 templates use literal path segments and
+single-segment variables; the transport contract test compiles every advertised
+template. The 0.4 line also rejects duplicate JSON object keys, closes Plug
+streams when their request executor exits and releases request-only data from
+long-lived subscription streams. Custode does not enable the new proxy, client
+cache, OAuth listener, per-component middleware or Tasks facilities.
 
 ## Rollout
 

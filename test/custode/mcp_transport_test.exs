@@ -4,6 +4,8 @@ defmodule Custode.MCPTransportTest do
   import Custode.TestHelpers, only: [put_env!: 2, tmp_workspace!: 0, uid: 1]
 
   alias Custode.MCP.{Identity, MemoryServer, Server, WorkResources}
+  alias Snodo.Client
+  alias Snodo.Resource.Template
 
   @versions ["2025-06-18", "2025-11-25"]
 
@@ -21,6 +23,33 @@ defmodule Custode.MCPTransportTest do
     ])
 
     %{routine_id: routine_id}
+  end
+
+  test "all advertised resource templates compile with Snodo" do
+    failures =
+      for %{name: name, uri: uri} <- WorkResources.template_definitions(),
+          {:error, reason} <- [Template.compile(uri)] do
+        {name, uri, reason}
+      end
+
+    assert failures == []
+  end
+
+  test "the current protocol serves authenticated tools and resources without initialize" do
+    {:ok, token} = Identity.operator_token()
+
+    assert {:ok, client} =
+             Client.connect({:http, Custode.MCP.url()},
+               protocol: "2026-07-28",
+               headers: [{"authorization", "Bearer " <> token}]
+             )
+
+    assert {:ok, [_first | _rest]} = Client.list_tools(client)
+
+    assert {:ok, %{"contents" => [%{"uri" => "custode://missions"}]}} =
+             Client.read_resource(client, "custode://missions")
+
+    assert :ok = Client.close(client)
   end
 
   test "initialize-era clients negotiate stateless HTTP without session ids" do
