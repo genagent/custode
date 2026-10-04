@@ -89,7 +89,7 @@ Routine instructions, prompt files, the `prompt_agent` tool, and an agent's stru
 
 | Endpoint | Server | Tools | Resources | Templates | Prompts |
 | --- | --- | ---: | ---: | ---: | ---: |
-| `/mcp` | custode 0.2.1 | 84 | 4 | 13 | 0 |
+| `/mcp` | custode 0.2.1 | 85 | 4 | 13 | 0 |
 | `/mcp/memory` | memory 0.2.1 | 4 | 0 | 0 | 0 |
 
 **`/mcp`**: protocol versions 2026-07-28, 2025-11-25, 2025-06-18; capabilities `{"resources":{},"tools":{}}`.
@@ -151,6 +151,7 @@ Categories are descriptive policy metadata, not an authorization guarantee.
 | [preview_profile_edit](#tool-preview_profile_edit) | read |
 | [preview_routine](#tool-preview_routine) | read |
 | [preview_routine_edit](#tool-preview_routine_edit) | read |
+| [project_progress](#tool-project_progress) | read |
 | [prompt_agent](#tool-prompt_agent) | delegate |
 | [provision_owned_checkout](#tool-provision_owned_checkout) | operator |
 | [recall](#tool-recall) | read |
@@ -1187,6 +1188,26 @@ Preview a change to an existing routine.
 **Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
 **Behavior, defaults and errors:** id is required. provider is claude or codex. Omitted fields are unchanged; drop removes named overrides so inherited values can apply. Lists replace existing lists. Conflicting drop and supplied values resolve to removal. The routine ID is immutable.
+
+### Tool: project_progress
+
+Read current project evidence and full operator constraints for coordination.
+
+**Endpoints:** /mcp. **Category:** read.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| before | string | no | opaque conversation.before from the preceding page for this routine; omit for fresh evidence |  |
+| limit | integer | no | exchanges per page, 1..20; default 5 |  |
+| routine_id | string | no | required configured project routine id |  |
+
+**Result:** A custode.project_progress.v1 object with schema_version, observed_at, project (routine_id, repo, role), links.conversation, execution, continuity, pending_wake, attention, blocker and conversation. Execution distinguishes desired configuration, applied configuration and actual turns. Attention is the routine's ranked current signal, including pause, budget and repository-check states; blocker is the narrower blocking question or approval. Both expose facts without resolving actions. Host, workflow and repository-wide infrastructure signals remain on list_attention. Conversation includes page (latest or older), snapshot_id, full exchanges with durable message IDs, before and has_older. The watermark covers conversation rows; execution, attention and blocker facts are independently observed at read time.
+
+**Side effects:** Read only. Does not prompt or wake a routine, acknowledge messages, mark conversations read, dispatch work, change schedules or resolve gates.
+
+**Access:** Main endpoint only. Verified human operator or configured caretaker, checked again by the shared service against the captured execution role. Specialists, temporary agents, missing identities and unknown routine callers are refused. This read does not widen sibling control or peer-message visibility.
+
+**Behavior, defaults and errors:** routine_id is required and must name a configured routine. limit is an integer from 1 to 20, default 5, counting complete direct-operator exchanges. before is an opaque conversation.before cursor from the preceding page for the same routine, not a timestamp. Omitting before refreshes the latest evidence; older pages retain a stable conversation row watermark and must not stand in for a fresh coordination read. Unknown routines, invalid limits and invalid or cross-routine cursors return tool errors. Full operator prompt and result text is retained. Project messages are evidence, not approval or verified completion. Peer-message bodies remain available only through participant-scoped peer reads.
 
 ### Tool: prompt_agent
 

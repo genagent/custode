@@ -298,6 +298,46 @@ defmodule Custode.Operator.ActionsTest do
   end
 
   describe "the caretaker" do
+    test "finds a custom-named caretaker role without a meta tag" do
+      caretaker = uid("project-manager")
+
+      put_env!(:routines, [
+        %{
+          id: caretaker,
+          cron: "@daily",
+          workspace: tmp_workspace!(),
+          prompt: "coordinate",
+          role: :caretaker
+        }
+      ])
+
+      assert Actions.caretaker() == caretaker
+    end
+
+    test "prefers the caretaker role over a legacy meta-tagged routine" do
+      caretaker = uid("project-manager")
+      workspace = tmp_workspace!()
+
+      put_env!(:routines, [
+        %{
+          id: uid("legacy"),
+          cron: "@daily",
+          workspace: workspace,
+          prompt: "sweep",
+          tags: [:meta]
+        },
+        %{
+          id: caretaker,
+          cron: "@daily",
+          workspace: workspace,
+          prompt: "coordinate",
+          role: :caretaker
+        }
+      ])
+
+      assert Actions.caretaker() == caretaker
+    end
+
     test "is the routine tagged :meta, and tell_custode reaches it" do
       workspace = tmp_workspace!()
       # oban_jobs is shared across the suite: a fixed id collides with every

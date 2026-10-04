@@ -60,6 +60,7 @@ policy and grant rules.
 | --- | --- | --- | --- | --- |
 | Fleet, attention, usage, and lifecycle reads | Yes | Yes | As exposed | No |
 | Read another agent's todo, inbox, or recalled memory | Yes | Yes | Yes | Yes through `recall` |
+| Read project progress and direct operator exchanges | Yes | Yes | No | No |
 | Read a journal | Any target | Own | Own | Own |
 | Write journal, todo, and memory records | Any target | Own | Own | Own |
 | Ask the operator | No personal target | Own | Own | Own |
@@ -89,6 +90,20 @@ require the authenticated recipient before filing, even for an operator caller.
 `drop_note` cannot write reserved peer projection filenames. These exceptions
 preserve ordinary-note transparency without exposing peer bodies or letting
 another caller manufacture the recipient's acknowledgment.
+
+`project_progress` is the explicit coordination read for the human operator and
+caretaker. It includes a configured project's current execution and blockers,
+continuity, pending input, and bounded pages of full direct-operator exchanges.
+The shared service checks the caretaker role captured by the active execution
+contract. The handler requires verified request identity and never falls back
+to an implicit operator. Specialists and temporary agents cannot invoke it,
+even for their own routine. Reading changes no message receipt or work state.
+
+This view preserves operator constraints and message IDs so a manager can
+refresh evidence before coordinating. It does not grant sibling lifecycle,
+prompt, history, await, or gate-control access. Peer-message bodies remain
+participant-scoped. Page cursors retain the conversation row watermark; omit
+the cursor to observe the latest operator conversation before a new decision.
 
 The caretaker operates the fleet but does not judge sibling work. Its bounded
 operator bundle exists to wake, pause, resume, inspect, and maintain agents.
@@ -202,7 +217,8 @@ Three choices remain outside this audit:
 - #554 decides when repository grant observation becomes refusal and which
   action classes may receive autonomous approval.
 - #555 decides the final classification of issue-marker operations.
-- #451 decides whether the caretaker should gain any broader operator powers.
+- Any broader caretaker approval or sibling-control authority remains separate
+  from #451's bounded project-manager coordination read.
 
 Implementation should add adversarial tests at the HTTP boundary. Each test
 must initialize a real session with an identity token, invoke a known tool by

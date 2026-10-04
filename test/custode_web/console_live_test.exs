@@ -1606,6 +1606,34 @@ defmodule CustodeWeb.ConsoleLiveTest do
       %{roster: roster}
     end
 
+    test "Ask setup opens the existing caretaker preview without creating a routine", %{
+      conn: conn,
+      roster: roster
+    } do
+      put_env!(:routines, [])
+      {:ok, view, _html} = live(conn, "/console?new=caretaker")
+      assert has_element?(view, "#new-routine")
+      assert has_element?(view, ~s(#new-routine option[value="caretaker"][selected]))
+      assert Custode.Routine.all() == []
+      refute File.exists?(roster)
+    end
+
+    test "Ask setup does not open a second caretaker form when one already exists", %{conn: conn} do
+      put_env!(:routines, [
+        %{
+          id: uid("manager"),
+          role: :caretaker,
+          cron: "@daily",
+          prompt: "coordinate",
+          workspace: tmp_workspace!()
+        }
+      ])
+
+      {:ok, view, _html} = live(conn, "/console?new=caretaker")
+      refute has_element?(view, "#new-routine")
+      refute has_element?(view, "#caretaker-setup")
+    end
+
     test "the form previews the TOML as you type, creates, and opens the new agent",
          %{conn: conn, roster: roster} do
       id = uid("newcomer")

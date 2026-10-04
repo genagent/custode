@@ -53,6 +53,10 @@ defmodule Custode.MCP.ToolPolicyTest do
     end
   end
 
+  test "project progress is an inert read, not a delegation grant" do
+    assert ToolPolicy.fetch("project_progress") == {:ok, :read}
+  end
+
   test "every repo write verb is in a gate class or listed as in none" do
     for {tool, verb} <- ToolPolicy.repo_writes() do
       assert verb in class_verbs() or verb in ToolPolicy.in_no_class(),

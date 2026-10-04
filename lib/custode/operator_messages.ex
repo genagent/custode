@@ -134,17 +134,20 @@ defmodule Custode.OperatorMessages do
   a question remains with the request that opened it. Pages select complete
   exchanges, newest first, then return them oldest first for transcript
   rendering. Pass the returned `before` cursor to read the preceding page.
-  The opaque cursor fixes a row high-water mark so continuations arriving
-  during pagination cannot move an unread exchange across its boundary.
+  The opaque cursor fixes a row high-water mark, returned as `snapshot_id`,
+  so continuations arriving during pagination cannot move an unread exchange
+  across its boundary. This cutoff does not freeze updates to existing rows.
+  Omit `before` to read the latest page and observe new operator constraints.
 
-  This projection deliberately includes prompt and result text and is for
-  trusted local operator surfaces. MCP reads keep using the authority-filtered
-  public shapes above.
+  This projection deliberately includes full prompt and result text. Callers
+  must enforce read authority: local operator surfaces and `ProjectProgress`
+  use it, while caller-scoped MCP message reads retain the public shapes above.
   """
   @spec conversation(String.t(), keyword()) ::
           {:ok,
            %{
              exchanges: [map()],
+             snapshot_id: non_neg_integer(),
              before: String.t() | nil,
              has_older: boolean()
            }}
@@ -188,6 +191,7 @@ defmodule Custode.OperatorMessages do
       {:ok,
        %{
          exchanges: exchanges,
+         snapshot_id: snapshot_id,
          before:
            if(has_older,
              do: conversation_cursor(List.last(selected), target_agent_id, snapshot_id),

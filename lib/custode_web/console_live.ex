@@ -111,6 +111,7 @@ defmodule CustodeWeb.ConsoleLive do
      )
      |> refresh()
      |> maybe_open_commands(params)
+     |> maybe_open_caretaker_setup(params)
      |> read_checks()}
   end
 
@@ -770,7 +771,7 @@ defmodule CustodeWeb.ConsoleLive do
           load_subject(selected, signal, socket.assigns.feed_limit, socket.assigns.journal_limit),
       in_flight: Custode.RunClock.running(),
       roster_empty: Custode.Routine.all() == [],
-      caretaker_missing: not Enum.any?(Custode.Routine.all(), &(&1.role == :caretaker)),
+      caretaker_missing: is_nil(Actions.caretaker()),
       # already ranked by the resolver, so the first one that is not on screen
       # is the next one
       next_up: Enum.find(signals, &(Signal.needs_you?(&1) and &1.subject != selected)),
@@ -786,6 +787,14 @@ defmodule CustodeWeb.ConsoleLive do
 
   defp maybe_open_commands(socket, %{"commands" => "open"}), do: open_commands(socket)
   defp maybe_open_commands(socket, _params), do: socket
+
+  defp maybe_open_caretaker_setup(socket, %{"new" => "caretaker"}) do
+    if socket.assigns.caretaker_missing,
+      do: assign(socket, new_agent: plan_new_agent(RoutineNew.defaults("caretaker"))),
+      else: socket
+  end
+
+  defp maybe_open_caretaker_setup(socket, _params), do: socket
 
   defp open_commands(socket) do
     commands = Commands.all(socket.assigns.signals, socket.assigns.selected)
