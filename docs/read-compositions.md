@@ -34,7 +34,9 @@ The CLI targets an existing server; do not start a second instance for it.
 `read_composition` takes `request` actions `list`, `invoke`, or `trace`.
 `invoke` names `pr_review_context` and `arguments: { "repo": "owner/name",
 "number": 123 }`. `trace` takes the returned `trace_id`. Discovery lists only active
-logical definitions whose current scope is available.
+logical definitions whose current scope is available. The human list also returns
+the current activation pointer, including disabled generations, so a lost HTTP
+reply does not require blind writes or direct SQLite inspection.
 
 Each read rechecks the verified caller's current capabilities, owner/repository,
 activation generation and compiled dependency revision. An intervening disable,

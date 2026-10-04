@@ -168,9 +168,22 @@ defmodule Custode.ReadCompositions do
 
       entries = Enum.flat_map(entries, &discover(actor, &1.name))
 
-      {:ok, %{"entries" => entries, "coherence" => @coherence}}
+      result = %{"entries" => entries, "coherence" => @coherence}
+      {:ok, configuration_pointer(actor, result)}
     end
   end
+
+  defp configuration_pointer(%{kind: :operator}, result) do
+    pointer =
+      case Repo.get(Row, "activation:pr_review_context") do
+        nil -> %{"name" => "pr_review_context", "generation" => 0, "revision" => nil}
+        row -> row.data
+      end
+
+    Map.put(result, "activation", pointer)
+  end
+
+  defp configuration_pointer(_actor, result), do: result
 
   defp discover(actor, name) do
     with {:ok, activation, definition} <- active(actor, name),

@@ -72,6 +72,12 @@ defmodule Custode.ReadCompositionsTest do
     assert {:ok, %{"generation" => 2}} =
              ReadCompositions.activate(@human, "pr_review_context", nil, 1)
 
+    assert {:ok, %{"entries" => [], "activation" => %{"generation" => 2, "revision" => nil}}} =
+             ReadCompositions.list(@human)
+
+    assert {:ok, worker_list} = ReadCompositions.list(ctx.actor)
+    refute Map.has_key?(worker_list, "activation")
+
     assert {:ok, %{"generation" => 3}} =
              ReadCompositions.activate(@human, "pr_review_context", definition["revision"], 2)
 
