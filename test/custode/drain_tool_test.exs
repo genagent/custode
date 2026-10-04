@@ -8,10 +8,10 @@ defmodule Custode.DrainToolTest do
 
   alias Custode.MCP.Tools.Drain
 
-  @operator %Anubis.Server.Frame{}
+  @operator %Custode.MCP.CallContext{}
 
   defp routine_frame(id),
-    do: %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :routine, id: id}}}
+    do: %Custode.MCP.CallContext{assigns: %{custode_identity: %{kind: :routine, id: id}}}
 
   setup do
     path = Path.join(System.tmp_dir!(), uid("drain-tool-feed") <> ".jsonl")

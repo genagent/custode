@@ -1427,7 +1427,7 @@ Prepare a local batch of issues for operator review.
 
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Authenticated agents may write only their own records; the operator may name any identity.
 
-**Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. repo and issues are schema-required. Batch size is 1 through 25; every title must be nonblank, and each body is at most 20000 bytes. A retry creates another batch. Raise one permission gate naming the returned batch before filing it.
+**Behavior, defaults and errors:** routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. repo and issues are schema-required. Batch size is 1 through 25; every title must be nonblank, and each body is at most 20000 bytes. A retry creates another batch. Raise one permission gate naming the returned batch before filing it. Argument validation retains only declared fields, including inside each draft; optional null values are treated as omitted.
 
 ### Tool: repo_file_drafts
 

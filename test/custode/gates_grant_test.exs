@@ -54,7 +54,7 @@ defmodule Custode.Gates.GrantTest do
   defp outside(agent_id), do: Custode.Feed.recent_by_event("grant_outside", agent: agent_id)
 
   defp frame_for(id),
-    do: %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :routine, id: id}}}
+    do: %Custode.MCP.CallContext{assigns: %{custode_identity: %{kind: :routine, id: id}}}
 
   describe "the live grant" do
     test "an approval is a grant while its continuation runs, and not after" do
@@ -200,8 +200,8 @@ defmodule Custode.Gates.GrantTest do
       assert {:reply, response, ^frame} =
                RepoTools.Comment.execute(%{repo: "acme/unserved", number: 1, body: "hi"}, frame)
 
-      assert response.isError
-      assert inspect(response.content) =~ "gate grant: comment with no approved action in flight"
+      assert tool_error({:reply, response, frame}) =~
+               "gate grant: comment with no approved action in flight"
     end
 
     test "observing, the same call reaches the repository and is recorded" do
@@ -211,7 +211,7 @@ defmodule Custode.Gates.GrantTest do
                RepoTools.ReadyPr.execute(%{repo: "acme/unserved", number: 1}, frame_for(sweeper))
 
       # the repository's own refusal, not the grant's
-      refute inspect(response.content) =~ "gate grant"
+      refute tool_error({:reply, response, frame_for(sweeper)}) =~ "gate grant"
       assert [%{"verb" => "ready_pr", "verdict" => "no_grant"}] = outside(sweeper)
     end
   end

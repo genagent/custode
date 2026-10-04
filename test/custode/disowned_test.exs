@@ -6,10 +6,10 @@ defmodule Custode.DisownedTest do
   alias Custode.Disowned
   alias Custode.MCP.DisownTools
 
-  @operator %Anubis.Server.Frame{}
+  @operator %Custode.MCP.CallContext{}
 
   defp routine_frame(id),
-    do: %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :routine, id: id}}}
+    do: %Custode.MCP.CallContext{assigns: %{custode_identity: %{kind: :routine, id: id}}}
 
   setup do
     on_exit(fn -> Custode.Repo.query!("DELETE FROM disowned_prs") end)

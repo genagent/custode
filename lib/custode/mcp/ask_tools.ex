@@ -22,32 +22,42 @@ defmodule Custode.MCP.AskTools.AskOperator do
   decides, raise a gate (structured-output directive `request_permission`)
   instead: that is what blocking is for.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "ask_operator"
 
   import Custode.MCP.Tools
 
   @question "the question, in one or two sentences the operator can answer without context"
 
-  schema do
-    field(:question, :string, description: @question)
-
-    field(:detail, :string,
-      description: "what you were doing when it came up, for the operator's context"
-    )
-
-    field(:replies, {:list, :string},
-      description:
-        "optional: up to 3 short answers you would accept, each a complete reply the operator " <>
-          ~s|can send with one click (e.g. "Yes, take it over", "No, leave it to me"). | <>
-          "Max 120 characters each. Offer them when the likely answers are predictable."
-    )
-
-    field(:agent_id, :string,
-      description: "whose question (defaults to the caller; a routine may only file its own)"
-    )
-
-    field(:routine_id, :string, description: alias_for("agent_id"))
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{
+        "description" =>
+          "whose question (defaults to the caller; a routine may only file its own)",
+        "type" => "string"
+      },
+      "detail" => %{
+        "description" => "what you were doing when it came up, for the operator's context",
+        "type" => "string"
+      },
+      "question" => %{
+        "description" =>
+          "the question, in one or two sentences the operator can answer without context",
+        "type" => "string"
+      },
+      "replies" => %{
+        "description" =>
+          "optional: up to 3 short answers you would accept, each a complete reply the operator can send with one click (e.g. \"Yes, take it over\", \"No, leave it to me\"). Max 120 characters each. Offer them when the likely answers are predictable.",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "routine_id" => %{
+        "description" =>
+          "alias for agent_id; either works, and both may be omitted: the server knows who is calling",
+        "type" => "string"
+      }
+    },
+    "type" => "object"
+  })
 
   # `question` is enforced here and not by the schema (#483): a schema miss is
   # a protocol error the calling model never reads, and `params.question` on a
@@ -81,13 +91,16 @@ defmodule Custode.MCP.AskTools.ListAsks do
   Distinct from `list_gates`, which answers "what is BLOCKED on me?". An
   unanswered ask costs nobody anything except the answer.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "list_asks"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:agent_id, :string, description: "restrict to one agent")
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{"description" => "restrict to one agent", "type" => "string"}
+    },
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -120,14 +133,18 @@ defmodule Custode.MCP.AskTools.AnswerAsk do
   machine, humans judge the work. An agent answering another agent's question
   to the operator would be answering on the operator's behalf.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "answer_ask"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:ask_id, :integer, required: true, description: "the ask (see: list_asks)")
-    field(:answer, :string, required: true, description: "the answer, in the operator's words")
-  end
+  input_schema(%{
+    "properties" => %{
+      "answer" => %{"description" => "the answer, in the operator's words", "type" => "string"},
+      "ask_id" => %{"description" => "the ask (see: list_asks)", "type" => "integer"}
+    },
+    "required" => ["answer", "ask_id"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -162,16 +179,23 @@ defmodule Custode.MCP.AskTools.DismissAsk do
 
   Operator-only: an agent may not close a question owed to the operator.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "dismiss_ask"
 
   import Custode.MCP.Tools
 
   alias Custode.Operator.Actions
 
-  schema do
-    field(:ask_id, :integer, required: true, description: "the ask (see: list_asks)")
-    field(:reason, :string, description: "optional reason the question no longer needs a reply")
-  end
+  input_schema(%{
+    "properties" => %{
+      "ask_id" => %{"description" => "the ask (see: list_asks)", "type" => "integer"},
+      "reason" => %{
+        "description" => "optional reason the question no longer needs a reply",
+        "type" => "string"
+      }
+    },
+    "required" => ["ask_id"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do

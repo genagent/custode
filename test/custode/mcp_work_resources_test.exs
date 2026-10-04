@@ -3,8 +3,7 @@ defmodule Custode.MCPWorkResourcesTest do
 
   alias Custode.TestHelpers
 
-  alias Anubis.Server.Frame
-  alias Anubis.Server.Handlers.Resources
+  alias Custode.MCP.CallContext, as: Frame
 
   alias Custode.{
     Artifact,
@@ -36,55 +35,42 @@ defmodule Custode.MCPWorkResourcesTest do
     %{artifact_dir: artifact_dir}
   end
 
-  test "the full server advertises operator resources without exposing them to routines" do
+  test "stateless discovery retains the complete operator resource catalog" do
     assert Map.has_key?(Server.server_capabilities(), "resources")
     assert Map.has_key?(Server.server_capabilities(), "tools")
     refute Map.has_key?(MemoryServer.server_capabilities(), "resources")
-
     operator = initialized_frame(:operator)
 
-    assert {:reply, %{"resources" => resources}, ^operator} =
-             Resources.handle_list(%{}, operator, Server)
+    for _request <- 1..2 do
+      assert {:reply, %{"resources" => resources}, ^operator} =
+               TestHelpers.mcp_dispatch("resources/list", %{}, operator)
 
-    assert Enum.map(resources, & &1.uri) == [
-             "custode://attention",
-             "custode://work-events",
-             "custode://work-items",
-             "custode://missions"
-           ]
+      assert Enum.map(resources, & &1["uri"]) |> Enum.sort() ==
+               Enum.sort(
+                 ~w(custode://attention custode://work-events custode://work-items custode://missions)
+               )
 
-    assert Enum.all?(resources, &(&1.mime_type == "application/json"))
+      assert Enum.all?(resources, &(&1["mimeType"] == "application/json"))
 
-    assert {:reply, %{"resourceTemplates" => templates}, ^operator} =
-             Resources.handle_templates_list(%{}, operator, Server)
+      assert {:reply, %{"resourceTemplates" => templates}, ^operator} =
+               TestHelpers.mcp_dispatch("resources/templates/list", %{}, operator)
 
-    assert "custode://work-items/{work_item_id}/attempt" in Enum.map(templates, & &1.uri_template)
+      assert length(templates) == 13
 
-    assert "custode://missions/{mission_id}/work-items/pages/{cursor}" in Enum.map(
-             templates,
-             & &1.uri_template
-           )
+      assert "custode://work-items/{work_item_id}/attempt" in Enum.map(
+               templates,
+               & &1["uriTemplate"]
+             )
+
+      assert "custode://missions/{mission_id}/work-items/pages/{cursor}" in Enum.map(
+               templates,
+               & &1["uriTemplate"]
+             )
+    end
 
     routine = initialized_frame(:routine)
-
-    assert {:reply, %{"resources" => []}, ^routine} =
-             Resources.handle_list(%{}, routine, Server)
-
-    assert {:reply, %{"resourceTemplates" => []}, ^routine} =
-             Resources.handle_templates_list(%{}, routine, Server)
-
-    assert {:error, %{reason: :resource_not_found}, ^routine} =
-             read("custode://missions", routine)
-
-    assert {:error, %{reason: :resource_not_found}, ^routine} =
-             Server.handle_resource_read("custode://missions", routine)
-
-    assert "list_attention" in Enum.map(Server.__components__(:tool), & &1.name)
-
-    cleared = Frame.clear_components(operator)
-    assert {:ok, recovered} = Server.handle_session_expired("expired", cleared)
-    assert map_size(recovered.resources) == 4
-    assert map_size(recovered.resource_templates) == 13
+    assert {:error, %{"code" => -32_002}, ^routine} = read("custode://missions", routine)
+    assert "list_attention" in Enum.map(Server.tools(), & &1.name())
   end
 
   test "empty resources return stable read-only contracts and missing details are not found" do
@@ -116,16 +102,16 @@ defmodule Custode.MCPWorkResourcesTest do
              }
            } = read_json!("custode://attention", frame)
 
-    assert {:error, %{reason: :resource_not_found}, ^frame} =
+    assert {:error, %{"code" => -32_002}, ^frame} =
              read("custode://missions/missing", frame)
 
-    assert {:error, %{reason: :resource_not_found}, ^frame} =
+    assert {:error, %{"code" => -32_002}, ^frame} =
              read("custode://work-items/missing/events", frame)
 
-    assert {:error, %{reason: :resource_not_found}, ^frame} =
+    assert {:error, %{"code" => -32_002}, ^frame} =
              read("custode://work-items/missing/artifacts", frame)
 
-    assert {:error, %{reason: :invalid_params}, ^frame} =
+    assert {:error, %{"code" => -32_602}, ^frame} =
              read("custode://work-events/pages/not-a-cursor", frame)
   end
 
@@ -287,26 +273,23 @@ defmodule Custode.MCPWorkResourcesTest do
 
     cursor = scoped["page"]["next_cursor"]
 
-    assert {:error, %{reason: :invalid_params}, ^frame} =
+    assert {:error, %{"code" => -32_602}, ^frame} =
              read("custode://work-items/pages/#{cursor}", frame)
   end
 
   defp initialized_frame(kind) do
-    frame =
-      Frame.new(%{
+    %Frame{
+      assigns: %{
         custode_identity: %{
           kind: kind,
           id: if(kind == :operator, do: "operator", else: "routine")
         }
-      })
-
-    assert {:ok, initialized} = Server.init(%{}, frame)
-    initialized
+      }
+    }
   end
 
-  defp read(uri, frame) do
-    Resources.handle_read(%{"params" => %{"uri" => uri}}, frame, Server)
-  end
+  defp read(uri, frame),
+    do: TestHelpers.mcp_dispatch("resources/read", %{"uri" => uri}, frame)
 
   defp read_json!(uri, frame) do
     assert {:reply,

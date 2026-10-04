@@ -17,17 +17,21 @@ defmodule Custode.MCP.Tools.Drain do
   separate, deliberate grant later. A routine or sub-agent calling drain is
   refused at the verb.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "drain"
 
   import Custode.MCP.Tools
 
   alias Custode.Operator.Actions
 
-  schema do
-    field(:timeout_ms, :integer,
-      description: "give up (leaving queues paused) after this many ms; default unbounded"
-    )
-  end
+  input_schema(%{
+    "properties" => %{
+      "timeout_ms" => %{
+        "description" => "give up (leaving queues paused) after this many ms; default unbounded",
+        "type" => "integer"
+      }
+    },
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do

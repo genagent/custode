@@ -18,14 +18,16 @@ defmodule Custode.MCP.OperatorTools.Beat do
   same lifecycle policy as the cron entry, so it boots the agent if offline.
   The operator's "wake up and look" verb.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "beat"
 
   import Custode.MCP.Tools
   alias Custode.Operator.Actions
 
-  schema do
-    field(:agent_id, :string, required: true, description: "the routine to beat")
-  end
+  input_schema(%{
+    "properties" => %{"agent_id" => %{"description" => "the routine to beat", "type" => "string"}},
+    "required" => ["agent_id"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{agent_id: agent_id}, frame) do
@@ -49,24 +51,27 @@ defmodule Custode.MCP.OperatorTools.DropNote do
   on_note policy). A bare file write wakes nobody; this does. The manual
   equivalent of a sensor detection.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "drop_note"
 
   import Custode.MCP.Tools
   alias Custode.Operator.Actions
 
-  schema do
-    field(:agent_id, :string,
-      required: true,
-      description: "the routine whose inbox gets the note"
-    )
-
-    field(:name, :string,
-      description:
-        "note basename only (a timestamped default applies); peer-UUID.md names are reserved"
-    )
-
-    field(:content, :string, required: true, description: "markdown body of the note")
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{
+        "description" => "the routine whose inbox gets the note",
+        "type" => "string"
+      },
+      "content" => %{"description" => "markdown body of the note", "type" => "string"},
+      "name" => %{
+        "description" =>
+          "note basename only (a timestamped default applies); peer-UUID.md names are reserved",
+        "type" => "string"
+      }
+    },
+    "required" => ["agent_id", "content"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{agent_id: agent_id, content: content} = params, frame) do
@@ -89,15 +94,21 @@ defmodule Custode.MCP.OperatorTools.ListGates do
   approve_action / reject_action call needs. The durable answer to "what is
   waiting on a human?" without reading the database.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "list_gates"
 
   import Custode.MCP.Tools
   alias Custode.Gates.Review
 
-  schema do
-    field(:status, :string, description: "filter: open | resolved | requeued | orphaned")
-    field(:limit, :integer, description: "max rows (default 20)")
-  end
+  input_schema(%{
+    "properties" => %{
+      "limit" => %{"description" => "max rows (default 20)", "type" => "integer"},
+      "status" => %{
+        "description" => "filter: open | resolved | requeued | orphaned",
+        "type" => "string"
+      }
+    },
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -137,14 +148,17 @@ end
 
 defmodule Custode.MCP.OperatorTools.FeedTail do
   @moduledoc "The last N feed entries (optionally one agent's): operator situational awareness."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "feed_tail"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:agent_id, :string, description: "restrict to one agent")
-    field(:n, :integer, description: "how many entries (default 20)")
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{"description" => "restrict to one agent", "type" => "string"},
+      "n" => %{"description" => "how many entries (default 20)", "type" => "integer"}
+    },
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -169,23 +183,28 @@ defmodule Custode.MCP.OperatorTools.ListOperatorMessages do
   keys; exact results, errors and provider-session details remain available
   through `await_agent`.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "list_operator_messages"
 
   import Custode.MCP.Tools
 
   alias Custode.Operator.Authority
   alias Custode.OperatorMessages
 
-  schema do
-    field(:agent_id, :string, description: "restrict to one target agent")
-
-    field(:status, :string,
-      description:
-        "restrict to queued, executing, waiting_for_input, waiting_for_approval, completed, failed or refused"
-    )
-
-    field(:limit, :integer, description: "newest messages to return, default 20, capped at 100")
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{"description" => "restrict to one target agent", "type" => "string"},
+      "limit" => %{
+        "description" => "newest messages to return, default 20, capped at 100",
+        "type" => "integer"
+      },
+      "status" => %{
+        "description" =>
+          "restrict to queued, executing, waiting_for_input, waiting_for_approval, completed, failed or refused",
+        "type" => "string"
+      }
+    },
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -227,15 +246,22 @@ end
 
 defmodule Custode.MCP.OperatorTools.PauseAgent do
   @moduledoc "Emergency-pause an agent: it finishes nothing further until resumed."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "pause_agent"
 
   import Custode.MCP.Tools
   alias Custode.Operations.Fleet.PauseAgent, as: Operation
 
-  schema do
-    field(:agent_id, :string, required: true, description: "the agent to pause")
-    field(:idempotency_key, :string, description: "stable key for retrying one logical pause")
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{"description" => "the agent to pause", "type" => "string"},
+      "idempotency_key" => %{
+        "description" => "stable key for retrying one logical pause",
+        "type" => "string"
+      }
+    },
+    "required" => ["agent_id"],
+    "type" => "object"
+  })
 
   def definition, do: Operation.definition()
   def name, do: definition().projection.mcp.name
@@ -257,14 +283,16 @@ end
 
 defmodule Custode.MCP.OperatorTools.ResumeAgent do
   @moduledoc "Resume a paused agent (the human-override exit from any pause, including budget)."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "resume_agent"
 
   import Custode.MCP.Tools
   alias Custode.Operator.Actions
 
-  schema do
-    field(:agent_id, :string, required: true, description: "the agent to resume")
-  end
+  input_schema(%{
+    "properties" => %{"agent_id" => %{"description" => "the agent to resume", "type" => "string"}},
+    "required" => ["agent_id"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{agent_id: agent_id}, frame) do
@@ -283,12 +311,11 @@ defmodule Custode.MCP.OperatorTools.SpendToday do
   total of zero just after local midnight reads as a new day and not as a
   broken ledger.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "spend_today"
 
   import Custode.MCP.Tools
 
-  schema do
-  end
+  input_schema(%{"properties" => %{}, "type" => "object"})
 
   @impl true
   def execute(_params, frame) do
@@ -320,14 +347,18 @@ defmodule Custode.MCP.OperatorTools.SetPresence do
   read the presence line and shape themselves to it -- away means agents
   queue at most one well-chosen gate for morning instead of parking early.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "set_presence"
 
   import Custode.MCP.Tools
   alias Custode.Operator.Actions
 
-  schema do
-    field(:mode, :string, required: true, description: ~s(one of "present", "away", "auto"))
-  end
+  input_schema(%{
+    "properties" => %{
+      "mode" => %{"description" => "one of \"present\", \"away\", \"auto\"", "type" => "string"}
+    },
+    "required" => ["mode"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{mode: mode}, frame) when mode in ["present", "away", "auto"] do

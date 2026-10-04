@@ -53,7 +53,7 @@ end
 
 defmodule Custode.MCP.NotebookTools.JournalAppend do
   @moduledoc "Append an entry to a routine's journal (the database is the source of truth; journal.md re-renders)."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "journal_append"
 
   import Custode.MCP.Tools
 
@@ -61,12 +61,22 @@ defmodule Custode.MCP.NotebookTools.JournalAppend do
 
   @body "the entry text (markdown ok)"
 
-  schema do
-    field(:routine_id, :string, description: "whose journal (defaults to the caller)")
-    field(:agent_id, :string, description: alias_for("routine_id"))
-    field(:body, :string, description: @body)
-    field(:title, :string, description: "optional short title")
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{
+        "description" =>
+          "alias for routine_id; either works, and both may be omitted: the server knows who is calling",
+        "type" => "string"
+      },
+      "body" => %{"description" => "the entry text (markdown ok)", "type" => "string"},
+      "routine_id" => %{
+        "description" => "whose journal (defaults to the caller)",
+        "type" => "string"
+      },
+      "title" => %{"description" => "optional short title", "type" => "string"}
+    },
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -95,17 +105,33 @@ defmodule Custode.MCP.NotebookTools.JournalRead do
   Set live_only to false to include compacted entries until the janitor
   retires them. Only the authenticated operator may read another identity.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "journal_read"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:routine_id, :string, description: "whose journal (defaults to the caller)")
-    field(:agent_id, :string, description: alias_for("routine_id"))
-    field(:limit, :integer, description: "max entries (default 20, range 1..100)")
-    field(:search, :string, description: "case-insensitive search in entry title or body")
-    field(:live_only, :boolean, description: "exclude compacted entries (default true)")
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{
+        "description" =>
+          "alias for routine_id; either works, and both may be omitted: the server knows who is calling",
+        "type" => "string"
+      },
+      "limit" => %{"description" => "max entries (default 20, range 1..100)", "type" => "integer"},
+      "live_only" => %{
+        "description" => "exclude compacted entries (default true)",
+        "type" => "boolean"
+      },
+      "routine_id" => %{
+        "description" => "whose journal (defaults to the caller)",
+        "type" => "string"
+      },
+      "search" => %{
+        "description" => "case-insensitive search in entry title or body",
+        "type" => "string"
+      }
+    },
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -126,9 +152,7 @@ defmodule Custode.MCP.NotebookTools.JournalRead do
     end
   end
 
-  # Peri's numeric range validator also accepts floats for an integer field.
-  # Keep the schema's plain integer check, and enforce the bound here before
-  # the value reaches Ecto's limit expression.
+  # Enforce the domain limit before it reaches Ecto.
   defp bounded_limit(nil), do: {:ok, 20}
   defp bounded_limit(limit) when is_integer(limit) and limit in 1..100, do: {:ok, limit}
   defp bounded_limit(_limit), do: {:error, "limit must be a whole number from 1 through 100"}
@@ -142,17 +166,31 @@ defmodule Custode.MCP.NotebookTools.SetPanel do
   view -- a table of what you watch, a chart, a diagram -- that prose in the
   journal cannot give. Self-scoped; refused when panels are turned off.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "set_panel"
 
   import Custode.MCP.Tools
 
   @html "the panel markup -- inline SVG/CSS only, no scripts (they will not run)"
 
-  schema do
-    field(:routine_id, :string, description: "whose page (defaults to the caller)")
-    field(:agent_id, :string, description: alias_for("routine_id"))
-    field(:html, :string, description: @html)
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{
+        "description" =>
+          "alias for routine_id; either works, and both may be omitted: the server knows who is calling",
+        "type" => "string"
+      },
+      "html" => %{
+        "description" =>
+          "the panel markup -- inline SVG/CSS only, no scripts (they will not run)",
+        "type" => "string"
+      },
+      "routine_id" => %{
+        "description" => "whose page (defaults to the caller)",
+        "type" => "string"
+      }
+    },
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -177,7 +215,7 @@ defmodule Custode.MCP.NotebookTools.CompactJournal do
   originals age out of the database. Use this when your journal has grown
   large; it is your memory hygiene, not deletion. Self-scoped.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "compact_journal"
 
   import Custode.MCP.Tools
 
@@ -185,11 +223,24 @@ defmodule Custode.MCP.NotebookTools.CompactJournal do
 
   @summary "the distillation: what your journal so far still means, in a few lines"
 
-  schema do
-    field(:routine_id, :string, description: "whose journal (defaults to the caller)")
-    field(:agent_id, :string, description: alias_for("routine_id"))
-    field(:summary, :string, description: @summary)
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{
+        "description" =>
+          "alias for routine_id; either works, and both may be omitted: the server knows who is calling",
+        "type" => "string"
+      },
+      "routine_id" => %{
+        "description" => "whose journal (defaults to the caller)",
+        "type" => "string"
+      },
+      "summary" => %{
+        "description" => "the distillation: what your journal so far still means, in a few lines",
+        "type" => "string"
+      }
+    },
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -209,7 +260,7 @@ end
 
 defmodule Custode.MCP.NotebookTools.TodoAdd do
   @moduledoc "Add an open todo to a routine's list."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "todo_add"
 
   import Custode.MCP.Tools
 
@@ -217,11 +268,21 @@ defmodule Custode.MCP.NotebookTools.TodoAdd do
 
   @text "the todo, one line"
 
-  schema do
-    field(:routine_id, :string, description: "whose list (defaults to the caller)")
-    field(:agent_id, :string, description: alias_for("routine_id"))
-    field(:text, :string, description: @text)
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{
+        "description" =>
+          "alias for routine_id; either works, and both may be omitted: the server knows who is calling",
+        "type" => "string"
+      },
+      "routine_id" => %{
+        "description" => "whose list (defaults to the caller)",
+        "type" => "string"
+      },
+      "text" => %{"description" => "the todo, one line", "type" => "string"}
+    },
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -256,19 +317,32 @@ defmodule Custode.MCP.NotebookTools.SetNextBeat do
   reply says what you got. An operator message, a sensor wake or an inbox
   note still reaches you at once, and clears the request.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "set_next_beat"
 
   import Custode.MCP.Tools
 
   @minutes "minutes from now until your next scheduled beat"
   @reason "one line: what you are waiting for"
 
-  schema do
-    field(:routine_id, :string, description: "your own routine id (defaults to the caller)")
-    field(:agent_id, :string, description: alias_for("routine_id"))
-    field(:minutes, :integer, description: @minutes)
-    field(:reason, :string, description: @reason)
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{
+        "description" =>
+          "alias for routine_id; either works, and both may be omitted: the server knows who is calling",
+        "type" => "string"
+      },
+      "minutes" => %{
+        "description" => "minutes from now until your next scheduled beat",
+        "type" => "integer"
+      },
+      "reason" => %{"description" => "one line: what you are waiting for", "type" => "string"},
+      "routine_id" => %{
+        "description" => "your own routine id (defaults to the caller)",
+        "type" => "string"
+      }
+    },
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -307,15 +381,28 @@ end
 
 defmodule Custode.MCP.NotebookTools.TodoList do
   @moduledoc "A routine's todos: open (default), done, or all."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "todo_list"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:routine_id, :string, description: "whose list (defaults to the caller)")
-    field(:agent_id, :string, description: alias_for("routine_id"))
-    field(:status, :string, description: "one of \"open\" (default), \"done\", \"all\"")
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{
+        "description" =>
+          "alias for routine_id; either works, and both may be omitted: the server knows who is calling",
+        "type" => "string"
+      },
+      "routine_id" => %{
+        "description" => "whose list (defaults to the caller)",
+        "type" => "string"
+      },
+      "status" => %{
+        "description" => "one of \"open\" (default), \"done\", \"all\"",
+        "type" => "string"
+      }
+    },
+    "type" => "object"
+  })
 
   # A read, so no check_self/2: reads are not scoped (transparency is a
   # feature), and the id only defaults to the caller (#483).
@@ -344,15 +431,17 @@ end
 
 defmodule Custode.MCP.NotebookTools.TodoComplete do
   @moduledoc "Mark a todo done by its id (get ids from todo_list)."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "todo_complete"
 
   import Custode.MCP.Tools
 
   alias Custode.MCP.NotebookTools
 
-  schema do
-    field(:todo_id, :integer, required: true)
-  end
+  input_schema(%{
+    "properties" => %{"todo_id" => %{"type" => "integer"}},
+    "required" => ["todo_id"],
+    "type" => "object"
+  })
 
   # A todo is addressed by a bare id, so the owner has to be looked up before
   # the write: this tool took no routine id and never called check_self/2, and
@@ -378,16 +467,26 @@ defmodule Custode.MCP.NotebookTools.InboxList do
   cross-routine visibility; peer messages are shown only to their authenticated
   participants or the operator. Reading never acknowledges a peer message.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "inbox_list"
 
   import Custode.MCP.Tools
 
   alias Custode.MCP.NotebookTools
 
-  schema do
-    field(:routine_id, :string, description: "whose inbox (defaults to the caller)")
-    field(:agent_id, :string, description: alias_for("routine_id"))
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{
+        "description" =>
+          "alias for routine_id; either works, and both may be omitted: the server knows who is calling",
+        "type" => "string"
+      },
+      "routine_id" => %{
+        "description" => "whose inbox (defaults to the caller)",
+        "type" => "string"
+      }
+    },
+    "type" => "object"
+  })
 
   # Ordinary notes remain transparent. Peer envelopes retain their narrower
   # participant scope even when read through this older surface.
@@ -415,7 +514,7 @@ defmodule Custode.MCP.NotebookTools.InboxMarkFiled do
   message also acknowledges receipt and requires its authenticated recipient;
   the operator cannot file a peer note on the recipient's behalf.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "inbox_mark_filed"
 
   import Custode.MCP.Tools
 
@@ -423,11 +522,21 @@ defmodule Custode.MCP.NotebookTools.InboxMarkFiled do
 
   @name "the note's file name (not a path)"
 
-  schema do
-    field(:routine_id, :string, description: "whose inbox (defaults to the caller)")
-    field(:agent_id, :string, description: alias_for("routine_id"))
-    field(:name, :string, description: @name)
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{
+        "description" =>
+          "alias for routine_id; either works, and both may be omitted: the server knows who is calling",
+        "type" => "string"
+      },
+      "name" => %{"description" => "the note's file name (not a path)", "type" => "string"},
+      "routine_id" => %{
+        "description" => "whose inbox (defaults to the caller)",
+        "type" => "string"
+      }
+    },
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do

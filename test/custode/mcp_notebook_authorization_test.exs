@@ -77,7 +77,7 @@ defmodule Custode.MCPNotebookAuthorizationTest do
             }} = AgentHandoff.authorization_routine(id)
 
     %{
-      frame: %Anubis.Server.Frame{
+      frame: %Custode.MCP.CallContext{
         assigns: %{custode_identity: %{kind: :routine, id: id}}
       },
       id: id,

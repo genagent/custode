@@ -11,8 +11,6 @@ defmodule Custode.MCP.Capabilities do
 
   @behaviour Snodo.Authorization
 
-  alias Anubis.MCP.Error, as: AnubisError
-  alias Anubis.Server.Handlers
   alias Custode.AgentHandoff
   alias Snodo.Authorization.Component
   alias Snodo.Error, as: SnodoError
@@ -132,60 +130,6 @@ defmodule Custode.MCP.Capabilities do
     end
   end
 
-  @doc false
-  def handle_request(%{"method" => "tools/list"} = request, endpoint, server, frame) do
-    identity = identity(frame)
-
-    case authorize_endpoint(endpoint, identity) do
-      :ok ->
-        tools =
-          server
-          |> Handlers.get_server_tools(frame)
-          |> Enum.filter(&tool_allowed?(endpoint, identity, &1.name))
-
-        {tools, cursor} = Handlers.maybe_paginate(request, tools, frame.pagination_limit)
-
-        result =
-          if cursor,
-            do: %{"tools" => tools, "nextCursor" => cursor},
-            else: %{"tools" => tools}
-
-        {:reply, result, frame}
-
-      {:error, reason} ->
-        refuse(endpoint, identity, "tools/list", reason, frame)
-    end
-  end
-
-  def handle_request(
-        %{"method" => "tools/call", "params" => %{"name" => name}} = request,
-        endpoint,
-        server,
-        frame
-      ) do
-    identity = identity(frame)
-
-    with :ok <- authorize_endpoint(endpoint, identity),
-         true <- tool_allowed?(endpoint, identity, name) do
-      Handlers.handle(request, server, frame)
-    else
-      false ->
-        refuse(endpoint, identity, name, "tool is outside the caller's capability set", frame)
-
-      {:error, reason} ->
-        refuse(endpoint, identity, name, reason, frame)
-    end
-  end
-
-  def handle_request(request, endpoint, server, frame) do
-    identity = identity(frame)
-
-    case authorize_endpoint(endpoint, identity) do
-      :ok -> Handlers.handle(request, server, frame)
-      {:error, reason} -> refuse(endpoint, identity, request["method"], reason, frame)
-    end
-  end
-
   defp tool_allowed?(endpoint, identity, name) do
     case authorized_tool_names(endpoint, identity) do
       :all -> true
@@ -193,23 +137,8 @@ defmodule Custode.MCP.Capabilities do
     end
   end
 
-  defp identity(%{assigns: %{custode_identity: identity}}), do: identity
-  defp identity(_frame), do: nil
-
   defp optional_tools do
     if Custode.Panels.mode() == :off, do: [], else: ["set_panel"]
-  end
-
-  defp refuse(endpoint, identity, capability, reason, frame) do
-    caller = if identity, do: "#{identity.kind}:#{identity.id}", else: "missing"
-
-    Logger.warning(
-      "MCP capability refused endpoint=#{endpoint} caller=#{caller} " <>
-        "capability=#{inspect(capability)} reason=#{reason}"
-    )
-
-    message = "MCP capability refused: #{reason}"
-    {:error, AnubisError.execution(message, %{endpoint: endpoint, capability: capability}), frame}
   end
 
   defp component_allowed?(endpoint, identity, %Component{kind: :tool, name: name}),

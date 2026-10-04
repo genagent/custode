@@ -186,7 +186,7 @@ defmodule Custode.DraftsTest do
     alias Custode.MCP.RepoTools.FileDrafts
 
     defp frame_for(id),
-      do: %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :routine, id: id}}}
+      do: %Custode.MCP.CallContext{assigns: %{custode_identity: %{kind: :routine, id: id}}}
 
     test "draft then file, with the drop in between", %{repo: repo, id: id} do
       json =

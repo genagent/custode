@@ -68,18 +68,22 @@ defmodule Custode.MCP.ReadTools.Attention do
   nothing-progresses-without-you, `watching` is the fleet noticed and is not
   blocked, and the rest are healthy.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "list_attention"
 
   import Custode.MCP.Tools
 
   alias Custode.Attention.Fleet
   alias Custode.MCP.ReadTools
 
-  schema do
-    field(:group, :string,
-      description: "only this group: needs_you | watching | working | scheduled | quiet"
-    )
-  end
+  input_schema(%{
+    "properties" => %{
+      "group" => %{
+        "description" => "only this group: needs_you | watching | working | scheduled | quiet",
+        "type" => "string"
+      }
+    },
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -105,16 +109,22 @@ defmodule Custode.MCP.ReadTools.Inbox do
   human's side (#301), and the two are different things that unfortunately
   share a word.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "list_inbox"
 
   import Custode.MCP.Tools
 
   alias Custode.MCP.ReadTools
   alias Custode.Operator.Inbox
 
-  schema do
-    field(:unread_only, :boolean, description: "only what arrived since the operator last looked")
-  end
+  input_schema(%{
+    "properties" => %{
+      "unread_only" => %{
+        "description" => "only what arrived since the operator last looked",
+        "type" => "boolean"
+      }
+    },
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -140,12 +150,11 @@ defmodule Custode.MCP.ReadTools.Suggestions do
   not even SEE the advisors' proposals, let alone act on them. Acting is
   tier 2 (#347).
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "list_suggestions"
 
   import Custode.MCP.Tools
 
-  schema do
-  end
+  input_schema(%{"properties" => %{}, "type" => "object"})
 
   @impl true
   def execute(_params, frame), do: reply(frame, %{suggestions: Custode.Suggestions.standing()})
@@ -159,15 +168,18 @@ defmodule Custode.MCP.ReadTools.SuggestionOutcomes do
   Deliberately reports facts rather than a verdict. Whether a change did what
   it promised depends on what it promised, which is per-advisor.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "list_suggestion_outcomes"
 
   import Custode.MCP.Tools
 
   alias Custode.Suggestions.Outcome
 
-  schema do
-    field(:days, :integer, description: "window in days (default 30)")
-  end
+  input_schema(%{
+    "properties" => %{
+      "days" => %{"description" => "window in days (default 30)", "type" => "integer"}
+    },
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -203,15 +215,18 @@ defmodule Custode.MCP.ReadTools.Advisors do
   rejected far more than its siblings is the signal that survives either
   reading.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "list_advisors"
 
   import Custode.MCP.Tools
 
   alias Custode.Advisors.Record
 
-  schema do
-    field(:days, :integer, description: "window in days (default 30)")
-  end
+  input_schema(%{
+    "properties" => %{
+      "days" => %{"description" => "window in days (default 30)", "type" => "integer"}
+    },
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -236,16 +251,24 @@ defmodule Custode.MCP.ReadTools.Metrics do
   argument and differ only in what they count -- six names would spend six
   slots in every allowlist and tool listing to say the same thing.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "metrics"
 
   import Custode.MCP.Tools
 
   @kinds ~w(spend turns gate_latency by_model gate_outcomes prs_opened)
 
-  schema do
-    field(:kind, :string, required: true, description: "one of: #{Enum.join(@kinds, ", ")}")
-    field(:days, :integer, description: "window in days (default 7)")
-  end
+  input_schema(%{
+    "properties" => %{
+      "days" => %{"description" => "window in days (default 7)", "type" => "integer"},
+      "kind" => %{
+        "description" =>
+          "one of: spend, turns, gate_latency, by_model, gate_outcomes, prs_opened",
+        "type" => "string"
+      }
+    },
+    "required" => ["kind"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{kind: kind} = params, frame) when kind in @kinds do
@@ -281,14 +304,20 @@ defmodule Custode.MCP.ReadTools.Digest do
   The "while you were away" summary: what the fleet did over a window, as the
   dashboard renders it on the operator's return (#263).
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "digest"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:days, :integer, description: "window in days (default 1)")
-    field(:markdown, :boolean, description: "render as markdown instead of the typed map")
-  end
+  input_schema(%{
+    "properties" => %{
+      "days" => %{"description" => "window in days (default 1)", "type" => "integer"},
+      "markdown" => %{
+        "description" => "render as markdown instead of the typed map",
+        "type" => "boolean"
+      }
+    },
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -310,12 +339,11 @@ defmodule Custode.MCP.ReadTools.Roles do
   The single source of truth for the fleet's permission model
   (`Custode.Roles`), and it was readable only from inside.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "list_roles"
 
   import Custode.MCP.Tools
 
-  schema do
-  end
+  input_schema(%{"properties" => %{}, "type" => "object"})
 
   @impl true
   def execute(_params, frame) do
@@ -337,13 +365,19 @@ defmodule Custode.MCP.ReadTools.Policies do
   What an approver is meant to review against. Without this a client can see
   a gate and not the rule it should be judged by.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "list_policies"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:agent_id, :string, description: "only the policies binding this routine")
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{
+        "description" => "only the policies binding this routine",
+        "type" => "string"
+      }
+    },
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -379,14 +413,13 @@ defmodule Custode.MCP.ReadTools.Workflows do
   waits on the launch gate (#272), because #307 kept launching to iex on
   purpose until there is a gate and a budget rail.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "list_workflows"
 
   import Custode.MCP.Tools
 
   alias Custode.Workflow.Catalog
 
-  schema do
-  end
+  input_schema(%{"properties" => %{}, "type" => "object"})
 
   @impl true
   def execute(_params, frame) do
@@ -411,12 +444,11 @@ defmodule Custode.MCP.ReadTools.ExecutingTurns do
   reads `:running` for the whole turn whether it started a second ago or is
   wedged.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "executing_turns"
 
   import Custode.MCP.Tools
 
-  schema do
-  end
+  input_schema(%{"properties" => %{}, "type" => "object"})
 
   @impl true
   def execute(_params, frame), do: reply(frame, %{executing: Custode.executing_turns()})

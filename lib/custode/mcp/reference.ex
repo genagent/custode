@@ -5,8 +5,7 @@ defmodule Custode.MCP.Reference do
   credential lookup, or live connection is needed.
   """
 
-  alias Anubis.Server.{Frame, Handlers}
-  alias Custode.MCP.{MemoryServer, Server, Snodo, ToolPolicy, WorkResources}
+  alias Custode.MCP.{MemoryServer, Server, Snodo, ToolPolicy}
 
   @servers [{"/mcp", Server}, {"/mcp/memory", MemoryServer}]
   @kinds ~w(tools resources resourceTemplates prompts)
@@ -42,28 +41,44 @@ defmodule Custode.MCP.Reference do
     end)
   end
 
-  # WorkResources.register is the same pure registration used by Server.init.
-  # Do not invoke init callbacks here: future initialization may have effects.
   defp endpoint({path, server}) do
-    frame = %Frame{assigns: %{custode_identity: %{kind: :operator, id: "operator"}}}
-    frame = if server == Server, do: WorkResources.register(frame), else: frame
+    runtime = Snodo.plug_options()[path].runtime
 
-    %{
+    transport = %Elixir.Snodo.Transport.Context{
+      request_headers: %{"mcp-protocol-version" => "2025-06-18"},
+      metadata: %{auth: %{identity: %{kind: :operator, id: "operator"}, origin: :mcp}}
+    }
+
+    # Reference discovery is pure and includes the entire endpoint inventory.
+    # Admission of real callers is tested independently over authenticated HTTP.
+    runtime = %{runtime | authorization: nil}
+
+    discovered =
+      for {kind, method} <- [
+            {"tools", "tools/list"},
+            {"resources", "resources/list"},
+            {"resourceTemplates", "resources/templates/list"},
+            {"prompts", "prompts/list"}
+          ],
+          into: %{} do
+        capability = if kind == "resourceTemplates", do: "resources", else: kind
+
+        if Map.has_key?(runtime.capabilities, capability) do
+          request = %{"jsonrpc" => "2.0", "id" => 1, "method" => method, "params" => %{}}
+          {:ok, %{"result" => result}} = Elixir.Snodo.Server.dispatch(runtime, request, transport)
+          {kind, Map.fetch!(result, kind)}
+        else
+          {kind, []}
+        end
+      end
+
+    Map.merge(discovered, %{
       "path" => path,
       "serverInfo" => server.server_info(),
       "capabilities" => server.server_capabilities(),
-      "protocolVersions" => Snodo.protocol_versions(),
-      "tools" => Enum.map(Handlers.get_server_tools(server, frame), &wire/1),
-      "resources" => Enum.map(Handlers.get_server_resources(server, frame), &wire/1),
-      "resourceTemplates" =>
-        Enum.map(Handlers.get_server_resource_templates(server, frame), &wire/1),
-      "prompts" => Enum.map(Handlers.get_server_prompts(server, frame), &wire/1)
-    }
+      "protocolVersions" => Snodo.protocol_versions()
+    })
   end
-
-  # Use the transport's JSON encoder so corrected schemas and optional public
-  # fields match discovery; never serialize handlers or validation functions.
-  defp wire(component), do: component |> JSON.encode!() |> Jason.decode!()
 
   defp endpoint_index(endpoints) do
     Enum.map(endpoints, fn endpoint ->
@@ -73,7 +88,7 @@ defmodule Custode.MCP.Reference do
     end)
   end
 
-  defp names(entries), do: Enum.map(entries, & &1["name"])
+  defp names(entries), do: entries |> Enum.map(& &1["name"]) |> Enum.sort()
 
   defp merge_definitions(endpoints, kind) do
     endpoints

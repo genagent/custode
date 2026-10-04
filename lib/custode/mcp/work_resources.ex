@@ -33,12 +33,12 @@ defmodule Custode.MCP.WorkResources do
   opaque `next_cursor` and a directly readable `next_uri`.
   """
 
-  alias Anubis.MCP.Error
-  alias Anubis.Server.{Frame, Response}
   alias Custode.{Attention, MCP, WorkReadModels}
+  alias Custode.MCP.CallContext
+
+  alias Snodo.Error
 
   @page_size 25
-  @json "application/json"
 
   @resources [
     %{
@@ -156,49 +156,15 @@ defmodule Custode.MCP.WorkResources do
   @spec template_definitions() :: [map()]
   def template_definitions, do: @templates
 
-  @doc "Register work resources for an authenticated operator session."
-  @spec register(Frame.t()) :: Frame.t()
-  def register(%Frame{} = frame) do
-    if operator?(frame) do
-      frame
-      |> register_resources()
-      |> register_templates()
-    else
-      frame
-    end
-  end
-
   @doc "Read one registered work resource without changing authoritative state."
-  @spec read(String.t(), Frame.t()) ::
-          {:reply, Response.t(), Frame.t()} | {:error, Error.t(), Frame.t()}
-  def read(uri, %Frame{} = frame) when is_binary(uri) do
+  @spec read(String.t(), CallContext.t()) ::
+          {:reply, Snodo.Result.t(), CallContext.t()} | {:error, Error.t(), CallContext.t()}
+  def read(uri, %CallContext{} = frame) when is_binary(uri) do
     if operator?(frame) do
       route(uri, frame)
     else
       not_found(uri, frame)
     end
-  end
-
-  defp register_resources(frame) do
-    Enum.reduce(@resources, frame, fn resource, current ->
-      Frame.register_resource(current, resource.uri,
-        name: resource.name,
-        title: resource.title,
-        description: resource.description,
-        mime_type: @json
-      )
-    end)
-  end
-
-  defp register_templates(frame) do
-    Enum.reduce(@templates, frame, fn template, current ->
-      Frame.register_resource_template(current, template.uri,
-        name: template.name,
-        title: template.title,
-        description: template.description,
-        mime_type: @json
-      )
-    end)
   end
 
   defp route(uri, frame) do
@@ -497,11 +463,7 @@ defmodule Custode.MCP.WorkResources do
   defp operator?(frame), do: match?(%{kind: :operator}, MCP.caller(frame))
 
   defp reply(payload, frame) do
-    response =
-      Response.resource()
-      |> Response.json(payload)
-
-    {:reply, response, frame}
+    {:reply, Snodo.Result.text(JSON.encode!(payload)), frame}
   end
 
   defp domain_error({kind, _id}, uri, frame)
@@ -514,12 +476,18 @@ defmodule Custode.MCP.WorkResources do
   defp domain_error(reason, uri, frame), do: invalid_params(reason, uri, frame)
 
   defp invalid_params(reason, uri, frame) do
-    error = Error.protocol(:invalid_params, %{uri: uri, reason: inspect(reason)})
+    error = Error.invalid_params("Invalid params", %{"uri" => uri, "reason" => inspect(reason)})
     {:error, error, frame}
   end
 
   defp not_found(uri, frame) do
-    error = Error.resource(:not_found, %{uri: uri})
+    error = %Error{
+      code: -32_002,
+      message: "Resource not found",
+      kind: :protocol,
+      data: %{"uri" => uri}
+    }
+
     {:error, error, frame}
   end
 end

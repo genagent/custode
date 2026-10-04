@@ -3,9 +3,10 @@ defmodule Custode.MCPNumericFieldsTest do
 
   import Custode.TestHelpers
 
-  alias Anubis.Server.{Frame, Handlers}
   alias Custode.CLI.Client
-  alias Custode.MCP.NumericSchema
+  alias Custode.MCP.Arguments
+  alias Custode.MCP.CallContext, as: Frame
+  alias Custode.MCP.Server
 
   @budget_tools ~w(
     preview_routine add_routine preview_routine_edit update_routine
@@ -19,9 +20,8 @@ defmodule Custode.MCPNumericFieldsTest do
     system_env!("CUSTODE_MCP_PORT", to_string(Application.fetch_env!(:custode, :mcp_port)))
 
     tools =
-      Custode.MCP.Server
-      |> Handlers.get_server_tools(%Frame{})
-      |> Enum.filter(&(&1.name in @budget_tools))
+      Server.tools()
+      |> Enum.filter(&(&1.name() in @budget_tools))
 
     assert length(tools) == length(@budget_tools)
 
@@ -29,46 +29,21 @@ defmodule Custode.MCPNumericFieldsTest do
   end
 
   test "discovery advertises optional JSON numbers without overlapping unions", %{tools: tools} do
-    for tool <- tools, field <- budget_fields(tool.name) do
-      property = tool.input_schema["properties"][field]
+    for tool <- tools, field <- budget_fields(tool.name()) do
+      property = tool.input_schema()["properties"][field]
 
-      assert property["type"] == "number", "#{tool.name}.#{field}"
-      refute Map.has_key?(property, "oneOf"), "#{tool.name}.#{field}"
+      assert property["type"] == "number", "#{tool.name()}.#{field}"
+      refute Map.has_key?(property, "oneOf"), "#{tool.name()}.#{field}"
       assert is_binary(property["description"])
-      refute field in Map.get(tool.input_schema, "required", [])
+      refute field in Map.get(tool.input_schema(), "required", [])
     end
   end
 
-  test "normalization preserves metadata, required fields and other numeric constraints" do
-    schema = %{
-      "required" => ["budget"],
-      "properties" => %{
-        "budget" => %{
-          "description" => "spend cap",
-          "oneOf" => [%{"type" => "integer"}, %{"type" => "number"}]
-        },
-        "count" => %{"type" => "integer"},
-        "bounded" => %{
-          "oneOf" => [%{"type" => "integer", "minimum" => 0}, %{"type" => "number"}]
-        },
-        "nullable" => %{"oneOf" => [%{"type" => "number"}, %{"type" => "null"}]}
-      }
-    }
-
-    expected =
-      put_in(schema, ["properties", "budget"], %{
-        "description" => "spend cap",
-        "type" => "number"
-      })
-
-    assert NumericSchema.normalize(schema) == expected
-  end
-
   test "all budget validators accept integers and floats without coercion", ctx do
-    for tool <- ctx.tools, field <- budget_fields(tool.name), value <- [10, 10.25] do
-      params = Map.put(arguments(tool.name, ctx), field, value)
+    for tool <- ctx.tools, field <- budget_fields(tool.name()), value <- [10, 10.25] do
+      params = Map.put(arguments(tool.name(), ctx), field, value)
 
-      assert {:ok, validated} = tool.validate_input.(params)
+      assert {:ok, validated} = validate(tool, params)
       assert Map.fetch!(validated, String.to_existing_atom(field)) === value
     end
   end
@@ -77,13 +52,13 @@ defmodule Custode.MCPNumericFieldsTest do
     jobs_before = jobs_for("Custode.OneShotJob")
 
     for tool <- ctx.tools,
-        field <- budget_fields(tool.name),
+        field <- budget_fields(tool.name()),
         value <- ["10", true, [], %{}] do
-      params = Map.put(arguments(tool.name, ctx), field, value)
-      request = %{"params" => %{"name" => tool.name, "arguments" => params}}
+      params = Map.put(arguments(tool.name(), ctx), field, value)
+      request = %{"name" => tool.name(), "arguments" => params}
 
-      assert {:error, %Anubis.MCP.Error{code: -32_602}, _frame} =
-               Handlers.Tools.handle_call(request, %Frame{}, Custode.MCP.Server)
+      assert {:error, %{"code" => -32_602}, _frame} =
+               mcp_dispatch("tools/call", request, %Frame{})
     end
 
     refute File.exists?(ctx.config_path)
@@ -92,11 +67,11 @@ defmodule Custode.MCPNumericFieldsTest do
 
   test "omitted and null optional budgets keep the existing omission behavior", ctx do
     for tool <- ctx.tools do
-      params = arguments(tool.name, ctx)
-      assert {:ok, _validated} = tool.validate_input.(params)
+      params = arguments(tool.name(), ctx)
+      assert {:ok, _validated} = validate(tool, params)
 
-      for field <- budget_fields(tool.name) do
-        assert {:ok, validated} = tool.validate_input.(Map.put(params, field, nil))
+      for field <- budget_fields(tool.name()) do
+        assert {:ok, validated} = validate(tool, Map.put(params, field, nil))
         assert Map.get(validated, String.to_existing_atom(field)) == nil
       end
     end
@@ -151,6 +126,15 @@ defmodule Custode.MCPNumericFieldsTest do
 
     refute File.exists?(ctx.config_path)
     assert jobs_for("Custode.OneShotJob") == jobs_before
+  end
+
+  defp validate(tool, params) do
+    keys =
+      for key <- Map.keys(tool.input_schema()["properties"]),
+          into: %{},
+          do: {key, String.to_existing_atom(key)}
+
+    Arguments.validate(params, tool.input_schema(), keys)
   end
 
   defp budget_fields("run_job"), do: ["max_budget_usd"]

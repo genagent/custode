@@ -24,20 +24,24 @@ defmodule Custode.MCP.DisownTools.DisownPr do
   Do not use this to avoid work you could do. Disowning your own failing PR
   hides it from you and hands it to a human.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "repo_disown_pr"
 
   import Custode.MCP.Tools
 
   alias Custode.{Disowned, MCP.Scope}
 
-  schema do
-    field(:repo, :string, required: true, description: ~s(the repo, as "owner/name"))
-    field(:number, :integer, required: true, description: "the pull request number")
-
-    field(:reason, :string,
-      description: "why it is not yours, in one line -- kept as the record of the judgment"
-    )
-  end
+  input_schema(%{
+    "properties" => %{
+      "number" => %{"description" => "the pull request number", "type" => "integer"},
+      "reason" => %{
+        "description" => "why it is not yours, in one line -- kept as the record of the judgment",
+        "type" => "string"
+      },
+      "repo" => %{"description" => "the repo, as \"owner/name\"", "type" => "string"}
+    },
+    "required" => ["number", "repo"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -75,16 +79,20 @@ defmodule Custode.MCP.DisownTools.ReclaimPr do
   a red check on that PR to the fleet, so it stops being raised to the
   operator and goes back to being something your next beat looks at.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "repo_reclaim_pr"
 
   import Custode.MCP.Tools
 
   alias Custode.{Disowned, MCP.Scope}
 
-  schema do
-    field(:repo, :string, required: true, description: ~s(the repo, as "owner/name"))
-    field(:number, :integer, required: true, description: "the pull request number")
-  end
+  input_schema(%{
+    "properties" => %{
+      "number" => %{"description" => "the pull request number", "type" => "integer"},
+      "repo" => %{"description" => "the repo, as \"owner/name\"", "type" => "string"}
+    },
+    "required" => ["number", "repo"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -118,13 +126,14 @@ defmodule Custode.MCP.DisownTools.ListDisowned do
   a different question from `list_gates` ("what is blocked on me?") and from
   `list_asks` ("what am I being asked?").
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "list_disowned"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:repo, :string, description: "restrict to one repo")
-  end
+  input_schema(%{
+    "properties" => %{"repo" => %{"description" => "restrict to one repo", "type" => "string"}},
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do

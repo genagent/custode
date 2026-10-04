@@ -14,7 +14,7 @@ defmodule Custode.IdentityTest do
   alias Plug.Test
 
   defp frame_for(kind, id),
-    do: %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: kind, id: id}}}
+    do: %Custode.MCP.CallContext{assigns: %{custode_identity: %{kind: kind, id: id}}}
 
   test "mint/verify round-trips; re-minting revokes; garbage fails" do
     token = Identity.mint(:routine, "alpha")
@@ -225,7 +225,7 @@ defmodule Custode.IdentityTest do
     reply =
       MemoryTools.Remember.execute(
         %{agent_id: other, key: "k", value: "v"},
-        %Anubis.Server.Frame{}
+        %Custode.MCP.CallContext{}
       )
 
     assert tool_json(reply)
@@ -308,7 +308,7 @@ defmodule Custode.IdentityTest do
 
     # the operator may, and a missing id still says so
     {:ok, second} = Custode.Notebook.todo_add(owner.id, "operator finishes this")
-    reply = NotebookTools.TodoComplete.execute(%{todo_id: second.id}, %Anubis.Server.Frame{})
+    reply = NotebookTools.TodoComplete.execute(%{todo_id: second.id}, %Custode.MCP.CallContext{})
     assert %{"status" => "done"} = tool_json(reply)
 
     reply = NotebookTools.TodoComplete.execute(%{todo_id: -1}, frame_for(:routine, owner.id))

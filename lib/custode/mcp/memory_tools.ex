@@ -1,6 +1,6 @@
 defmodule Custode.MCP.MemoryTools.Remember do
   @moduledoc "Persist a fact for yourself across sessions (upserts by key)."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "remember"
 
   import Custode.MCP.Tools
 
@@ -9,12 +9,22 @@ defmodule Custode.MCP.MemoryTools.Remember do
 
   # Both identity names are optional (#483): the token says who is calling,
   # and the notebook tools call the same id `routine_id`.
-  schema do
-    field(:agent_id, :string, description: "your own agent/routine id (defaults to the caller)")
-    field(:routine_id, :string, description: alias_for("agent_id"))
-    field(:key, :string, description: @key)
-    field(:value, :string, description: @value)
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{
+        "description" => "your own agent/routine id (defaults to the caller)",
+        "type" => "string"
+      },
+      "key" => %{"description" => "short kebab-case slug", "type" => "string"},
+      "routine_id" => %{
+        "description" =>
+          "alias for agent_id; either works, and both may be omitted: the server knows who is calling",
+        "type" => "string"
+      },
+      "value" => %{"description" => "the fact to keep, as text", "type" => "string"}
+    },
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -36,15 +46,25 @@ end
 
 defmodule Custode.MCP.MemoryTools.Recall do
   @moduledoc "Recall your persistent memory: one key, or everything you know."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "recall"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:agent_id, :string, description: "your own agent/routine id (defaults to the caller)")
-    field(:routine_id, :string, description: alias_for("agent_id"))
-    field(:key, :string, description: "omit to recall everything")
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{
+        "description" => "your own agent/routine id (defaults to the caller)",
+        "type" => "string"
+      },
+      "key" => %{"description" => "omit to recall everything", "type" => "string"},
+      "routine_id" => %{
+        "description" =>
+          "alias for agent_id; either works, and both may be omitted: the server knows who is calling",
+        "type" => "string"
+      }
+    },
+    "type" => "object"
+  })
 
   # A read, so no check_self/2: reads are not scoped, and the id only
   # defaults to the caller (#483).
@@ -71,17 +91,30 @@ end
 
 defmodule Custode.MCP.MemoryTools.Forget do
   @moduledoc "Delete one of your memories by key."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "forget"
 
   import Custode.MCP.Tools
 
   @key "the key of the memory to delete (see: recall)"
 
-  schema do
-    field(:agent_id, :string, description: "your own agent/routine id (defaults to the caller)")
-    field(:routine_id, :string, description: alias_for("agent_id"))
-    field(:key, :string, description: @key)
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{
+        "description" => "your own agent/routine id (defaults to the caller)",
+        "type" => "string"
+      },
+      "key" => %{
+        "description" => "the key of the memory to delete (see: recall)",
+        "type" => "string"
+      },
+      "routine_id" => %{
+        "description" =>
+          "alias for agent_id; either works, and both may be omitted: the server knows who is calling",
+        "type" => "string"
+      }
+    },
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do

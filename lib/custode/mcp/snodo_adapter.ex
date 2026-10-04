@@ -1,142 +1,30 @@
 defmodule Custode.MCP.Snodo.Adapter do
   @moduledoc false
 
-  alias Anubis.MCP.Error, as: AnubisError
-  alias Anubis.Server.{Frame, Response}
-  alias Custode.MCP.{Server, WorkResources}
-  alias Snodo.Error
+  alias Custode.MCP.{CallContext, WorkResources}
+  alias Snodo.{Error, Result}
 
-  @spec tool(String.t()) :: Anubis.Server.Component.Tool.t()
-  def tool(name) do
-    Enum.find(Server.__components__(:tool), &(&1.name == name)) ||
-      raise ArgumentError, "unknown Custode MCP tool #{inspect(name)}"
+  @spec caller(Snodo.Context.t()) :: {:ok, CallContext.t()} | {:error, Error.t()}
+  def caller(%Snodo.Context{auth: %{identity: identity, origin: origin}})
+      when is_map(identity) and origin in [:cli, :mcp] do
+    {:ok, %CallContext{assigns: %{custode_identity: identity, custode_transport: origin}}}
   end
 
-  @spec wire(term()) :: term()
-  def wire(nil), do: nil
-  def wire(value), do: value |> JSON.encode!() |> Jason.decode!()
-
-  @spec call_tool(String.t(), map(), Snodo.Context.t()) ::
-          {:ok, Snodo.Result.t()} | {:error, Error.t()}
-  def call_tool(name, params, context) do
-    component = tool(name)
-
-    with {:ok, frame} <- frame(context),
-         {:ok, arguments} <- validate(component, params) do
-      case component.handler.execute(arguments, frame) do
-        {:reply, response, _frame} ->
-          {:ok, Snodo.Result.raw(Response.to_protocol(response))}
-
-        {:error, error, _frame} ->
-          {:error, error(error)}
-
-        {:noreply, _frame} ->
-          {:error, Error.internal("Custode tool returned without a response")}
-      end
-    end
-  end
+  def caller(_context), do: {:error, Error.internal("Missing verified Custode identity")}
 
   @spec read_resource(String.t(), String.t(), Snodo.Context.t()) ::
-          {:ok, Snodo.Result.t()} | {:error, Error.t()}
+          {:ok, Result.t()} | {:error, Error.t()}
   def read_resource(uri, mime_type, context) do
-    with {:ok, frame} <- frame(context) do
-      case WorkResources.read(uri, frame) do
-        {:reply, response, _frame} ->
-          content = Response.to_protocol(response, uri, mime_type)
-          {:ok, Snodo.Result.resource_read(content)}
+    with {:ok, caller} <- caller(context) do
+      case WorkResources.read(uri, caller) do
+        {:reply, %Result{kind: :text, value: text}, _caller} ->
+          {:ok, Result.resource_read([%{"uri" => uri, "mimeType" => mime_type, "text" => text}])}
 
-        {:error, error, _frame} ->
-          {:error, error(error)}
+        {:error, error, _caller} ->
+          {:error, error}
       end
     end
   end
-
-  defp frame(%Snodo.Context{auth: %{identity: identity, origin: origin}})
-       when is_map(identity) and origin in [:cli, :mcp] do
-    {:ok,
-     Frame.new(%{
-       custode_identity: identity,
-       custode_transport: origin
-     })}
-  end
-
-  defp frame(_context), do: {:error, Error.internal("Missing verified Custode identity")}
-
-  defp validate(%{validate_input: nil}, params), do: {:ok, params}
-
-  defp validate(%{validate_input: validate}, params) do
-    case validate.(params) do
-      {:ok, arguments} -> {:ok, arguments}
-      {:error, reason} -> {:error, Error.invalid_params("Invalid params", wire(reason))}
-    end
-  end
-
-  defp error(%AnubisError{} = error) do
-    %Error{
-      code: error.code,
-      message: error.message || to_string(error.reason),
-      data: wire(error.data),
-      kind: error_kind(error.code)
-    }
-  end
-
-  defp error(reason), do: Error.execution(reason)
-
-  defp error_kind(code) when code in [-32_700, -32_600, -32_601, -32_602], do: :protocol
-  defp error_kind(_code), do: :execution
-end
-
-defmodule Custode.MCP.Snodo.Tools do
-  @moduledoc false
-
-  @names Custode.MCP.ToolPolicy.all() |> Map.keys() |> Enum.sort()
-
-  @spec names() :: [String.t()]
-  def names, do: @names
-
-  @spec module(String.t()) :: module()
-  def module(name) when name in @names,
-    do: Module.concat(__MODULE__, Macro.camelize(name))
-end
-
-for name <- Custode.MCP.Snodo.Tools.names() do
-  module = Custode.MCP.Snodo.Tools.module(name)
-
-  contents =
-    quote bind_quoted: [name: name] do
-      @moduledoc false
-      @behaviour Snodo.Tool
-
-      @name name
-
-      @impl Snodo.Tool
-      def name, do: @name
-
-      @impl Snodo.Tool
-      def description, do: Custode.MCP.Snodo.Adapter.tool(@name).description
-
-      @impl Snodo.Tool
-      def input_schema,
-        do: @name |> Custode.MCP.Snodo.Adapter.tool() |> Map.fetch!(:input_schema)
-
-      @impl Snodo.Tool
-      def output_schema,
-        do: @name |> Custode.MCP.Snodo.Adapter.tool() |> Map.fetch!(:output_schema)
-
-      @impl Snodo.Tool
-      def annotations do
-        @name
-        |> Custode.MCP.Snodo.Adapter.tool()
-        |> Map.fetch!(:annotations)
-        |> Kernel.||(%{})
-        |> Custode.MCP.Snodo.Adapter.wire()
-      end
-
-      @impl Snodo.Tool
-      def call(params, context), do: Custode.MCP.Snodo.Adapter.call_tool(@name, params, context)
-    end
-
-  Module.create(module, contents, Macro.Env.location(__ENV__))
 end
 
 defmodule Custode.MCP.Snodo.Resources do
