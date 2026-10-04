@@ -88,3 +88,26 @@ emission. Client/model receipt, exact native run binding and instruction layers
 remain unavailable; an active execution observation is not binding evidence.
 Retained payloads expire explicitly. Native delivery and richer navigation remain
 on the implementation issue rather than being inferred from archive membership.
+
+## Scoped return navigation (#785)
+
+An optional configured current_plan path names a current subject document, guarded
+by the same exact read grant. Detail reads retain its working revision and a link;
+this is not an inferred native execution plan. Up to three immutable successful
+publication references keep historical source revisions separate from later human
+edits and provide recorded-owner links.
+
+New helper publications retain an exact host-owned spawn epoch. Cleanup does not
+remove that reference, and reuse of a helper id cannot retarget it. The human or
+currently authorized original parent can read bounded parent request/result
+excerpts and separately labelled authored reports. Other document readers get an
+explicit private state. Missing old epochs stay unavailable. Opening only reads;
+no source apply, approval, grant, worker start or resume is added.
+
+Controlled Tower/Travel return tests cover plan edits, exact grants, helper cleanup
+and reuse, private results, legacy epochs, authenticated HTTP on both protocols,
+and keyboard-accessible owner/plan links. These fixtures are not fresh native
+research or instruction delivery proof. Routine HTTP identities still lack a
+turn-scoped credential; observed execution snapshots cannot bind a tool call to
+one native turn. Native hidden context, model receipt/use and physical settlement
+stay unknown. Native acceptance and finer span/hunk review keep #785 open.

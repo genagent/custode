@@ -1,7 +1,7 @@
 defmodule Custode.ReturnViews do
   @moduledoc "Current documents, historical production and context receipts remain distinct facts."
   import Ecto.Query, only: [from: 2]
-  alias Custode.{ContextReceipts, Repo, SubjectDocuments}
+  alias Custode.{ContextReceipts, Repo, ReturnNavigation, SubjectDocuments}
   alias Snodo.Schema.Validator.Basic
 
   defmodule Feedback do
@@ -61,7 +61,8 @@ defmodule Custode.ReturnViews do
            Enum.map(Enum.take(producers, 10), &Map.drop(&1, ["request", "result"])),
          "disposition" => "document_not_acceptance",
          "opening_resumes_work" => false,
-         "feedback" => feedback_history(root, path, current["revision"])
+         "feedback" => feedback_history(root, path, current["revision"]),
+         "navigation" => ReturnNavigation.read(actor, root, current["revision"], producers)
        })}
     end
   end

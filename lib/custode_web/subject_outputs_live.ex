@@ -136,6 +136,27 @@ defmodule CustodeWeb.SubjectOutputsLive do
             <p class="break-all text-xs">Revision {@document["revision"]}</p>
             <details id="document-content" open><summary class="cursor-pointer font-semibold">Current content</summary><pre class="max-h-96 overflow-auto whitespace-pre-wrap text-sm">{@document["content"]}</pre></details>
             <details id="document-producers"><summary class="cursor-pointer">Recorded production</summary><pre class="overflow-auto whitespace-pre-wrap text-xs">{Jason.encode!(@document["production_receipts"], pretty: true)}</pre></details>
+            <section id="document-return-navigation" aria-label="Return context" class="space-y-2 text-sm">
+              <.link :if={@document["navigation"]["current_plan"]["link"]} navigate={@document["navigation"]["current_plan"]["link"]} class="link">Open current named plan</.link>
+              <p :if={!@document["navigation"]["current_plan"]["link"]} class="text-base-content/60">No readable named current plan.</p>
+              <div :for={production <- @document["navigation"]["productions"]} class="rounded-box border border-base-300 p-2">
+                <p>Published {production["published_at"]} · {if production["matches_current_revision"], do: "matches current source", else: "historical source revision"}</p>
+                <.link :if={production["recorded_owner"]["link"]} navigate={production["recorded_owner"]["link"]} class="link">Return to recorded owner {production["recorded_owner"]["id"]}</.link>
+                <details class="mt-2"><summary class="cursor-pointer">Recorded helper context</summary>
+                  <p>{production["helper"]["availability"]}; native publication run binding unknown.</p>
+                  <div :if={production["helper"]["record"]}>
+                    <p>Helper {production["helper"]["record"]["agent_id"]} · {production["helper"]["record"]["registry_state"]}; physical settlement not observed.</p>
+                    <div :for={receipt <- production["helper"]["record"]["receipts"]} class="space-y-1 py-2">
+                      <p>Recorded parent request · {receipt["status"]} · {receipt["message_id"]}</p>
+                      <pre :if={receipt["brief_preview"]} class="whitespace-pre-wrap text-xs">{receipt["brief_preview"]}</pre>
+                      <pre :if={receipt["result_preview"]} class="whitespace-pre-wrap text-xs">{receipt["result_preview"]}</pre>
+                    </div>
+                    <p :if={production["helper"]["record"]["has_more_receipts"]}>Showing newest three message receipts.</p>
+                    <p :for={report <- production["helper"]["record"]["reports"]} class="text-xs">Agent-authored report: {report["summary"]}</p>
+                  </div>
+                </details>
+              </div>
+            </section>
             <details id="recorded-feedback"><summary class="cursor-pointer">Recorded comments</summary><ul><li :for={comment <- @document["feedback"]} class="py-2 text-sm"><p>{comment["comment"]}</p><span class="text-xs text-base-content/60">Lines {comment["start_line"]} to {comment["end_line"]} · {if comment["matches_current_revision"], do: "current revision", else: "historical revision"}</span></li></ul></details>
             <form id="document-feedback" phx-submit="feedback" class="space-y-2">
               <p class="text-sm">Comment on this revision and line range. Changes require reread and reanchor.</p>
