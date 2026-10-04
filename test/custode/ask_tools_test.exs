@@ -6,10 +6,10 @@ defmodule Custode.AskToolsTest do
   alias Custode.Asks
   alias Custode.MCP.AskTools
 
-  @operator %Anubis.Server.Frame{}
+  @operator %Custode.MCP.CallContext{}
 
   defp routine_frame(id),
-    do: %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :routine, id: id}}}
+    do: %Custode.MCP.CallContext{assigns: %{custode_identity: %{kind: :routine, id: id}}}
 
   setup do
     # Asks contribute to the fleet-wide attention count, which the chip in
@@ -135,7 +135,7 @@ defmodule Custode.AskToolsTest do
     } do
       {:ok, ask} = Asks.ask(routine.id, "is SAML fixed?")
 
-      frame = %Anubis.Server.Frame{
+      frame = %Custode.MCP.CallContext{
         assigns: %{custode_identity: %{kind: :operator, id: "operator"}}
       }
 
@@ -163,7 +163,7 @@ defmodule Custode.AskToolsTest do
       test "a #{kind} may not dismiss the operator's question", %{routine: routine} do
         {:ok, ask} = Asks.ask(routine.id, "which env?")
 
-        frame = %Anubis.Server.Frame{
+        frame = %Custode.MCP.CallContext{
           assigns: %{custode_identity: %{kind: unquote(kind), id: routine.id}}
         }
 

@@ -409,10 +409,10 @@ defmodule Custode.RepositoryTest do
     put_env!(:routines, [first_config, Map.put(first_config, :id, second_id)])
 
     first_frame =
-      %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :routine, id: first.id}}}
+      %Custode.MCP.CallContext{assigns: %{custode_identity: %{kind: :routine, id: first.id}}}
 
     second_frame =
-      %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :routine, id: second_id}}}
+      %Custode.MCP.CallContext{assigns: %{custode_identity: %{kind: :routine, id: second_id}}}
 
     assert %{"number" => 41} =
              RepoTools.Comment.execute(

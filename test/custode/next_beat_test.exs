@@ -12,7 +12,7 @@ defmodule Custode.NextBeatTest do
   defp routine(id, cron), do: %{id: id, cron: cron}
 
   defp frame_for(id),
-    do: %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :routine, id: id}}}
+    do: %Custode.MCP.CallContext{assigns: %{custode_identity: %{kind: :routine, id: id}}}
 
   describe "request/3" do
     test "records the wait, and a second request replaces the first" do

@@ -1,8 +1,8 @@
 defmodule Custode.MCP.ReferenceTest do
   use ExUnit.Case, async: true
 
-  alias Anubis.Server.{Frame, Handlers}
-  alias Custode.MCP.{Reference, Server, WorkResources}
+  alias Custode.MCP.CallContext, as: Frame
+  alias Custode.MCP.{Reference, Server}
 
   defp notes, do: "docs/mcp/behavior.json" |> File.read!() |> Jason.decode!()
 
@@ -14,16 +14,19 @@ defmodule Custode.MCP.ReferenceTest do
 
   test "public schemas and runtime resources survive export unchanged" do
     catalog = Reference.catalog(notes())
-    frame = WorkResources.register(%Frame{assigns: %{custode_identity: %{kind: :operator}}})
+    frame = %Frame{assigns: %{custode_identity: %{kind: :operator}}}
 
-    for {kind, definitions} <- [
-          {"tools", Handlers.get_server_tools(Server, frame)},
-          {"resources", Handlers.get_server_resources(Server, frame)},
-          {"resourceTemplates", Handlers.get_server_resource_templates(Server, frame)}
-        ],
-        definition <- definitions do
-      exported = Enum.find(catalog[kind], &(&1["name"] == definition.name))
-      assert exported["definition"] == definition |> JSON.encode!() |> Jason.decode!()
+    for {kind, method} <- [
+          {"tools", "tools/list"},
+          {"resources", "resources/list"},
+          {"resourceTemplates", "resources/templates/list"}
+        ] do
+      {:reply, result, _} = Custode.TestHelpers.mcp_dispatch(method, %{}, frame, Server)
+
+      for definition <- result[kind] do
+        exported = Enum.find(catalog[kind], &(&1["name"] == definition["name"]))
+        assert exported["definition"] == definition
+      end
     end
 
     # Dynamic operator resources must not disappear from a static-component

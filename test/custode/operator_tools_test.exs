@@ -11,7 +11,7 @@ defmodule Custode.OperatorToolsTest do
   alias Custode.MCP.OwnedCheckoutTools
   alias ObanClaude.Agent
 
-  @frame %Anubis.Server.Frame{}
+  @frame %Custode.MCP.CallContext{}
 
   setup do
     workspace = tmp_workspace!()
@@ -493,5 +493,5 @@ defmodule Custode.OperatorToolsTest do
   end
 
   defp frame_for(kind, id),
-    do: %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: kind, id: id}}}
+    do: %Custode.MCP.CallContext{assigns: %{custode_identity: %{kind: kind, id: id}}}
 end

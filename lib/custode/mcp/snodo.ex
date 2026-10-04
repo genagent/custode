@@ -1,7 +1,7 @@
 defmodule Custode.MCP.Snodo do
   @moduledoc false
 
-  alias Custode.MCP.{Capabilities, MemoryServer, Server, Snodo.Resources, Snodo.Tools}
+  alias Custode.MCP.{Capabilities, MemoryServer, Server, Snodo.Resources}
   alias Snodo.{Router, Server.Runtime}
   alias Snodo.Transport.Plug, as: SnodoPlug
 
@@ -47,8 +47,8 @@ defmodule Custode.MCP.Snodo do
   end
 
   defp tool_router(server) do
-    Enum.reduce(server.__components__(:tool), Router.new(), fn component, router ->
-      Router.register_tool(router, Tools.module(component.name))
+    Enum.reduce(server.tools(), Router.new(), fn tool, router ->
+      Router.register_tool(router, tool)
     end)
   end
 

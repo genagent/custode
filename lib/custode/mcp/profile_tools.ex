@@ -106,51 +106,80 @@ defmodule Custode.MCP.ProfileTools.PreviewProfile do
   plus the dangerous grants it carries -- put this in your request_permission
   action so the human approves the literal grants (#236).
   """
-  use Anubis.Server.Component, type: :tool
-  use Custode.MCP.NumericSchema
+  use Custode.MCP.Tool, name: "preview_profile"
 
   import Custode.MCP.Tools
 
   alias Custode.Config.WriteBack
   alias Custode.MCP.ProfileTools
 
-  schema do
-    field(:name, :string, required: true, description: "new profile name, e.g. \"reviewer\"")
-    field(:cron, :string, description: "default cron for wearers, e.g. \"@daily\"")
-    field(:prompt, :string, description: "default sweep prompt")
-    field(:role, :string, description: "role, e.g. \"backlog_worker\" (which prompt/toolset)")
-    field(:provider, :string, description: "agent provider: claude or codex")
-    field(:model, :string, description: "sweep model, e.g. \"sonnet\"")
-    field(:effort, :string, description: "sweep effort, e.g. \"low\"")
-    field(:agent, :string, description: "persona from the repo's .claude/agents/")
-    field(:workspace, :string, description: "notebook home template")
-    field(:working_dir, :string, description: "checkout path template")
-    field(:mcp, :boolean, description: "grant the custode MCP tools")
-    field(:hermetic, :boolean, description: "seal out the repo's ambient CLAUDE.md/persona")
-    field(:max_budget_usd, {:either, {:integer, :float}}, description: "per-turn budget rail")
-    field(:daily_budget_usd, {:either, {:integer, :float}}, description: "daily budget rail")
-    field(:daily_budget_tokens, :integer, description: "daily token rail")
-    field(:timeout_ms, :integer, description: "per-turn subprocess timeout")
-    field(:max_turns, :integer, description: "agentic turns per run")
-    field(:tags, {:list, :string}, description: "tags every wearer inherits")
-    field(:sensors, {:list, :string}, description: "sensors derived per wearer, e.g. [\"ci\"]")
-    field(:system_prompt_file, :string, description: "path to a standing-orders file")
-
-    field(:extra_allowed_tools, {:list, :string},
-      description: "GRANT: extra tools, e.g. [\"Bash(git log:*)\"] (a privilege surface)"
-    )
-
-    field(:approve_bypass_permissions, :boolean,
-      description: "GRANT: approved continuations run with bypass_permissions"
-    )
-
-    field(:approve_worktree, :string,
-      description: "approved-arg worktree template, e.g. \"custode-{id}\""
-    )
-
-    field(:approve_model, :string, description: "approved-arg model, e.g. \"opus\"")
-    field(:approve_effort, :string, description: "approved-arg effort, e.g. \"high\"")
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent" => %{"description" => "persona from the repo's .claude/agents/", "type" => "string"},
+      "approve_bypass_permissions" => %{
+        "description" => "GRANT: approved continuations run with bypass_permissions",
+        "type" => "boolean"
+      },
+      "approve_effort" => %{
+        "description" => "approved-arg effort, e.g. \"high\"",
+        "type" => "string"
+      },
+      "approve_model" => %{
+        "description" => "approved-arg model, e.g. \"opus\"",
+        "type" => "string"
+      },
+      "approve_worktree" => %{
+        "description" => "approved-arg worktree template, e.g. \"custode-{id}\"",
+        "type" => "string"
+      },
+      "cron" => %{
+        "description" => "default cron for wearers, e.g. \"@daily\"",
+        "type" => "string"
+      },
+      "daily_budget_tokens" => %{"description" => "daily token rail", "type" => "integer"},
+      "daily_budget_usd" => %{"description" => "daily budget rail", "type" => "number"},
+      "effort" => %{"description" => "sweep effort, e.g. \"low\"", "type" => "string"},
+      "extra_allowed_tools" => %{
+        "description" => "GRANT: extra tools, e.g. [\"Bash(git log:*)\"] (a privilege surface)",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "hermetic" => %{
+        "description" => "seal out the repo's ambient CLAUDE.md/persona",
+        "type" => "boolean"
+      },
+      "max_budget_usd" => %{"description" => "per-turn budget rail", "type" => "number"},
+      "max_turns" => %{"description" => "agentic turns per run", "type" => "integer"},
+      "mcp" => %{"description" => "grant the custode MCP tools", "type" => "boolean"},
+      "model" => %{"description" => "sweep model, e.g. \"sonnet\"", "type" => "string"},
+      "name" => %{"description" => "new profile name, e.g. \"reviewer\"", "type" => "string"},
+      "prompt" => %{"description" => "default sweep prompt", "type" => "string"},
+      "provider" => %{"description" => "agent provider: claude or codex", "type" => "string"},
+      "role" => %{
+        "description" => "role, e.g. \"backlog_worker\" (which prompt/toolset)",
+        "type" => "string"
+      },
+      "sensors" => %{
+        "description" => "sensors derived per wearer, e.g. [\"ci\"]",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "system_prompt_file" => %{
+        "description" => "path to a standing-orders file",
+        "type" => "string"
+      },
+      "tags" => %{
+        "description" => "tags every wearer inherits",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "timeout_ms" => %{"description" => "per-turn subprocess timeout", "type" => "integer"},
+      "working_dir" => %{"description" => "checkout path template", "type" => "string"},
+      "workspace" => %{"description" => "notebook home template", "type" => "string"}
+    },
+    "required" => ["name"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -172,46 +201,70 @@ defmodule Custode.MCP.ProfileTools.PreviewProfileEdit do
   action so the human approves the literal change and sees the privilege
   surface it moves (#236). `drop` removes an envelope key.
   """
-  use Anubis.Server.Component, type: :tool
-  use Custode.MCP.NumericSchema
+  use Custode.MCP.Tool, name: "preview_profile_edit"
 
   import Custode.MCP.Tools
 
   alias Custode.Config.WriteBack
   alias Custode.MCP.ProfileTools
 
-  schema do
-    field(:name, :string, required: true, description: "profile name to edit")
-    field(:cron, :string, description: "new default cron")
-    field(:prompt, :string, description: "new default sweep prompt")
-    field(:role, :string, description: "new role")
-    field(:provider, :string, description: "new agent provider: claude or codex")
-    field(:model, :string, description: "new model")
-    field(:effort, :string, description: "new effort")
-    field(:agent, :string, description: "new persona")
-    field(:workspace, :string, description: "new notebook home template")
-    field(:working_dir, :string, description: "new checkout path template")
-    field(:mcp, :boolean, description: "grant the custode MCP tools")
-    field(:hermetic, :boolean, description: "seal out ambient persona")
-    field(:max_budget_usd, {:either, {:integer, :float}}, description: "new per-turn budget rail")
-    field(:daily_budget_usd, {:either, {:integer, :float}}, description: "new daily budget rail")
-    field(:daily_budget_tokens, :integer, description: "new daily token rail")
-    field(:timeout_ms, :integer, description: "new per-turn timeout")
-    field(:max_turns, :integer, description: "new max turns")
-    field(:tags, {:list, :string}, description: "replacement tag list")
-    field(:sensors, {:list, :string}, description: "replacement sensor list")
-    field(:system_prompt_file, :string, description: "path to a standing-orders file")
-    field(:extra_allowed_tools, {:list, :string}, description: "GRANT: replacement tool list")
-
-    field(:approve_bypass_permissions, :boolean,
-      description: "GRANT: bypass_permissions on approval"
-    )
-
-    field(:approve_worktree, :string, description: "approved-arg worktree template")
-    field(:approve_model, :string, description: "approved-arg model")
-    field(:approve_effort, :string, description: "approved-arg effort")
-    field(:drop, {:list, :string}, description: "envelope keys to REMOVE")
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent" => %{"description" => "new persona", "type" => "string"},
+      "approve_bypass_permissions" => %{
+        "description" => "GRANT: bypass_permissions on approval",
+        "type" => "boolean"
+      },
+      "approve_effort" => %{"description" => "approved-arg effort", "type" => "string"},
+      "approve_model" => %{"description" => "approved-arg model", "type" => "string"},
+      "approve_worktree" => %{
+        "description" => "approved-arg worktree template",
+        "type" => "string"
+      },
+      "cron" => %{"description" => "new default cron", "type" => "string"},
+      "daily_budget_tokens" => %{"description" => "new daily token rail", "type" => "integer"},
+      "daily_budget_usd" => %{"description" => "new daily budget rail", "type" => "number"},
+      "drop" => %{
+        "description" => "envelope keys to REMOVE",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "effort" => %{"description" => "new effort", "type" => "string"},
+      "extra_allowed_tools" => %{
+        "description" => "GRANT: replacement tool list",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "hermetic" => %{"description" => "seal out ambient persona", "type" => "boolean"},
+      "max_budget_usd" => %{"description" => "new per-turn budget rail", "type" => "number"},
+      "max_turns" => %{"description" => "new max turns", "type" => "integer"},
+      "mcp" => %{"description" => "grant the custode MCP tools", "type" => "boolean"},
+      "model" => %{"description" => "new model", "type" => "string"},
+      "name" => %{"description" => "profile name to edit", "type" => "string"},
+      "prompt" => %{"description" => "new default sweep prompt", "type" => "string"},
+      "provider" => %{"description" => "new agent provider: claude or codex", "type" => "string"},
+      "role" => %{"description" => "new role", "type" => "string"},
+      "sensors" => %{
+        "description" => "replacement sensor list",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "system_prompt_file" => %{
+        "description" => "path to a standing-orders file",
+        "type" => "string"
+      },
+      "tags" => %{
+        "description" => "replacement tag list",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "timeout_ms" => %{"description" => "new per-turn timeout", "type" => "integer"},
+      "working_dir" => %{"description" => "new checkout path template", "type" => "string"},
+      "workspace" => %{"description" => "new notebook home template", "type" => "string"}
+    },
+    "required" => ["name"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -237,45 +290,62 @@ defmodule Custode.MCP.ProfileTools.DefineProfile do
   request_permission with the preview_profile render so the human approves
   the exact grants. Never auto: a profile is a privilege-escalation surface.
   """
-  use Anubis.Server.Component, type: :tool
-  use Custode.MCP.NumericSchema
+  use Custode.MCP.Tool, name: "define_profile"
 
   import Custode.MCP.Tools
 
   alias Custode.Config.WriteBack
   alias Custode.MCP.{ProfileTools, RosterTools}
 
-  schema do
-    field(:name, :string, required: true, description: "new profile name")
-    field(:cron, :string, description: "default cron for wearers")
-    field(:prompt, :string, description: "default sweep prompt")
-    field(:role, :string, description: "role (which prompt/toolset)")
-    field(:provider, :string, description: "agent provider: claude or codex")
-    field(:model, :string, description: "sweep model")
-    field(:effort, :string, description: "sweep effort")
-    field(:agent, :string, description: "persona from .claude/agents/")
-    field(:workspace, :string, description: "notebook home template")
-    field(:working_dir, :string, description: "checkout path template")
-    field(:mcp, :boolean, description: "grant the custode MCP tools")
-    field(:hermetic, :boolean, description: "seal out ambient persona")
-    field(:max_budget_usd, {:either, {:integer, :float}}, description: "per-turn budget rail")
-    field(:daily_budget_usd, {:either, {:integer, :float}}, description: "daily budget rail")
-    field(:daily_budget_tokens, :integer, description: "daily token rail")
-    field(:timeout_ms, :integer, description: "per-turn timeout")
-    field(:max_turns, :integer, description: "agentic turns per run")
-    field(:tags, {:list, :string}, description: "tags every wearer inherits")
-    field(:sensors, {:list, :string}, description: "sensors derived per wearer")
-    field(:system_prompt_file, :string, description: "standing-orders file path")
-    field(:extra_allowed_tools, {:list, :string}, description: "GRANT: extra tools")
-
-    field(:approve_bypass_permissions, :boolean,
-      description: "GRANT: bypass_permissions on approval"
-    )
-
-    field(:approve_worktree, :string, description: "approved-arg worktree template")
-    field(:approve_model, :string, description: "approved-arg model")
-    field(:approve_effort, :string, description: "approved-arg effort")
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent" => %{"description" => "persona from .claude/agents/", "type" => "string"},
+      "approve_bypass_permissions" => %{
+        "description" => "GRANT: bypass_permissions on approval",
+        "type" => "boolean"
+      },
+      "approve_effort" => %{"description" => "approved-arg effort", "type" => "string"},
+      "approve_model" => %{"description" => "approved-arg model", "type" => "string"},
+      "approve_worktree" => %{
+        "description" => "approved-arg worktree template",
+        "type" => "string"
+      },
+      "cron" => %{"description" => "default cron for wearers", "type" => "string"},
+      "daily_budget_tokens" => %{"description" => "daily token rail", "type" => "integer"},
+      "daily_budget_usd" => %{"description" => "daily budget rail", "type" => "number"},
+      "effort" => %{"description" => "sweep effort", "type" => "string"},
+      "extra_allowed_tools" => %{
+        "description" => "GRANT: extra tools",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "hermetic" => %{"description" => "seal out ambient persona", "type" => "boolean"},
+      "max_budget_usd" => %{"description" => "per-turn budget rail", "type" => "number"},
+      "max_turns" => %{"description" => "agentic turns per run", "type" => "integer"},
+      "mcp" => %{"description" => "grant the custode MCP tools", "type" => "boolean"},
+      "model" => %{"description" => "sweep model", "type" => "string"},
+      "name" => %{"description" => "new profile name", "type" => "string"},
+      "prompt" => %{"description" => "default sweep prompt", "type" => "string"},
+      "provider" => %{"description" => "agent provider: claude or codex", "type" => "string"},
+      "role" => %{"description" => "role (which prompt/toolset)", "type" => "string"},
+      "sensors" => %{
+        "description" => "sensors derived per wearer",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "system_prompt_file" => %{"description" => "standing-orders file path", "type" => "string"},
+      "tags" => %{
+        "description" => "tags every wearer inherits",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "timeout_ms" => %{"description" => "per-turn timeout", "type" => "integer"},
+      "working_dir" => %{"description" => "checkout path template", "type" => "string"},
+      "workspace" => %{"description" => "notebook home template", "type" => "string"}
+    },
+    "required" => ["name"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -308,46 +378,67 @@ defmodule Custode.MCP.ProfileTools.UpdateProfile do
   request_permission with the preview_profile_edit render. `drop` removes an
   envelope key. Never auto.
   """
-  use Anubis.Server.Component, type: :tool
-  use Custode.MCP.NumericSchema
+  use Custode.MCP.Tool, name: "update_profile"
 
   import Custode.MCP.Tools
 
   alias Custode.Config.WriteBack
   alias Custode.MCP.{ProfileTools, RosterTools}
 
-  schema do
-    field(:name, :string, required: true, description: "profile name to edit")
-    field(:cron, :string, description: "new default cron")
-    field(:prompt, :string, description: "new default sweep prompt")
-    field(:role, :string, description: "new role")
-    field(:provider, :string, description: "new agent provider: claude or codex")
-    field(:model, :string, description: "new model")
-    field(:effort, :string, description: "new effort")
-    field(:agent, :string, description: "new persona")
-    field(:workspace, :string, description: "new notebook home template")
-    field(:working_dir, :string, description: "new checkout path template")
-    field(:mcp, :boolean, description: "grant the custode MCP tools")
-    field(:hermetic, :boolean, description: "seal out ambient persona")
-    field(:max_budget_usd, {:either, {:integer, :float}}, description: "new per-turn budget rail")
-    field(:daily_budget_usd, {:either, {:integer, :float}}, description: "new daily budget rail")
-    field(:daily_budget_tokens, :integer, description: "new daily token rail")
-    field(:timeout_ms, :integer, description: "new per-turn timeout")
-    field(:max_turns, :integer, description: "new max turns")
-    field(:tags, {:list, :string}, description: "replacement tag list")
-    field(:sensors, {:list, :string}, description: "replacement sensor list")
-    field(:system_prompt_file, :string, description: "standing-orders file path")
-    field(:extra_allowed_tools, {:list, :string}, description: "GRANT: replacement tool list")
-
-    field(:approve_bypass_permissions, :boolean,
-      description: "GRANT: bypass_permissions on approval"
-    )
-
-    field(:approve_worktree, :string, description: "approved-arg worktree template")
-    field(:approve_model, :string, description: "approved-arg model")
-    field(:approve_effort, :string, description: "approved-arg effort")
-    field(:drop, {:list, :string}, description: "envelope keys to REMOVE")
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent" => %{"description" => "new persona", "type" => "string"},
+      "approve_bypass_permissions" => %{
+        "description" => "GRANT: bypass_permissions on approval",
+        "type" => "boolean"
+      },
+      "approve_effort" => %{"description" => "approved-arg effort", "type" => "string"},
+      "approve_model" => %{"description" => "approved-arg model", "type" => "string"},
+      "approve_worktree" => %{
+        "description" => "approved-arg worktree template",
+        "type" => "string"
+      },
+      "cron" => %{"description" => "new default cron", "type" => "string"},
+      "daily_budget_tokens" => %{"description" => "new daily token rail", "type" => "integer"},
+      "daily_budget_usd" => %{"description" => "new daily budget rail", "type" => "number"},
+      "drop" => %{
+        "description" => "envelope keys to REMOVE",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "effort" => %{"description" => "new effort", "type" => "string"},
+      "extra_allowed_tools" => %{
+        "description" => "GRANT: replacement tool list",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "hermetic" => %{"description" => "seal out ambient persona", "type" => "boolean"},
+      "max_budget_usd" => %{"description" => "new per-turn budget rail", "type" => "number"},
+      "max_turns" => %{"description" => "new max turns", "type" => "integer"},
+      "mcp" => %{"description" => "grant the custode MCP tools", "type" => "boolean"},
+      "model" => %{"description" => "new model", "type" => "string"},
+      "name" => %{"description" => "profile name to edit", "type" => "string"},
+      "prompt" => %{"description" => "new default sweep prompt", "type" => "string"},
+      "provider" => %{"description" => "new agent provider: claude or codex", "type" => "string"},
+      "role" => %{"description" => "new role", "type" => "string"},
+      "sensors" => %{
+        "description" => "replacement sensor list",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "system_prompt_file" => %{"description" => "standing-orders file path", "type" => "string"},
+      "tags" => %{
+        "description" => "replacement tag list",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "timeout_ms" => %{"description" => "new per-turn timeout", "type" => "integer"},
+      "working_dir" => %{"description" => "new checkout path template", "type" => "string"},
+      "workspace" => %{"description" => "new notebook home template", "type" => "string"}
+    },
+    "required" => ["name"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -379,16 +470,18 @@ defmodule Custode.MCP.ProfileTools.RemoveProfile do
   routine would strip its grants mid-flight; reassign those routines first.
   Caretaker-only; propose via request_permission naming the profile and why.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "remove_profile"
 
   import Custode.MCP.Tools
 
   alias Custode.Config.WriteBack
   alias Custode.MCP.RosterTools
 
-  schema do
-    field(:name, :string, required: true, description: "profile name to remove")
-  end
+  input_schema(%{
+    "properties" => %{"name" => %{"description" => "profile name to remove", "type" => "string"}},
+    "required" => ["name"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do

@@ -12,17 +12,21 @@ defmodule Custode.MCP.RepoTools.OpenPr do
   be conventional-commit style, and the PR is ALWAYS created as a draft
   (draft_pr_first). No shell or git elevation is involved.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "repo_open_pr"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
-    field(:title, :string, required: true, description: "conventional-commit style title")
-    field(:head, :string, required: true, description: "the branch to merge from")
-    field(:base, :string, description: "target branch (default main)")
-    field(:body, :string, description: "PR body markdown")
-  end
+  input_schema(%{
+    "properties" => %{
+      "base" => %{"description" => "target branch (default main)", "type" => "string"},
+      "body" => %{"description" => "PR body markdown", "type" => "string"},
+      "head" => %{"description" => "the branch to merge from", "type" => "string"},
+      "repo" => %{"description" => "owner/name of a SERVED repo", "type" => "string"},
+      "title" => %{"description" => "conventional-commit style title", "type" => "string"}
+    },
+    "required" => ["head", "repo", "title"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{repo: repo} = params, frame) do
@@ -41,16 +45,24 @@ defmodule Custode.MCP.RepoTools.OpenIssue do
   just comment on an existing issue. Policy applies: the title must be
   conventional-commit style. Labels pass through. No shell or git elevation.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "repo_open_issue"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
-    field(:title, :string, required: true, description: "conventional-commit style title")
-    field(:body, :string, description: "issue body markdown")
-    field(:labels, {:list, :string}, description: "labels to apply")
-  end
+  input_schema(%{
+    "properties" => %{
+      "body" => %{"description" => "issue body markdown", "type" => "string"},
+      "labels" => %{
+        "description" => "labels to apply",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "repo" => %{"description" => "owner/name of a SERVED repo", "type" => "string"},
+      "title" => %{"description" => "conventional-commit style title", "type" => "string"}
+    },
+    "required" => ["repo", "title"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{repo: repo} = params, frame) do
@@ -71,25 +83,48 @@ defmodule Custode.MCP.RepoTools.DraftIssues do
   approving. The approved continuation calls `repo_file_drafts`, which files
   exactly what survived. Self-scoped.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "repo_draft_issues"
 
   import Custode.MCP.Tools
 
   # The identity is optional under either name (#483); `repo` and `issues`
   # stay required by the schema.
-  schema do
-    field(:routine_id, :string, description: "your own routine id (defaults to the caller)")
-    field(:agent_id, :string, description: alias_for("routine_id"))
-    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
-
-    embeds_many :issues,
-      required: true,
-      description: "the drafted issues, in the order you want them filed" do
-      field(:title, :string, required: true, description: "conventional-commit style title")
-      field(:body, :string, description: "issue body markdown -- the evidence inline")
-      field(:labels, {:list, :string}, description: "labels to apply")
-    end
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{
+        "description" =>
+          "alias for routine_id; either works, and both may be omitted: the server knows who is calling",
+        "type" => "string"
+      },
+      "issues" => %{
+        "description" => "the drafted issues, in the order you want them filed",
+        "items" => %{
+          "properties" => %{
+            "body" => %{
+              "description" => "issue body markdown -- the evidence inline",
+              "type" => "string"
+            },
+            "labels" => %{
+              "description" => "labels to apply",
+              "items" => %{"type" => "string"},
+              "type" => "array"
+            },
+            "title" => %{"description" => "conventional-commit style title", "type" => "string"}
+          },
+          "required" => ["title"],
+          "type" => "object"
+        },
+        "type" => "array"
+      },
+      "repo" => %{"description" => "owner/name of a SERVED repo", "type" => "string"},
+      "routine_id" => %{
+        "description" => "your own routine id (defaults to the caller)",
+        "type" => "string"
+      }
+    },
+    "required" => ["issues", "repo"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{repo: repo, issues: issues} = params, frame) do
@@ -125,17 +160,28 @@ defmodule Custode.MCP.RepoTools.FileDrafts do
   entry and the rest of the batch still files. Self-scoped, and idempotent:
   an already-filed entry is never filed twice.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "repo_file_drafts"
 
   import Custode.MCP.Tools
 
   # The identity is optional under either name (#483); `batch_id` stays
   # required by the schema.
-  schema do
-    field(:routine_id, :string, description: "your own routine id (defaults to the caller)")
-    field(:agent_id, :string, description: alias_for("routine_id"))
-    field(:batch_id, :string, required: true, description: "the batch id draft_issues returned")
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{
+        "description" =>
+          "alias for routine_id; either works, and both may be omitted: the server knows who is calling",
+        "type" => "string"
+      },
+      "batch_id" => %{"description" => "the batch id draft_issues returned", "type" => "string"},
+      "routine_id" => %{
+        "description" => "your own routine id (defaults to the caller)",
+        "type" => "string"
+      }
+    },
+    "required" => ["batch_id"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{batch_id: batch_id} = params, frame) do
@@ -155,15 +201,19 @@ end
 
 defmodule Custode.MCP.RepoTools.Comment do
   @moduledoc "Comment on an issue or PR of a served repo."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "repo_comment"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
-    field(:number, :integer, required: true, description: "issue or PR number")
-    field(:body, :string, required: true, description: "comment markdown")
-  end
+  input_schema(%{
+    "properties" => %{
+      "body" => %{"description" => "comment markdown", "type" => "string"},
+      "number" => %{"description" => "issue or PR number", "type" => "integer"},
+      "repo" => %{"description" => "owner/name of a SERVED repo", "type" => "string"}
+    },
+    "required" => ["body", "number", "repo"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{repo: repo, number: number, body: body}, frame) do
@@ -178,14 +228,18 @@ end
 
 defmodule Custode.MCP.RepoTools.ReadyPr do
   @moduledoc "Mark a draft PR ready for review (do this only when the approved action said to)."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "repo_ready_pr"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
-    field(:number, :integer, required: true, description: "the PR number")
-  end
+  input_schema(%{
+    "properties" => %{
+      "number" => %{"description" => "the PR number", "type" => "integer"},
+      "repo" => %{"description" => "owner/name of a SERVED repo", "type" => "string"}
+    },
+    "required" => ["number", "repo"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{repo: repo, number: number}, frame) do
@@ -206,14 +260,18 @@ defmodule Custode.MCP.RepoTools.MergePr do
   method comes from the repository's allowed methods (merge, then squash,
   then rebase), and the reply names the one used.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "repo_merge_pr"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
-    field(:number, :integer, required: true, description: "the PR number")
-  end
+  input_schema(%{
+    "properties" => %{
+      "number" => %{"description" => "the PR number", "type" => "integer"},
+      "repo" => %{"description" => "owner/name of a SERVED repo", "type" => "string"}
+    },
+    "required" => ["number", "repo"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{repo: repo, number: number}, frame) do
@@ -236,15 +294,19 @@ end
 
 defmodule Custode.MCP.RepoTools.MarkIssueReady do
   @moduledoc "The issue's ready transition (#86): posts a `ready: <plan>` comment."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "repo_mark_issue_ready"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
-    field(:number, :integer, required: true, description: "the issue number")
-    field(:plan, :string, required: true, description: "the one-line plan")
-  end
+  input_schema(%{
+    "properties" => %{
+      "number" => %{"description" => "the issue number", "type" => "integer"},
+      "plan" => %{"description" => "the one-line plan", "type" => "string"},
+      "repo" => %{"description" => "owner/name of a SERVED repo", "type" => "string"}
+    },
+    "required" => ["number", "plan", "repo"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{repo: repo, number: number, plan: plan}, frame) do
@@ -264,15 +326,19 @@ end
 
 defmodule Custode.MCP.RepoTools.MarkIssueBlocked do
   @moduledoc "The issue's blocked transition (#86): posts a `blocked: <reason>` comment."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "repo_mark_issue_blocked"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
-    field(:number, :integer, required: true, description: "the issue number")
-    field(:reason, :string, required: true, description: "why it is not workable (x y z)")
-  end
+  input_schema(%{
+    "properties" => %{
+      "number" => %{"description" => "the issue number", "type" => "integer"},
+      "reason" => %{"description" => "why it is not workable (x y z)", "type" => "string"},
+      "repo" => %{"description" => "owner/name of a SERVED repo", "type" => "string"}
+    },
+    "required" => ["number", "reason", "repo"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{repo: repo, number: number, reason: reason}, frame) do
@@ -296,16 +362,20 @@ defmodule Custode.MCP.RepoTools.ReviewPr do
   reads. verdict "needs-human" POSITIVELY blocks merging until a later
   human review; anything else (e.g. "lgtm") satisfies the review stage.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "repo_review_pr"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
-    field(:number, :integer, required: true, description: "the PR number")
-    field(:verdict, :string, required: true, description: "\"lgtm\" or \"needs-human\"")
-    field(:body, :string, required: true, description: "findings / reasoning")
-  end
+  input_schema(%{
+    "properties" => %{
+      "body" => %{"description" => "findings / reasoning", "type" => "string"},
+      "number" => %{"description" => "the PR number", "type" => "integer"},
+      "repo" => %{"description" => "owner/name of a SERVED repo", "type" => "string"},
+      "verdict" => %{"description" => "\"lgtm\" or \"needs-human\"", "type" => "string"}
+    },
+    "required" => ["body", "number", "repo", "verdict"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{repo: repo, number: number, verdict: verdict, body: body}, frame) do
@@ -346,14 +416,18 @@ defmodule Custode.MCP.RepoTools.ListIssues do
   `view_issue` is deliberately unaffected. Ignoring shapes what the fleet
   VOLUNTEERS for, not what it may look at when asked.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "repo_list_issues"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
-    field(:state, :string, description: "open (default), closed, or all")
-  end
+  input_schema(%{
+    "properties" => %{
+      "repo" => %{"description" => "owner/name of a SERVED repo", "type" => "string"},
+      "state" => %{"description" => "open (default), closed, or all", "type" => "string"}
+    },
+    "required" => ["repo"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{repo: repo} = params, frame) do
@@ -377,14 +451,18 @@ end
 
 defmodule Custode.MCP.RepoTools.ViewIssue do
   @moduledoc "View one issue on a served repo: fields, body, and comments. Scoped read verb (#129)."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "repo_view_issue"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
-    field(:number, :integer, required: true, description: "the issue number")
-  end
+  input_schema(%{
+    "properties" => %{
+      "number" => %{"description" => "the issue number", "type" => "integer"},
+      "repo" => %{"description" => "owner/name of a SERVED repo", "type" => "string"}
+    },
+    "required" => ["number", "repo"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{repo: repo, number: number}, frame) do
@@ -397,14 +475,18 @@ end
 
 defmodule Custode.MCP.RepoTools.ListPrs do
   @moduledoc "List a served repo's pull requests (open by default). Scoped read verb (#129)."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "repo_list_prs"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
-    field(:state, :string, description: "open (default), closed, or all")
-  end
+  input_schema(%{
+    "properties" => %{
+      "repo" => %{"description" => "owner/name of a SERVED repo", "type" => "string"},
+      "state" => %{"description" => "open (default), closed, or all", "type" => "string"}
+    },
+    "required" => ["repo"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{repo: repo} = params, frame) do
@@ -417,14 +499,18 @@ end
 
 defmodule Custode.MCP.RepoTools.ViewPr do
   @moduledoc "View one PR on a served repo: fields and body. Scoped read verb (#129)."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "repo_view_pr"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
-    field(:number, :integer, required: true, description: "the PR number")
-  end
+  input_schema(%{
+    "properties" => %{
+      "number" => %{"description" => "the PR number", "type" => "integer"},
+      "repo" => %{"description" => "owner/name of a SERVED repo", "type" => "string"}
+    },
+    "required" => ["number", "repo"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{repo: repo, number: number}, frame) do
@@ -437,14 +523,18 @@ end
 
 defmodule Custode.MCP.RepoTools.PrChecks do
   @moduledoc "The check runs on a PR's head commit. Scoped read verb (#129)."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "repo_pr_checks"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
-    field(:number, :integer, required: true, description: "the PR number")
-  end
+  input_schema(%{
+    "properties" => %{
+      "number" => %{"description" => "the PR number", "type" => "integer"},
+      "repo" => %{"description" => "owner/name of a SERVED repo", "type" => "string"}
+    },
+    "required" => ["number", "repo"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{repo: repo, number: number}, frame) do
@@ -457,14 +547,18 @@ end
 
 defmodule Custode.MCP.RepoTools.PrDiff do
   @moduledoc "The changed files of a PR, each with its patch. Scoped read verb (#129)."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "repo_pr_diff"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:repo, :string, required: true, description: "owner/name of a SERVED repo")
-    field(:number, :integer, required: true, description: "the PR number")
-  end
+  input_schema(%{
+    "properties" => %{
+      "number" => %{"description" => "the PR number", "type" => "integer"},
+      "repo" => %{"description" => "owner/name of a SERVED repo", "type" => "string"}
+    },
+    "required" => ["number", "repo"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{repo: repo, number: number}, frame) do

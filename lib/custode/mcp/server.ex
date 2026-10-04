@@ -1,178 +1,106 @@
 defmodule Custode.MCP.Server do
-  @moduledoc """
-  The MCP server agents connect to (streamable HTTP on localhost, see
-  `Custode.MCP`). `Custode.MCP.Capabilities` enforces endpoint and role scope
-  before dispatch. Routines that opt in per-entry with `mcp: true` also receive
-  a compact provider allowlist projected from that policy.
-  """
-
-  alias Custode.MCP.{Capabilities, WorkResources}
-
-  use Anubis.Server,
-    name: "custode",
-    version: "0.3.0",
-    capabilities: [:tools, :resources]
-
-  @impl true
-  def init(_client_info, frame), do: {:ok, WorkResources.register(frame)}
-
-  @impl true
-  def handle_session_expired(_session_id, frame),
-    do: {:ok, WorkResources.register(frame)}
-
-  @impl true
-  def handle_resource_read(uri, frame),
-    do: WorkResources.read(uri, frame)
-
-  @impl true
-  def handle_request(request, frame),
-    do: Capabilities.handle_request(request, :main, __MODULE__, frame)
-
-  component(Custode.MCP.Tools.ListRoutines, name: "list_routines")
-  component(Custode.MCP.Tools.AgentStatus, name: "agent_status")
-  component(Custode.MCP.Tools.StartAgent, name: "start_agent")
-  component(Custode.MCP.Tools.PromptAgent, name: "prompt_agent")
-  component(Custode.MCP.Tools.AwaitAgent, name: "await_agent")
-  component(Custode.MCP.Tools.AgentHistory, name: "agent_history")
-  component(Custode.MCP.Tools.ApproveAction, name: "approve_action")
-  component(Custode.MCP.Tools.RejectAction, name: "reject_action")
-  component(Custode.MCP.Tools.RunJob, name: "run_job")
-
-  # roster mutation (#75 / design 001 slice 3): preview is free, the write is
-  # caller-guarded inside the tool
-  component(Custode.MCP.RosterTools.PreviewRoutine, name: "preview_routine")
-  component(Custode.MCP.RosterTools.AddRoutine, name: "add_routine")
-  component(Custode.MCP.RosterTools.PreviewRoutineEdit, name: "preview_routine_edit")
-  component(Custode.MCP.RosterTools.UpdateRoutine, name: "update_routine")
-  component(Custode.MCP.RosterTools.RemoveRoutine, name: "remove_routine")
-  component(Custode.MCP.ProfileTools.PreviewProfile, name: "preview_profile")
-  component(Custode.MCP.ProfileTools.DefineProfile, name: "define_profile")
-  component(Custode.MCP.ProfileTools.PreviewProfileEdit, name: "preview_profile_edit")
-  component(Custode.MCP.ProfileTools.UpdateProfile, name: "update_profile")
-  component(Custode.MCP.ProfileTools.RemoveProfile, name: "remove_profile")
-
-  # graceful drain (#132): operator-only, async -- pause now, reply now,
-  # stop when the executing turns finish
-  component(Custode.MCP.Tools.Drain, name: "drain")
-
-  # the repo verbs (issue #10): typed, policy-checked GitHub writes
-  component(Custode.MCP.RepoTools.OpenPr, name: "repo_open_pr")
-  component(Custode.MCP.RepoTools.OpenIssue, name: "repo_open_issue")
-  component(Custode.MCP.RepoTools.Comment, name: "repo_comment")
-
-  # the batch filing gate (#241): draft many, gate once, file what survives
-  component(Custode.MCP.RepoTools.DraftIssues, name: "repo_draft_issues")
-  component(Custode.MCP.RepoTools.FileDrafts, name: "repo_file_drafts")
-
-  component(Custode.MCP.RepoTools.ReadyPr, name: "repo_ready_pr")
-  component(Custode.MCP.RepoTools.MergePr, name: "repo_merge_pr")
-  component(Custode.MCP.RepoTools.MarkIssueReady, name: "repo_mark_issue_ready")
-  component(Custode.MCP.RepoTools.MarkIssueBlocked, name: "repo_mark_issue_blocked")
-  component(Custode.MCP.RepoTools.ReviewPr, name: "repo_review_pr")
-
-  # the repo READ verbs (issue #129): scoped GitHub reads, replacing the
-  # unscoped gh Bash grants
-  component(Custode.MCP.RepoTools.ListIssues, name: "repo_list_issues")
-  component(Custode.MCP.RepoTools.ViewIssue, name: "repo_view_issue")
-  component(Custode.MCP.RepoTools.ListPrs, name: "repo_list_prs")
-  component(Custode.MCP.RepoTools.ViewPr, name: "repo_view_pr")
-  component(Custode.MCP.RepoTools.PrChecks, name: "repo_pr_checks")
-  component(Custode.MCP.RepoTools.PrDiff, name: "repo_pr_diff")
-
-  # "not mine, do not touch" as a fact rather than panel prose (#313):
-  # worker-tier, because the judgment belongs to the agent that read the diff
-  component(Custode.MCP.DisownTools.DisownPr, name: "repo_disown_pr")
-  component(Custode.MCP.DisownTools.ReclaimPr, name: "repo_reclaim_pr")
-  component(Custode.MCP.DisownTools.ListDisowned, name: "list_disowned")
-
-  # asking without blocking (#299): ask_operator is worker-tier; the
-  # reading/closing tools are the operator's
-  component(Custode.MCP.AskTools.AskOperator, name: "ask_operator")
-  component(Custode.MCP.AskTools.ListAsks, name: "list_asks")
-  component(Custode.MCP.AskTools.AnswerAsk, name: "answer_ask")
-  component(Custode.MCP.AskTools.DismissAsk, name: "dismiss_ask")
-
-  # Peer messages request work without granting authority (#461). The shared
-  # service binds writes and exchange visibility to the authenticated caller.
-  component(Custode.MCP.PeerTools.Send, name: "peer_send")
-  component(Custode.MCP.PeerTools.Reply, name: "peer_reply")
-  component(Custode.MCP.PeerTools.List, name: "peer_list")
-  component(Custode.MCP.PeerTools.Read, name: "peer_read")
-  component(Custode.MCP.PeerTools.Ack, name: "peer_ack")
-
-  # The reads a client could not reach (#346 / survey #345). Registered here
-  # and granted to NO agent: Custode.Routine's allowlists decide who may call
-  # what, and eleven fleet-wide reads in every sweep's tool list would be
-  # eleven new ways for a sweep to spend itself.
-  component(Custode.MCP.ReadTools.Attention, name: "list_attention")
-  component(Custode.MCP.ReadTools.Inbox, name: "list_inbox")
-  component(Custode.MCP.ReadTools.Suggestions, name: "list_suggestions")
-  component(Custode.MCP.ReadTools.SuggestionOutcomes, name: "list_suggestion_outcomes")
-  component(Custode.MCP.ReadTools.Advisors, name: "list_advisors")
-  component(Custode.MCP.ReadTools.Metrics, name: "metrics")
-  component(Custode.MCP.ReadTools.Digest, name: "digest")
-  component(Custode.MCP.ReadTools.Roles, name: "list_roles")
-  component(Custode.MCP.ReadTools.Policies, name: "list_policies")
-  component(Custode.MCP.ReadTools.Workflows, name: "list_workflows")
-  component(Custode.MCP.ReadTools.ExecutingTurns, name: "executing_turns")
-
-  # Bounded caretaker coordination reads keep sibling lifecycle control scoped.
-  component(Custode.MCP.ProjectProgressTools.Read, name: "project_progress")
-
-  # the operator's first read (#647): granted to NO routine, refused by the
-  # handler for any non-operator caller
-  component(Custode.MCP.BootstrapTools.OperatorBootstrap, name: "operator_bootstrap")
-
-  # the operator tier (issue #33): run the fleet, not just delegate into it
-  component(Custode.MCP.OperatorTools.Beat, name: "beat")
-  component(Custode.MCP.OperatorTools.DropNote, name: "drop_note")
-  component(Custode.MCP.OperatorTools.ListGates, name: "list_gates")
-  component(Custode.MCP.OperatorTools.FeedTail, name: "feed_tail")
-  component(Custode.MCP.OperatorTools.ListOperatorMessages, name: "list_operator_messages")
-  component(Custode.MCP.OperatorTools.PauseAgent)
-  component(Custode.MCP.OperatorTools.SetPresence, name: "set_presence")
-  component(Custode.MCP.OperatorTools.ResumeAgent, name: "resume_agent")
-  component(Custode.MCP.OperatorTools.SpendToday, name: "spend_today")
-  component(Custode.MCP.OwnedCheckoutTools.Provision, name: "provision_owned_checkout")
-  component(Custode.MCP.OwnedCheckoutTools.Refresh, name: "refresh_owned_checkout")
-
-  component(Custode.MCP.NotebookTools.JournalAppend, name: "journal_append")
-  component(Custode.MCP.NotebookTools.JournalRead, name: "journal_read")
-  component(Custode.MCP.NotebookTools.CompactJournal, name: "compact_journal")
-  component(Custode.MCP.NotebookTools.SetPanel, name: "set_panel")
-  component(Custode.MCP.NotebookTools.TodoAdd, name: "todo_add")
-  component(Custode.MCP.NotebookTools.SetNextBeat, name: "set_next_beat")
-  component(Custode.MCP.NotebookTools.TodoList, name: "todo_list")
-  component(Custode.MCP.NotebookTools.TodoComplete, name: "todo_complete")
-  component(Custode.MCP.NotebookTools.InboxList, name: "inbox_list")
-  component(Custode.MCP.NotebookTools.InboxMarkFiled, name: "inbox_mark_filed")
-
-  component(Custode.MCP.MemoryTools.Remember, name: "remember")
-  component(Custode.MCP.MemoryTools.Recall, name: "recall")
-  component(Custode.MCP.MemoryTools.Forget, name: "forget")
+  @moduledoc "Static native Snodo tool catalog for the custode endpoint."
+  @tools [
+    Custode.MCP.Tools.ListRoutines,
+    Custode.MCP.Tools.AgentStatus,
+    Custode.MCP.Tools.StartAgent,
+    Custode.MCP.Tools.PromptAgent,
+    Custode.MCP.Tools.AwaitAgent,
+    Custode.MCP.Tools.AgentHistory,
+    Custode.MCP.Tools.ApproveAction,
+    Custode.MCP.Tools.RejectAction,
+    Custode.MCP.Tools.RunJob,
+    Custode.MCP.RosterTools.PreviewRoutine,
+    Custode.MCP.RosterTools.AddRoutine,
+    Custode.MCP.RosterTools.PreviewRoutineEdit,
+    Custode.MCP.RosterTools.UpdateRoutine,
+    Custode.MCP.RosterTools.RemoveRoutine,
+    Custode.MCP.ProfileTools.PreviewProfile,
+    Custode.MCP.ProfileTools.DefineProfile,
+    Custode.MCP.ProfileTools.PreviewProfileEdit,
+    Custode.MCP.ProfileTools.UpdateProfile,
+    Custode.MCP.ProfileTools.RemoveProfile,
+    Custode.MCP.Tools.Drain,
+    Custode.MCP.RepoTools.OpenPr,
+    Custode.MCP.RepoTools.OpenIssue,
+    Custode.MCP.RepoTools.Comment,
+    Custode.MCP.RepoTools.DraftIssues,
+    Custode.MCP.RepoTools.FileDrafts,
+    Custode.MCP.RepoTools.ReadyPr,
+    Custode.MCP.RepoTools.MergePr,
+    Custode.MCP.RepoTools.MarkIssueReady,
+    Custode.MCP.RepoTools.MarkIssueBlocked,
+    Custode.MCP.RepoTools.ReviewPr,
+    Custode.MCP.RepoTools.ListIssues,
+    Custode.MCP.RepoTools.ViewIssue,
+    Custode.MCP.RepoTools.ListPrs,
+    Custode.MCP.RepoTools.ViewPr,
+    Custode.MCP.RepoTools.PrChecks,
+    Custode.MCP.RepoTools.PrDiff,
+    Custode.MCP.DisownTools.DisownPr,
+    Custode.MCP.DisownTools.ReclaimPr,
+    Custode.MCP.DisownTools.ListDisowned,
+    Custode.MCP.AskTools.AskOperator,
+    Custode.MCP.AskTools.ListAsks,
+    Custode.MCP.AskTools.AnswerAsk,
+    Custode.MCP.AskTools.DismissAsk,
+    Custode.MCP.PeerTools.Send,
+    Custode.MCP.PeerTools.Reply,
+    Custode.MCP.PeerTools.List,
+    Custode.MCP.PeerTools.Read,
+    Custode.MCP.PeerTools.Ack,
+    Custode.MCP.ReadTools.Attention,
+    Custode.MCP.ReadTools.Inbox,
+    Custode.MCP.ReadTools.Suggestions,
+    Custode.MCP.ReadTools.SuggestionOutcomes,
+    Custode.MCP.ReadTools.Advisors,
+    Custode.MCP.ReadTools.Metrics,
+    Custode.MCP.ReadTools.Digest,
+    Custode.MCP.ReadTools.Roles,
+    Custode.MCP.ReadTools.Policies,
+    Custode.MCP.ReadTools.Workflows,
+    Custode.MCP.ReadTools.ExecutingTurns,
+    Custode.MCP.ProjectProgressTools.Read,
+    Custode.MCP.BootstrapTools.OperatorBootstrap,
+    Custode.MCP.OperatorTools.Beat,
+    Custode.MCP.OperatorTools.DropNote,
+    Custode.MCP.OperatorTools.ListGates,
+    Custode.MCP.OperatorTools.FeedTail,
+    Custode.MCP.OperatorTools.ListOperatorMessages,
+    Custode.MCP.OperatorTools.PauseAgent,
+    Custode.MCP.OperatorTools.SetPresence,
+    Custode.MCP.OperatorTools.ResumeAgent,
+    Custode.MCP.OperatorTools.SpendToday,
+    Custode.MCP.OwnedCheckoutTools.Provision,
+    Custode.MCP.OwnedCheckoutTools.Refresh,
+    Custode.MCP.NotebookTools.JournalAppend,
+    Custode.MCP.NotebookTools.JournalRead,
+    Custode.MCP.NotebookTools.CompactJournal,
+    Custode.MCP.NotebookTools.SetPanel,
+    Custode.MCP.NotebookTools.TodoAdd,
+    Custode.MCP.NotebookTools.SetNextBeat,
+    Custode.MCP.NotebookTools.TodoList,
+    Custode.MCP.NotebookTools.TodoComplete,
+    Custode.MCP.NotebookTools.InboxList,
+    Custode.MCP.NotebookTools.InboxMarkFiled,
+    Custode.MCP.MemoryTools.Remember,
+    Custode.MCP.MemoryTools.Recall,
+    Custode.MCP.MemoryTools.Forget
+  ]
+  def tools, do: @tools
+  def server_info, do: %{"name" => "custode", "version" => "0.3.0"}
+  def server_capabilities, do: %{"tools" => %{}, "resources" => %{}}
 end
 
 defmodule Custode.MCP.MemoryServer do
-  @moduledoc """
-  The capability-scoped MCP server for sub-agents: persistent memory tools
-  and self-scoped journal reads. Sub-agents get this endpoint (never the full
-  one), so they can carry facts across their own sessions and read their own
-  journal without gaining delegation, notebook writes, or lifecycle powers.
-  """
-
-  alias Custode.MCP.Capabilities
-
-  use Anubis.Server,
-    name: "memory",
-    version: "0.3.0",
-    capabilities: [:tools]
-
-  @impl true
-  def handle_request(request, frame),
-    do: Capabilities.handle_request(request, :memory, __MODULE__, frame)
-
-  component(Custode.MCP.NotebookTools.JournalRead, name: "journal_read")
-  component(Custode.MCP.MemoryTools.Remember, name: "remember")
-  component(Custode.MCP.MemoryTools.Recall, name: "recall")
-  component(Custode.MCP.MemoryTools.Forget, name: "forget")
+  @moduledoc "Static native Snodo tool catalog for the memory endpoint."
+  @tools [
+    Custode.MCP.NotebookTools.JournalRead,
+    Custode.MCP.MemoryTools.Remember,
+    Custode.MCP.MemoryTools.Recall,
+    Custode.MCP.MemoryTools.Forget
+  ]
+  def tools, do: @tools
+  def server_info, do: %{"name" => "memory", "version" => "0.3.0"}
+  def server_capabilities, do: %{"tools" => %{}}
 end

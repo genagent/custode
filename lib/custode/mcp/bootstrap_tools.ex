@@ -17,14 +17,13 @@ defmodule Custode.MCP.BootstrapTools.OperatorBootstrap do
   or replaces the installation id, and reports a tool error when boot could not
   provision one.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "operator_bootstrap"
 
   import Custode.MCP.Tools
 
   alias Custode.Operator.{Authority, Bootstrap}
 
-  schema do
-  end
+  input_schema(%{"properties" => %{}, "type" => "object"})
 
   @impl true
   def execute(_params, frame) do

@@ -10,21 +10,27 @@ defmodule Custode.MCP.ProjectProgressTools.Read do
   watermark; older pages are not a replacement for refreshing the latest page.
   """
 
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "project_progress"
 
   import Custode.MCP.Tools, only: [fail: 2, need: 3, reply: 2]
 
   alias Custode.ProjectProgress
 
-  schema do
-    field(:routine_id, :string, description: "required configured project routine id")
-    field(:limit, :integer, description: "exchanges per page, 1..20; default 5")
-
-    field(:before, :string,
-      description:
-        "opaque conversation.before from the preceding page for this routine; omit for fresh evidence"
-    )
-  end
+  input_schema(%{
+    "properties" => %{
+      "before" => %{
+        "description" =>
+          "opaque conversation.before from the preceding page for this routine; omit for fresh evidence",
+        "type" => "string"
+      },
+      "limit" => %{"description" => "exchanges per page, 1..20; default 5", "type" => "integer"},
+      "routine_id" => %{
+        "description" => "required configured project routine id",
+        "type" => "string"
+      }
+    },
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do

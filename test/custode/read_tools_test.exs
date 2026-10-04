@@ -10,7 +10,7 @@ defmodule Custode.MCP.ReadToolsTest do
 
   alias Custode.MCP.ReadTools
 
-  @frame %Anubis.Server.Frame{}
+  @frame %Custode.MCP.CallContext{}
 
   setup do
     path = Path.join(System.tmp_dir!(), uid("read") <> ".jsonl")

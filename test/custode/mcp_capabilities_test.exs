@@ -318,7 +318,7 @@ defmodule Custode.MCPCapabilitiesTest do
     Custode.SubAgents.forget(child)
     assert tool_error(parent, "agent_status", %{agent_id: child}) =~ "not a recorded child"
 
-    frame = %Anubis.Server.Frame{
+    frame = %Custode.MCP.CallContext{
       assigns: %{custode_identity: %{kind: :sub_agent, id: uid("grandchild")}}
     }
 

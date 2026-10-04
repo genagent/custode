@@ -8,8 +8,8 @@ defmodule Custode.MCP.ToolPolicyTest do
 
   defp registered do
     ToolPolicy.servers()
-    |> Enum.flat_map(& &1.__components__(:tool))
-    |> Enum.map(& &1.name)
+    |> Enum.flat_map(& &1.tools())
+    |> Enum.map(& &1.name())
     |> Enum.uniq()
   end
 
@@ -78,10 +78,10 @@ defmodule Custode.MCP.ToolPolicyTest do
 
   test "each repo write tool's source passes its verb to the grant check" do
     components =
-      Enum.flat_map(ToolPolicy.servers(), & &1.__components__(:tool))
+      Enum.flat_map(ToolPolicy.servers(), & &1.tools())
 
     for {tool, verb} <- ToolPolicy.repo_writes() do
-      %{handler: module} = Enum.find(components, &(&1.name == tool))
+      module = Enum.find(components, &(&1.name() == tool))
       source = module.module_info(:compile)[:source] |> to_string() |> File.read!()
       [_, body] = String.split(source, "defmodule #{inspect(module)} do", parts: 2)
       body = body |> String.split("\ndefmodule ", parts: 2) |> hd()

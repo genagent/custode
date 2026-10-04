@@ -1,18 +1,7 @@
 defmodule Custode.CLI.Client do
   @moduledoc """
-  ## Why a bare Req poster and not Anubis.Client (#156, decided 2026-07-22)
-
-  Anubis.Client is the right client for anything LONG-LIVED -- it brings
-  supervision, protocol negotiation, connection lifecycle, and pooled
-  HTTP, and the federation direction (design 002) should use it from day
-  one. A one-shot `mix custode <cmd>` VM is the opposite shape: total
-  invocation latency measures ~0.53s and is dominated by VM boot; the
-  poster's own work is microseconds; and the client's environment (a
-  started application with Finch pools and a client supervisor) is real
-  integration weight for a process that lives two seconds. Spike data on
-  the issue. This module therefore stays deliberately thin -- and if it
-  ever grows session resumption, notifications, or capability logic, that
-  is the signal it wants to become an Anubis.Client after all.
+  A thin Req client for one-shot CLI commands. These commands talk to the
+  running stateless server without booting another Custode application.
 
   The CLI's transport (#45): a minimal MCP streamable-HTTP client speaking
   to the RUNNING custode server over loopback. The mix task never starts

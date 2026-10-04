@@ -10,7 +10,7 @@ defmodule Custode.PromptedEntryTest do
   alias Custode.MCP.Tools.PromptAgent
 
   @endpoint CustodeWeb.Endpoint
-  @operator %Anubis.Server.Frame{}
+  @operator %Custode.MCP.CallContext{}
 
   setup do
     path = Path.join(System.tmp_dir!(), uid("prompted-feed") <> ".jsonl")
@@ -20,7 +20,7 @@ defmodule Custode.PromptedEntryTest do
   end
 
   defp agent_frame(id),
-    do: %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :routine, id: id}}}
+    do: %Custode.MCP.CallContext{assigns: %{custode_identity: %{kind: :routine, id: id}}}
 
   test "the console message submit records a prompted entry" do
     workspace = tmp_workspace!()

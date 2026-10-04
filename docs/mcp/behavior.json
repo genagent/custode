@@ -509,7 +509,7 @@
     "repo_draft_issues": {
       "access": "Main endpoint capability: operator, caretaker, or specialist routine. Temporary agents are refused at the endpoint. Authenticated agents may write only their own records; the operator may name any identity.",
       "effects": "Stores a local batch of proposed issues. Does not write GitHub and does not itself create an approval gate.",
-      "notes": "routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. repo and issues are schema-required. Batch size is 1 through 25; every title must be nonblank, and each body is at most 20000 bytes. A retry creates another batch. Raise one permission gate naming the returned batch before filing it.",
+      "notes": "routine_id takes precedence over agent_id; either defaults to the authenticated agent. Operators must supply an identity. Blank identity strings count as absent. repo and issues are schema-required. Batch size is 1 through 25; every title must be nonblank, and each body is at most 20000 bytes. A retry creates another batch. Raise one permission gate naming the returned batch before filing it. Argument validation retains only declared fields, including inside each draft; optional null values are treated as omitted.",
       "result": "batch_id, repo, drafted array of id/title/labels, and next-step instruction.",
       "summary": "Prepare a local batch of issues for operator review."
     },

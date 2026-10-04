@@ -13,7 +13,7 @@ defmodule Custode.MCPToolsTest do
   alias Custode.MCP.{ReadTools, Scope, Snodo, Tools}
   alias ObanClaude.Agent
 
-  @frame %Anubis.Server.Frame{}
+  @frame %Custode.MCP.CallContext{}
 
   describe "server boot" do
     test "the bounded Snodo request executor is running" do
@@ -223,7 +223,10 @@ defmodule Custode.MCPToolsTest do
       :ok = Agent.emergency_pause(id)
       {:ok, :paused} = Agent.await(id, :paused, 1_000)
 
-      parent = %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :routine, id: "boss"}}}
+      parent = %Custode.MCP.CallContext{
+        assigns: %{custode_identity: %{kind: :routine, id: "boss"}}
+      }
+
       :ok = Custode.SubAgents.record_spawn!(id, "boss", %{workspace: "/tmp"})
       on_exit(fn -> Custode.SubAgents.forget(id) end)
       json = tool_json(Tools.PromptAgent.execute(%{agent_id: id, prompt: "go"}, parent))
@@ -1125,7 +1128,7 @@ defmodule Custode.MCPToolsTest do
   end
 
   defp routine_frame(id),
-    do: %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :routine, id: id}}}
+    do: %Custode.MCP.CallContext{assigns: %{custode_identity: %{kind: :routine, id: id}}}
 
   defp start_delegated_agent!(provider, parent_id) do
     id = uid("#{provider}-delegated")

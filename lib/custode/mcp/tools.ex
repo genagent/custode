@@ -14,14 +14,13 @@ defmodule Custode.MCP.Tools do
   calling model sees them and can react).
   """
 
-  alias Anubis.Server.Response
   alias Custode.Gates.Grant
 
   @doc false
-  def reply(frame, data), do: {:reply, Response.json(Response.tool(), data), frame}
+  def reply(frame, data), do: {:reply, Snodo.Result.text(JSON.encode!(data)), frame}
 
   @doc false
-  def fail(frame, message), do: {:reply, Response.error(Response.tool(), message), frame}
+  def fail(frame, message), do: {:reply, Snodo.Result.error(message), frame}
 
   @doc """
   Who is deciding a gate and from which surface, for the gate row (#448).
@@ -130,7 +129,7 @@ defmodule Custode.MCP.Tools do
   This only RESOLVES the id. `check_self/2` is still what authorizes it, so a
   routine naming a sibling is refused exactly as before.
   """
-  @spec self_id(map(), Anubis.Server.Frame.t()) :: String.t() | nil
+  @spec self_id(map(), Custode.MCP.CallContext.t()) :: String.t() | nil
   def self_id(params, frame) do
     present(params[:routine_id]) || present(params[:agent_id]) || caller_agent_id(frame)
   end
@@ -139,7 +138,7 @@ defmodule Custode.MCP.Tools do
   `self_id/2` for a `with` chain: `{:ok, id}`, or the tool error to `fail/2`
   with when nobody can tell whose records the call is about (#483).
   """
-  @spec fetch_self(map(), Anubis.Server.Frame.t()) :: {:ok, String.t()} | {:error, String.t()}
+  @spec fetch_self(map(), Custode.MCP.CallContext.t()) :: {:ok, String.t()} | {:error, String.t()}
   def fetch_self(params, frame) do
     case self_id(params, frame) do
       nil ->
@@ -157,7 +156,7 @@ defmodule Custode.MCP.Tools do
   `{:ok, value}`, or `{:error, message}` naming the field, what it means, and
   how to see the rest of the schema.
 
-  Anubis validates the schema BEFORE `execute/2`, and a missing required field
+  The MCP runtime validates the schema BEFORE `execute/2`, and a missing required field
   there is a JSON-RPC protocol error whose detail sits in `error.data`. The
   CLI shows the model only the message, which is the two words "Invalid
   params". An agent that sent `text` and then `entry` for `journal_append`'s
@@ -180,7 +179,7 @@ defmodule Custode.MCP.Tools do
 
   @doc """
   The schema description of an identity parameter's second name (#483).
-  Peri drops a key the schema does not declare, so an alias the schema left
+  Argument normalization drops a key the schema does not declare, so an alias the schema left
   out would never reach `self_id/2`: both names are declared, one as this.
   """
   @spec alias_for(String.t()) :: String.t()
@@ -220,12 +219,11 @@ end
 
 defmodule Custode.MCP.Tools.ListRoutines do
   @moduledoc "List the configured routines and each one's live agent status."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "list_routines"
 
   import Custode.MCP.Tools
 
-  schema do
-  end
+  input_schema(%{"properties" => %{}, "type" => "object"})
 
   @impl true
   def execute(_params, frame) do
@@ -251,13 +249,17 @@ end
 
 defmodule Custode.MCP.Tools.AgentStatus do
   @moduledoc "An agent's lifecycle status, plus turn count / spend / session when running."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "agent_status"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:agent_id, :string, required: true, description: "the agent to inspect")
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{"description" => "the agent to inspect", "type" => "string"}
+    },
+    "required" => ["agent_id"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{agent_id: agent_id}, frame) do
@@ -357,21 +359,29 @@ defmodule Custode.MCP.Tools.StartAgent do
   operator: prompt it with prompt_agent, wait with await_agent, and handle its
   ask_user / request_permission gates. Sub-agents get no delegation tools.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "start_agent"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:agent_id, :string, required: true, description: "unique id for the sub-agent")
-
-    field(:workspace, :string,
-      required: true,
-      description: "absolute path of the directory the sub-agent works in (must exist)"
-    )
-
-    field(:system_prompt, :string, description: "role instructions (a sensible default applies)")
-    field(:model, :string, description: "claude model (defaults to the configured default)")
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{"description" => "unique id for the sub-agent", "type" => "string"},
+      "model" => %{
+        "description" => "claude model (defaults to the configured default)",
+        "type" => "string"
+      },
+      "system_prompt" => %{
+        "description" => "role instructions (a sensible default applies)",
+        "type" => "string"
+      },
+      "workspace" => %{
+        "description" => "absolute path of the directory the sub-agent works in (must exist)",
+        "type" => "string"
+      }
+    },
+    "required" => ["agent_id", "workspace"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{agent_id: agent_id, workspace: workspace} = params, frame) do
@@ -419,21 +429,25 @@ defmodule Custode.MCP.Tools.PromptAgent do
   this is the answer to its pending question; if it is busy, the prompt queues.
   Follow with await_agent to see the outcome.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "prompt_agent"
 
   import Custode.MCP.Tools
 
   alias Custode.{AgentHandoff, Agents, OperatorMessages}
   alias Custode.Operator.Actions
 
-  schema do
-    field(:agent_id, :string, required: true)
-    field(:prompt, :string, required: true)
-
-    field(:idempotency_key, :string,
-      description: "deduplicate this caller's delivery to this agent"
-    )
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{"type" => "string"},
+      "idempotency_key" => %{
+        "description" => "deduplicate this caller's delivery to this agent",
+        "type" => "string"
+      },
+      "prompt" => %{"type" => "string"}
+    },
+    "required" => ["agent_id", "prompt"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{agent_id: agent_id, prompt: prompt} = params, frame) do
@@ -598,7 +612,7 @@ defmodule Custode.MCP.Tools.AwaitAgent do
   then return where it landed plus its latest result. On timeout, returns the
   current state instead of failing.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "await_agent"
 
   import Custode.MCP.Tools
 
@@ -606,15 +620,22 @@ defmodule Custode.MCP.Tools.AwaitAgent do
 
   @settled [:idle, :awaiting_permission, :waiting_for_user, :paused, :offline]
 
-  schema do
-    field(:agent_id, :string, required: true)
-
-    field(:message_id, :string,
-      description: "exact prompt_agent message to await; omit for legacy agent-level waiting"
-    )
-
-    field(:timeout_ms, :integer, description: "max wait, default 60000, capped at 180000")
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{"type" => "string"},
+      "message_id" => %{
+        "description" =>
+          "exact prompt_agent message to await; omit for legacy agent-level waiting",
+        "type" => "string"
+      },
+      "timeout_ms" => %{
+        "description" => "max wait, default 60000, capped at 180000",
+        "type" => "integer"
+      }
+    },
+    "required" => ["agent_id"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{agent_id: agent_id} = params, frame) do
@@ -680,14 +701,18 @@ end
 
 defmodule Custode.MCP.Tools.AgentHistory do
   @moduledoc "The agent's event log, oldest first, as printable strings."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "agent_history"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:agent_id, :string, required: true)
-    field(:last, :integer, description: "only the last N entries (default 20)")
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent_id" => %{"type" => "string"},
+      "last" => %{"description" => "only the last N entries (default 20)", "type" => "integer"}
+    },
+    "required" => ["agent_id"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{agent_id: agent_id} = params, frame) do
@@ -712,14 +737,15 @@ end
 
 defmodule Custode.MCP.Tools.ApproveAction do
   @moduledoc "Approve the action a sub-agent is blocked on (get the action id from await_agent/agent_status)."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "approve_action"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:agent_id, :string, required: true)
-    field(:action_id, :string, required: true)
-  end
+  input_schema(%{
+    "properties" => %{"action_id" => %{"type" => "string"}, "agent_id" => %{"type" => "string"}},
+    "required" => ["action_id", "agent_id"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{agent_id: agent_id, action_id: action_id}, frame) do
@@ -745,20 +771,24 @@ end
 
 defmodule Custode.MCP.Tools.RejectAction do
   @moduledoc "Reject the action a sub-agent is blocked on; it returns to idle."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "reject_action"
 
   import Custode.MCP.Tools
 
-  schema do
-    field(:agent_id, :string, required: true)
-    field(:action_id, :string, required: true)
-    field(:reason, :string)
-
-    field(:one_off, :boolean,
-      description:
-        "true = this rejection applies to this proposal only; the agent is told not to make it a standing rule"
-    )
-  end
+  input_schema(%{
+    "properties" => %{
+      "action_id" => %{"type" => "string"},
+      "agent_id" => %{"type" => "string"},
+      "one_off" => %{
+        "description" =>
+          "true = this rejection applies to this proposal only; the agent is told not to make it a standing rule",
+        "type" => "boolean"
+      },
+      "reason" => %{"type" => "string"}
+    },
+    "required" => ["action_id", "agent_id"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{agent_id: agent_id, action_id: action_id} = params, frame) do
@@ -792,49 +822,47 @@ defmodule Custode.MCP.Tools.RunJob do
   (typically the caller's own inbox/ directory), where a later sweep picks it
   up. Prefer this over start_agent for bounded single tasks.
   """
-  use Anubis.Server.Component, type: :tool
-  use Custode.MCP.NumericSchema
+  use Custode.MCP.Tool, name: "run_job"
 
   import Custode.MCP.Tools
 
   alias Custode.MCP.Scope
 
-  schema do
-    field(:prompt, :string, required: true)
-
-    field(:workspace, :string,
-      description: "absolute path the job's claude runs in (must exist if given)"
-    )
-
-    field(:report_inbox, :string,
-      required: true,
-      description: "absolute path of the directory the completion note is written to"
-    )
-
-    field(:model, :string, description: "claude model (defaults to the configured default)")
-    field(:tag, :string, description: "short label for the completion note")
-
-    field(:elevated, :boolean,
-      description:
-        "run with full permissions (git, gh, shell). Use ONLY for work a human " <>
-          "already approved via a request_permission gate; default is edit-only"
-    )
-
-    field(:max_budget_usd, {:either, {:integer, :float}},
-      description:
-        "per-run spend cap. Defaults to the shared config default, which is " <>
-          "sized for small tasks -- pass your own routine's cap when " <>
-          "dispatching implementation work"
-    )
-
-    field(:max_turns, :integer,
-      description:
-        "agentic turn cap for the job. Omitted keeps the default (15). " <>
-          "Lowering it is always allowed; raising it needs a shell-class approved " <>
-          "action in flight whose text names the cap as max_turns=<N>, and the " <>
-          "value must be exactly N, within the configured hard ceiling"
-    )
-  end
+  input_schema(%{
+    "properties" => %{
+      "elevated" => %{
+        "description" =>
+          "run with full permissions (git, gh, shell). Use ONLY for work a human already approved via a request_permission gate; default is edit-only",
+        "type" => "boolean"
+      },
+      "max_budget_usd" => %{
+        "description" =>
+          "per-run spend cap. Defaults to the shared config default, which is sized for small tasks -- pass your own routine's cap when dispatching implementation work",
+        "type" => "number"
+      },
+      "max_turns" => %{
+        "description" =>
+          "agentic turn cap for the job. Omitted keeps the default (15). Lowering it is always allowed; raising it needs a shell-class approved action in flight whose text names the cap as max_turns=<N>, and the value must be exactly N, within the configured hard ceiling",
+        "type" => "integer"
+      },
+      "model" => %{
+        "description" => "claude model (defaults to the configured default)",
+        "type" => "string"
+      },
+      "prompt" => %{"type" => "string"},
+      "report_inbox" => %{
+        "description" => "absolute path of the directory the completion note is written to",
+        "type" => "string"
+      },
+      "tag" => %{"description" => "short label for the completion note", "type" => "string"},
+      "workspace" => %{
+        "description" => "absolute path the job's claude runs in (must exist if given)",
+        "type" => "string"
+      }
+    },
+    "required" => ["prompt", "report_inbox"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(%{prompt: prompt, report_inbox: report_inbox} = params, frame) do

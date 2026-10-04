@@ -14,7 +14,7 @@ defmodule Custode.SpendRailGateTest do
   alias Custode.SpendLedger
 
   @endpoint CustodeWeb.Endpoint
-  @frame %Anubis.Server.Frame{}
+  @frame %Custode.MCP.CallContext{}
 
   setup do
     clear_attention!()

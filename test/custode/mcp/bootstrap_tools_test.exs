@@ -77,7 +77,7 @@ defmodule Custode.MCP.BootstrapToolsTest do
   end
 
   test "the handler itself refuses a non-operator caller" do
-    frame = %Anubis.Server.Frame{
+    frame = %Custode.MCP.CallContext{
       assigns: %{custode_identity: %{kind: :routine, id: uid("routine")}}
     }
 
@@ -88,7 +88,8 @@ defmodule Custode.MCP.BootstrapToolsTest do
   test "the handler reports a tool error and creates no file when the id is not provisioned" do
     path = unprovision_installation!()
 
-    text = Custode.TestHelpers.tool_error(OperatorBootstrap.execute(%{}, %Anubis.Server.Frame{}))
+    text =
+      Custode.TestHelpers.tool_error(OperatorBootstrap.execute(%{}, %Custode.MCP.CallContext{}))
 
     assert text =~ "installation id unavailable"
     assert text =~ ":not_provisioned"

@@ -1,8 +1,11 @@
 # Snodo transport rollout
 
 Custode consumes `snodo_plug ~> 0.4.1` from Hex. Snodo supplies the stateless
-HTTP MCP transport while the existing Anubis tool components, Peri validation,
-Frames, Responses and work-resource reads remain the callback layer.
+HTTP MCP transport and native tool/resource callbacks. Explicit JSON Schemas
+retain the existing client contract. Custode projects declared arguments into
+shared operations, with verified identity and origin in a narrow call context;
+Snodo supplies validation, results and errors. No Anubis or Peri dependency
+remains.
 
 The HTTP service is stateless. Initialize-era clients negotiate either
 `2025-11-25` or `2025-06-18`, receive no `mcp-session-id`, and send the negotiated
@@ -15,8 +18,7 @@ queued requests and 16 minutes per admitted request.
 `Custode.MCP.Capabilities` is installed as the Snodo runtime authorization
 policy. It filters discovery and refuses a blind call before argument
 validation or a tool/resource callback. The same module continues to project
-provider allowlists and enforce the legacy callback path while that adapter
-remains. Endpoint admission is checked before MCP dispatch, so a valid identity
+provider allowlists. Endpoint admission is checked before MCP dispatch, so a valid identity
 on the wrong endpoint receives HTTP 403. Component refusals inside an admitted
 endpoint are JSON-RPC errors with HTTP 200.
 

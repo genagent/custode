@@ -4,7 +4,7 @@ defmodule Custode.ProjectProgressToolsTest do
   import Custode.TestHelpers
   import Ecto.Query, only: [from: 2]
 
-  alias Anubis.Server.{Frame, Handlers}
+  alias Custode.MCP.CallContext, as: Frame
   alias Custode.MCP.ProjectProgressTools.Read
   alias Custode.{OperatorMessage, Repo}
 
@@ -154,8 +154,9 @@ defmodule Custode.ProjectProgressToolsTest do
     do: %Frame{assigns: %{custode_identity: %{kind: kind, id: id}}}
 
   defp wire(arguments, frame) do
-    Handlers.Tools.handle_call(
-      %{"params" => %{"name" => "project_progress", "arguments" => arguments}},
+    Custode.TestHelpers.mcp_dispatch(
+      "tools/call",
+      %{"name" => "project_progress", "arguments" => arguments},
       frame,
       Custode.MCP.Server
     )

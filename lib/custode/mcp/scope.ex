@@ -20,7 +20,7 @@ defmodule Custode.MCP.Scope do
   its notebook inbox. An omitted routine workspace defaults to its configured
   working directory.
   """
-  @spec authorize_job(Anubis.Server.Frame.t(), String.t() | nil, String.t(), boolean()) ::
+  @spec authorize_job(Custode.MCP.CallContext.t(), String.t() | nil, String.t(), boolean()) ::
           {:ok, job_paths()} | {:error, String.t()}
   def authorize_job(frame, workspace, report_inbox, elevated) do
     caller = MCP.caller(frame)
@@ -49,7 +49,7 @@ defmodule Custode.MCP.Scope do
   value, or a default above the ceiling, is an error for every request,
   including an omitted one, so a bad config never inserts a job.
   """
-  @spec authorize_job_turns(Anubis.Server.Frame.t(), term()) ::
+  @spec authorize_job_turns(Custode.MCP.CallContext.t(), term()) ::
           {:ok, pos_integer()} | {:error, String.t()}
   def authorize_job_turns(frame, requested) do
     with {:ok, default, ceiling} <- job_turns_bounds() do
@@ -193,7 +193,7 @@ defmodule Custode.MCP.Scope do
   Operators may act on any served repository. A routine may mutate local facts
   only for the repository in its current roster entry.
   """
-  @spec authorize_repo_fact(Anubis.Server.Frame.t(), String.t()) ::
+  @spec authorize_repo_fact(Custode.MCP.CallContext.t(), String.t()) ::
           :ok | {:error, String.t()}
   def authorize_repo_fact(frame, repo) do
     caller = MCP.caller(frame)
@@ -228,7 +228,7 @@ defmodule Custode.MCP.Scope do
     do: {:error, "identity: routine #{id} is not in the current roster"}
 
   @doc "Authorize a local fact owned by an identity, with an operator override."
-  @spec authorize_owner(Anubis.Server.Frame.t(), String.t()) :: :ok | {:error, String.t()}
+  @spec authorize_owner(Custode.MCP.CallContext.t(), String.t()) :: :ok | {:error, String.t()}
   def authorize_owner(frame, owner_id) do
     case MCP.caller(frame) do
       %{kind: :operator} ->

@@ -11,13 +11,13 @@ defmodule Custode.RosterToolsTest do
   alias Custode.MCP.RosterTools.{AddRoutine, PreviewRoutine}
   alias Custode.Repo
 
-  @operator %Anubis.Server.Frame{}
+  @operator %Custode.MCP.CallContext{}
 
   defp routine_frame(id),
-    do: %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :routine, id: id}}}
+    do: %Custode.MCP.CallContext{assigns: %{custode_identity: %{kind: :routine, id: id}}}
 
   defp sub_frame(id),
-    do: %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: :sub_agent, id: id}}}
+    do: %Custode.MCP.CallContext{assigns: %{custode_identity: %{kind: :sub_agent, id: id}}}
 
   defp grant_roster!(id, class \\ "roster") do
     gate =

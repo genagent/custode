@@ -8,7 +8,7 @@ defmodule Custode.TestHelpers do
 
   import ExUnit.Callbacks, only: [on_exit: 1]
 
-  alias Anubis.Server.Response
+  alias Custode.MCP.Snodo, as: MCPRuntime
   alias Custode.Workflow
   alias Custode.Workflow.Node
   alias Custode.Workflow.Stage
@@ -212,19 +212,29 @@ defmodule Custode.TestHelpers do
   end
 
   @doc "Decode the JSON payload out of an MCP tool `{:reply, response, frame}`."
-  def tool_json({:reply, response, _frame}) do
-    %{"content" => [%{"text" => text} | _rest], "isError" => false} =
-      Response.to_protocol(response)
-
-    Jason.decode!(text)
-  end
+  def tool_json({:reply, %Snodo.Result{kind: :text, value: text}, _frame}),
+    do: Jason.decode!(text)
 
   @doc "Extract the error text out of an MCP tool error reply."
-  def tool_error({:reply, response, _frame}) do
-    %{"content" => [%{"text" => text} | _rest], "isError" => true} =
-      Response.to_protocol(response)
+  def tool_error({:reply, %Snodo.Result{kind: :error, value: text}, _frame}), do: text
 
-    text
+  @doc "Dispatch a protocol request; target authorization remains in shared operations."
+  def mcp_dispatch(method, params, frame, server \\ Custode.MCP.Server) do
+    path = if server == Custode.MCP.MemoryServer, do: "/mcp/memory", else: "/mcp"
+    runtime = MCPRuntime.plug_options()[path].runtime
+    runtime = %{runtime | authorization: nil}
+
+    transport = %Snodo.Transport.Context{
+      request_headers: %{"mcp-protocol-version" => "2025-06-18"},
+      metadata: %{auth: %{identity: Custode.MCP.caller(frame), origin: :mcp}}
+    }
+
+    request = %{"jsonrpc" => "2.0", "id" => 1, "method" => method, "params" => params}
+
+    case Snodo.Server.dispatch(runtime, request, transport) do
+      {:ok, %{"result" => result}} -> {:reply, result, frame}
+      {:ok, %{"error" => error}} -> {:error, error, frame}
+    end
   end
 
   @doc """

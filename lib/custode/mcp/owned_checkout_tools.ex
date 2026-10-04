@@ -24,17 +24,27 @@ end
 
 defmodule Custode.MCP.OwnedCheckoutTools.Provision do
   @moduledoc "Provision a routine-owned repository clone at its deterministic path."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "provision_owned_checkout"
 
   alias Custode.MCP.OwnedCheckoutTools
   alias Custode.Operations.Fleet.ProvisionOwnedCheckout, as: Operation
 
-  schema do
-    field(:routine_id, :string, required: true, description: "future or existing routine id")
-    field(:repository, :string, required: true, description: "GitHub owner/name")
-    field(:idempotency_key, :string, description: "stable key for one logical provision")
-    field(:dry_run, :boolean, description: "preview without changing the filesystem")
-  end
+  input_schema(%{
+    "properties" => %{
+      "dry_run" => %{
+        "description" => "preview without changing the filesystem",
+        "type" => "boolean"
+      },
+      "idempotency_key" => %{
+        "description" => "stable key for one logical provision",
+        "type" => "string"
+      },
+      "repository" => %{"description" => "GitHub owner/name", "type" => "string"},
+      "routine_id" => %{"description" => "future or existing routine id", "type" => "string"}
+    },
+    "required" => ["repository", "routine_id"],
+    "type" => "object"
+  })
 
   def definition, do: Operation.definition()
   def name, do: definition().projection.mcp.name
@@ -49,16 +59,26 @@ end
 
 defmodule Custode.MCP.OwnedCheckoutTools.Refresh do
   @moduledoc "Safely fetch and fast-forward a configured routine-owned checkout."
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "refresh_owned_checkout"
 
   alias Custode.MCP.OwnedCheckoutTools
   alias Custode.Operations.Fleet.RefreshOwnedCheckout, as: Operation
 
-  schema do
-    field(:routine_id, :string, required: true, description: "configured routine id")
-    field(:idempotency_key, :string, description: "stable key for one logical refresh")
-    field(:dry_run, :boolean, description: "preview without fetching or fast-forwarding")
-  end
+  input_schema(%{
+    "properties" => %{
+      "dry_run" => %{
+        "description" => "preview without fetching or fast-forwarding",
+        "type" => "boolean"
+      },
+      "idempotency_key" => %{
+        "description" => "stable key for one logical refresh",
+        "type" => "string"
+      },
+      "routine_id" => %{"description" => "configured routine id", "type" => "string"}
+    },
+    "required" => ["routine_id"],
+    "type" => "object"
+  })
 
   def definition, do: Operation.definition()
   def name, do: definition().projection.mcp.name

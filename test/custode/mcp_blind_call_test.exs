@@ -7,14 +7,13 @@ defmodule Custode.MCPBlindCallTest do
 
   import Custode.TestHelpers
 
-  alias Anubis.Server.Handlers
   alias Custode.MCP.AskTools.AskOperator
   alias Custode.MCP.MemoryTools
   alias Custode.MCP.NotebookTools
   alias Custode.MCP.RepoTools
   alias Custode.MCP.Tools
 
-  @operator %Anubis.Server.Frame{}
+  @operator %Custode.MCP.CallContext{}
 
   @self_scoped [
     {NotebookTools.JournalAppend, "routine_id"},
@@ -33,15 +32,15 @@ defmodule Custode.MCPBlindCallTest do
   ]
 
   defp frame_for(kind, id),
-    do: %Anubis.Server.Frame{assigns: %{custode_identity: %{kind: kind, id: id}}}
+    do: %Custode.MCP.CallContext{assigns: %{custode_identity: %{kind: kind, id: id}}}
 
-  # The path a `tools/call` from the CLI takes: anubis validates the arguments
+  # The path a `tools/call` from the CLI takes: Snodo validates the arguments
   # (string keys, as they arrive off the wire) against the schema, and only
   # then reaches execute/2. A `{:error, _, _}` here is what the model sees as
   # the two words "Invalid params".
   defp wire(tool, arguments, frame) do
     request = %{"params" => %{"name" => tool, "arguments" => arguments}}
-    Handlers.Tools.handle_call(request, frame, Custode.MCP.Server)
+    Custode.TestHelpers.mcp_dispatch("tools/call", request["params"], frame, Custode.MCP.Server)
   end
 
   defp wire_json(
@@ -148,7 +147,7 @@ defmodule Custode.MCPBlindCallTest do
   end
 
   describe "the alias" do
-    # The operator frame is what proves the alias reaches execute/2. Peri does
+    # The operator frame is what proves the alias reaches execute/2. Argument projection does
     # not reject a key the schema leaves out, it DROPS it, so an undeclared
     # alias from a routine would still appear to work (the caller default
     # covers for it) while the same call from the operator lost its id.

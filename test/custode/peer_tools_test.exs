@@ -4,7 +4,7 @@ defmodule Custode.PeerToolsTest do
   import Custode.TestHelpers
   import Ecto.Query, only: [from: 2]
 
-  alias Anubis.Server.{Frame, Handlers}
+  alias Custode.MCP.CallContext, as: Frame
   alias Custode.MCP.{NotebookTools, PeerTools}
   alias Custode.{PeerMessage, PeerMessageDelivery, Repo, Routine}
 
@@ -267,8 +267,9 @@ defmodule Custode.PeerToolsTest do
     do: %Frame{assigns: %{custode_identity: %{kind: kind, id: id}}}
 
   defp wire(name, arguments, frame) do
-    Handlers.Tools.handle_call(
-      %{"params" => %{"name" => name, "arguments" => arguments}},
+    Custode.TestHelpers.mcp_dispatch(
+      "tools/call",
+      %{"name" => name, "arguments" => arguments},
       frame,
       Custode.MCP.Server
     )

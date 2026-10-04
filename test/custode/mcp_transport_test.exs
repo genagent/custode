@@ -81,7 +81,7 @@ defmodule Custode.MCPTransportTest do
       ]
 
     assert Enum.sort(Enum.map(operator_tools, & &1["name"])) ==
-             Server.__components__(:tool) |> Enum.map(& &1.name) |> Enum.sort()
+             Server.tools() |> Enum.map(& &1.name()) |> Enum.sort()
 
     assert Enum.sort(Enum.map(operator_resources, & &1["name"])) ==
              WorkResources.resource_definitions() |> Enum.map(& &1.name) |> Enum.sort()
@@ -107,7 +107,7 @@ defmodule Custode.MCPTransportTest do
     memory_tools = result(rpc("/mcp/memory", sub_agent, version, 8, "tools/list"))["tools"]
 
     assert Enum.sort(Enum.map(memory_tools, & &1["name"])) ==
-             MemoryServer.__components__(:tool) |> Enum.map(& &1.name) |> Enum.sort()
+             MemoryServer.tools() |> Enum.map(& &1.name()) |> Enum.sort()
   end
 
   test "memory endpoint performs a controlled self-scoped write through the legacy callbacks" do

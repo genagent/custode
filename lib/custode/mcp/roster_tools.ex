@@ -120,8 +120,7 @@ defmodule Custode.MCP.RosterTools.PreviewRoutine do
   Render the exact TOML section adding this routine would append -- put this
   in your request_permission action so the human approves the literal diff.
   """
-  use Anubis.Server.Component, type: :tool
-  use Custode.MCP.NumericSchema
+  use Custode.MCP.Tool, name: "preview_routine"
 
   import Custode.MCP.Tools
 
@@ -129,33 +128,60 @@ defmodule Custode.MCP.RosterTools.PreviewRoutine do
   alias Custode.MCP.RosterTools
   alias Custode.Routine.Effort
 
-  schema do
-    field(:id, :string, required: true, description: "unique routine id")
-    field(:provider, :string, description: "agent provider: claude or codex")
-    field(:profile, :string, description: "profile name, e.g. \"backlog_worker\"")
-    field(:cron, :string, description: "cron override (the profile usually supplies it)")
-    field(:repo, :string, description: "owner/name the routine serves")
-    field(:working_dir, :string, description: "absolute path of the checkout")
-    field(:workspace, :string, description: "notebook home (defaults to workspaces/<id>)")
-    field(:prompt, :string, description: "sweep prompt (the profile usually supplies it)")
-    field(:tags, {:list, :string}, description: "tags, e.g. [\"rust\", \"external\"]")
-    field(:model, :string, description: "sweep model override, e.g. \"sonnet\"")
-    field(:effort, :string, description: "sweep effort override, e.g. \"low\"")
-    field(:agent, :string, description: "persona from the repo's .claude/agents/ (#19)")
-    field(:role, :string, description: "role override, e.g. \"backlog_worker\"")
-    field(:mcp, :boolean, description: "grant the custode MCP tools")
-    field(:hermetic, :boolean, description: "seal out the repo's ambient CLAUDE.md/persona")
-    field(:max_budget_usd, {:either, {:integer, :float}}, description: "per-turn budget rail")
-    field(:daily_budget_usd, {:either, {:integer, :float}}, description: "daily budget rail")
-    field(:daily_budget_tokens, :integer, description: "daily token rail")
-    field(:timeout_ms, :integer, description: "per-turn subprocess timeout")
-    field(:max_turns, :integer, description: "agentic turns per run")
-    field(:system_prompt_file, :string, description: "path to a standing-orders file")
-
-    field(:extra_allowed_tools, {:list, :string},
-      description: "extra tool grants, e.g. [\"Bash(git log:*)\"]"
-    )
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent" => %{
+        "description" => "persona from the repo's .claude/agents/ (#19)",
+        "type" => "string"
+      },
+      "cron" => %{
+        "description" => "cron override (the profile usually supplies it)",
+        "type" => "string"
+      },
+      "daily_budget_tokens" => %{"description" => "daily token rail", "type" => "integer"},
+      "daily_budget_usd" => %{"description" => "daily budget rail", "type" => "number"},
+      "effort" => %{"description" => "sweep effort override, e.g. \"low\"", "type" => "string"},
+      "extra_allowed_tools" => %{
+        "description" => "extra tool grants, e.g. [\"Bash(git log:*)\"]",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "hermetic" => %{
+        "description" => "seal out the repo's ambient CLAUDE.md/persona",
+        "type" => "boolean"
+      },
+      "id" => %{"description" => "unique routine id", "type" => "string"},
+      "max_budget_usd" => %{"description" => "per-turn budget rail", "type" => "number"},
+      "max_turns" => %{"description" => "agentic turns per run", "type" => "integer"},
+      "mcp" => %{"description" => "grant the custode MCP tools", "type" => "boolean"},
+      "model" => %{"description" => "sweep model override, e.g. \"sonnet\"", "type" => "string"},
+      "profile" => %{"description" => "profile name, e.g. \"backlog_worker\"", "type" => "string"},
+      "prompt" => %{
+        "description" => "sweep prompt (the profile usually supplies it)",
+        "type" => "string"
+      },
+      "provider" => %{"description" => "agent provider: claude or codex", "type" => "string"},
+      "repo" => %{"description" => "owner/name the routine serves", "type" => "string"},
+      "role" => %{"description" => "role override, e.g. \"backlog_worker\"", "type" => "string"},
+      "system_prompt_file" => %{
+        "description" => "path to a standing-orders file",
+        "type" => "string"
+      },
+      "tags" => %{
+        "description" => "tags, e.g. [\"rust\", \"external\"]",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "timeout_ms" => %{"description" => "per-turn subprocess timeout", "type" => "integer"},
+      "working_dir" => %{"description" => "absolute path of the checkout", "type" => "string"},
+      "workspace" => %{
+        "description" => "notebook home (defaults to workspaces/<id>)",
+        "type" => "string"
+      }
+    },
+    "required" => ["id"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -177,41 +203,67 @@ defmodule Custode.MCP.RosterTools.AddRoutine do
   Only the operator and the caretaker's approved continuations may call
   this; propose it via request_permission with the preview_routine render.
   """
-  use Anubis.Server.Component, type: :tool
-  use Custode.MCP.NumericSchema
+  use Custode.MCP.Tool, name: "add_routine"
 
   import Custode.MCP.Tools
 
   alias Custode.Config.WriteBack
   alias Custode.MCP.RosterTools
 
-  schema do
-    field(:id, :string, required: true, description: "unique routine id")
-    field(:provider, :string, description: "agent provider: claude or codex")
-    field(:profile, :string, description: "profile name, e.g. \"backlog_worker\"")
-    field(:cron, :string, description: "cron override (the profile usually supplies it)")
-    field(:repo, :string, description: "owner/name the routine serves")
-    field(:working_dir, :string, description: "absolute path of the checkout")
-    field(:workspace, :string, description: "notebook home (defaults to workspaces/<id>)")
-    field(:prompt, :string, description: "sweep prompt (the profile usually supplies it)")
-    field(:tags, {:list, :string}, description: "tags, e.g. [\"rust\", \"external\"]")
-    field(:model, :string, description: "sweep model override, e.g. \"sonnet\"")
-    field(:effort, :string, description: "sweep effort override, e.g. \"low\"")
-    field(:agent, :string, description: "persona from the repo's .claude/agents/ (#19)")
-    field(:role, :string, description: "role override, e.g. \"backlog_worker\"")
-    field(:mcp, :boolean, description: "grant the custode MCP tools")
-    field(:hermetic, :boolean, description: "seal out the repo's ambient CLAUDE.md/persona")
-    field(:max_budget_usd, {:either, {:integer, :float}}, description: "per-turn budget rail")
-    field(:daily_budget_usd, {:either, {:integer, :float}}, description: "daily budget rail")
-    field(:daily_budget_tokens, :integer, description: "daily token rail")
-    field(:timeout_ms, :integer, description: "per-turn subprocess timeout")
-    field(:max_turns, :integer, description: "agentic turns per run")
-    field(:system_prompt_file, :string, description: "path to a standing-orders file")
-
-    field(:extra_allowed_tools, {:list, :string},
-      description: "extra tool grants, e.g. [\"Bash(git log:*)\"]"
-    )
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent" => %{
+        "description" => "persona from the repo's .claude/agents/ (#19)",
+        "type" => "string"
+      },
+      "cron" => %{
+        "description" => "cron override (the profile usually supplies it)",
+        "type" => "string"
+      },
+      "daily_budget_tokens" => %{"description" => "daily token rail", "type" => "integer"},
+      "daily_budget_usd" => %{"description" => "daily budget rail", "type" => "number"},
+      "effort" => %{"description" => "sweep effort override, e.g. \"low\"", "type" => "string"},
+      "extra_allowed_tools" => %{
+        "description" => "extra tool grants, e.g. [\"Bash(git log:*)\"]",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "hermetic" => %{
+        "description" => "seal out the repo's ambient CLAUDE.md/persona",
+        "type" => "boolean"
+      },
+      "id" => %{"description" => "unique routine id", "type" => "string"},
+      "max_budget_usd" => %{"description" => "per-turn budget rail", "type" => "number"},
+      "max_turns" => %{"description" => "agentic turns per run", "type" => "integer"},
+      "mcp" => %{"description" => "grant the custode MCP tools", "type" => "boolean"},
+      "model" => %{"description" => "sweep model override, e.g. \"sonnet\"", "type" => "string"},
+      "profile" => %{"description" => "profile name, e.g. \"backlog_worker\"", "type" => "string"},
+      "prompt" => %{
+        "description" => "sweep prompt (the profile usually supplies it)",
+        "type" => "string"
+      },
+      "provider" => %{"description" => "agent provider: claude or codex", "type" => "string"},
+      "repo" => %{"description" => "owner/name the routine serves", "type" => "string"},
+      "role" => %{"description" => "role override, e.g. \"backlog_worker\"", "type" => "string"},
+      "system_prompt_file" => %{
+        "description" => "path to a standing-orders file",
+        "type" => "string"
+      },
+      "tags" => %{
+        "description" => "tags, e.g. [\"rust\", \"external\"]",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "timeout_ms" => %{"description" => "per-turn subprocess timeout", "type" => "integer"},
+      "working_dir" => %{"description" => "absolute path of the checkout", "type" => "string"},
+      "workspace" => %{
+        "description" => "notebook home (defaults to workspaces/<id>)",
+        "type" => "string"
+      }
+    },
+    "required" => ["id"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -252,43 +304,63 @@ defmodule Custode.MCP.RosterTools.PreviewRoutineEdit do
   approves the literal change. `drop` removes an override so the profile's
   value serves again.
   """
-  use Anubis.Server.Component, type: :tool
-  use Custode.MCP.NumericSchema
+  use Custode.MCP.Tool, name: "preview_routine_edit"
 
   import Custode.MCP.Tools
 
   alias Custode.Config.WriteBack
   alias Custode.MCP.RosterTools
 
-  schema do
-    field(:id, :string, required: true, description: "routine id to edit")
-    field(:provider, :string, description: "new agent provider: claude or codex")
-    field(:profile, :string, description: "new profile name")
-    field(:cron, :string, description: "new cron override")
-    field(:repo, :string, description: "new owner/name")
-    field(:working_dir, :string, description: "new checkout path")
-    field(:workspace, :string, description: "new notebook home")
-    field(:prompt, :string, description: "new sweep prompt")
-    field(:model, :string, description: "new model override, e.g. \"sonnet\"")
-    field(:effort, :string, description: "new effort override, e.g. \"low\"")
-    field(:agent, :string, description: "persona from the repo's .claude/agents/ (#19)")
-    field(:role, :string, description: "role override, e.g. \"backlog_worker\"")
-    field(:mcp, :boolean, description: "grant the custode MCP tools")
-    field(:hermetic, :boolean, description: "seal out the repo's ambient CLAUDE.md/persona")
-    field(:daily_budget_tokens, :integer, description: "daily token rail")
-    field(:system_prompt_file, :string, description: "path to a standing-orders file")
-
-    field(:extra_allowed_tools, {:list, :string},
-      description: "extra tool grants, e.g. [\"Bash(git log:*)\"]"
-    )
-
-    field(:max_budget_usd, {:either, {:integer, :float}}, description: "new per-turn budget rail")
-    field(:daily_budget_usd, {:either, {:integer, :float}}, description: "new daily budget rail")
-    field(:timeout_ms, :integer, description: "new per-turn timeout")
-    field(:max_turns, :integer, description: "new max turns")
-    field(:tags, {:list, :string}, description: "replacement tag list")
-    field(:drop, {:list, :string}, description: "override keys to REMOVE (profile serves again)")
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent" => %{
+        "description" => "persona from the repo's .claude/agents/ (#19)",
+        "type" => "string"
+      },
+      "cron" => %{"description" => "new cron override", "type" => "string"},
+      "daily_budget_tokens" => %{"description" => "daily token rail", "type" => "integer"},
+      "daily_budget_usd" => %{"description" => "new daily budget rail", "type" => "number"},
+      "drop" => %{
+        "description" => "override keys to REMOVE (profile serves again)",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "effort" => %{"description" => "new effort override, e.g. \"low\"", "type" => "string"},
+      "extra_allowed_tools" => %{
+        "description" => "extra tool grants, e.g. [\"Bash(git log:*)\"]",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "hermetic" => %{
+        "description" => "seal out the repo's ambient CLAUDE.md/persona",
+        "type" => "boolean"
+      },
+      "id" => %{"description" => "routine id to edit", "type" => "string"},
+      "max_budget_usd" => %{"description" => "new per-turn budget rail", "type" => "number"},
+      "max_turns" => %{"description" => "new max turns", "type" => "integer"},
+      "mcp" => %{"description" => "grant the custode MCP tools", "type" => "boolean"},
+      "model" => %{"description" => "new model override, e.g. \"sonnet\"", "type" => "string"},
+      "profile" => %{"description" => "new profile name", "type" => "string"},
+      "prompt" => %{"description" => "new sweep prompt", "type" => "string"},
+      "provider" => %{"description" => "new agent provider: claude or codex", "type" => "string"},
+      "repo" => %{"description" => "new owner/name", "type" => "string"},
+      "role" => %{"description" => "role override, e.g. \"backlog_worker\"", "type" => "string"},
+      "system_prompt_file" => %{
+        "description" => "path to a standing-orders file",
+        "type" => "string"
+      },
+      "tags" => %{
+        "description" => "replacement tag list",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "timeout_ms" => %{"description" => "new per-turn timeout", "type" => "integer"},
+      "working_dir" => %{"description" => "new checkout path", "type" => "string"},
+      "workspace" => %{"description" => "new notebook home", "type" => "string"}
+    },
+    "required" => ["id"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -314,43 +386,63 @@ defmodule Custode.MCP.RosterTools.UpdateRoutine do
   propose it via request_permission with the preview_routine_edit render.
   The id is immutable -- remove + add is the rename path.
   """
-  use Anubis.Server.Component, type: :tool
-  use Custode.MCP.NumericSchema
+  use Custode.MCP.Tool, name: "update_routine"
 
   import Custode.MCP.Tools
 
   alias Custode.Config.WriteBack
   alias Custode.MCP.RosterTools
 
-  schema do
-    field(:id, :string, required: true, description: "routine id to edit")
-    field(:provider, :string, description: "new agent provider: claude or codex")
-    field(:profile, :string, description: "new profile name")
-    field(:cron, :string, description: "new cron override")
-    field(:repo, :string, description: "new owner/name")
-    field(:working_dir, :string, description: "new checkout path")
-    field(:workspace, :string, description: "new notebook home")
-    field(:prompt, :string, description: "new sweep prompt")
-    field(:model, :string, description: "new model override, e.g. \"sonnet\"")
-    field(:effort, :string, description: "new effort override, e.g. \"low\"")
-    field(:agent, :string, description: "persona from the repo's .claude/agents/ (#19)")
-    field(:role, :string, description: "role override, e.g. \"backlog_worker\"")
-    field(:mcp, :boolean, description: "grant the custode MCP tools")
-    field(:hermetic, :boolean, description: "seal out the repo's ambient CLAUDE.md/persona")
-    field(:daily_budget_tokens, :integer, description: "daily token rail")
-    field(:system_prompt_file, :string, description: "path to a standing-orders file")
-
-    field(:extra_allowed_tools, {:list, :string},
-      description: "extra tool grants, e.g. [\"Bash(git log:*)\"]"
-    )
-
-    field(:max_budget_usd, {:either, {:integer, :float}}, description: "new per-turn budget rail")
-    field(:daily_budget_usd, {:either, {:integer, :float}}, description: "new daily budget rail")
-    field(:timeout_ms, :integer, description: "new per-turn timeout")
-    field(:max_turns, :integer, description: "new max turns")
-    field(:tags, {:list, :string}, description: "replacement tag list")
-    field(:drop, {:list, :string}, description: "override keys to REMOVE (profile serves again)")
-  end
+  input_schema(%{
+    "properties" => %{
+      "agent" => %{
+        "description" => "persona from the repo's .claude/agents/ (#19)",
+        "type" => "string"
+      },
+      "cron" => %{"description" => "new cron override", "type" => "string"},
+      "daily_budget_tokens" => %{"description" => "daily token rail", "type" => "integer"},
+      "daily_budget_usd" => %{"description" => "new daily budget rail", "type" => "number"},
+      "drop" => %{
+        "description" => "override keys to REMOVE (profile serves again)",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "effort" => %{"description" => "new effort override, e.g. \"low\"", "type" => "string"},
+      "extra_allowed_tools" => %{
+        "description" => "extra tool grants, e.g. [\"Bash(git log:*)\"]",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "hermetic" => %{
+        "description" => "seal out the repo's ambient CLAUDE.md/persona",
+        "type" => "boolean"
+      },
+      "id" => %{"description" => "routine id to edit", "type" => "string"},
+      "max_budget_usd" => %{"description" => "new per-turn budget rail", "type" => "number"},
+      "max_turns" => %{"description" => "new max turns", "type" => "integer"},
+      "mcp" => %{"description" => "grant the custode MCP tools", "type" => "boolean"},
+      "model" => %{"description" => "new model override, e.g. \"sonnet\"", "type" => "string"},
+      "profile" => %{"description" => "new profile name", "type" => "string"},
+      "prompt" => %{"description" => "new sweep prompt", "type" => "string"},
+      "provider" => %{"description" => "new agent provider: claude or codex", "type" => "string"},
+      "repo" => %{"description" => "new owner/name", "type" => "string"},
+      "role" => %{"description" => "role override, e.g. \"backlog_worker\"", "type" => "string"},
+      "system_prompt_file" => %{
+        "description" => "path to a standing-orders file",
+        "type" => "string"
+      },
+      "tags" => %{
+        "description" => "replacement tag list",
+        "items" => %{"type" => "string"},
+        "type" => "array"
+      },
+      "timeout_ms" => %{"description" => "new per-turn timeout", "type" => "integer"},
+      "working_dir" => %{"description" => "new checkout path", "type" => "string"},
+      "workspace" => %{"description" => "new notebook home", "type" => "string"}
+    },
+    "required" => ["id"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
@@ -383,16 +475,18 @@ defmodule Custode.MCP.RosterTools.RemoveRoutine do
   :external entries too. Propose via request_permission naming the id and
   why.
   """
-  use Anubis.Server.Component, type: :tool
+  use Custode.MCP.Tool, name: "remove_routine"
 
   import Custode.MCP.Tools
 
   alias Custode.Config.WriteBack
   alias Custode.MCP.RosterTools
 
-  schema do
-    field(:id, :string, required: true, description: "routine id to remove")
-  end
+  input_schema(%{
+    "properties" => %{"id" => %{"description" => "routine id to remove", "type" => "string"}},
+    "required" => ["id"],
+    "type" => "object"
+  })
 
   @impl true
   def execute(params, frame) do
