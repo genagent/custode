@@ -3,8 +3,8 @@ defmodule CustodeWeb.ConversationLive do
   A focused, provider-neutral conversation with one agent.
 
   The transcript is the durable `Custode.OperatorMessage` projection. Provider
-  transcripts and scheduled activity stay on their existing operational
-  surfaces.
+  transcripts stay opaque. Recorded interval updates share the readable
+  timeline; raw sensors and operational activity stay in the control room.
   """
 
   use Phoenix.LiveView
@@ -15,6 +15,7 @@ defmodule CustodeWeb.ConversationLive do
       app_header: 1,
       host_banner: 1,
       markdown: 1,
+      interval_report: 1,
       message_content: 1,
       status_badge: 1,
       status_token: 1
@@ -25,10 +26,10 @@ defmodule CustodeWeb.ConversationLive do
 
   alias Custode.Agents
   alias Custode.Attention.Fleet
+  alias Custode.ConversationTimeline
   alias Custode.ExecutionFacts
   alias Custode.Operator.Actions
   alias Custode.Operator.Attachments
-  alias Custode.OperatorMessages
   alias Custode.Routine
   alias Custode.Signal
   alias Custode.SpendLedger
@@ -58,6 +59,9 @@ defmodule CustodeWeb.ConversationLive do
        signal: nil,
        pending_exchange_id: nil,
        exchanges: [],
+       updates: [],
+       timeline_items: [],
+       show_updates: true,
        before: nil,
        has_older: false,
        prepend_generation: 0,
@@ -88,6 +92,9 @@ defmodule CustodeWeb.ConversationLive do
       ),
       do: {:noreply, refresh_latest(socket)}
 
+  def handle_info({:feed_entry, %{"agent" => agent}}, %{assigns: %{agent_id: agent}} = socket),
+    do: {:noreply, refresh_latest(socket)}
+
   def handle_info({:status_changed, agent_id}, %{assigns: %{agent_id: agent_id}} = socket),
     do: {:noreply, refresh_entry(socket)}
 
@@ -102,7 +109,7 @@ defmodule CustodeWeb.ConversationLive do
     do: {:noreply, socket}
 
   def handle_event("older", _params, socket) do
-    case OperatorMessages.conversation(socket.assigns.agent_id,
+    case ConversationTimeline.page(socket.assigns.agent_id,
            limit: @page_size,
            before: socket.assigns.before
          ) do
@@ -111,15 +118,20 @@ defmodule CustodeWeb.ConversationLive do
          socket
          |> assign(
            exchanges: merge_exchanges(page.exchanges, socket.assigns.exchanges),
+           updates: merge_updates(socket.assigns.updates, page.updates),
            before: page.before,
            has_older: page.has_older,
            prepend_generation: socket.assigns.prepend_generation + 1
-         )}
+         )
+         |> refresh_timeline()}
 
       {:error, _reason} ->
         {:noreply, assign(socket, notice: "older conversation history is unavailable")}
     end
   end
+
+  def handle_event("toggle_updates", _params, socket),
+    do: {:noreply, assign(socket, show_updates: not socket.assigns.show_updates)}
 
   def handle_event("validate_message", _params, socket), do: {:noreply, socket}
 
@@ -246,6 +258,9 @@ defmodule CustodeWeb.ConversationLive do
           <h1 class="font-mono text-lg font-bold">{if @manager, do: "Ask custode", else: @agent_id}</h1>
           <span :if={@manager && @agent_id} class="text-xs text-base-content/60">{@agent_id}</span>
           <.status_badge :if={@subject} status={@subject.status} />
+          <button :if={@subject} id="conversation-updates-toggle" type="button"
+            phx-click="toggle_updates" aria-pressed={to_string(@show_updates)}
+            class="btn btn-ghost btn-sm">Updates {if @show_updates, do: "on", else: "off"}</button>
           <p :if={@subject} class="ml-auto font-mono text-xs text-base-content/50">
             {execution_label(@subject)}
           </p>
@@ -279,32 +294,40 @@ defmodule CustodeWeb.ConversationLive do
             class="btn btn-ghost btn-sm self-center"
             phx-click="older"
           >
-            Load older messages
+            Load older history
           </button>
 
           <p
-            :if={@exchanges != [] and not @has_older}
+            :if={@timeline_items != [] and not @has_older}
             id="conversation-history-boundary"
             class="text-center text-xs text-base-content/40"
           >
-            This is the beginning of the durable conversation history. Earlier provider
-            transcripts may not be available.
+            All currently available conversation history is loaded. Work updates cover
+            retained turns; earlier provider transcripts may not be available.
           </p>
 
           <section
-            :if={@agent_id && @exchanges == []}
+            :if={@agent_id && @timeline_items == []}
             id="conversation-empty"
             class="my-auto rounded-box border border-base-300 bg-base-100 p-8 text-center"
           >
             <h2 class="font-semibold">Start the conversation</h2>
             <p class="mt-2 text-sm text-base-content/60">
-              Messages and exact agent outcomes will appear here. Operational history,
-              scheduled work and sensors remain in the control room.
+              Messages, exact agent outcomes, and recorded work updates appear here. Raw sensors and operational details
+              remain in the control room.
             </p>
           </section>
 
+          <section :if={@signal && @pending_exchange_id == nil && !manager_approval?(@manager_context, @signal)}
+            id="conversation-pending-action" class="rounded-box border border-warning/40 bg-base-100 p-4">
+            <p class="font-semibold">{@signal.headline}</p>
+            <p class="mt-1 whitespace-pre-wrap break-words text-sm">{@signal.detail}</p>
+            <.conversation_actions signal={@signal} message_gen={@message_gen} />
+          </section>
+
+          <div :for={unit <- @timeline_items} id={"timeline-#{unit.id}"} class="contents">
           <article
-            :for={exchange <- @exchanges}
+            :for={exchange <- if(unit.kind == :exchange, do: [unit.exchange], else: [])}
             id={"exchange-#{exchange.id}"}
             data-conversation-exchange
             data-status={exchange.status}
@@ -316,7 +339,7 @@ defmodule CustodeWeb.ConversationLive do
                   <p class="mb-1 text-xs font-semibold opacity-70">
                     {if prompt.continued, do: "you replied", else: "you"}
                   </p>
-                  <.message_content text={prompt.text} agent={@agent_id} />
+                  <.message_content text={prompt.text} agent={@agent_id} fold id={"prompt-#{prompt.id}"} />
                   <p class="mt-2 text-right font-mono text-[0.65rem] opacity-60">
                     <.ago at={prompt.inserted_at} />
                   </p>
@@ -334,7 +357,7 @@ defmodule CustodeWeb.ConversationLive do
             <div :if={final_answer(exchange)} class="flex justify-start">
               <div class="max-w-[88%] rounded-box border border-base-300 bg-base-100 px-4 py-3 shadow-sm sm:max-w-[75%]">
                 <p class="mb-1 text-xs font-semibold text-base-content/50">{@agent_id}</p>
-                <.message_content text={final_answer(exchange)} agent={@agent_id} markdown />
+                <.message_content text={final_answer(exchange)} agent={@agent_id} markdown fold id={"answer-#{exchange.id}"} />
                 <p class="mt-2 font-mono text-[0.65rem] text-base-content/40">
                   <.ago at={exchange.updated_at} />
                 </p>
@@ -356,13 +379,35 @@ defmodule CustodeWeb.ConversationLive do
               <span :if={exchange.provider} class="font-mono">{exchange.provider}</span>
             </div>
 
+            <details :if={exchange.reports != [] && @show_updates}
+              id={"exchange-reports-#{exchange.id}"} phx-hook="DisclosureState" class="text-sm">
+              <summary class="link cursor-pointer text-xs">Interval reports ({length(exchange.reports)})</summary>
+              <div :for={report <- exchange.reports} class="mt-2 rounded-box border border-base-300 p-3">
+                <p class="text-xs text-base-content/50"><.ago at={report.at} /></p>
+                <.interval_report report={report.entry["report"]} error={report.entry["report_error"]}
+                  id={"linked-report-#{report.id}"} />
+              </div>
+            </details>
+
             <.conversation_actions
               :if={exchange.id == @pending_exchange_id && @signal && not manager_approval?(@manager_context, @signal)}
               signal={@signal}
               message_gen={@message_gen}
             />
           </article>
-          <ManagerPanel.activity :if={@manager && @agent_id} context={@manager_context} />
+          <article :for={update <- if(unit.kind == :update && @show_updates, do: [unit.update], else: [])}
+            id={"update-#{update.id}"} data-conversation-update class="flex justify-start">
+            <div class="max-w-[88%] rounded-box border border-base-300 bg-base-100 px-4 py-3 sm:max-w-[75%]">
+              <p class="mb-2 text-xs font-semibold text-base-content/60">{@agent_id} · Agent update</p>
+              <.message_content text={update.entry["summary"] || "Recorded turn"} agent={@agent_id}
+                markdown fold id={"update-summary-#{update.id}"} />
+              <.interval_report report={update.entry["report"]} error={update.entry["report_error"]}
+                id={"update-report-#{update.id}"} />
+              <p class="mt-2 text-xs text-base-content/50"><.ago at={update.at} /> · {update_origin(update.entry)}</p>
+            </div>
+          </article>
+          </div>
+          <ManagerPanel.activity :if={@manager && @agent_id} context={@manager_context} include_said={false} />
         </div>
       </main>
 
@@ -420,7 +465,14 @@ defmodule CustodeWeb.ConversationLive do
 
       id ->
         socket
-        |> assign(agent_id: id, exchanges: [], before: nil, has_older: false)
+        |> assign(
+          agent_id: id,
+          exchanges: [],
+          updates: [],
+          timeline_items: [],
+          before: nil,
+          has_older: false
+        )
         |> load_initial()
     end
   end
@@ -430,11 +482,13 @@ defmodule CustodeWeb.ConversationLive do
   defp load_initial(%{assigns: %{agent_id: nil}} = socket), do: refresh_subject(socket)
 
   defp load_initial(socket) do
-    {:ok, page} = OperatorMessages.conversation(socket.assigns.agent_id, limit: @page_size)
+    {:ok, page} = ConversationTimeline.page(socket.assigns.agent_id, limit: @page_size)
 
     socket
     |> assign(
       exchanges: page.exchanges,
+      updates: page.updates,
+      timeline_items: page.items,
       before: page.before,
       has_older: page.has_older
     )
@@ -444,10 +498,18 @@ defmodule CustodeWeb.ConversationLive do
   defp refresh_latest(%{assigns: %{agent_id: nil}} = socket), do: refresh_subject(socket)
 
   defp refresh_latest(socket) do
-    {:ok, page} = OperatorMessages.conversation(socket.assigns.agent_id, limit: @page_size)
+    {:ok, page} = ConversationTimeline.page(socket.assigns.agent_id, limit: @page_size)
 
     socket
-    |> assign(exchanges: merge_exchanges(socket.assigns.exchanges, page.exchanges))
+    |> assign(
+      exchanges:
+        ConversationTimeline.refresh_exchanges(
+          socket.assigns.agent_id,
+          merge_exchanges(socket.assigns.exchanges, page.exchanges)
+        ),
+      updates: merge_updates(socket.assigns.updates, page.updates)
+    )
+    |> refresh_timeline()
     |> refresh_subject()
   end
 
@@ -496,19 +558,27 @@ defmodule CustodeWeb.ConversationLive do
     )
   end
 
-  defp pending_signal(_agent_id, []), do: {nil, nil}
-
   defp pending_signal(agent_id, exchanges) do
-    with %Signal{} = signal <- Fleet.blocking_signal(agent_id),
-         %{id: exchange_id} <-
-           exchanges
-           |> Enum.reverse()
-           |> Enum.find(&pending_ops?(&1.status, signal)) do
-      {signal, exchange_id}
-    else
-      _none -> {nil, nil}
-    end
+    signal = Fleet.blocking_signal(agent_id)
+    pending = if signal, do: Enum.find(Enum.reverse(exchanges), &pending_ops?(&1.status, signal))
+    {signal, pending && pending.id}
   end
+
+  defp refresh_timeline(socket) do
+    assign(socket,
+      timeline_items: ConversationTimeline.items(socket.assigns.exchanges, socket.assigns.updates)
+    )
+  end
+
+  defp merge_updates(older, newer) do
+    Map.new(older, &{&1.id, &1})
+    |> Map.merge(Map.new(newer, &{&1.id, &1}))
+    |> Map.values()
+  end
+
+  defp update_origin(%{"origin" => origin}) when is_binary(origin), do: "#{origin} turn"
+  defp update_origin(%{"wake_reason" => reason}) when is_binary(reason), do: reason
+  defp update_origin(_entry), do: "source not recorded"
 
   defp pending_ops?("waiting_for_input", %Signal{resolving: resolving}),
     do: Enum.any?(resolving, &(&1.op == :answer))

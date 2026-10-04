@@ -295,6 +295,7 @@ defmodule CustodeWeb.Components do
   attr(:text, :string, required: true)
   attr(:class, :any, default: nil)
   attr(:id, :string, default: nil)
+  attr(:markdown, :boolean, default: false)
 
   @doc """
   Plain text that stays inline when short and becomes a native disclosure
@@ -310,8 +311,9 @@ defmodule CustodeWeb.Components do
       |> assign(:preview, fold_preview(text))
 
     ~H"""
+    <.markdown :if={!@fold? && @markdown} text={@text} />
     <p
-      :if={!@fold?}
+      :if={!@fold? && !@markdown}
       id={@id}
       data-foldable-text
       class={["whitespace-pre-wrap break-words", @class]}
@@ -323,12 +325,13 @@ defmodule CustodeWeb.Components do
         <p data-foldable-preview-text>{@preview}</p>
         <span data-foldable-omission aria-hidden="true">…</span>
       </div>
-      <details>
+      <details id={@id && @id <> "-disclosure"} phx-hook={@id && "DisclosureState"}>
         <summary class="link mt-1 inline-block cursor-pointer text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
           <span data-foldable-show-more>Show more</span>
           <span data-foldable-show-less>Show less</span>
         </summary>
-        <p data-foldable-full class="mt-1 whitespace-pre-wrap break-words">{@text}</p>
+        <p :if={!@markdown} data-foldable-full class="mt-1 whitespace-pre-wrap break-words">{@text}</p>
+        <div :if={@markdown} data-foldable-full class="mt-1"><.markdown text={@text} /></div>
       </details>
     </div>
     """
@@ -796,6 +799,7 @@ defmodule CustodeWeb.Components do
 
   attr(:report, :map, default: nil)
   attr(:error, :string, default: nil)
+  attr(:id, :string, default: nil)
 
   @doc "A brief authored report, never an execution or approval verdict."
   def interval_report(assigns) do
@@ -806,7 +810,9 @@ defmodule CustodeWeb.Components do
       <section :for={{key, label} <- @sections} :if={@report[key] != nil && @report[key] != []}>
         <h4 class="font-semibold text-base-content">{label}</h4>
         <ul class="list-disc space-y-1 pl-5">
-          <li :for={text <- @report[key]}><.markdown text={text} /></li>
+          <li :for={{text, index} <- Enum.with_index(@report[key])}>
+            <.foldable_text text={text} markdown id={@id && "#{@id}-#{key}-#{index}"} />
+          </li>
         </ul>
       </section>
     </div>
@@ -909,6 +915,8 @@ defmodule CustodeWeb.Components do
   attr(:text, :string, required: true)
   attr(:agent, :string, required: true)
   attr(:markdown, :boolean, default: false)
+  attr(:fold, :boolean, default: false)
+  attr(:id, :string, default: nil)
 
   @doc "Render operator message text without exposing attachment plumbing."
   def message_content(assigns) do
@@ -916,8 +924,9 @@ defmodule CustodeWeb.Components do
     assigns = assign(assigns, text: text, images: images)
 
     ~H"""
-    <.markdown :if={@text && @markdown} text={@text} />
-    <p :if={@text && !@markdown} class="whitespace-pre-wrap break-words text-sm">{@text}</p>
+    <.foldable_text :if={@text && @fold} text={@text} markdown={@markdown} id={@id} />
+    <.markdown :if={@text && @markdown && !@fold} text={@text} />
+    <p :if={@text && !@markdown && !@fold} class="whitespace-pre-wrap break-words text-sm">{@text}</p>
     <.image_thumbnails images={@images} />
     """
   end

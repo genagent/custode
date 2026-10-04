@@ -89,7 +89,8 @@ defmodule CustodeWeb.ManagerConversationLiveTest do
     assert has_element?(view, ~s(header a[href="/console/#{caretaker.id}"]), "control room")
 
     # what it SAID and what it DID are different lists, and a ping is neither
-    assert view |> element("#custode-said") |> render() =~ "fleet is quiet"
+    assert view |> element("[data-conversation-update]") |> render() =~ "fleet is quiet"
+    refute has_element?(view, "#custode-said")
     did = view |> element("#custode-did") |> render()
     assert did =~ "added mcp-repl"
     refute did =~ "fleet is quiet"

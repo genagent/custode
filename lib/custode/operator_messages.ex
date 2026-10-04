@@ -176,17 +176,7 @@ defmodule Custode.OperatorMessages do
       groups = Repo.all(from(g in groups_query, limit: ^(limit + 1)))
       has_older = length(groups) > limit
       selected = Enum.take(groups, limit)
-      correlation_ids = Enum.map(selected, & &1.correlation_id)
-
-      rows = conversation_rows(target_agent_id, correlation_ids, snapshot_id)
-      rows_by_correlation = Enum.group_by(rows, & &1.provider_correlation_id)
-
-      exchanges =
-        selected
-        |> Enum.reverse()
-        |> Enum.map(fn group ->
-          conversation_exchange(group, Map.fetch!(rows_by_correlation, group.correlation_id))
-        end)
+      exchanges = conversation_exchanges(target_agent_id, Enum.reverse(selected), snapshot_id)
 
       {:ok,
        %{
@@ -200,6 +190,14 @@ defmodule Custode.OperatorMessages do
          has_older: has_older
        }}
     end
+  end
+
+  @doc false
+  def conversation_exchanges(target_agent_id, groups, snapshot_id) do
+    ids = Enum.map(groups, & &1.correlation_id)
+    rows = conversation_rows(target_agent_id, ids, snapshot_id)
+    grouped = Enum.group_by(rows, & &1.provider_correlation_id)
+    Enum.map(groups, &conversation_exchange(&1, Map.fetch!(grouped, &1.correlation_id)))
   end
 
   @doc "Whether this authenticated caller may inspect the message."
