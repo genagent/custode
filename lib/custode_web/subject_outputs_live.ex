@@ -19,6 +19,7 @@ defmodule CustodeWeb.SubjectOutputsLive do
        roots: [],
        outputs: [],
        document: nil,
+       document_diff: nil,
        contexts: [],
        receipt: nil,
        error: nil,
@@ -37,6 +38,7 @@ defmodule CustodeWeb.SubjectOutputsLive do
         root_id: root,
         error: nil,
         document: nil,
+        document_diff: nil,
         receipt: nil
       )
 
@@ -68,8 +70,11 @@ defmodule CustodeWeb.SubjectOutputsLive do
            "root_id" => socket.assigns.root_id,
            "path" => path
          }) do
-      {:ok, doc} -> assign(socket, document: doc, feedback_id: Ecto.UUID.generate())
-      {:error, reason} -> assign(socket, error: inspect(reason))
+      {:ok, doc} ->
+        assign(socket, document: doc, document_diff: nil, feedback_id: Ecto.UUID.generate())
+
+      {:error, reason} ->
+        assign(socket, error: inspect(reason))
     end
   end
 
@@ -85,6 +90,31 @@ defmodule CustodeWeb.SubjectOutputsLive do
   end
 
   @impl true
+  def handle_event("reread", _params, %{assigns: %{document: doc}} = socket) when is_map(doc),
+    do: {:noreply, socket |> assign(error: nil) |> load_document(doc["path"])}
+
+  def handle_event("read_diff", _params, %{assigns: %{document: doc}} = socket)
+      when is_map(doc) do
+    case ReturnViews.invoke(@human, %{
+           "action" => "diff",
+           "root_id" => socket.assigns.root_id,
+           "path" => doc["path"]
+         }) do
+      {:ok, %{"revision" => revision} = diff} when revision == :erlang.map_get("revision", doc) ->
+        {:noreply, assign(socket, document_diff: diff, error: nil)}
+
+      {:ok, _changed} ->
+        {:noreply,
+         assign(socket, document_diff: nil, error: "Source changed. Reread and reanchor.")}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, document_diff: nil, error: inspect(reason))}
+    end
+  end
+
+  def handle_event(action, _params, socket) when action in ~w(reread read_diff),
+    do: {:noreply, assign(socket, error: "Open a current document first.")}
+
   def handle_event("feedback", params, %{assigns: %{document: doc}} = socket) when is_map(doc) do
     args =
       Map.merge(params, %{
@@ -95,12 +125,27 @@ defmodule CustodeWeb.SubjectOutputsLive do
         "request_id" => socket.assigns.feedback_id
       })
 
+    args =
+      if diff = socket.assigns.document_diff do
+        Map.merge(args, %{
+          "expected_git_revision" => diff["git_revision"],
+          "expected_diff_revision" => diff["diff_revision"]
+        })
+      else
+        args
+      end
+
     case ReturnViews.feedback_form(@human, args) do
-      {:ok, _record} ->
-        {:noreply,
-         assign(socket,
-           error: "Comment recorded for this revision. No edits or approval applied."
-         )}
+      {:ok, record} ->
+        refreshed =
+          socket
+          |> assign(feedback_id: Ecto.UUID.generate(), error: nil)
+          |> load_document(doc["path"])
+
+        message =
+          "Comment recorded for revision #{String.slice(record["observed_revision"], 0, 12)}. No edits or approval applied."
+
+        {:noreply, assign(refreshed, error: refreshed.assigns.error || message)}
 
       {:error, reason} ->
         {:noreply, assign(socket, error: inspect(reason))}
@@ -157,10 +202,20 @@ defmodule CustodeWeb.SubjectOutputsLive do
                 </details>
               </div>
             </section>
-            <details id="recorded-feedback"><summary class="cursor-pointer">Recorded comments</summary><ul><li :for={comment <- @document["feedback"]} class="py-2 text-sm"><p>{comment["comment"]}</p><span class="text-xs text-base-content/60">Lines {comment["start_line"]} to {comment["end_line"]} · {if comment["matches_current_revision"], do: "current revision", else: "historical revision"}</span></li></ul></details>
-            <form id="document-feedback" phx-submit="feedback" class="space-y-2">
-              <p class="text-sm">Comment on this revision and line range. Changes require reread and reanchor.</p>
+            <div class="flex gap-2"><button type="button" phx-click="reread" class="btn btn-sm btn-ghost">Reread current document</button><button type="button" phx-click="read_diff" class="btn btn-sm btn-ghost">Read current Git diff</button></div>
+            <details :if={@document_diff} id="document-diff" open><summary class="cursor-pointer font-semibold">Current Git hunks</summary>
+              <p class="break-all text-xs">HEAD {@document_diff["git_revision"] || "unborn"} · diff {@document_diff["diff_revision"]}</p>
+              <p :if={@document_diff["hunks"] == []}>No current hunks.</p>
+              <ol><li :for={{hunk, index} <- Enum.with_index(@document_diff["hunks"], 1)} class="py-2"><p class="text-sm">Hunk {index} · {hunk["header"]}</p><pre class="max-h-64 overflow-auto whitespace-pre-wrap text-xs">{hunk["text"]}</pre></li></ol>
+              <p :if={@document_diff["has_more_hunks"]}>Showing the first 100 hunks. Remaining hunks are unavailable for this bounded review.</p>
+            </details>
+            <details id="recorded-feedback"><summary class="cursor-pointer">Recorded comments</summary><ul><li :for={comment <- @document["feedback"]} class="py-2 text-sm"><p>{comment["comment"]}</p><span class="text-xs text-base-content/60">{anchor_label(comment)} · {comment["anchor_state"] || if(comment["matches_current_revision"], do: "current", else: "historical")}</span><details :if={comment["anchor"]}><summary class="cursor-pointer text-xs">Retained selection</summary><pre class="whitespace-pre-wrap text-xs">{comment["anchor"]["selected_text_preview"]}</pre><p :if={comment["anchor"]["preview_truncated"]} class="text-xs">Selection preview truncated; full selection hash retained.</p></details></li></ul></details>
+            <form id={"document-feedback-" <> @feedback_id} data-role="document-feedback" phx-submit="feedback" class="space-y-2">
+              <p class="text-sm">Comment on this revision. Changes require reread and reanchor. A span ends before its last column; columns count Unicode graphemes.</p>
+              <label>Selection<select name="anchor_kind" class="select select-sm"><option value="lines">Whole lines</option><option value="span">Text span</option><option :if={@document_diff && @document_diff["hunks"] != []} value="diff_hunk">Git diff hunk</option></select></label>
               <div class="flex gap-2"><label>First line<input name="start_line" type="number" min="1" value="1" class="input input-sm w-24" /></label><label>Last line<input name="end_line" type="number" min="1" value="1" class="input input-sm w-24" /></label></div>
+              <div class="flex gap-2"><label>First column<input name="start_column" type="number" min="1" value="1" class="input input-sm w-24" /></label><label>Last column (exclusive)<input name="end_column" type="number" min="1" value="2" class="input input-sm w-24" /></label></div>
+              <label :if={@document_diff && @document_diff["hunks"] != []}>Hunk<select name="hunk_id" class="select select-sm"><option :for={{hunk, index} <- Enum.with_index(@document_diff["hunks"], 1)} value={hunk["hunk_id"]}>Hunk {index} · {hunk["header"]}</option></select></label>
               <label class="block">Comment<textarea name="comment" required maxlength="2000" class="textarea w-full" /></label>
               <button type="submit" class="btn btn-primary btn-sm">Record comment</button>
             </form>
@@ -178,6 +233,17 @@ defmodule CustodeWeb.SubjectOutputsLive do
     </.page>
     """
   end
+
+  defp anchor_label(%{"anchor" => %{"kind" => "span"} = anchor}),
+    do:
+      "Span #{anchor["start_line"]}:#{anchor["start_column"]} to #{anchor["end_line"]}:#{anchor["end_column"]} (exclusive)"
+
+  defp anchor_label(%{"anchor" => %{"kind" => "diff_hunk"} = anchor}),
+    do: "Git hunk #{String.slice(anchor["hunk_id"], 0, 12)}"
+
+  defp anchor_label(comment),
+    do:
+      "Lines #{comment["start_line"] || comment["anchor"]["start_line"]} to #{comment["end_line"] || comment["anchor"]["end_line"]}"
 
   defp root_path(nil), do: "/subjects"
   defp root_path(root), do: "/subjects/" <> URI.encode_www_form(root)

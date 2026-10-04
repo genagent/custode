@@ -134,3 +134,21 @@ capture, read or list. Inactive records are not subject to a timed erasure job.
 Same-execution replay also binds the captured execution identity, including its
 configuration revision and correlation, so changed metadata cannot retarget an
 earlier receipt.
+
+## Exact span and hunk review (#785)
+
+The shared return_context projection adds optional bounded Git hunks and typed
+feedback anchors. Existing inclusive line comments remain compatible. Text spans
+use one-based Unicode grapheme columns with an exclusive end and retain exact
+selection hash/length plus a byte-bounded preview. Hunk feedback binds current
+working revision, pinned HEAD and base/diff fingerprint to one identified hunk.
+A changed HEAD refuses even when source bytes are unchanged. Current content
+revision match is separate from anchor freshness; unsupported Git labels a
+retained hunk unavailable rather than current. Existing comment storage suffices.
+
+Thin keyboard/pointer controls call those shared operations, retain folded detail
+and support explicit reread/reanchor. No apply, approval, grants, start/resume,
+new store, IDE or native delivery claim is added. Production tests cover Unicode
+boundaries, historical selection evidence, exact current grants, both HTTP
+protocols, external source/HEAD changes and unchanged source/index/HEAD effects.
+Fresh native instruction/handoff delivery acceptance remains separate scope.

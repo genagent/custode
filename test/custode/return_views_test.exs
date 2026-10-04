@@ -218,7 +218,7 @@ defmodule Custode.ReturnViewsTest do
 
     result =
       liveview
-      |> form("#document-feedback", %{start_line: "1", end_line: "1", comment: "old"})
+      |> form("[data-role=document-feedback]", %{start_line: "1", end_line: "1", comment: "old"})
       |> render_submit()
 
     assert result =~ "revision_changed_reread_and_reanchor"
