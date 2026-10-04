@@ -1,0 +1,198 @@
+{
+  "before": {
+    "capabilities": {
+      "prompts": {},
+      "resources": {},
+      "tools": {}
+    },
+    "resource_templates": [],
+    "resources": [
+      "fixture_resource_v1"
+    ],
+    "runtime_status": null,
+    "state": "observed",
+    "tools": [
+      "fixture_read_v1"
+    ],
+    "tools_error": false
+  },
+  "claude": {
+    "catalog_contents": "not exposed by health-check output",
+    "long_lived_refresh": "unknown",
+    "mode": "fresh MCP health-check process per revision",
+    "model_calls": 0,
+    "observations": [
+      {
+        "connected_health_message": true,
+        "exit_code": 0,
+        "fixture_revision": 1
+      },
+      {
+        "connected_health_message": true,
+        "exit_code": 0,
+        "fixture_revision": 2
+      }
+    ],
+    "state": "observed"
+  },
+  "controlled_http_cases": {
+    "2026_only_notifications": "three list-change events observed",
+    "catalog_kinds": [
+      "tools",
+      "prompts",
+      "resources"
+    ],
+    "current_custode_notifications": "unconfigured; no advertised listChanged/source",
+    "dialects": [
+      "2025-06-18",
+      "2025-11-25",
+      "2026-07-28"
+    ],
+    "immutable_previous_runtime": "passed",
+    "legacy_notifications": "unsupported by pinned Snodo profiles",
+    "replacement_and_fresh_reconnect": "passed",
+    "scoped_discovery_and_invocation": "passed",
+    "subscription_filter_and_grant_revocation": "passed"
+  },
+  "date": "2026-10-04",
+  "fresh_process_status": {
+    "capabilities": {
+      "prompts": {},
+      "resources": {},
+      "tools": {}
+    },
+    "resource_templates": [],
+    "resources": [
+      "fixture_resource_v2"
+    ],
+    "runtime_status": null,
+    "state": "observed",
+    "tools": [
+      "fixture_read_v2"
+    ],
+    "tools_error": false
+  },
+  "http_protocol_versions": [
+    "2026-07-28",
+    "2025-06-18"
+  ],
+  "installed_versions": {
+    "claude": "2.1.284",
+    "codex": "0.157.1"
+  },
+  "limits": [
+    "Controlled synthetic credentials and catalog, no production dynamic publication.",
+    "No native held-connection refresh or notification handling proof.",
+    "Claude health output does not expose catalog entries; Codex status API exposes no prompt inventory.",
+    "No usage/account/session values or native process-recovery authority."
+  ],
+  "long_lived_native_connection_refresh": "unknown; status lookup may reconnect",
+  "mode": "nonpaid app-server status, no thread or turn",
+  "model_calls": 0,
+  "physical_settlement": "process-group cleanup, not all-descendant attestation",
+  "provider": "codex",
+  "same_process_second_status": {
+    "capabilities": {
+      "prompts": {},
+      "resources": {},
+      "tools": {}
+    },
+    "resource_templates": [],
+    "resources": [
+      "fixture_resource_v2"
+    ],
+    "runtime_status": null,
+    "state": "observed",
+    "tools": [
+      "fixture_read_v2"
+    ],
+    "tools_error": false
+  },
+  "server_observations": [
+    {
+      "method": "server/discover",
+      "outcome": "ok"
+    },
+    {
+      "method": "tools/list",
+      "outcome": "ok"
+    },
+    {
+      "method": "server/discover",
+      "outcome": "ok"
+    },
+    {
+      "method": "tools/list",
+      "outcome": "ok"
+    },
+    {
+      "method": "initialize",
+      "outcome": "ok"
+    },
+    {
+      "method": "notifications/initialized",
+      "outcome": "no_reply"
+    },
+    {
+      "method": "tools/list",
+      "outcome": "ok"
+    },
+    {
+      "method": "resources/list",
+      "outcome": "ok"
+    },
+    {
+      "method": "resources/templates/list",
+      "outcome": "ok"
+    },
+    {
+      "method": "initialize",
+      "outcome": "ok"
+    },
+    {
+      "method": "notifications/initialized",
+      "outcome": "no_reply"
+    },
+    {
+      "method": "tools/list",
+      "outcome": "ok"
+    },
+    {
+      "method": "resources/list",
+      "outcome": "ok"
+    },
+    {
+      "method": "resources/templates/list",
+      "outcome": "ok"
+    },
+    {
+      "method": "initialize",
+      "outcome": "ok"
+    },
+    {
+      "method": "notifications/initialized",
+      "outcome": "no_reply"
+    },
+    {
+      "method": "tools/list",
+      "outcome": "ok"
+    },
+    {
+      "method": "resources/list",
+      "outcome": "ok"
+    },
+    {
+      "method": "resources/templates/list",
+      "outcome": "ok"
+    }
+  ],
+  "source_revision": "bf925e82497dbde5dbec2403dbe2df8b5eab43a4",
+  "source_scope": "Exact committed probe and controlled test sources executed by the recorded nonpaid run.",
+  "source_sha256": {
+    "mix.lock": "998b676c0fb96379aa976aae80abbfa8e32041e6616faa70c7b47cbd9328d7e0",
+    "spikes/capabilities/native_catalog_probe.py": "5f5b423181104f413156cee70ba6133156371ea805abc2305881d38c1e96a8d2",
+    "spikes/capabilities/test_native_catalog_probe.py": "f05c24a8c80fc4ef55d3459318b46eca3645779f8f5ae84559e27075737565ff",
+    "test/custode/mcp_catalog_compatibility_test.exs": "9ec3a119c7e1bb2af7e751dd6aea72d493ed5be9a39240dfcb2afb6b9c7abfca",
+    "test/support/catalog_proof.ex": "bf48f864a567c8d6da459a1e1da9e29ae9646c15ec7f5e94d45d4d9ea22485de"
+  }
+}
