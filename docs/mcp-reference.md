@@ -89,7 +89,7 @@ Routine instructions, prompt files, the `prompt_agent` tool, and an agent's stru
 
 | Endpoint | Server | Tools | Resources | Templates | Prompts |
 | --- | --- | ---: | ---: | ---: | ---: |
-| `/mcp` | custode 0.3.0 | 93 | 4 | 13 | 0 |
+| `/mcp` | custode 0.3.0 | 95 | 4 | 13 | 0 |
 | `/mcp/memory` | memory 0.3.0 | 7 | 0 | 0 | 0 |
 
 **`/mcp`**: protocol versions 2026-07-28, 2025-11-25, 2025-06-18; capabilities `{"resources":{},"tools":{}}`.
@@ -158,6 +158,8 @@ Categories are descriptive policy metadata, not an authorization guarantee.
 | [project_progress](#tool-project_progress) | read |
 | [prompt_agent](#tool-prompt_agent) | delegate |
 | [provision_owned_checkout](#tool-provision_owned_checkout) | operator |
+| [read_composition](#tool-read_composition) | self_write |
+| [read_composition_configure](#tool-read_composition_configure) | operator |
 | [recall](#tool-recall) | read |
 | [refresh_owned_checkout](#tool-refresh_owned_checkout) | operator |
 | [reject_action](#tool-reject_action) | delegate |
@@ -1335,6 +1337,42 @@ Provision a routine-owned clone at its deterministic Custode path.
 **Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The shared operation repeats this role check.
 
 **Behavior, defaults and errors:** routine_id and repository owner/name are required; provisioning may run before the roster entry exists. Existing matching clones are idempotent success. Occupied, mismatched, unsafe, or unsuccessfully cloned destinations are preserved and return structured errors. Supply a stable idempotency_key when retrying one logical request.
+
+### Tool: read_composition
+
+Fixed dispatcher for one human-published versioned PR read composition.
+
+**Endpoints:** /mcp. **Category:** self_write.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| request | object | yes | action list; invoke with name pr_review_context and arguments {repo,number}; trace with trace_id. |  |
+
+**Result:** Logical discovery entries or results keyed by compiled tool, exact definition revision/activation generation, trace_id and explicit coherence limitation. Traces retain digests/counts and omit raw input/results.
+
+**Side effects:** Reads served repository facts and retains bounded invocation traces. No job, approval, external write or source evaluation.
+
+**Access:** Main endpoint human or exactly the configured current read_composition_owner. Other owners and helpers cannot discover it. Invocation and each underlying read recheck current ownership, repository scope, activation generation, dependency revision and compiled read eligibility.
+
+**Behavior, defaults and errors:** request actions list/invoke/trace. invoke uses name pr_review_context and arguments {repo,number}. Source imports remain inactive. Partial results preserve the stopping reason; disabled or replaced activations stop subsequent reads. Returned bytes cannot be retracted. GitHub reads are non-atomic and diff has no head binding. Maximum three reads, 100 check/file rows and 64KiB result payload. Source responses may allocate upstream before the output limit is checked. Per-operation result values are capped at 20KB, total values at 60KB, leaving envelope room below 64KiB. At most ten unconfirmed invocations may exist; crash uncertainty consumes capacity until explicitly investigated. Latest 100 terminal traces are retained; immutable definitions are not automatically deleted.
+
+### Tool: read_composition_configure
+
+Publish and activate, replace, disable or roll back the one scoped PR read definition.
+
+**Endpoints:** /mcp. **Category:** operator.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| request | object | yes | publish with definition {name,repo,description,steps}; activate with name,revision,expected_generation; disable with name,expected_generation. |  |
+
+**Result:** Published immutable revision or activation pointer with monotonically increasing generation; stale expected generation is refused.
+
+**Side effects:** SQLite immutable definition publication and compare-and-set activation/disable. Publishing never activates.
+
+**Access:** Main endpoint, human operator only, enforced in shared operations.
+
+**Behavior, defaults and errors:** request publish carries definition {name,repo,description,steps}; steps allow repo_view_pr/repo_pr_checks/repo_pr_diff only with structural $arg references to repo and number. activate requires name,revision,expected_generation; disable requires name,expected_generation. Generation increases even on rollback to prevent ABA. A configured owner must currently own the served repository. No automatic activation or generated executable code.
 
 ### Tool: recall
 
