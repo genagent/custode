@@ -9,6 +9,8 @@ defmodule CustodeWeb.Console.Composer do
 
   use Phoenix.Component
 
+  import CustodeWeb.Components, only: [action_button: 1]
+
   attr(:subject_id, :string, required: true)
   attr(:state, :atom, required: true)
   attr(:routine, :any, default: nil)
@@ -48,7 +50,7 @@ defmodule CustodeWeb.Console.Composer do
       <label for={"message-input-#{@message_gen}"} class="mb-1 block text-sm font-medium">
         Message {@subject_id}
       </label>
-      <div class="flex flex-col gap-2 sm:flex-row" phx-drop-target={@routine && @upload.ref}>
+      <div class="flex flex-col gap-2" phx-drop-target={@routine && @upload.ref}>
         <textarea
           id={"message-input-#{@message_gen}"}
           aria-describedby={"message-help-#{@message_gen}"}
@@ -57,13 +59,20 @@ defmodule CustodeWeb.Console.Composer do
           data-draft-input
           class="textarea textarea-bordered w-full text-sm"
         ></textarea>
-        <button
-          type="submit"
-          class="btn btn-primary btn-sm self-end"
-          phx-disable-with="Sending..."
-        >
-          {message_label(@state)}
-        </button>
+        <div data-composer-actions class="flex flex-wrap items-end justify-between gap-2">
+          <label :if={@routine} class="flex min-w-0 max-w-full flex-col gap-1 text-xs text-base-content/70">
+            Attach image
+            <.live_file_input upload={@upload} class="file-input file-input-bordered file-input-sm w-full max-w-64 text-base-content" />
+          </label>
+          <.action_button
+            type="submit"
+            variant={:primary}
+            class="ml-auto"
+            phx-disable-with="Sending..."
+          >
+            {message_label(@state)}
+          </.action_button>
+        </div>
       </div>
 
       <p id={"message-help-#{@message_gen}"} class="mt-1 text-xs text-base-content/60">
@@ -74,10 +83,7 @@ defmodule CustodeWeb.Console.Composer do
         <button type="button" data-discard-draft hidden class="link">Discard draft</button>
       </div>
 
-      <label :if={@routine} class="mt-1 flex items-center gap-2 text-xs text-base-content/40">
-        <.live_file_input upload={@upload} class="file-input file-input-xs w-52" />
-        or drop an image on the box
-      </label>
+      <p :if={@routine} class="mt-1 text-xs text-base-content/60">You can also drop an image on the message box.</p>
     </form>
     """
   end

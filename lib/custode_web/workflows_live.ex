@@ -76,20 +76,24 @@ defmodule CustodeWeb.WorkflowsLive do
   def render(assigns) do
     ~H"""
     <.page attention_signals={@attention_signals} fleet_today={@fleet_today} active={:workflows} launch_gates={length(@pending)}>
+      <.page_header
+        title="Workflows"
+        summary={"#{length(@pending)} pending #{if length(@pending) == 1, do: "launch", else: "launches"} · #{length(@runs)} recent #{if length(@runs) == 1, do: "run", else: "runs"}"}
+      />
       <section :if={@pending != []} class="mb-8">
-        <h3 class="mb-2 text-lg font-semibold text-base-content/70">
-          launch gates ({length(@pending)})
-        </h3>
-        <div class="grid gap-3 md:grid-cols-2">
+        <h2 class="mb-2 text-lg font-semibold text-base-content/70">
+          Launch gates ({length(@pending)})
+        </h2>
+        <div role="list" aria-label="Launch gates" class="divide-y divide-base-300 rounded-box border border-base-300 bg-base-100">
           <.launch_card :for={proposal <- @pending} proposal={proposal} />
         </div>
       </section>
 
-      <h3 class="mb-2 text-lg font-semibold text-base-content/70">runs</h3>
+      <h2 class="mb-2 text-lg font-semibold text-base-content/70">Runs</h2>
       <p :if={@runs == []} class="text-sm text-base-content/40">
         no workflow runs yet -- a run starts at a launch gate, never anywhere else
       </p>
-      <div class="space-y-3">
+      <div :if={@runs != []} role="list" aria-label="Workflow runs" class="divide-y divide-base-300 rounded-box border border-base-300 bg-base-100">
         <.run_card :for={entry <- @runs} entry={entry} />
       </div>
 
@@ -110,59 +114,59 @@ defmodule CustodeWeb.WorkflowsLive do
     assigns = assign(assigns, :estimate, assigns.proposal["estimate"] || %{})
 
     ~H"""
-    <div class="card border border-warning/40 bg-base-100 shadow">
-      <div class="card-body gap-2 p-4">
+    <section role="listitem" class="p-4">
+      <div class="flex min-w-0 flex-col gap-2">
         <div class="flex flex-wrap items-center gap-2">
-          <span class="badge badge-warning badge-sm">launch gate</span>
-          <span class="font-mono font-bold">{@proposal["workflow"]}</span>
-          <span class="font-mono text-xs text-base-content/60">{@proposal["repo"]}</span>
-          <span class="ml-auto font-mono text-xs text-base-content/50">
+          <.status_token tone={:warning}>launch gate</.status_token>
+          <span class="font-mono font-bold [overflow-wrap:anywhere]">{@proposal["workflow"]}</span>
+          <span class="font-mono text-xs text-base-content/60 [overflow-wrap:anywhere]">{@proposal["repo"]}</span>
+          <span class="ml-auto tabular-nums text-xs text-base-content/50">
             <.ago at={@proposal["at"]} />
           </span>
         </div>
         <p :if={@proposal["why"]} class="text-sm text-base-content/70">{@proposal["why"]}</p>
         <dl class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
           <dt class="text-base-content/50">nodes</dt>
-          <dd class="text-right font-mono">
+          <dd class="text-right tabular-nums">
             {@estimate["known_nodes"]}<span :if={@estimate["fans_out"]}>+ (fans out)</span>
           </dd>
           <dt class="text-base-content/50">per node</dt>
-          <dd class="text-right font-mono">
+          <dd class="text-right tabular-nums">
             ${usd(@estimate["per_node_usd"])}
             <span class="text-base-content/40">
               {basis(@estimate)}
             </span>
           </dd>
           <dt class="text-base-content/50">estimate</dt>
-          <dd class="text-right font-mono">
+          <dd class="text-right tabular-nums">
             <span :if={@estimate["fans_out"]}>&ge; </span>${usd(@estimate["floor_usd"])}
           </dd>
           <dt class="text-base-content/50">run rail</dt>
-          <dd class="text-right font-mono">${usd(@estimate["budget_usd"])}</dd>
+          <dd class="text-right tabular-nums">${usd(@estimate["budget_usd"])}</dd>
         </dl>
         <p :if={@estimate["fans_out"]} class="text-xs text-base-content/40">
           a fan-out stage expands over items the merge has not produced yet, so the
           total is not knowable before the run. The rail is what bounds it.
         </p>
         <div class="card-actions justify-end">
-          <button
-            class="btn btn-ghost btn-sm"
+          <.action_button
+            variant={:quiet}
             phx-click="reject_launch"
             phx-value-id={@proposal["proposal"]}
           >
             Reject
-          </button>
-          <button
-            class="btn btn-success btn-sm"
+          </.action_button>
+          <.action_button
+            variant={:primary}
             phx-click="approve_launch"
             phx-value-id={@proposal["proposal"]}
             data-confirm={"Launch #{@proposal["workflow"]} on #{@proposal["repo"]}?"}
           >
             Approve
-          </button>
+          </.action_button>
         </div>
       </div>
-    </div>
+    </section>
     """
   end
 
@@ -173,16 +177,16 @@ defmodule CustodeWeb.WorkflowsLive do
   # the stages it never reached instead of ending where it stopped.
   defp run_card(assigns) do
     ~H"""
-    <div class="card bg-base-100 shadow-sm">
-      <div class="card-body gap-2 p-4">
+    <section role="listitem" class="p-4">
+      <div class="flex min-w-0 flex-col gap-2">
         <div class="flex flex-wrap items-center gap-2">
-          <span class={["badge badge-sm", run_badge(@entry.run.status)]}>
+          <.status_token tone={run_tone(@entry.run.status)} running={@entry.run.status == "running"}>
             {@entry.run.status}
-          </span>
-          <span class="font-mono font-bold">{@entry.run.workflow}</span>
-          <span class="font-mono text-xs text-base-content/60">{@entry.run.repo}</span>
-          <span class="font-mono text-xs text-base-content/40">{@entry.run.run_id}</span>
-          <span class="ml-auto font-mono text-xs">
+          </.status_token>
+          <span class="font-mono font-bold [overflow-wrap:anywhere]">{@entry.run.workflow}</span>
+          <span class="font-mono text-xs text-base-content/60 [overflow-wrap:anywhere]">{@entry.run.repo}</span>
+          <span class="font-mono text-xs text-base-content/40 [overflow-wrap:anywhere]">{@entry.run.run_id}</span>
+          <span class="ml-auto tabular-nums text-xs">
             ${usd(@entry.spend.spent_usd)}<span
               :if={@entry.spend.budget_usd}
               class="text-base-content/50"
@@ -222,17 +226,17 @@ defmodule CustodeWeb.WorkflowsLive do
         </div>
 
         <div :if={@entry.run.status == "budget_paused"} class="card-actions justify-end">
-          <button
-            class="btn btn-warning btn-sm"
+          <.action_button
+            variant={:primary}
             phx-click="resume_run"
             phx-value-id={@entry.run.run_id}
             data-confirm="Double this run's rail and let it go on?"
           >
             Raise the rail and resume
-          </button>
+          </.action_button>
         </div>
       </div>
-    </div>
+    </section>
     """
   end
 
@@ -250,11 +254,11 @@ defmodule CustodeWeb.WorkflowsLive do
   defp stage_class(:running), do: "text-info"
   defp stage_class(:pending), do: "text-base-content/30"
 
-  defp run_badge("running"), do: "badge-info"
-  defp run_badge("complete"), do: "badge-success"
-  defp run_badge("failed"), do: "badge-error"
-  defp run_badge("budget_paused"), do: "badge-warning"
-  defp run_badge(_status), do: "badge-ghost"
+  defp run_tone("running"), do: :info
+  defp run_tone("complete"), do: :success
+  defp run_tone("failed"), do: :error
+  defp run_tone("budget_paused"), do: :warning
+  defp run_tone(_status), do: :neutral
 
   defp refresh(socket) do
     socket = AttentionSnapshot.refresh(socket)

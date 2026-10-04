@@ -36,4 +36,36 @@ defmodule CustodeWeb.Console.ComposerTest do
       assert document |> LazyHTML.query("textarea[placeholder]") |> Enum.count() == 0
     end
   end
+
+  test "attachment and sending share one action row without changing draft or upload ownership" do
+    upload = %Phoenix.LiveView.UploadConfig{name: :image, ref: "image-upload", accept: [".png"]}
+
+    document =
+      render_component(&Composer.message_composer/1,
+        subject_id: "project-agent",
+        state: :idle,
+        routine: %{id: "project-agent"},
+        message_gen: 8,
+        upload: upload
+      )
+      |> LazyHTML.from_document()
+
+    assert document |> LazyHTML.query("[data-composer-actions] input[type=file]") |> Enum.count() ==
+             1
+
+    assert document
+           |> LazyHTML.query("[data-composer-actions] button[type=submit]")
+           |> Enum.count() == 1
+
+    assert document |> LazyHTML.query("input[type=file]") |> Enum.count() == 1
+    assert document |> LazyHTML.query("label") |> LazyHTML.text() =~ "Attach image"
+
+    assert document
+           |> LazyHTML.query("form[phx-hook=SubjectDraft][phx-submit=message]")
+           |> Enum.count() == 1
+
+    assert document
+           |> LazyHTML.query("[phx-drop-target=image-upload] textarea[data-draft-input]")
+           |> Enum.count() == 1
+  end
 end

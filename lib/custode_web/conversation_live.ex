@@ -16,7 +16,8 @@ defmodule CustodeWeb.ConversationLive do
       host_banner: 1,
       markdown: 1,
       message_content: 1,
-      status_badge: 1
+      status_badge: 1,
+      status_token: 1
     ]
 
   import CustodeWeb.Console.Composer, only: [message_composer: 1]
@@ -349,9 +350,9 @@ defmodule CustodeWeb.ConversationLive do
             </div>
 
             <div class="flex items-center gap-2 text-xs text-base-content/50">
-              <span class={["badge badge-sm", message_status_class(exchange.status)]}>
+              <.status_token tone={message_status_tone(exchange.status)} running={exchange.status == "executing"}>
                 {status_label(exchange.status)}
-              </span>
+              </.status_token>
               <span :if={exchange.provider} class="font-mono">{exchange.provider}</span>
             </div>
 
@@ -573,14 +574,14 @@ defmodule CustodeWeb.ConversationLive do
   defp status_label("refused"), do: "refused"
   defp status_label(status), do: String.replace(status, "_", " ")
 
-  defp message_status_class("executing"), do: "badge-info"
+  defp message_status_tone("executing"), do: :info
 
-  defp message_status_class(status) when status in ["waiting_for_input", "waiting_for_approval"],
-    do: "badge-warning"
+  defp message_status_tone(status) when status in ["waiting_for_input", "waiting_for_approval"],
+    do: :warning
 
-  defp message_status_class("completed"), do: "badge-success badge-outline"
-  defp message_status_class(status) when status in ["failed", "refused"], do: "badge-error"
-  defp message_status_class(_status), do: "badge-outline"
+  defp message_status_tone("completed"), do: :success
+  defp message_status_tone(status) when status in ["failed", "refused"], do: :error
+  defp message_status_tone(_status), do: :neutral
 
   defp execution_label(%{provider: nil}), do: "execution unknown"
 

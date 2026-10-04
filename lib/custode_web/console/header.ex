@@ -7,7 +7,7 @@ defmodule CustodeWeb.Console.Header do
 
   use Phoenix.Component
 
-  import CustodeWeb.Components, only: [app_header: 1]
+  import CustodeWeb.Components, only: [action_button: 1, action_classes: 2, app_header: 1]
 
   alias Custode.Signal
   alias CustodeWeb.Console.Rail
@@ -32,15 +32,15 @@ defmodule CustodeWeb.Console.Header do
     <div id="console-controls" class="border-b border-base-300 bg-base-100 px-5 py-2">
       <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
         <.breadcrumb selected={@selected} signal={@signal} />
-        <button
+        <.action_button
           type="button"
           phx-click="command_open"
           data-command-trigger
-          class="btn btn-ghost btn-xs"
+          variant={:quiet} size={:xs}
           title="Search commands (Cmd/Ctrl+K)"
         >
           Commands <kbd class="kbd kbd-xs">⌘K</kbd>
-        </button>
+        </.action_button>
         <%!-- Most of what the operator wants is a sentence to the caretaker,
               not a visit to one agent (#451). --%>
         <form
@@ -82,7 +82,7 @@ defmodule CustodeWeb.Console.Header do
             </p>
           </div>
           <details id="fleet-actions" class="dropdown w-full sm:dropdown-end sm:w-auto">
-            <summary class="btn btn-ghost btn-xs">Fleet actions</summary>
+            <summary class={action_classes(:quiet, :xs)}>Fleet actions</summary>
             <ul class="menu dropdown-content z-10 mt-1 w-full max-w-[calc(100vw-2rem)] rounded-box bg-base-100 p-2 shadow-lg sm:w-72">
               <li>
                 <button phx-click="pause_all" data-confirm="Pause every running agent?" aria-describedby="pause-all-help">

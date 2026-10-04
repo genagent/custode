@@ -482,8 +482,8 @@ defmodule CustodeWeb.Console.Subject do
           proposed panel
         </h3>
         <span class="text-xs text-base-content/50">preview, then decide</span>
-        <button class="btn btn-success btn-xs ml-auto" phx-click="approve_panel">Approve</button>
-        <button class="btn btn-ghost btn-xs" phx-click="reject_panel">Reject</button>
+        <.action_button variant={:primary} class="ml-auto" phx-click="approve_panel">Approve</.action_button>
+        <.action_button variant={:quiet} phx-click="reject_panel">Reject</.action_button>
       </div>
       <.sandboxed_panel html={@subject.panel_pending} />
     </section>

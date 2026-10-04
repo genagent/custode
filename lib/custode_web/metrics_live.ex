@@ -12,7 +12,7 @@ defmodule CustodeWeb.MetricsLive do
   import CustodeWeb.Charts
   alias CustodeWeb.AttentionSnapshot
 
-  import CustodeWeb.Components, only: [page: 1, usd: 1, tok: 1]
+  import CustodeWeb.Components, only: [page: 1, page_header: 1, usd: 1, tok: 1]
   import CustodeWeb.DigestPanel, only: [digest_panel: 1]
 
   alias Custode.Gates.Grant
@@ -43,7 +43,8 @@ defmodule CustodeWeb.MetricsLive do
   def render(assigns) do
     ~H"""
     <.page attention_signals={@attention_signals} fleet_today={@fleet_today} active={:metrics}>
-      <div class="stats stats-horizontal mb-6 w-full bg-base-100 shadow-sm">
+      <.page_header title="Metrics" summary={"Fleet activity over the last #{@days_shown} days."} />
+      <div class="stats stats-vertical mb-6 w-full bg-base-100 shadow-sm tabular-nums sm:stats-horizontal">
         <div class="stat">
           <div class="stat-title">fleet today</div>
           <div class="stat-value text-2xl">${CustodeWeb.Components.usd(@fleet_today)}</div>
@@ -71,9 +72,9 @@ defmodule CustodeWeb.MetricsLive do
 
       <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <section class="min-w-0 rounded-lg bg-base-100 p-4 shadow-sm">
-          <h3 class="mb-3 font-semibold text-base-content/70">
+          <h2 class="mb-3 font-semibold text-base-content/70">
             Spend per day <span class="text-xs font-normal">(last {@days_shown} days)</span>
-          </h3>
+          </h2>
           <.daily_chart
             id="daily-spend"
             chart={@charts.usd}
@@ -84,9 +85,9 @@ defmodule CustodeWeb.MetricsLive do
         </section>
 
         <section class="min-w-0 rounded-lg bg-base-100 p-4 shadow-sm">
-          <h3 class="mb-3 font-semibold text-base-content/70">
+          <h2 class="mb-3 font-semibold text-base-content/70">
             Tokens per day <span class="text-xs font-normal">(throughput)</span>
-          </h3>
+          </h2>
           <.daily_chart
             id="daily-tokens"
             chart={@charts.tokens}
@@ -97,7 +98,7 @@ defmodule CustodeWeb.MetricsLive do
         </section>
 
         <section class="min-w-0 rounded-lg bg-base-100 p-4 shadow-sm">
-          <h3 class="mb-3 font-semibold text-base-content/70">Turns per day</h3>
+          <h2 class="mb-3 font-semibold text-base-content/70">Turns per day</h2>
           <.daily_chart
             id="daily-turns"
             chart={@turn_chart}
@@ -108,9 +109,9 @@ defmodule CustodeWeb.MetricsLive do
         </section>
 
         <section class="rounded-lg bg-base-100 p-4 shadow-sm">
-          <h3 class="mb-3 font-semibold text-base-content/70">
+          <h2 class="mb-3 font-semibold text-base-content/70">
             gate latency <span class="text-xs font-normal">(open &rarr; resolved; the human loop)</span>
-          </h3>
+          </h2>
           <.gate_latency gates={@gates} median={@gate_median} />
         </section>
 
@@ -118,9 +119,9 @@ defmodule CustodeWeb.MetricsLive do
               100% over many gates is one whose gates cost latency and buy
               nothing; that is the evidence for relaxing a class (#451). --%>
         <section class="rounded-lg bg-base-100 p-4 shadow-sm">
-          <h3 class="mb-3 font-semibold text-base-content/70">
+          <h2 class="mb-3 font-semibold text-base-content/70">
             approval rate <span class="text-xs font-normal">(decided approval gates, all time)</span>
-          </h3>
+          </h2>
           <p :if={@approval_rates == []} class="text-sm text-base-content/50">
             no decided approval gates yet
           </p>
@@ -137,9 +138,9 @@ defmodule CustodeWeb.MetricsLive do
               <tbody>
                 <tr :for={row <- @approval_rates}>
                   <td class="font-mono">{row.agent_id}</td>
-                  <td class="text-right font-mono">{row.approved}</td>
-                  <td class="text-right font-mono">{row.rejected}</td>
-                  <td class="text-right font-mono">{round(row.rate * 100)}%</td>
+                  <td class="text-right tabular-nums">{row.approved}</td>
+                  <td class="text-right tabular-nums">{row.rejected}</td>
+                  <td class="text-right tabular-nums">{round(row.rate * 100)}%</td>
                 </tr>
               </tbody>
             </table>
@@ -150,10 +151,10 @@ defmodule CustodeWeb.MetricsLive do
               since agents began declaring a class are counted, so this table
               starts empty and fills as the fleet works. --%>
         <section class="rounded-lg bg-base-100 p-4 shadow-sm">
-          <h3 class="mb-3 font-semibold text-base-content/70">
+          <h2 class="mb-3 font-semibold text-base-content/70">
             approval rate by class
             <span class="text-xs font-normal">(gates that declared one)</span>
-          </h3>
+          </h2>
           <p :if={@approval_rates_by_class == []} class="text-sm text-base-content/50">
             no decided gate has declared a class yet
           </p>
@@ -173,10 +174,10 @@ defmodule CustodeWeb.MetricsLive do
                 <tr :for={row <- @approval_rates_by_class}>
                   <td class="font-mono">{row.class}</td>
                   <td class="font-mono text-base-content/60">{row.risk || "-"}</td>
-                  <td class="text-right font-mono">{row.approved}</td>
-                  <td class="text-right font-mono">{row.rejected}</td>
-                  <td class="text-right font-mono">{round(row.rate * 100)}%</td>
-                  <td class="text-right font-mono">{row.median_wait_min}m</td>
+                  <td class="text-right tabular-nums">{row.approved}</td>
+                  <td class="text-right tabular-nums">{row.rejected}</td>
+                  <td class="text-right tabular-nums">{round(row.rate * 100)}%</td>
+                  <td class="text-right tabular-nums">{row.median_wait_min}m</td>
                 </tr>
               </tbody>
             </table>
@@ -186,10 +187,10 @@ defmodule CustodeWeb.MetricsLive do
         <%!-- Writes made outside an approved action (#451). Observed, not yet
               refused: this table is what says whether refusing is safe. --%>
         <section class="rounded-lg bg-base-100 p-4 shadow-sm">
-          <h3 class="mb-3 font-semibold text-base-content/70">
+          <h2 class="mb-3 font-semibold text-base-content/70">
             writes outside a grant
             <span class="text-xs font-normal">(mode: {@grant_mode})</span>
-          </h3>
+          </h2>
           <p :if={@grant_observations == []} class="text-sm text-base-content/50">
             none observed: every write verb ran inside an approved action of its class
           </p>
@@ -208,7 +209,7 @@ defmodule CustodeWeb.MetricsLive do
                   <td class="font-mono">{row.agent}</td>
                   <td class="font-mono">{row.verb}</td>
                   <td class="font-mono">{row.verdict}</td>
-                  <td class="text-right font-mono">{row.count}</td>
+                  <td class="text-right tabular-nums">{row.count}</td>
                 </tr>
               </tbody>
             </table>
@@ -216,12 +217,12 @@ defmodule CustodeWeb.MetricsLive do
         </section>
 
         <section class="rounded-lg bg-base-100 p-4 shadow-sm xl:col-span-2">
-          <h3 class="mb-3 font-semibold text-base-content/70">
+          <h2 class="mb-3 font-semibold text-base-content/70">
             by model
             <span class="text-xs font-normal">
               (last {@days_shown}d -- is opus earning its tokens? #111)
             </span>
-          </h3>
+          </h2>
           <div class="overflow-x-auto">
             <table class="table table-xs">
               <thead>
@@ -239,9 +240,9 @@ defmodule CustodeWeb.MetricsLive do
                   <td class="font-mono">{model}</td>
                   <td class="text-right">{row.turns}</td>
                   <td class={["text-right", row.failed > 0 && "text-error"]}>{row.failed}</td>
-                  <td class="text-right font-mono">${CustodeWeb.Components.usd(row.usd)}</td>
-                  <td class="text-right font-mono">{CustodeWeb.Components.tok(row.tokens)}</td>
-                  <td class="text-right font-mono">
+                  <td class="text-right tabular-nums">${CustodeWeb.Components.usd(row.usd)}</td>
+                  <td class="text-right tabular-nums">{CustodeWeb.Components.tok(row.tokens)}</td>
+                  <td class="text-right tabular-nums">
                     ${CustodeWeb.Components.usd(row.usd / max(row.turns, 1))}
                   </td>
                 </tr>

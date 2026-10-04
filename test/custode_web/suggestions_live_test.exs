@@ -39,7 +39,9 @@ defmodule CustodeWeb.SuggestionsLiveTest do
       suggest!("routine-#{n}", "cron", "*/30 9-18 * * *", "full evidence sentence number #{n}")
     end
 
-    {:ok, _view, html} = live(conn, "/suggestions")
+    {:ok, view, html} = live(conn, "/suggestions")
+    assert has_element?(view, ~s|ul[aria-label="Standing suggestions"] > li:nth-child(5)|)
+    refute has_element?(view, ~s|ul[aria-label="Standing suggestions"] > li:nth-child(6)|)
 
     # all five appear (the rail would cap at 3; this page does not)
     assert html =~ "5 standing suggestions"

@@ -7,7 +7,7 @@ defmodule CustodeWeb.Console.Item do
 
   use Phoenix.Component
 
-  import CustodeWeb.Components, only: [ago: 1, foldable_text: 1, reject_form: 1]
+  import CustodeWeb.Components, only: [action_button: 1, ago: 1, foldable_text: 1, reject_form: 1]
 
   alias Custode.Operator.Actions
   alias Custode.Signal
@@ -314,22 +314,22 @@ defmodule CustodeWeb.Console.Item do
             </span>
             <span class="ml-1 font-mono text-xs text-base-content/40">{draft.repo}</span>
           </div>
-          <button
+          <.action_button
             :if={draft.status == "drafted"}
-            class="btn btn-ghost btn-xs"
+            variant={:quiet}
             phx-click="drop_draft"
             phx-value-id={draft.id}
           >
             Drop
-          </button>
-          <button
+          </.action_button>
+          <.action_button
             :if={draft.status == "dropped"}
-            class="btn btn-ghost btn-xs"
+            variant={:quiet}
             phx-click="keep_draft"
             phx-value-id={draft.id}
           >
             Keep
-          </button>
+          </.action_button>
         </div>
         <details :if={draft.body not in [nil, ""]} class="mt-1">
           <summary class="cursor-pointer text-xs text-base-content/50">Evidence</summary>
@@ -362,7 +362,7 @@ defmodule CustodeWeb.Console.Item do
         aria-describedby={"reply-help-#{@op.op}-#{@message_gen}"}
       ></textarea>
       <p id={"reply-help-#{@op.op}-#{@message_gen}"} class="text-xs text-base-content/60">Send an answer to this question.</p>
-      <button type="submit" class="btn btn-primary btn-sm self-end">Answer</button>
+      <.action_button type="submit" variant={:primary} class="self-end">Answer</.action_button>
     </form>
     <%!-- question-inline.png's "or just say": answers the agent said it would
           accept. The click sends an INDEX; the text is read back from the
@@ -405,7 +405,7 @@ defmodule CustodeWeb.Console.Item do
         />
         <p id={"dismiss-help-#{@op.args.ask}-#{@message_gen}"} class="mt-1 text-xs text-base-content/60">Dismisses the question without sending an answer.</p>
       </div>
-      <button type="submit" class="btn btn-ghost btn-sm">Dismiss</button>
+      <.action_button type="submit" variant={:quiet}>Dismiss</.action_button>
     </form>
     """
   end
@@ -418,13 +418,13 @@ defmodule CustodeWeb.Console.Item do
 
   defp op(assigns) do
     ~H"""
-    <button
-      class={["btn btn-sm", (@op.op == :approve && "btn-success") || "btn-outline"]}
+    <.action_button
+      variant={if @op.op in [:approve, :recover_gate, :resume], do: :primary, else: :secondary}
       phx-click="op"
       phx-value-op={@op.op}
     >
       {@op.label}
-    </button>
+    </.action_button>
     """
   end
 
