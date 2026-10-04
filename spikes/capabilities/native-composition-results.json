@@ -1,54 +1,72 @@
 {
+  "date": "2026-10-04",
   "backend": "controlled repository fixture, not live GitHub",
   "catalog": "four-tool discovery projection",
   "context_bytes": "HTTP-returned tool text, not confirmed model consumption",
-  "date": "2026-10-04",
+  "protocols_observed": [
+    "2025-06-18"
+  ],
   "dynamic_catalog_refresh": "unproven",
-  "failed_attempts": [
+  "human_corrections": "none inside runs; two harness corrections: model selection and discovery allowance",
+  "source_manifests": [
     {
-      "exit_code": 1,
-      "manifest": 0,
-      "provider": "codex",
-      "reason": "configured model rejected before calls",
-      "scenario": "original",
-      "session_id": "session-sha256:26d5f693e002d9d3e1ef9c9cbc21cff6f5b4ec2a11b39be560af4fe1dd4a5931",
-      "terminal_event": "turn.failed"
+      "recorded_source_revision": "15b8c5a53c3472a9756bbbbdf6cd5a5d8eaa6984",
+      "definition_revision": "048067e7fc4e15858ac4c175a07d03a2517c9d82d597c74722c8992585b852e1",
+      "caller": {
+        "id": "routine-1028",
+        "kind": "routine"
+      },
+      "snodo_lock_sha256": "998b676c0fb96379aa976aae80abbfa8e32041e6616faa70c7b47cbd9328d7e0",
+      "files": {
+        "spikes/capabilities/native_composition.py": "436fc30f2fb8d9e603de158daccf3fb9d13f15b81c75ff808b0a36924656e820",
+        "test/custode/native_composition_test.exs": "41adca32fb78cd0a628838c1d2f1eef94ed1dcc3fd85b90b10e529eb20dbc848",
+        "lib/custode/read_compositions.ex": "484c5940fe09044e6edeb57ddb0ed6b9690fd3c5fd3d86eab14f598ba3c42b2c",
+        "lib/custode/mcp/read_composition_tools.ex": "c6899360249b24a81ecc1d7884141854b9090d274bb7c3fcc696acf5b6719683"
+      }
     },
     {
-      "exit_code": 0,
-      "manifest": 1,
-      "provider": "codex",
-      "reason": "prompt disallowed native discovery; zero repository calls",
-      "scenario": "original",
-      "session_id": "session-sha256:0018650baccb502b7fdf9ddd6168ec5854291bb397d1325b1199fe4241743d77",
-      "terminal_event": "turn.completed"
+      "recorded_source_revision": "4d02e8aec8dcc4d40a0d2c68eb51cb3c2bd1b77e",
+      "definition_revision": "fc2e7c42a8ce8f4d0cbceccc485dbf40a1d2421352c0fc92bdd6ab31b7d173ce",
+      "caller": {
+        "id": "routine-196",
+        "kind": "routine"
+      },
+      "snodo_lock_sha256": "998b676c0fb96379aa976aae80abbfa8e32041e6616faa70c7b47cbd9328d7e0",
+      "files": {
+        "spikes/capabilities/native_composition.py": "788e5d842644e4e4ba2892405e16e6a39ad55d1230b99105d6a8fb89efb3ced4",
+        "test/custode/native_composition_test.exs": "2aad072b99e3d1723572298666cafc8ca8a315eed03d30fb5fefcdd1c60f0a3e",
+        "lib/custode/read_compositions.ex": "484c5940fe09044e6edeb57ddb0ed6b9690fd3c5fd3d86eab14f598ba3c42b2c",
+        "lib/custode/mcp/read_composition_tools.ex": "c6899360249b24a81ecc1d7884141854b9090d274bb7c3fcc696acf5b6719683"
+      }
+    },
+    {
+      "recorded_source_revision": "07c28e7bf7f3144933603ee02003c1c016923383",
+      "definition_revision": "4467929e9b13d44dd6266772072e4dd82acdf66eee2647cc40ec7832b9513460",
+      "caller": {
+        "id": "routine-651",
+        "kind": "routine"
+      },
+      "snodo_lock_sha256": "998b676c0fb96379aa976aae80abbfa8e32041e6616faa70c7b47cbd9328d7e0",
+      "files": {
+        "spikes/capabilities/native_composition.py": "db01a71339904b0111818bc9fbb8b87b404386bdcd12fc8582424c4526a54c5d",
+        "test/custode/native_composition_test.exs": "4449fc2abca7bd36777e534dddf568c9be5d055937838cbd074ac98a6237a023",
+        "lib/custode/read_compositions.ex": "484c5940fe09044e6edeb57ddb0ed6b9690fd3c5fd3d86eab14f598ba3c42b2c",
+        "lib/custode/mcp/read_composition_tools.ex": "c6899360249b24a81ecc1d7884141854b9090d274bb7c3fcc696acf5b6719683"
+      }
     }
   ],
-  "human_corrections": "none inside runs; two harness corrections: model selection and discovery allowance",
   "measurements": [
     {
-      "backend_reads": [
-        "repo_view_pr",
-        "repo_pr_checks",
-        "repo_pr_diff"
-      ],
-      "exit_code": 0,
-      "lexical_interpretation": {
-        "mismatch": true,
-        "new_head": true,
-        "old_head": true,
-        "unbound_diff": false
-      },
       "manifest": 0,
-      "native_run_and_capture_ms": 6172,
-      "observed_model": "claude-sonnet-5-5",
       "provider": "claude",
-      "requested_model": "sonnet",
-      "returned_text_bytes": 233,
+      "version": "2.1.284 (Claude Code)",
       "scenario": "original",
+      "native_run_and_capture_ms": 6172,
       "session_id": "session-sha256:e22621767d1af1cdbfbb6ba545fc1f01d1c8b96cd143e651d54d3e3249739568",
-      "settlement": "bounded_process_group_return_not_all_descendants_attested",
+      "observed_model": "claude-sonnet-5-5",
+      "requested_model": "sonnet",
       "terminal_event": "success",
+      "exit_code": 0,
       "tool_calls": [
         {
           "composition_status": null,
@@ -85,32 +103,32 @@
           "trace_id": null
         }
       ],
-      "traces": [],
-      "version": "2.1.284 (Claude Code)"
-    },
-    {
       "backend_reads": [
         "repo_view_pr",
         "repo_pr_checks",
         "repo_pr_diff"
       ],
-      "exit_code": 0,
+      "returned_text_bytes": 233,
       "lexical_interpretation": {
         "mismatch": true,
         "new_head": true,
         "old_head": true,
         "unbound_diff": false
       },
+      "traces": [],
+      "settlement": "bounded_process_group_return_not_all_descendants_attested"
+    },
+    {
       "manifest": 0,
-      "native_run_and_capture_ms": 5930,
-      "observed_model": "claude-sonnet-5-5",
       "provider": "claude",
-      "requested_model": "sonnet",
-      "returned_text_bytes": 461,
+      "version": "2.1.284 (Claude Code)",
       "scenario": "composition",
+      "native_run_and_capture_ms": 5930,
       "session_id": "session-sha256:036fc544802039aaf89c10387c1b76572876b631ef3b4dddef30329385eb3c69",
-      "settlement": "bounded_process_group_return_not_all_descendants_attested",
+      "observed_model": "claude-sonnet-5-5",
+      "requested_model": "sonnet",
       "terminal_event": "success",
+      "exit_code": 0,
       "tool_calls": [
         {
           "composition_status": "complete",
@@ -126,6 +144,18 @@
           "trace_id": "a3923a78-702f-440c-b94f-d3ba13a245de"
         }
       ],
+      "backend_reads": [
+        "repo_view_pr",
+        "repo_pr_checks",
+        "repo_pr_diff"
+      ],
+      "returned_text_bytes": 461,
+      "lexical_interpretation": {
+        "mismatch": true,
+        "new_head": true,
+        "old_head": true,
+        "unbound_diff": false
+      },
       "traces": [
         {
           "actor": {
@@ -137,30 +167,19 @@
           "trace_id": "a3923a78-702f-440c-b94f-d3ba13a245de"
         }
       ],
-      "version": "2.1.284 (Claude Code)"
+      "settlement": "bounded_process_group_return_not_all_descendants_attested"
     },
     {
-      "backend_reads": [
-        "repo_view_pr",
-        "repo_pr_checks"
-      ],
-      "exit_code": 0,
-      "lexical_interpretation": {
-        "mismatch": true,
-        "new_head": false,
-        "old_head": true,
-        "unbound_diff": false
-      },
       "manifest": 0,
-      "native_run_and_capture_ms": 6958,
-      "observed_model": "claude-sonnet-5-5",
       "provider": "claude",
-      "requested_model": "sonnet",
-      "returned_text_bytes": 343,
+      "version": "2.1.284 (Claude Code)",
       "scenario": "partial",
+      "native_run_and_capture_ms": 6958,
       "session_id": "session-sha256:55f7b4121f8ff480cb1fcfc7993b56d4cef5b4d5acc868e86ec97f6d1c05889a",
-      "settlement": "bounded_process_group_return_not_all_descendants_attested",
+      "observed_model": "claude-sonnet-5-5",
+      "requested_model": "sonnet",
       "terminal_event": "success",
+      "exit_code": 0,
       "tool_calls": [
         {
           "composition_status": "dependency_read_failed",
@@ -175,6 +194,17 @@
           "trace_id": "4f0a5c68-f8b0-4c0c-8818-844fb28ecdcd"
         }
       ],
+      "backend_reads": [
+        "repo_view_pr",
+        "repo_pr_checks"
+      ],
+      "returned_text_bytes": 343,
+      "lexical_interpretation": {
+        "mismatch": true,
+        "new_head": false,
+        "old_head": true,
+        "unbound_diff": false
+      },
       "traces": [
         {
           "actor": {
@@ -186,27 +216,19 @@
           "trace_id": "4f0a5c68-f8b0-4c0c-8818-844fb28ecdcd"
         }
       ],
-      "version": "2.1.284 (Claude Code)"
+      "settlement": "bounded_process_group_return_not_all_descendants_attested"
     },
     {
-      "backend_reads": [],
-      "exit_code": 0,
-      "lexical_interpretation": {
-        "mismatch": true,
-        "new_head": false,
-        "old_head": false,
-        "unbound_diff": false
-      },
       "manifest": 0,
-      "native_run_and_capture_ms": 4821,
-      "observed_model": "claude-sonnet-5-5",
       "provider": "claude",
-      "requested_model": "sonnet",
-      "returned_text_bytes": 44,
+      "version": "2.1.284 (Claude Code)",
       "scenario": "denied",
+      "native_run_and_capture_ms": 4821,
       "session_id": "session-sha256:4df07987d47ad9dd8ce04f74056ead3f1589562d7be14fcfdaa022b49a57d0be",
-      "settlement": "bounded_process_group_return_not_all_descendants_attested",
+      "observed_model": "claude-sonnet-5-5",
+      "requested_model": "sonnet",
       "terminal_event": "success",
+      "exit_code": 0,
       "tool_calls": [
         {
           "composition_status": null,
@@ -218,32 +240,28 @@
           "tool": "read_composition"
         }
       ],
-      "traces": [],
-      "version": "2.1.284 (Claude Code)"
-    },
-    {
-      "backend_reads": [
-        "repo_view_pr",
-        "repo_pr_checks",
-        "repo_pr_diff"
-      ],
-      "exit_code": 0,
+      "backend_reads": [],
+      "returned_text_bytes": 44,
       "lexical_interpretation": {
         "mismatch": true,
-        "new_head": true,
-        "old_head": true,
-        "unbound_diff": true
+        "new_head": false,
+        "old_head": false,
+        "unbound_diff": false
       },
+      "traces": [],
+      "settlement": "bounded_process_group_return_not_all_descendants_attested"
+    },
+    {
       "manifest": 1,
-      "native_run_and_capture_ms": 11458,
-      "observed_model": null,
       "provider": "codex",
-      "requested_model": "gpt-5.5",
-      "returned_text_bytes": 461,
+      "version": "codex-cli 0.157.1",
       "scenario": "composition",
+      "native_run_and_capture_ms": 11458,
       "session_id": "session-sha256:7968c62d2f280249d25194aa3a9043e7eff154e28f8a0bfe9970a50cf6f9bc42",
-      "settlement": "bounded_process_group_return_not_all_descendants_attested",
+      "observed_model": null,
+      "requested_model": "gpt-5.5",
       "terminal_event": "turn.completed",
+      "exit_code": 0,
       "tool_calls": [
         {
           "composition_status": "complete",
@@ -259,6 +277,18 @@
           "trace_id": "627ccf54-502a-4627-a817-910ba347529c"
         }
       ],
+      "backend_reads": [
+        "repo_view_pr",
+        "repo_pr_checks",
+        "repo_pr_diff"
+      ],
+      "returned_text_bytes": 461,
+      "lexical_interpretation": {
+        "mismatch": true,
+        "new_head": true,
+        "old_head": true,
+        "unbound_diff": true
+      },
       "traces": [
         {
           "actor": {
@@ -270,30 +300,19 @@
           "trace_id": "627ccf54-502a-4627-a817-910ba347529c"
         }
       ],
-      "version": "codex-cli 0.157.1"
+      "settlement": "bounded_process_group_return_not_all_descendants_attested"
     },
     {
-      "backend_reads": [
-        "repo_view_pr",
-        "repo_pr_checks"
-      ],
-      "exit_code": 0,
-      "lexical_interpretation": {
-        "mismatch": true,
-        "new_head": false,
-        "old_head": true,
-        "unbound_diff": true
-      },
       "manifest": 1,
-      "native_run_and_capture_ms": 12415,
-      "observed_model": null,
       "provider": "codex",
-      "requested_model": "gpt-5.5",
-      "returned_text_bytes": 343,
+      "version": "codex-cli 0.157.1",
       "scenario": "partial",
+      "native_run_and_capture_ms": 12415,
       "session_id": "session-sha256:9bf04e06d4be5da82ea041f62701299c601a3b1a45c67e9f29adf7a0bb6ed833",
-      "settlement": "bounded_process_group_return_not_all_descendants_attested",
+      "observed_model": null,
+      "requested_model": "gpt-5.5",
       "terminal_event": "turn.completed",
+      "exit_code": 0,
       "tool_calls": [
         {
           "composition_status": "dependency_read_failed",
@@ -308,6 +327,17 @@
           "trace_id": "d03b3075-1943-4a35-8f24-921b4b989046"
         }
       ],
+      "backend_reads": [
+        "repo_view_pr",
+        "repo_pr_checks"
+      ],
+      "returned_text_bytes": 343,
+      "lexical_interpretation": {
+        "mismatch": true,
+        "new_head": false,
+        "old_head": true,
+        "unbound_diff": true
+      },
       "traces": [
         {
           "actor": {
@@ -319,64 +349,52 @@
           "trace_id": "d03b3075-1943-4a35-8f24-921b4b989046"
         }
       ],
-      "version": "codex-cli 0.157.1"
+      "settlement": "bounded_process_group_return_not_all_descendants_attested"
     },
     {
-      "backend_reads": [],
+      "manifest": 1,
+      "provider": "codex",
+      "version": "codex-cli 0.157.1",
+      "scenario": "denied",
+      "native_run_and_capture_ms": 11601,
+      "session_id": "session-sha256:f1a7874f1fe337fde286a9a1a6f4841b7956cac05759f4680313e1a8b4f377bf",
+      "observed_model": null,
+      "requested_model": "gpt-5.5",
+      "terminal_event": "turn.completed",
       "exit_code": 0,
+      "tool_calls": [
+        {
+          "composition_status": null,
+          "failed": true,
+          "http_status": 200,
+          "method": "tools/call",
+          "observed_heads": [],
+          "text_bytes": 44,
+          "tool": "read_composition"
+        }
+      ],
+      "backend_reads": [],
+      "returned_text_bytes": 44,
       "lexical_interpretation": {
         "mismatch": false,
         "new_head": false,
         "old_head": false,
         "unbound_diff": false
       },
-      "manifest": 1,
-      "native_run_and_capture_ms": 11601,
-      "observed_model": null,
-      "provider": "codex",
-      "requested_model": "gpt-5.5",
-      "returned_text_bytes": 44,
-      "scenario": "denied",
-      "session_id": "session-sha256:f1a7874f1fe337fde286a9a1a6f4841b7956cac05759f4680313e1a8b4f377bf",
-      "settlement": "bounded_process_group_return_not_all_descendants_attested",
-      "terminal_event": "turn.completed",
-      "tool_calls": [
-        {
-          "composition_status": null,
-          "failed": true,
-          "http_status": 200,
-          "method": "tools/call",
-          "observed_heads": [],
-          "text_bytes": 44,
-          "tool": "read_composition"
-        }
-      ],
       "traces": [],
-      "version": "codex-cli 0.157.1"
+      "settlement": "bounded_process_group_return_not_all_descendants_attested"
     },
     {
-      "backend_reads": [
-        "repo_view_pr",
-        "repo_pr_checks",
-        "repo_pr_diff"
-      ],
-      "exit_code": 0,
-      "lexical_interpretation": {
-        "mismatch": true,
-        "new_head": true,
-        "old_head": true,
-        "unbound_diff": true
-      },
       "manifest": 2,
-      "native_run_and_capture_ms": 14599,
-      "observed_model": null,
       "provider": "codex",
-      "requested_model": "gpt-5.5",
-      "returned_text_bytes": 233,
+      "version": "codex-cli 0.157.1",
       "scenario": "original",
+      "native_run_and_capture_ms": 14599,
       "session_id": "session-sha256:1bd73080a1bc81da5b87d1e892f24c7041aa03d5c457cf2d9e7b951197024224",
-      "settlement": "bounded_process_group_return_not_all_descendants_attested",
+      "observed_model": null,
+      "requested_model": "gpt-5.5",
       "terminal_event": "turn.completed",
+      "exit_code": 0,
       "tool_calls": [
         {
           "composition_status": null,
@@ -413,63 +431,45 @@
           "trace_id": null
         }
       ],
+      "backend_reads": [
+        "repo_view_pr",
+        "repo_pr_checks",
+        "repo_pr_diff"
+      ],
+      "returned_text_bytes": 233,
+      "lexical_interpretation": {
+        "mismatch": true,
+        "new_head": true,
+        "old_head": true,
+        "unbound_diff": true
+      },
       "traces": [],
-      "version": "codex-cli 0.157.1"
+      "settlement": "bounded_process_group_return_not_all_descendants_attested"
     }
   ],
-  "protocols_observed": [
-    "2025-06-18"
+  "failed_attempts": [
+    {
+      "manifest": 0,
+      "provider": "codex",
+      "scenario": "original",
+      "session_id": "session-sha256:26d5f693e002d9d3e1ef9c9cbc21cff6f5b4ec2a11b39be560af4fe1dd4a5931",
+      "exit_code": 1,
+      "terminal_event": "turn.failed",
+      "reason": "configured model rejected before calls"
+    },
+    {
+      "manifest": 1,
+      "provider": "codex",
+      "scenario": "original",
+      "session_id": "session-sha256:0018650baccb502b7fdf9ddd6168ec5854291bb397d1325b1199fe4241743d77",
+      "exit_code": 0,
+      "terminal_event": "turn.completed",
+      "reason": "prompt disallowed native discovery; zero repository calls"
+    }
   ],
   "public_redaction": {
-    "account_usage_and_cost": "Omitted from this public projection.",
     "native_session_identifiers": "Stable SHA-256 aliases; raw native streams and original identifiers remain private.",
+    "account_usage_and_cost": "Omitted from this public projection.",
     "original_public_snapshot_sha256": "0a0a61dcb4290a4da1c6c9c2c85a209686a8d852aa19a516ac213f7d13762021"
-  },
-  "source_manifests": [
-    {
-      "caller": {
-        "id": "routine-1028",
-        "kind": "routine"
-      },
-      "definition_revision": "048067e7fc4e15858ac4c175a07d03a2517c9d82d597c74722c8992585b852e1",
-      "files": {
-        "lib/custode/mcp/read_composition_tools.ex": "c6899360249b24a81ecc1d7884141854b9090d274bb7c3fcc696acf5b6719683",
-        "lib/custode/read_compositions.ex": "484c5940fe09044e6edeb57ddb0ed6b9690fd3c5fd3d86eab14f598ba3c42b2c",
-        "spikes/capabilities/native_composition.py": "436fc30f2fb8d9e603de158daccf3fb9d13f15b81c75ff808b0a36924656e820",
-        "test/custode/native_composition_test.exs": "41adca32fb78cd0a628838c1d2f1eef94ed1dcc3fd85b90b10e529eb20dbc848"
-      },
-      "recorded_source_revision": "15b8c5a53c3472a9756bbbbdf6cd5a5d8eaa6984",
-      "snodo_lock_sha256": "998b676c0fb96379aa976aae80abbfa8e32041e6616faa70c7b47cbd9328d7e0"
-    },
-    {
-      "caller": {
-        "id": "routine-196",
-        "kind": "routine"
-      },
-      "definition_revision": "fc2e7c42a8ce8f4d0cbceccc485dbf40a1d2421352c0fc92bdd6ab31b7d173ce",
-      "files": {
-        "lib/custode/mcp/read_composition_tools.ex": "c6899360249b24a81ecc1d7884141854b9090d274bb7c3fcc696acf5b6719683",
-        "lib/custode/read_compositions.ex": "484c5940fe09044e6edeb57ddb0ed6b9690fd3c5fd3d86eab14f598ba3c42b2c",
-        "spikes/capabilities/native_composition.py": "788e5d842644e4e4ba2892405e16e6a39ad55d1230b99105d6a8fb89efb3ced4",
-        "test/custode/native_composition_test.exs": "2aad072b99e3d1723572298666cafc8ca8a315eed03d30fb5fefcdd1c60f0a3e"
-      },
-      "recorded_source_revision": "4d02e8aec8dcc4d40a0d2c68eb51cb3c2bd1b77e",
-      "snodo_lock_sha256": "998b676c0fb96379aa976aae80abbfa8e32041e6616faa70c7b47cbd9328d7e0"
-    },
-    {
-      "caller": {
-        "id": "routine-651",
-        "kind": "routine"
-      },
-      "definition_revision": "4467929e9b13d44dd6266772072e4dd82acdf66eee2647cc40ec7832b9513460",
-      "files": {
-        "lib/custode/mcp/read_composition_tools.ex": "c6899360249b24a81ecc1d7884141854b9090d274bb7c3fcc696acf5b6719683",
-        "lib/custode/read_compositions.ex": "484c5940fe09044e6edeb57ddb0ed6b9690fd3c5fd3d86eab14f598ba3c42b2c",
-        "spikes/capabilities/native_composition.py": "db01a71339904b0111818bc9fbb8b87b404386bdcd12fc8582424c4526a54c5d",
-        "test/custode/native_composition_test.exs": "4449fc2abca7bd36777e534dddf568c9be5d055937838cbd074ac98a6237a023"
-      },
-      "recorded_source_revision": "07c28e7bf7f3144933603ee02003c1c016923383",
-      "snodo_lock_sha256": "998b676c0fb96379aa976aae80abbfa8e32041e6616faa70c7b47cbd9328d7e0"
-    }
-  ]
+  }
 }

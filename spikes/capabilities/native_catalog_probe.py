@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+from urllib.parse import urlsplit
 
 
 def command(argv, env, cwd):
@@ -118,7 +119,10 @@ def claude_health(url, env, directory):
 
 
 def main(url):
-    if not url.startswith("http://127.0.0.1:"):
+    endpoint = urlsplit(url)
+    if (endpoint.scheme != "http" or endpoint.hostname != "127.0.0.1" or endpoint.port is None
+            or endpoint.username is not None or endpoint.password is not None
+            or endpoint.path != "/mcp" or endpoint.query or endpoint.fragment):
         raise ValueError("controlled loopback endpoint required")
     binary = shutil.which("codex")
     with tempfile.TemporaryDirectory(prefix="custode-catalog-") as directory:
@@ -147,6 +151,10 @@ def main(url):
 
 
 if __name__ == "__main__":
+    def deadline(_signal, _frame):
+        raise TimeoutError("nonpaid overall observation deadline")
+    signal.signal(signal.SIGALRM, deadline)
+    signal.alarm(90)
     try:
         print(json.dumps(main(sys.argv[1]), sort_keys=True))
     except Exception as error:

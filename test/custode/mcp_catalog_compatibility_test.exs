@@ -1,7 +1,7 @@
 defmodule Custode.MCPCatalogCompatibilityTest do
   use ExUnit.Case, async: false
-  alias Custode.Test.CatalogProof
   alias Custode.MCP.Snodo, as: CustodeSnodo
+  alias Custode.Test.CatalogProof
   alias Snodo.{Client, Client.Subscription}
   @versions ["2025-06-18", "2025-11-25", "2026-07-28"]
 
@@ -151,6 +151,16 @@ defmodule Custode.MCPCatalogCompatibilityTest do
     Agent.update(ctx.state, &%{&1 | allowed: false})
     assert {:closed, :complete} = Subscription.next(stream, 2_000)
     assert :ok = Client.close(client)
+  end
+
+  test "nonpaid probe boundary checks run without a native process" do
+    {output, status} =
+      System.cmd("python3", ["-B", "-m", "unittest", "test_native_catalog_probe"],
+        cd: "spikes/capabilities",
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, output
   end
 
   @tag :preview
