@@ -4,6 +4,7 @@ defmodule Custode.Operator.InboxTest do
   import Custode.TestHelpers
 
   alias Custode.Asks
+  alias Custode.Attention.Fleet
   alias Custode.Operator.Inbox
 
   setup do
@@ -89,6 +90,22 @@ defmodule Custode.Operator.InboxTest do
     test "a red check does NOT appear: the fleet will look at it on its next beat" do
       refute Enum.any?(Inbox.items(), &(&1.kind == :red_check))
     end
+  end
+
+  test "items/1 projects the supplied snapshot instead of resolving the newer fleet", %{
+    routine: routine
+  } do
+    {:ok, first} = Asks.ask(routine.id, "first")
+    snapshot = Fleet.signals()
+    {:ok, _dismissed} = Asks.dismiss(first.id)
+    {:ok, second} = Asks.ask(routine.id, "second")
+
+    old = Enum.find(Inbox.items(snapshot), &(&1.subject == routine.id))
+    current = Enum.find(Inbox.items(), &(&1.subject == routine.id))
+    assert old.detail == "first"
+    assert current.detail == "second"
+    assert Enum.any?(old.actions, &(&1.op == :answer_ask and &1.args.ask == first.id))
+    assert Enum.any?(current.actions, &(&1.op == :answer_ask and &1.args.ask == second.id))
   end
 
   describe "unread/2 -- the pure half" do

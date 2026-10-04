@@ -49,11 +49,12 @@ defmodule CustodeWeb.HostBannerTest do
     refute html =~ "Nothing needs you"
   end
 
-  test "the header chip names it", %{conn: conn} do
+  test "the header chip includes host attention", %{conn: conn} do
     Host.put_doctor({:failed, @report})
 
-    {:ok, _view, html} = live(conn, "/inbox")
+    {:ok, view, html} = live(conn, "/inbox")
 
-    assert html =~ "cannot run turns" or html =~ "need attention"
+    assert has_element?(view, "[data-attention-count]")
+    assert html =~ "Attention:"
   end
 end

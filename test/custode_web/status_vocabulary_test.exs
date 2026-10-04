@@ -138,7 +138,7 @@ defmodule CustodeWeb.StatusVocabularyTest do
          %{conn: conn, routine: routine} do
       {:ok, _view, html} = live(conn, "/console/#{routine.id}")
       assert html =~ "offline"
-      assert html =~ "the next beat starts it"
+      assert html =~ "Sending starts a turn with your message."
       refute html =~ "ephemeral agent"
     end
 

@@ -64,33 +64,47 @@ defmodule CustodeWeb.Console.Header do
             Press Enter to send.
           </span>
         </form>
-        <div class={["ml-auto flex items-center gap-3", @caretaker && "sm:ml-0"]}>
-          <button
-            class={[
-              "badge cursor-pointer whitespace-nowrap",
-              (match?({:away, _}, @presence) && "badge-neutral") || "badge-ghost"
-            ]}
-            phx-click="toggle_presence"
-            title="present: gates ping you. away: pinned, the desktop stays quiet and the phone still rings"
-          >
-            {presence_word(@presence)}
-          </button>
-          <details class="dropdown dropdown-end">
-            <summary class="btn btn-ghost btn-xs">fleet</summary>
-            <ul class="menu dropdown-content z-10 mt-1 w-44 rounded-box bg-base-100 p-2 shadow-lg">
+        <div class={["ml-auto flex w-full min-w-0 flex-wrap items-start gap-3 sm:w-auto", @caretaker && "sm:ml-0"]}>
+          <div class="max-w-64">
+            <button
+              type="button"
+              class={[
+                "badge cursor-pointer whitespace-nowrap",
+                (match?({:away, _}, @presence) && "badge-neutral") || "badge-ghost"
+              ]}
+              phx-click="toggle_presence"
+              aria-describedby="presence-help"
+            >
+              Presence: {presence_word(@presence)}
+            </button>
+            <p id="presence-help" class="mt-1 text-xs text-base-content/60">
+              Present allows desktop alerts. Away silences them and stays pinned; configured phone alerts continue.
+            </p>
+          </div>
+          <details id="fleet-actions" class="dropdown w-full sm:dropdown-end sm:w-auto">
+            <summary class="btn btn-ghost btn-xs">Fleet actions</summary>
+            <ul class="menu dropdown-content z-10 mt-1 w-full max-w-[calc(100vw-2rem)] rounded-box bg-base-100 p-2 shadow-lg sm:w-72">
               <li>
-                <button phx-click="pause_all" data-confirm="Pause every running agent?">
+                <button phx-click="pause_all" data-confirm="Pause every running agent?" aria-describedby="pause-all-help">
                   pause all
                 </button>
+                <p id="pause-all-help" class="text-xs text-base-content/60">Pause every running agent.</p>
               </li>
-              <li><button phx-click="resume_all">resume all</button></li>
+              <li>
+                <button phx-click="resume_all" aria-describedby="resume-all-help">resume all</button>
+                <p id="resume-all-help" class="text-xs text-base-content/60">Resume paused agents.</p>
+              </li>
               <li>
                 <button
                   phx-click="drain"
+                  aria-describedby="drain-help"
                   data-confirm="Drain for a restart? Queues pause, executing turns finish, then the node STOPS and this page goes away."
                 >
                   drain for restart
                 </button>
+                <p id="drain-help" class="text-xs text-base-content/60">
+                  Pause queues, finish active turns, then stop Custode. This page goes away.
+                </p>
               </li>
             </ul>
           </details>
@@ -168,12 +182,13 @@ defmodule CustodeWeb.Console.Header do
     <span
       :if={@usage.freshness != :unknown and @usage.windows != []}
       class={[
-        "flex items-baseline gap-2 whitespace-nowrap font-mono text-sm",
+        "flex max-w-full flex-wrap items-baseline gap-x-2 gap-y-1 font-mono text-sm",
         @usage.freshness == :stale && !@usage.held_until && "opacity-50"
       ]}
       title={usage_title(@usage)}
     >
-      <span :for={window <- @usage.windows} class={usage_tone(window)}>
+      <span class="w-full text-xs font-sans text-base-content/60">Claude plan usage</span>
+      <span :for={window <- @usage.windows} class={["whitespace-nowrap", usage_tone(window)]}>
         {window.label} {percent(window.utilization)}
       </span>
       <span :if={@usage.held_until} class="text-xs font-bold text-error">

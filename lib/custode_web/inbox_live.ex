@@ -15,6 +15,8 @@ defmodule CustodeWeb.InboxLive do
 
   use Phoenix.LiveView
 
+  alias CustodeWeb.AttentionSnapshot
+
   import CustodeWeb.Components
 
   alias Custode.Operator.Actions
@@ -36,7 +38,11 @@ defmodule CustodeWeb.InboxLive do
   @impl Phoenix.LiveView
   def handle_info({:status_changed, _agent_id}, socket), do: {:noreply, refresh(socket)}
   def handle_info({:feed_entry, _entry}, socket), do: {:noreply, refresh(socket)}
-  def handle_info(_message, socket), do: {:noreply, socket}
+  def handle_info({:repo_overview, _repo}, socket), do: {:noreply, refresh(socket)}
+
+  def handle_info(message, socket) do
+    {:noreply, if(AttentionSnapshot.relevant?(message), do: refresh(socket), else: socket)}
+  end
 
   @impl Phoenix.LiveView
   def handle_event("approve", %{"agent" => id, "action" => action_id}, socket) do
@@ -153,8 +159,11 @@ defmodule CustodeWeb.InboxLive do
   end
 
   defp refresh(socket) do
-    items = Inbox.items()
-    unread = if socket.assigns.since, do: length(Inbox.since(socket.assigns.since)), else: 0
+    socket = AttentionSnapshot.refresh(socket)
+    items = Inbox.items(socket.assigns.attention_signals)
+
+    unread =
+      if socket.assigns.since, do: length(Inbox.unread(items, socket.assigns.since)), else: 0
 
     assign(socket,
       items: items,
@@ -169,7 +178,7 @@ defmodule CustodeWeb.InboxLive do
   @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
-    <.page fleet_today={@fleet_today} active={:inbox} unread={@unread}>
+    <.page attention_signals={@attention_signals} fleet_today={@fleet_today} active={:inbox} unread={@unread}>
       <div class="mb-4 flex flex-wrap items-baseline gap-3">
         <h1 class="text-xl font-bold">Inbox</h1>
         <span :if={@unread > 0} class="badge badge-warning font-mono">{@unread} new</span>

@@ -15,6 +15,8 @@ defmodule CustodeWeb.ReposLive do
 
   use Phoenix.LiveView
 
+  alias CustodeWeb.AttentionSnapshot
+
   import CustodeWeb.Components
 
   alias CustodeWeb.WorkflowLaunch
@@ -27,7 +29,7 @@ defmodule CustodeWeb.ReposLive do
 
   @impl Phoenix.LiveView
   def handle_info({:repo_overview, _repo}, socket), do: {:noreply, refresh(socket)}
-  def handle_info(_message, socket), do: {:noreply, socket}
+  def handle_info(message, socket), do: {:noreply, AttentionSnapshot.refresh_for(socket, message)}
 
   @impl Phoenix.LiveView
   def handle_event("propose_workflow", params, socket) do
@@ -40,7 +42,7 @@ defmodule CustodeWeb.ReposLive do
   @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
-    <.page fleet_today={@fleet_today} active={:repos}>
+    <.page attention_signals={@attention_signals} fleet_today={@fleet_today} active={:repos}>
       <p :if={@repos == []} class="text-sm text-base-content/40">
         no repositories in the roster yet -- add a repo-tied agent on the fleet page
       </p>
@@ -93,6 +95,8 @@ defmodule CustodeWeb.ReposLive do
   # agent carries its role so the tile shows the repo's staffing (#255): the
   # loud worker before the quiet steward, then by id.
   defp refresh(socket) do
+    socket = AttentionSnapshot.refresh(socket)
+
     repos =
       Custode.Routine.all()
       |> Enum.filter(& &1.repo)

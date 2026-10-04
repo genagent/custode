@@ -3,6 +3,8 @@ defmodule CustodeWeb.FeedLive do
 
   use Phoenix.LiveView
 
+  alias CustodeWeb.AttentionSnapshot
+
   import CustodeWeb.Components
 
   @impl Phoenix.LiveView
@@ -11,6 +13,7 @@ defmodule CustodeWeb.FeedLive do
 
     socket =
       socket
+      |> AttentionSnapshot.refresh()
       |> assign(fleet_today: Custode.SpendLedger.fleet_today())
       |> assign(agent_filter: nil, kind_filter: nil, agents: Custode.Feed.agents())
       |> stream_configure(:feed, dom_id: &feed_dom_id/1)
@@ -53,17 +56,18 @@ defmodule CustodeWeb.FeedLive do
     socket =
       socket
       |> maybe_insert(entry)
+      |> AttentionSnapshot.refresh()
       |> assign(fleet_today: Custode.SpendLedger.fleet_today())
 
     {:noreply, socket}
   end
 
-  def handle_info(_message, socket), do: {:noreply, socket}
+  def handle_info(message, socket), do: {:noreply, AttentionSnapshot.refresh_for(socket, message)}
 
   @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
-    <.page fleet_today={@fleet_today} active={:feed}>
+    <.page attention_signals={@attention_signals} fleet_today={@fleet_today} active={:feed}>
       <div class="mx-auto mb-3 flex max-w-3xl flex-wrap items-center gap-2">
         <.link navigate="/messages" class="link mr-auto text-sm">Agent messages</.link>
         <span class="text-xs text-base-content/50">show:</span>

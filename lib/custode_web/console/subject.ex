@@ -42,11 +42,11 @@ defmodule CustodeWeb.Console.Subject do
 
     ~H"""
     <div class="flex flex-wrap items-center gap-3">
-      <h1 class="font-mono text-2xl font-bold">{@subject.id}</h1>
+      <h1 class="min-w-0 break-words font-mono text-2xl font-bold">{@subject.id}</h1>
       <.status_badge status={@subject.status} />
       <%!-- A subject is not always an agent: a workflow signal has nothing to
             beat, pause or talk to. Only a routine has a beat. --%>
-      <div :if={@subject.kind != :other} class="ml-auto flex gap-2">
+      <div :if={@subject.kind != :other} class="ml-auto flex flex-wrap gap-2">
         <.link
           navigate={"/agents/#{@subject.id}/conversation"}
           class="btn btn-ghost btn-sm"
@@ -78,7 +78,7 @@ defmodule CustodeWeb.Console.Subject do
     <p
       :if={configuration_transition?(@execution)}
       id="subject-config-transition"
-      class="mt-1 font-mono text-xs text-warning"
+      class="mt-1 break-words font-mono text-xs text-warning [overflow-wrap:anywhere]"
     >
       {current_execution_label(@execution)}: {execution_label(current_execution(@execution))} · next turn: {execution_label(
         @execution.desired
@@ -86,9 +86,6 @@ defmodule CustodeWeb.Console.Subject do
     </p>
     <p :if={@subject.conversation.current} class="mt-1 font-mono text-xs text-base-content/50">
       {conversation_facts(@subject.conversation.current)}
-    </p>
-    <p :if={@subject.state == :offline} class="mt-2 text-sm text-base-content/50">
-      offline -- the next beat starts it
     </p>
     <p :if={@subject.state == :ended} class="mt-2 text-sm text-base-content/50">
       ended -- this was an ephemeral agent; its memory and activity remain available here
@@ -171,21 +168,7 @@ defmodule CustodeWeb.Console.Subject do
 
   defp attention_tab(assigns) do
     ~H"""
-    <%!-- the item pane says this when it has its own column, so it is only
-          drawn here when it does not --%>
-    <div class={["rounded-xl border p-4 xl:hidden", signal_frame(@signal)]}>
-      <p class="font-semibold">{@signal.headline}</p>
-      <.foldable_text
-        :if={@signal.detail}
-        text={@signal.detail}
-        class="mt-1 text-sm text-base-content/70"
-      />
-      <p :if={@signal.raised_at} class="mt-2 font-mono text-xs text-base-content/40">
-        raised <.ago at={@signal.raised_at} />
-      </p>
-    </div>
-
-    <h3 class="mb-2 mt-6 text-xs font-bold uppercase tracking-widest text-base-content/50 xl:mt-0">
+    <h3 class="mb-2 text-xs font-bold uppercase tracking-widest text-base-content/50">
       last said
     </h3>
     <p :if={said(@subject.feed) == []} class="text-sm text-base-content/50">
@@ -854,13 +837,6 @@ defmodule CustodeWeb.Console.Subject do
   defp tab_count("notebook", %{todos: [_one | _rest] = todos}, _signal), do: length(todos)
   defp tab_count("panel", %{panel_pending: pending}, _signal) when is_binary(pending), do: 1
   defp tab_count(_tab, _subject, _signal), do: nil
-
-  defp signal_frame(%Signal{kind: kind})
-       when kind in [:red_main, :turn_failing, :rail_hit, :disowned_check],
-       do: "border-error/40 bg-error/5"
-
-  defp signal_frame(%Signal{group: :needs_you}), do: "border-warning/50 bg-warning/5"
-  defp signal_frame(%Signal{}), do: "border-base-300/60"
 
   defp count_label(1, noun), do: "1 #{noun}"
   defp count_label(count, noun), do: "#{count} #{noun}s"

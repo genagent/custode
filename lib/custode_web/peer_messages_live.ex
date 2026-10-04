@@ -3,6 +3,8 @@ defmodule CustodeWeb.PeerMessagesLive do
 
   use Phoenix.LiveView
 
+  alias CustodeWeb.AttentionSnapshot
+
   import CustodeWeb.Components
 
   alias Custode.PeerMessages
@@ -13,6 +15,7 @@ defmodule CustodeWeb.PeerMessagesLive do
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
     if connected?(socket), do: Custode.PubSubBridge.subscribe()
+    socket = AttentionSnapshot.refresh(socket)
     {:ok, assign(socket, fleet_today: Custode.SpendLedger.fleet_today(), params: %{})}
   end
 
@@ -23,14 +26,14 @@ defmodule CustodeWeb.PeerMessagesLive do
 
   @impl Phoenix.LiveView
   def handle_info({:feed_entry, %{"peer_message_id" => _id}}, socket),
-    do: {:noreply, load(socket)}
+    do: {:noreply, socket |> AttentionSnapshot.refresh() |> load()}
 
-  def handle_info(_message, socket), do: {:noreply, socket}
+  def handle_info(message, socket), do: {:noreply, AttentionSnapshot.refresh_for(socket, message)}
 
   @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
-    <.page fleet_today={@fleet_today} active={:feed}>
+    <.page attention_signals={@attention_signals} fleet_today={@fleet_today} active={:feed}>
       <section class="mx-auto max-w-3xl">
         <div class="mb-4 flex flex-wrap items-center gap-3">
           <h1 class="text-xl font-semibold">Agent messages</h1>

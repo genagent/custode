@@ -630,7 +630,37 @@ defmodule CustodeWeb.ConsoleLive do
           quiet_open={@quiet_open}
         />
 
-        <main class="min-w-0 border-base-300 p-6 md:border-l">
+        <%!-- One item owns every action form. Keep it before history below xl;
+              the wrapper prevents a long rail from separating item and subject. --%>
+        <div class="min-w-0 xl:contents">
+        <aside id="selected-attention" aria-label="Selected attention and actions" class="min-w-0 border-b border-base-300 bg-base-100 p-6 md:border-l xl:col-start-3 xl:row-start-1 xl:border-b-0">
+          <.item
+            :if={@subject}
+            signal={@signal}
+            subject={@subject}
+            message_gen={@message_gen}
+            next_up={@next_up}
+            checks={@checks}
+            check_logs={@check_logs}
+          />
+          <section :if={@suggestions != []} id="advisor-suggestions" class="mt-6 flex flex-col gap-2">
+            <div class="flex items-baseline gap-2">
+              <h2 class="text-xs font-bold uppercase tracking-widest text-base-content/50">
+                suggestions
+              </h2>
+              <.link navigate="/suggestions" class="ml-auto text-xs text-primary hover:underline">
+                see all {@suggestion_count} &rarr;
+              </.link>
+            </div>
+            <.suggestion_card
+              :for={suggestion <- @suggestions}
+              suggestion={suggestion}
+              agent_base="/console/"
+            />
+          </section>
+        </aside>
+
+        <main id="subject-content" class="min-w-0 border-base-300 p-6 md:border-l xl:col-start-2 xl:row-start-1">
           <div
             :if={@away_digest}
             id="away-digest"
@@ -699,33 +729,7 @@ defmodule CustodeWeb.ConsoleLive do
           />
         </main>
 
-        <%!-- under the subject at medium widths, its own column when there is room --%>
-        <aside class="border-base-300 bg-base-100 p-6 md:col-start-2 md:border-l md:border-t xl:col-start-auto xl:border-t-0">
-          <.item
-            :if={@subject}
-            signal={@signal}
-            subject={@subject}
-            message_gen={@message_gen}
-            next_up={@next_up}
-            checks={@checks}
-            check_logs={@check_logs}
-          />
-          <section :if={@suggestions != []} id="advisor-suggestions" class="mt-6 flex flex-col gap-2">
-            <div class="flex items-baseline gap-2">
-              <h2 class="text-xs font-bold uppercase tracking-widest text-base-content/50">
-                suggestions
-              </h2>
-              <.link navigate="/suggestions" class="ml-auto text-xs text-primary hover:underline">
-                see all {@suggestion_count} &rarr;
-              </.link>
-            </div>
-            <.suggestion_card
-              :for={suggestion <- @suggestions}
-              suggestion={suggestion}
-              agent_base="/console/"
-            />
-          </section>
-        </aside>
+        </div>
       </div>
     </div>
     """

@@ -7,7 +7,7 @@ defmodule CustodeWeb.Console.Item do
 
   use Phoenix.Component
 
-  import CustodeWeb.Components, only: [foldable_text: 1, reject_form: 1]
+  import CustodeWeb.Components, only: [ago: 1, foldable_text: 1, reject_form: 1]
 
   alias Custode.Operator.Actions
   alias Custode.Signal
@@ -35,6 +35,9 @@ defmodule CustodeWeb.Console.Item do
       text={@signal.detail}
       class="mt-2 text-sm text-base-content/70"
     />
+    <p :if={@signal.raised_at} class="mt-2 font-mono text-xs text-base-content/50">
+      raised <.ago at={@signal.raised_at} />
+    </p>
 
     <%!-- what the agent was doing when the question came up --%>
     <p

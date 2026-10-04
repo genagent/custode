@@ -10,6 +10,8 @@ defmodule CustodeWeb.MetricsLive do
   use Phoenix.LiveView
 
   import CustodeWeb.Charts
+  alias CustodeWeb.AttentionSnapshot
+
   import CustodeWeb.Components, only: [page: 1, usd: 1, tok: 1]
   import CustodeWeb.DigestPanel, only: [digest_panel: 1]
 
@@ -29,17 +31,18 @@ defmodule CustodeWeb.MetricsLive do
     {:noreply, socket |> assign(refresh_queued: false) |> refresh()}
   end
 
-  def handle_info(_event, %{assigns: %{refresh_queued: true}} = socket), do: {:noreply, socket}
+  def handle_info(event, %{assigns: %{refresh_queued: true}} = socket),
+    do: {:noreply, AttentionSnapshot.refresh_for(socket, event)}
 
-  def handle_info(_event, socket) do
+  def handle_info(event, socket) do
     Process.send_after(self(), :coalesced_refresh, @coalesce_ms)
-    {:noreply, assign(socket, refresh_queued: true)}
+    {:noreply, socket |> AttentionSnapshot.refresh_for(event) |> assign(refresh_queued: true)}
   end
 
   @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
-    <.page fleet_today={@fleet_today} active={:metrics}>
+    <.page attention_signals={@attention_signals} fleet_today={@fleet_today} active={:metrics}>
       <div class="stats stats-horizontal mb-6 w-full bg-base-100 shadow-sm">
         <div class="stat">
           <div class="stat-title">fleet today</div>
@@ -258,6 +261,8 @@ defmodule CustodeWeb.MetricsLive do
   end
 
   defp refresh(socket) do
+    socket = AttentionSnapshot.refresh(socket)
+
     daily = Custode.Metrics.daily_by_agent(@days)
     turns = Custode.Metrics.turns_by_day(@days)
     {gates, gate_median} = Custode.Metrics.gate_latencies()
