@@ -1,5 +1,5 @@
 defmodule Custode.MCP.OwnerReviewTools.Review do
-  @moduledoc "Submit, inspect or cancel two durable evidence-only reviews. Results never approve work."
+  @moduledoc "Submit, inspect, reconcile or cancel two durable evidence-only reviews. Results never approve work."
   use Custode.MCP.Tool, name: "owner_review"
   import Custode.MCP.Tools, only: [reply: 2, fail: 2]
 
@@ -7,7 +7,7 @@ defmodule Custode.MCP.OwnerReviewTools.Review do
     "type" => "object",
     "required" => ["action"],
     "properties" => %{
-      "action" => %{"type" => "string", "enum" => ~w(submit inspect cancel)},
+      "action" => %{"type" => "string", "enum" => ~w(submit inspect cancel reconcile)},
       "review_id" => %{"type" => "string"},
       "request" => %{
         "type" => "object",
@@ -78,6 +78,9 @@ defmodule Custode.MCP.OwnerReviewTools.Review do
 
   defp operation(actor, %{action: "cancel", review_id: id} = params)
        when not is_map_key(params, :request), do: Custode.OwnerReviews.cancel(actor, id)
+
+  defp operation(actor, %{action: "reconcile", review_id: id} = params)
+       when not is_map_key(params, :request), do: Custode.OwnerReviews.reconcile(actor, id)
 
   defp operation(_actor, _params), do: {:error, :action_arguments_required}
 end

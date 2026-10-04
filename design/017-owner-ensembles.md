@@ -112,3 +112,41 @@ never fabricate clean reviews or zero usage. Cancel requests Oban cancellation;
 a returned query and Oban state do not attest OS settlement. A duplicate job
 cannot relaunch or replace an already running or terminal review. No automatic
 retry, recurring fan-out, synthesis by vote or recursive helper delegation.
+
+## Admission and receipt follow-up (#778)
+
+The coordinator reuses the owner_reviews record and existing Oban jobs; there is
+no new table or scheduler. Submission and child admission serialize with routine
+configuration handoff, then check current owner scope, configuration, pause,
+rails and limits in an immediate database transaction. The retained authority
+includes the submitting actor, owner snapshot, observed gate and gate mode,
+owner limits and fixed query policy/package revision. The gate observation binds
+the request; it grants the children no effect authority. Each child is bound to
+all stored launch arguments and the captured authority and query-policy digests.
+Timeout is the remaining shared deadline. Native identity remains unknown.
+
+Accepted terminal results and known usage are retained once. Up to eight delivery
+metadata observations and the first valid late authored result remain separately
+inspectable, without replacing an accepted result or booking usage twice.
+Explicit reconciliation persists a missing terminal receipt as unconfirmed and
+never relaunches it. Ordinary inspection remains inert. The projection carries
+an owner conversation link and child inspection references. Legacy queued records
+without the stronger contract remain inspectable but cannot acquire launch
+authority retroactively.
+
+Nonpaid fixtures cover independent parallel clean/findings, partial failure,
+concurrent aggregate reservation refusal, changed options/authority/limits,
+duplicate noise, cancellation and missing-receipt reconciliation. Copied actual
+records and Oban jobs survive a SQLite repository process reopen. This is bounded
+store-process evidence, not a full VM crash or native descendant recovery proof.
+Focused seeds are 1, 12345 and 777; all five repository gates precede every push.
+
+Cross-provider execution remains blocked on exact native option and rail parity.
+Released ObanCodex 0.7.0/CodexWrapper 0.6.0 expose no native USD stop or matching
+single-turn cap, and tool-free native profile conformance is unproved. A Codex
+request returns versioned provider_parity_unavailable findings before insertion;
+it cannot silently weaken this operation's required limits. Hard total-token
+caps remain unavailable for both providers and are refused. #778 therefore stays
+open. Paid native conformance, full VM recovery, all-descendant settlement and a
+global concurrent fleet quota are also unproved. No paid models, GenAgent pool,
+automatic fan-out, approval, merge or runtime adoption is included.

@@ -1,7 +1,21 @@
 defmodule Custode.OwnerReviews do
   @moduledoc "Durable, opt-in, evidence-only independent reviews. Results never approve work."
   import Ecto.Query, only: [from: 2]
-  alias Custode.{AgentHandoff, Agents, ExecutionFacts, Feed, Repo, Routine, SpendLedger}
+
+  alias Custode.{
+    AgentAuthorizationSnapshot,
+    AgentHandoff,
+    Agents,
+    ExecutionFacts,
+    Feed,
+    Gates,
+    OwnerReviewContract,
+    Repo,
+    Routine,
+    SpendLedger
+  }
+
+  alias Custode.Gates.Grant
   alias Snodo.Schema.Validator.Basic
 
   defmodule Row do
@@ -27,7 +41,7 @@ defmodule Custode.OwnerReviews do
       case Repo.get(Row, request["request_id"]) do
         %Row{fingerprint: ^fingerprint} = row -> {:ok, projection(row.record)}
         %Row{} -> {:error, :idempotency_conflict}
-        nil -> admit(owner, request, fingerprint)
+        nil -> admit(actor, owner, request, fingerprint)
       end
     end
   end
@@ -44,8 +58,8 @@ defmodule Custode.OwnerReviews do
 
   def cancel(actor, id) do
     with %Row{} = row <- Repo.get(Row, id),
-         {:ok, _owner} <- authorize(actor, row.owner_id),
-         {:ok, record} <- mutate(id, fn record -> Map.put(record, "cancel_requested", true) end) do
+         {:ok, owner} <- authorize(actor, row.owner_id),
+         {:ok, record} <- scoped_mutation(owner, fn -> mutate(id, &cancel_record(&1, owner)) end) do
       for child <- record["children"], child["status"] in ~w(queued running) do
         Oban.cancel_job(child["job_id"])
       end
@@ -57,13 +71,28 @@ defmodule Custode.OwnerReviews do
     end
   end
 
+  @doc "Persist missing terminal receipts without rerunning or claiming process settlement."
+  def reconcile(actor, id) do
+    with %Row{} = row <- Repo.get(Row, id),
+         {:ok, owner} <- authorize(actor, row.owner_id) do
+      scoped_mutation(owner, fn ->
+        mutate(id, &reconcile_record(&1, owner))
+      end)
+      |> project_reply()
+    else
+      nil -> {:error, :unknown_review}
+      error -> error
+    end
+  end
+
   @doc false
   def start(job) do
     with %Row{} = row <- Repo.get(Row, job.args["review_id"]),
          {:ok, owner} <- authorize(%{kind: :operator}, row.owner_id),
-         :ok <- ready(owner),
          true <- Routine.execution_revision(owner) == row.record["owner_revision"] do
-      mutate(row.request_id, &start_child(&1, job))
+      scoped_mutation(owner, fn ->
+        mutate(row.request_id, &start_guarded!(&1, owner, job))
+      end)
     else
       false -> {:error, :owner_changed}
       nil -> {:error, :unknown_review}
@@ -74,42 +103,7 @@ defmodule Custode.OwnerReviews do
   @doc false
   def complete(job, status, result, usage, settlement) do
     transaction =
-      Repo.transaction(
-        fn ->
-          row = Repo.get(Row, job.args["review_id"]) || Repo.rollback(:unknown_review)
-          child = matching_child!(row.record, job)
-
-          if completable?(child, status) do
-            child =
-              Map.merge(child, %{
-                "status" => status,
-                "result" => result,
-                "usage" => usage,
-                "settlement" => settlement
-              })
-
-            book_usage!(row.owner_id, child)
-            record = replace_child(row.record, child)
-            row |> Ecto.Changeset.change(record: record) |> Repo.update!()
-
-            {:ok, event} =
-              Feed.record_in_transaction(%{
-                event: "owner_review_child",
-                agent: row.owner_id,
-                review_id: row.request_id,
-                job_id: job.id,
-                evidence_class: "agent_authored",
-                summary: "Review #{child["slot"]}: #{status}; owner acceptance required.",
-                result: result,
-                usage: usage,
-                settlement: settlement
-              })
-
-            {record, event}
-          else
-            {row.record, nil}
-          end
-        end,
+      Repo.transaction(fn -> receive_delivery!(job, status, result, usage, settlement) end,
         mode: :immediate
       )
 
@@ -123,6 +117,90 @@ defmodule Custode.OwnerReviews do
     end
   end
 
+  defp receive_delivery!(job, status, result, usage, settlement) do
+    row = Repo.get(Row, job.args["review_id"]) || Repo.rollback(:unknown_review)
+    child = matching_child!(row.record, job)
+    usage = json(usage)
+    observation = delivery_observation(status, result, usage, settlement)
+    duplicate? = Enum.any?(child["observations"] || [], &(&1["digest"] == observation["digest"]))
+    accepted? = completable?(child, status)
+
+    if duplicate? do
+      {row.record, nil}
+    else
+      child = retain_delivery(child, observation, accepted?, status, result, usage, settlement)
+      if accepted?, do: book_usage!(row.owner_id, child)
+      record = replace_child(row.record, child)
+      row |> Ecto.Changeset.change(record: record) |> Repo.update!()
+      {record, delivery_event!(row, child, job, observation, accepted?)}
+    end
+  end
+
+  defp delivery_event!(row, child, job, observation, accepted?) do
+    {:ok, event} =
+      Feed.record_in_transaction(%{
+        event: "owner_review_child",
+        agent: row.owner_id,
+        review_id: row.request_id,
+        job_id: job.id,
+        evidence_class: "agent_authored",
+        accepted_terminal_receipt: accepted?,
+        delivery_digest: observation["digest"],
+        summary:
+          "Review #{child["slot"]}: #{observation["reported_status"]}; owner acceptance required.",
+        result: if(accepted?, do: child["result"]),
+        usage: if(accepted?, do: child["usage"]),
+        settlement: if(accepted?, do: child["settlement"])
+      })
+
+    event
+  end
+
+  defp delivery_observation(status, result, usage, settlement) do
+    unless status in ~w(completed failed not_launched),
+      do: Repo.rollback(:invalid_delivery)
+
+    %{
+      "digest" =>
+        digest(json(%{status: status, result: result, usage: usage, settlement: settlement})),
+      "reported_status" => status,
+      "result_digest" => digest(json(result)),
+      "settlement" => settlement,
+      "observed_ms" => System.system_time(:millisecond)
+    }
+  end
+
+  defp retain_delivery(child, observation, accepted?, status, result, usage, settlement) do
+    observed = Map.put(observation, "accepted", accepted?)
+    observations = retain_observations((child["observations"] || []) ++ [observed])
+    child = Map.put(child, "observations", observations)
+
+    if accepted? do
+      Map.merge(child, %{
+        "status" => status,
+        "result" => result,
+        "usage" => usage,
+        "settlement" => settlement
+      })
+    else
+      retain_late_result(child, status, result)
+    end
+  end
+
+  defp retain_observations(observations) do
+    accepted = Enum.filter(observations, & &1["accepted"])
+    rejected = observations |> Enum.reject(& &1["accepted"]) |> Enum.take(-7)
+    accepted ++ rejected
+  end
+
+  defp retain_late_result(child, "completed", result) do
+    if is_nil(child["late_result"]) and match?(:ok, Basic.validate(result, result_schema())),
+      do: Map.put(child, "late_result", result),
+      else: child
+  end
+
+  defp retain_late_result(child, _status, _result), do: child
+
   defp book_usage!(owner_id, %{"usage" => %{"usd" => cost}} = child)
        when is_number(cost) and cost >= 0 do
     tokens = child["usage"]["tokens"] || %{}
@@ -133,10 +211,10 @@ defmodule Custode.OwnerReviews do
       outcome: "owner_review",
       provider: child["route"]["provider"],
       model: child["route"]["model"],
-      input_tokens: tokens[:input],
-      output_tokens: tokens[:output],
-      cache_creation_tokens: tokens[:cache_creation],
-      cache_read_tokens: tokens[:cache_read],
+      input_tokens: tokens["input"],
+      output_tokens: tokens["output"],
+      cache_creation_tokens: tokens["cache_creation"],
+      cache_read_tokens: tokens["cache_read"],
       ingestion_key: "owner-review:" <> child["attempt_id"],
       attribution_key: "owner-review:" <> child["attempt_id"],
       attribution_status: "legacy_unattributed"
@@ -148,28 +226,122 @@ defmodule Custode.OwnerReviews do
   defp book_usage!(_owner_id, _child), do: :ok
 
   defp completable?(child, "not_launched"), do: child["status"] == "queued"
-  defp completable?(child, _status), do: child["status"] in ~w(queued running)
+  defp completable?(child, _status), do: child["status"] == "running"
+
+  defp start_guarded!(record, owner, job) do
+    current = current_owner!(owner)
+    check!(:ok, ready(current))
+    check!(:ok, limits_fit(current, record["request"]["limits"]))
+    check_authority!(record, current)
+    check_daily_capacity!(current, 0)
+    start_child(record, job)
+  end
 
   defp start_child(record, job) do
     child = matching_child!(record, job)
 
+    if is_nil(child["launch_args_digest"]), do: Repo.rollback(:unbound_launch_contract)
+
+    if child["launch_args_digest"] != digest(job.args),
+      do: Repo.rollback(:launch_contract_changed)
+
+    if child["query_policy_revision"] != OwnerReviewContract.revision(),
+      do: Repo.rollback(:admission_contract_changed)
+
     cond do
-      record["cancel_requested"] -> Repo.rollback(:cancel_requested)
-      System.system_time(:millisecond) >= record["deadline_ms"] -> Repo.rollback(:deadline)
-      child["status"] != "queued" -> Repo.rollback(:already_started)
-      true -> replace_child(record, %{child | "status" => "running"})
+      record["cancel_requested"] ->
+        Repo.rollback(:cancel_requested)
+
+      System.system_time(:millisecond) >= record["deadline_ms"] ->
+        Repo.rollback(:deadline)
+
+      child["status"] != "queued" ->
+        Repo.rollback(:already_started)
+
+      true ->
+        replace_child(
+          record,
+          Map.merge(child, %{
+            "status" => "running",
+            "started_ms" => System.system_time(:millisecond)
+          })
+        )
     end
   end
 
-  defp admit(owner, request, fingerprint) do
-    with :ok <- ready(owner), :ok <- limits_fit(owner, request["limits"]) do
-      parent = ExecutionFacts.read(owner.id)
-      record = frozen(owner, request, parent)
-
-      Repo.transaction(fn -> load_or_insert!(owner, request, fingerprint, record) end,
+  defp admit(actor, owner, request, fingerprint) do
+    scoped_mutation(owner, fn ->
+      Repo.transaction(
+        fn ->
+          current = current_owner!(owner)
+          check!(:ok, ready(current))
+          check!(:ok, limits_fit(current, request["limits"]))
+          parent = ExecutionFacts.read(current.id)
+          record = frozen(current, request, parent, actor)
+          load_or_insert!(current, request, fingerprint, record)
+        end,
         mode: :immediate
       )
+    end)
+  end
+
+  defp scoped_mutation(owner, fun) do
+    case AgentHandoff.admit(owner.id, fun,
+           expected_provider: owner.provider,
+           expected_revision: Routine.execution_revision(owner)
+         ) do
+      {:deferred, reason} -> {:error, {:admission_deferred, reason}}
+      reply -> reply
     end
+  end
+
+  # Admission runs inside AgentHandoff. Never call its authorization GenServer
+  # recursively from this callback; the captured immutable snapshot is durable.
+  defp current_owner!(expected) do
+    owner = Routine.get(expected.id) || Repo.rollback(:owner_scope_unavailable)
+    revision = Routine.execution_revision(expected)
+
+    if Routine.execution_revision(owner) != revision,
+      do: Repo.rollback(:owner_changed)
+
+    case AgentAuthorizationSnapshot.get(owner.id, revision) do
+      %{} -> owner
+      _unavailable -> Repo.rollback(:owner_scope_unavailable)
+    end
+  end
+
+  defp check!(:ok, :ok), do: :ok
+  defp check!(:ok, {:error, reason}), do: Repo.rollback(reason)
+
+  defp authority(owner, actor) do
+    %{
+      "actor" => json(Map.take(actor, [:kind, :id])),
+      "owner" =>
+        json(AgentAuthorizationSnapshot.get(owner.id, Routine.execution_revision(owner))),
+      "observed_owner_gate" => json(Gates.active_grant(owner.id)),
+      "gate_mode" => to_string(Grant.mode()),
+      "limits" =>
+        json(
+          Map.take(owner, [:max_budget_usd, :daily_budget_usd, :daily_budget_tokens, :timeout_ms])
+        ),
+      "query_policy_revision" => OwnerReviewContract.revision(),
+      "child_effect_authority" => "none"
+    }
+  end
+
+  defp check_authority!(record, owner) do
+    captured = record["authority"] || Repo.rollback(:unbound_launch_contract)
+    actor = captured["actor"]
+    current = authority(owner, %{kind: String.to_existing_atom(actor["kind"]), id: actor["id"]})
+
+    if digest(current) != record["authority_revision"],
+      do: Repo.rollback(:admission_contract_changed)
+  end
+
+  defp check_daily_capacity!(owner, additional) do
+    if is_number(owner.daily_budget_usd) and
+         SpendLedger.today(owner.id) + reserved(owner.id) + additional > owner.daily_budget_usd,
+       do: Repo.rollback(:daily_usd_capacity)
   end
 
   defp load_or_insert!(owner, request, fingerprint, record) do
@@ -183,11 +355,7 @@ defmodule Custode.OwnerReviews do
   defp insert!(owner, request, fingerprint, record) do
     # Serialized with all other reviews of this owner. Other surfaces retain
     # their existing rails; this reservation is not a global fleet semaphore.
-    held = reserved(owner.id)
-
-    if is_number(owner.daily_budget_usd) and
-         SpendLedger.today(owner.id) + held + request["limits"]["usd"] > owner.daily_budget_usd,
-       do: Repo.rollback(:daily_usd_capacity)
+    check_daily_capacity!(owner, request["limits"]["usd"])
 
     children =
       for {route, slot} <- Enum.with_index(request["routes"], 1) do
@@ -199,7 +367,18 @@ defmodule Custode.OwnerReviews do
           "slot" => slot,
           "attempt_id" => attempt,
           "job_id" => job.id,
+          "inspection" => %{
+            "tool" => "owner_review",
+            "action" => "inspect",
+            "review_id" => request["request_id"]
+          },
           "route" => route,
+          "launch_args_digest" => digest(args),
+          "grant_revision" => record["authority_revision"],
+          "query_policy_revision" => OwnerReviewContract.revision(),
+          "timeout_policy" => "remaining_shared_deadline",
+          "native_identity" => nil,
+          "observations" => [],
           "status" => "queued",
           "result" => nil,
           "usage" => nil,
@@ -235,11 +414,15 @@ defmodule Custode.OwnerReviews do
     |> Enum.sum()
   end
 
-  defp frozen(owner, request, parent) do
+  defp frozen(owner, request, parent, actor) do
     now = System.system_time(:millisecond)
+    authority = authority(owner, actor)
 
     %{
       "schema_version" => "custode.owner_review.v1",
+      "authority" => authority,
+      "authority_revision" => digest(authority),
+      "provider_capabilities" => OwnerReviewContract.capabilities(),
       "request" => request,
       "owner_revision" => Routine.execution_revision(owner),
       "parent_execution" => json(parent),
@@ -250,7 +433,9 @@ defmodule Custode.OwnerReviews do
       "children" => [],
       "acceptance" => "owner_required",
       "token_cap" => "unsupported",
-      "evidence_class" => "agent_authored"
+      "evidence_class" => "agent_authored",
+      "owner_link" =>
+        "/agents/" <> URI.encode(owner.id, &URI.char_unreserved?/1) <> "/conversation"
     }
   end
 
@@ -274,7 +459,9 @@ defmodule Custode.OwnerReviews do
     |> Map.merge(%{
       "review_id" => record["request"]["request_id"],
       "review_attempt" => attempt,
-      "review_slot" => slot
+      "review_slot" => slot,
+      "review_grant_revision" => record["authority_revision"],
+      "review_policy_revision" => OwnerReviewContract.revision()
     })
   end
 
@@ -380,14 +567,25 @@ defmodule Custode.OwnerReviews do
 
   defp valid_request(request) when is_map(request) do
     with :ok <- schema_valid(request),
-         :ok <- supported_limits(request["limits"]) do
-      if text?(request["evidence"], 100_000) and Enum.all?(request["routes"], &valid_route?/1),
-        do: :ok,
-        else: {:error, :unsupported_route}
+         :ok <- supported_limits(request["limits"]),
+         true <- text?(request["evidence"], 100_000) do
+      supported_routes(request["routes"])
+    else
+      false -> {:error, :invalid_request}
+      error -> error
     end
   end
 
   defp valid_request(_request), do: {:error, :invalid_request}
+
+  defp supported_routes(routes) do
+    Enum.reduce_while(routes, :ok, fn route, :ok ->
+      case OwnerReviewContract.route_supported(route) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
 
   defp schema_valid(request) do
     case Basic.validate(request, request_schema()) do
@@ -399,13 +597,6 @@ defmodule Custode.OwnerReviews do
   defp supported_limits(limits) do
     if Map.has_key?(limits, "tokens"), do: {:error, :hard_token_cap_unavailable}, else: :ok
   end
-
-  defp valid_route?(route) when is_map(route) do
-    Map.keys(route) -- @route_keys == [] and route["provider"] == "claude" and
-      text?(route["model"], 120) and route["effort"] in ~w(low medium high max)
-  end
-
-  defp valid_route?(_route), do: false
 
   defp text?(value, max),
     do: is_binary(value) and byte_size(value) > 0 and byte_size(value) <= max
@@ -431,7 +622,17 @@ defmodule Custode.OwnerReviews do
     Enum.find(record["children"], fn child ->
       child["job_id"] == job.id and child["attempt_id"] == job.args["review_attempt"] and
         child["slot"] == job.args["review_slot"]
-    end) || Repo.rollback(:stale_attempt)
+    end)
+    |> check_child_contract!(job)
+  end
+
+  defp check_child_contract!(nil, _job), do: Repo.rollback(:stale_attempt)
+
+  defp check_child_contract!(child, job) do
+    if child["launch_args_digest"] && child["launch_args_digest"] != digest(job.args),
+      do: Repo.rollback(:launch_contract_changed)
+
+    child
   end
 
   defp replace_child(record, child) do
@@ -453,6 +654,32 @@ defmodule Custode.OwnerReviews do
       end
 
     record |> Map.put("children", children) |> Map.put("status", status)
+  end
+
+  defp project_reply({:ok, record}), do: {:ok, projection(record)}
+  defp project_reply(error), do: error
+
+  defp reconcile_record(record, owner) do
+    current_owner!(owner)
+    Map.put(record, "children", Enum.map(record["children"], &reconcile_child/1))
+  end
+
+  defp cancel_record(record, owner) do
+    current_owner!(owner)
+    Map.put(record, "cancel_requested", true)
+  end
+
+  defp reconcile_child(child) do
+    projected = project_child(child)
+
+    if projected == child do
+      child
+    else
+      Map.merge(projected, %{
+        "reconciled_ms" => System.system_time(:millisecond),
+        "reconciliation" => "missing_terminal_receipt_no_relaunch"
+      })
+    end
   end
 
   defp project_child(child) do
