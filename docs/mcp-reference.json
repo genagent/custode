@@ -129,7 +129,8 @@
         "todo_complete",
         "todo_list",
         "update_profile",
-        "update_routine"
+        "update_routine",
+        "workflow_retry_status"
       ]
     },
     {
@@ -4906,6 +4907,40 @@
         "/mcp"
       ],
       "name": "update_routine"
+    },
+    {
+      "behavior": {
+        "access": "Verified human or current caretaker fleet-control identity. Ordinary owners and temporary helpers cannot read this fleet operation.",
+        "effects": "Read only. No job enqueue, cancellation, resume, rail raise or file/provider effect.",
+        "notes": "Terminal queue state is not physical settlement; disallowing Write/Edit does not confine Bash or MCP. The read is not atomic retry admission and never offers unsupported replay.",
+        "result": "Bounded observed job states, definition/failure binding and explicit unavailable effect/settlement/budget replay facts. retry_offered is false for current worker contracts.",
+        "summary": "Inspect failed-stage replay preconditions without starting work."
+      },
+      "category": "read",
+      "definition": {
+        "annotations": {},
+        "description": "Explain unavailable workflow stage retry without enqueueing, cancelling or resuming.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "run_id": {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "run_id"
+          ],
+          "type": "object"
+        },
+        "name": "workflow_retry_status",
+        "title": "workflow_retry_status"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "workflow_retry_status"
     }
   ]
 }

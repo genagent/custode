@@ -52,7 +52,7 @@ defmodule Custode.MCP.Capabilities do
   @caretaker_on_demand_tools ~w(
     list_attention list_inbox list_suggestions list_suggestion_outcomes
     list_advisors metrics digest list_roles list_policies list_workflows
-    executing_turns provision_owned_checkout refresh_owned_checkout
+    workflow_retry_status executing_turns provision_owned_checkout refresh_owned_checkout
   )
 
   @type endpoint :: :main | :memory

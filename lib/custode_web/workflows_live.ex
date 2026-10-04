@@ -29,6 +29,7 @@ defmodule CustodeWeb.WorkflowsLive do
   alias Custode.Workflow.Catalog
   alias Custode.Workflow.Launch
   alias Custode.Workflow.Results
+  alias Custode.Workflow.RetryStatus
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
@@ -250,8 +251,12 @@ defmodule CustodeWeb.WorkflowsLive do
         </ol>
 
         <p :if={@entry.run.status == "failed"} class="text-xs text-base-content/60">
-          The current workflow definition may differ from the one used for this run.
+          Retry is unavailable: Custode cannot yet prove earlier agents stopped or that repeating this stage would avoid duplicate changes.
         </p>
+        <details :if={@entry.run.status == "failed"} data-workflow-retry-status={@entry.run.run_id}>
+          <summary class="cursor-pointer text-xs">Why retry is unavailable</summary>
+          <ul class="list-disc pl-4 text-xs text-base-content/70"><li :for={reason <- @entry.retry_status.reasons}>{reason.message}</li></ul>
+        </details>
         <p :if={@entry.run.error && @entry.run.status != "failed"} class="text-xs text-error">
           {@entry.run.error}
         </p>
@@ -325,6 +330,13 @@ defmodule CustodeWeb.WorkflowsLive do
   defp run_tone("budget_paused"), do: :warning
   defp run_tone(_status), do: :neutral
 
+  defp retry_status(id) do
+    case RetryStatus.read(%{kind: :operator, id: "dashboard"}, id) do
+      {:ok, status} -> status
+      {:error, _reason} -> %{reasons: [%{message: "Retry readiness is unavailable."}]}
+    end
+  end
+
   defp refresh(socket) do
     socket = AttentionSnapshot.refresh(socket)
 
@@ -336,7 +348,8 @@ defmodule CustodeWeb.WorkflowsLive do
           spend: Launch.spend(run),
           # a deep-report run's whole output is a file; a card that shows the
           # stages green and nothing else leaves the operator hunting for it
-          artifacts: Results.artifacts(run.run_id)
+          artifacts: Results.artifacts(run.run_id),
+          retry_status: if(run.status == "failed", do: retry_status(run.run_id), else: nil)
         }
       end
 

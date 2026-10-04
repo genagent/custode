@@ -184,6 +184,21 @@ defmodule CustodeWeb.WorkflowsLiveTest do
 
     refute has_element?(view, card <> " script")
     refute has_element?(view, card <> " button[phx-click='resume_run']")
+
+    assert has_element?(view, card, "cannot yet prove earlier agents stopped")
+
+    assert has_element?(
+             view,
+             card <> " details[data-workflow-retry-status]:not([open])",
+             "Why retry is unavailable"
+           )
+
+    assert has_element?(
+             view,
+             card <> " details[data-workflow-retry-status]",
+             "does not mechanically confine Bash or MCP effects"
+           )
+
     refute html =~ "retry_run"
     assert Run.get(run.run_id).error == error
   end

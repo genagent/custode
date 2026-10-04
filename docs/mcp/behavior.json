@@ -750,6 +750,13 @@
       "summary": "Read current subject outputs and exact retained tool payloads, or store revision-bound feedback.",
       "result": "Current working revisions separate from historical receipts and self-authored reports. Exact bounded tool text retained up to seven days and 100 payloads per actor; emission is server-side only.",
       "notes": "Changed source refuses feedback with reread/reanchor. Prepared response is not server emission. Expired payload stays expired; native hidden context and model receipt are unknown."
+    },
+    "workflow_retry_status": {
+      "summary": "Inspect failed-stage replay preconditions without starting work.",
+      "result": "Bounded observed job states, definition/failure binding and explicit unavailable effect/settlement/budget replay facts. retry_offered is false for current worker contracts.",
+      "effects": "Read only. No job enqueue, cancellation, resume, rail raise or file/provider effect.",
+      "access": "Verified human or current caretaker fleet-control identity. Ordinary owners and temporary helpers cannot read this fleet operation.",
+      "notes": "Terminal queue state is not physical settlement; disallowing Write/Edit does not confine Bash or MCP. The read is not atomic retry admission and never offers unsupported replay."
     }
   }
 }

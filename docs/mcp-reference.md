@@ -89,7 +89,7 @@ Routine instructions, prompt files, the `prompt_agent` tool, and an agent's stru
 
 | Endpoint | Server | Tools | Resources | Templates | Prompts |
 | --- | --- | ---: | ---: | ---: | ---: |
-| `/mcp` | custode 0.3.0 | 92 | 4 | 13 | 0 |
+| `/mcp` | custode 0.3.0 | 93 | 4 | 13 | 0 |
 | `/mcp/memory` | memory 0.3.0 | 7 | 0 | 0 | 0 |
 
 **`/mcp`**: protocol versions 2026-07-28, 2025-11-25, 2025-06-18; capabilities `{"resources":{},"tools":{}}`.
@@ -197,6 +197,7 @@ Categories are descriptive policy metadata, not an authorization guarantee.
 | [todo_list](#tool-todo_list) | read |
 | [update_profile](#tool-update_profile) | roster_write |
 | [update_routine](#tool-update_routine) | roster_write |
+| [workflow_retry_status](#tool-workflow_retry_status) | read |
 
 ### Tool: add_routine
 
@@ -2158,6 +2159,24 @@ Update an existing routine configuration.
 **Access:** Main endpoint capability: operator or caretaker routine. A human operator may write directly; a caretaker must also have a live human-approved continuation whose action class is roster. Specialists and temporary agents are refused before configuration changes.
 
 **Behavior, defaults and errors:** id is required and immutable. provider is claude or codex. Omitted fields stay unchanged; lists replace; drop removes overrides and wins over a supplied value. Preview before applying. This response does not promise changes to an already executing turn. Rewriting removes comments inside the edited configuration section; comments in other sections are preserved.
+
+### Tool: workflow_retry_status
+
+Inspect failed-stage replay preconditions without starting work.
+
+**Endpoints:** /mcp. **Category:** read.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| run_id | string | yes |  | {"maxLength":160,"minLength":1} |
+
+**Result:** Bounded observed job states, definition/failure binding and explicit unavailable effect/settlement/budget replay facts. retry_offered is false for current worker contracts.
+
+**Side effects:** Read only. No job enqueue, cancellation, resume, rail raise or file/provider effect.
+
+**Access:** Verified human or current caretaker fleet-control identity. Ordinary owners and temporary helpers cannot read this fleet operation.
+
+**Behavior, defaults and errors:** Terminal queue state is not physical settlement; disallowing Write/Edit does not confine Bash or MCP. The read is not atomic retry admission and never offers unsupported replay.
 
 ## Resources
 

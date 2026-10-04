@@ -713,3 +713,26 @@ defmodule Custode.CLI.RoutePreview do
     "#{decision["status"]}: #{route}\nPreview only; execution unchanged."
   end
 end
+
+defmodule Custode.CLI.WorkflowRetryStatus do
+  @moduledoc false
+  use Cheer.Command
+
+  command "workflow-retry-status" do
+    about("Explain why a workflow stage cannot safely be retried; reads only.")
+    argument(:run_id, required: true, help: "The failed workflow run id.")
+    option(:json, type: :boolean, help: "Raw JSON evidence and missing preconditions.")
+  end
+
+  @impl Cheer.Command
+  def run(args, _raw) do
+    Custode.CLI.emit(
+      "workflow_retry_status",
+      %{run_id: args[:run_id]},
+      args[:json] == true,
+      fn status ->
+        "Retry unavailable: " <> Enum.map_join(status["reasons"], "\n", & &1["message"])
+      end
+    )
+  end
+end
