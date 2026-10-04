@@ -1,0 +1,936 @@
+{
+  "attempt_accounting": "Three incomplete manually corrected attempts: first producer startup, then producer authentication, then one successful diagnostic producer and pre-session verifier timeout. Final fresh-store proof: four successful calls. Total five successful model runs, no automatic retry. Codex cost remains unknown.",
+  "cases": [
+    {
+      "artifact_revision": "2355a359100029ed044b52565098bc7c76aaa666",
+      "base_revision": "e84938cd8efa4467c4eeeae4c44b1ae8f1813fb2",
+      "case_id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b",
+      "case_revision": "932b29ff68ef257311b5e068bef98698dfd18bb1a02d3549e5c0d4d02e604360",
+      "check_receipt": {
+        "binding": {
+          "artifact_revision": "df39b0648c0cfb919fd59db0311462997a5275f2bdb4baf15febcb387bc83ccf",
+          "case_revision": "932b29ff68ef257311b5e068bef98698dfd18bb1a02d3549e5c0d4d02e604360",
+          "generation": 2,
+          "policy_digest": "4f6e070f462b85642149cff36351afbf829cc5c074db6588a22da67dbdd4ab25"
+        },
+        "claim_class": "independently_reproduced",
+        "custody_class": "host_observed",
+        "execution": {
+          "actor": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-verifier",
+          "native_session_id": "session-sha256:5f470155712f9ce20e0ee60868799d7f8711963299f1c229816668360b375396",
+          "observed_effort": null,
+          "observed_model": null,
+          "provider": "codex",
+          "requested_effort": "low",
+          "requested_model": "gpt-5.5",
+          "revision": "bdea70b24a6e410a46d5ace93f60930c84e7f5511a960ee8cf1dd6b734554369",
+          "run_id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-verify:session-sha256:5f470155712f9ce20e0ee60868799d7f8711963299f1c229816668360b375396"
+        },
+        "id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-reassess-1ee3b561e3d04f0453df73500a7bd92833c80034-check",
+        "issuer": "custode.assurance.v1",
+        "kind": "native_check",
+        "limits": [
+          "all_descendants_attestation_missing",
+          "unobserved_managed_native_settings",
+          "harness_judgment_is_not_human_approval"
+        ],
+        "missing_bindings": [],
+        "outcome": "passed",
+        "predicate": "check",
+        "recorded_at": "2026-10-04T19:35:27.945901Z",
+        "source": {
+          "native_run_id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-verify",
+          "stream_sha256": "580328d92149cd0e6fc4fadfcbeab9ab08fd8472a2520c5bc8e797476f89a3b4"
+        }
+      },
+      "controls": {
+        "duplicate_capture_no_new_effect": true,
+        "effect_authority_none": true,
+        "native_launch_replay_returns_original": true,
+        "round_bound_refused": true,
+        "sqlite_store_process_reopen_preserves_native_evidence": true,
+        "stale_refused": true
+      },
+      "decision": {
+        "binding": {
+          "artifact_revision": "df39b0648c0cfb919fd59db0311462997a5275f2bdb4baf15febcb387bc83ccf",
+          "case_revision": "932b29ff68ef257311b5e068bef98698dfd18bb1a02d3549e5c0d4d02e604360",
+          "generation": 2,
+          "policy_digest": "4f6e070f462b85642149cff36351afbf829cc5c074db6588a22da67dbdd4ab25"
+        },
+        "contradictory": [],
+        "effect_authority": "none",
+        "evidence_ids": [
+          "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-check",
+          "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-judge",
+          "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-opinion",
+          "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-reassess-1ee3b561e3d04f0453df73500a7bd92833c80034-check"
+        ],
+        "id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-reassess-1ee3b561e3d04f0453df73500a7bd92833c80034-decision",
+        "missing": [],
+        "predicates": [
+          {
+            "considered_evidence_ids": [
+              "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-check",
+              "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-reassess-1ee3b561e3d04f0453df73500a7bd92833c80034-check"
+            ],
+            "eligible_evidence_ids": [
+              "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-reassess-1ee3b561e3d04f0453df73500a7bd92833c80034-check"
+            ],
+            "excluded_evidence": [
+              {
+                "id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-check",
+                "reasons": [
+                  "required_claim_class",
+                  "source_bindings"
+                ]
+              }
+            ],
+            "name": "check",
+            "state": "satisfied"
+          },
+          {
+            "considered_evidence_ids": [
+              "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-opinion"
+            ],
+            "eligible_evidence_ids": [
+              "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-opinion"
+            ],
+            "excluded_evidence": [],
+            "name": "opinion",
+            "state": "satisfied"
+          },
+          {
+            "considered_evidence_ids": [
+              "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-judge"
+            ],
+            "eligible_evidence_ids": [
+              "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-judge"
+            ],
+            "name": "designated_judge",
+            "state": "satisfied"
+          }
+        ],
+        "recorded_at": "2026-10-04T19:35:27.950932Z",
+        "satisfied": [
+          "check",
+          "opinion",
+          "designated_judge"
+        ],
+        "status": "accepted"
+      },
+      "initial_check_receipt": {
+        "binding": {
+          "artifact_revision": "df39b0648c0cfb919fd59db0311462997a5275f2bdb4baf15febcb387bc83ccf",
+          "case_revision": "932b29ff68ef257311b5e068bef98698dfd18bb1a02d3549e5c0d4d02e604360",
+          "generation": 2,
+          "policy_digest": "4f6e070f462b85642149cff36351afbf829cc5c074db6588a22da67dbdd4ab25"
+        },
+        "claim_class": "host_observed",
+        "custody_class": "host_observed",
+        "execution": {
+          "actor": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-verifier",
+          "native_session_id": "session-sha256:5f470155712f9ce20e0ee60868799d7f8711963299f1c229816668360b375396",
+          "observed_effort": null,
+          "observed_model": null,
+          "provider": "codex",
+          "requested_effort": "low",
+          "requested_model": "gpt-5.5",
+          "revision": "bdea70b24a6e410a46d5ace93f60930c84e7f5511a960ee8cf1dd6b734554369",
+          "run_id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-verify:session-sha256:5f470155712f9ce20e0ee60868799d7f8711963299f1c229816668360b375396"
+        },
+        "id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-check",
+        "issuer": "custode.assurance.v1",
+        "kind": "native_check",
+        "limits": [
+          "all_descendants_attestation_missing",
+          "unobserved_managed_native_settings",
+          "harness_judgment_is_not_human_approval"
+        ],
+        "missing_bindings": [
+          "exact_native_command_case_artifact_config_session"
+        ],
+        "outcome": "unknown",
+        "predicate": "check",
+        "recorded_at": "2026-10-04T19:22:13.029125Z",
+        "source": {
+          "native_run_id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-verify",
+          "stream_sha256": "580328d92149cd0e6fc4fadfcbeab9ab08fd8472a2520c5bc8e797476f89a3b4"
+        }
+      },
+      "initial_controls": {
+        "duplicate_capture_no_new_effect": true,
+        "effect_authority_none": true,
+        "native_launch_replay_returns_original": true,
+        "round_bound_refused": true,
+        "sqlite_store_process_reopen_preserves_native_evidence": false,
+        "stale_refused": true
+      },
+      "initial_decision": {
+        "binding": {
+          "artifact_revision": "df39b0648c0cfb919fd59db0311462997a5275f2bdb4baf15febcb387bc83ccf",
+          "case_revision": "932b29ff68ef257311b5e068bef98698dfd18bb1a02d3549e5c0d4d02e604360",
+          "generation": 2,
+          "policy_digest": "4f6e070f462b85642149cff36351afbf829cc5c074db6588a22da67dbdd4ab25"
+        },
+        "contradictory": [],
+        "effect_authority": "none",
+        "evidence_ids": [
+          "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-check",
+          "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-judge",
+          "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-opinion"
+        ],
+        "id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-decision",
+        "missing": [
+          "check"
+        ],
+        "predicates": [
+          {
+            "considered_evidence_ids": [
+              "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-check"
+            ],
+            "eligible_evidence_ids": [],
+            "excluded_evidence": [
+              {
+                "id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-check",
+                "reasons": [
+                  "required_claim_class",
+                  "source_bindings"
+                ]
+              }
+            ],
+            "name": "check",
+            "state": "missing"
+          },
+          {
+            "considered_evidence_ids": [
+              "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-opinion"
+            ],
+            "eligible_evidence_ids": [
+              "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-opinion"
+            ],
+            "excluded_evidence": [],
+            "name": "opinion",
+            "state": "satisfied"
+          },
+          {
+            "considered_evidence_ids": [
+              "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-judge"
+            ],
+            "eligible_evidence_ids": [
+              "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-judge"
+            ],
+            "name": "designated_judge",
+            "state": "satisfied"
+          }
+        ],
+        "recorded_at": "2026-10-04T19:22:13.038684Z",
+        "satisfied": [
+          "opinion",
+          "designated_judge"
+        ],
+        "status": "escalated"
+      },
+      "opinion_receipt": {
+        "binding": {
+          "artifact_revision": "df39b0648c0cfb919fd59db0311462997a5275f2bdb4baf15febcb387bc83ccf",
+          "case_revision": "932b29ff68ef257311b5e068bef98698dfd18bb1a02d3549e5c0d4d02e604360",
+          "generation": 2,
+          "policy_digest": "4f6e070f462b85642149cff36351afbf829cc5c074db6588a22da67dbdd4ab25"
+        },
+        "claim_class": "independent_opinion",
+        "custody_class": "host_observed",
+        "execution": {
+          "actor": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-verifier",
+          "native_session_id": "session-sha256:5f470155712f9ce20e0ee60868799d7f8711963299f1c229816668360b375396",
+          "observed_effort": null,
+          "observed_model": null,
+          "provider": "codex",
+          "requested_effort": "low",
+          "requested_model": "gpt-5.5",
+          "revision": "bdea70b24a6e410a46d5ace93f60930c84e7f5511a960ee8cf1dd6b734554369",
+          "run_id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-verify:session-sha256:5f470155712f9ce20e0ee60868799d7f8711963299f1c229816668360b375396"
+        },
+        "id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-opinion",
+        "issuer": "custode.assurance.v1",
+        "kind": "native_opinion",
+        "limits": [
+          "all_descendants_attestation_missing",
+          "unobserved_managed_native_settings",
+          "harness_judgment_is_not_human_approval"
+        ],
+        "missing_bindings": [],
+        "outcome": "passed",
+        "predicate": "opinion",
+        "recorded_at": "2026-10-04T19:22:13.032101Z",
+        "source": {
+          "native_run_id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-verify",
+          "stream_sha256": "580328d92149cd0e6fc4fadfcbeab9ab08fd8472a2520c5bc8e797476f89a3b4"
+        }
+      },
+      "passed": true,
+      "producer": {
+        "native_run_id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-produce"
+      },
+      "variant": "clean",
+      "verifier": {
+        "native_run_id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-verify"
+      }
+    },
+    {
+      "artifact_revision": "761acbb820a2a1bab3d674c31619f82bbf37c798",
+      "base_revision": "00afee9fa07d37b6b0b6a2ba5ff58593e7a867df",
+      "case_id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd",
+      "case_revision": "3f964b92e75f44c29d7cb66d88f9fd1488418dbb327e23620a733817ecf5edb3",
+      "check_receipt": {
+        "binding": {
+          "artifact_revision": "a5df02b0fdb3bc57d1bff17780e11d5a129b7a636f3382ffc238747036a45fcd",
+          "case_revision": "3f964b92e75f44c29d7cb66d88f9fd1488418dbb327e23620a733817ecf5edb3",
+          "generation": 2,
+          "policy_digest": "a695babdd32ed86a2ca8b703f67e42bafcbbee378fc0e99292d2aedec997bc63"
+        },
+        "claim_class": "independently_reproduced",
+        "custody_class": "host_observed",
+        "execution": {
+          "actor": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-verifier",
+          "native_session_id": "session-sha256:edb25ecf0cd0180173928112fb3c9476b19f18a364107c4af5ea706353c921ca",
+          "observed_effort": null,
+          "observed_model": null,
+          "provider": "codex",
+          "requested_effort": "low",
+          "requested_model": "gpt-5.5",
+          "revision": "3a170d7e2ec31a91f7427e4375fc6341ed6a4f8aa5da0a898b9d039269a2e856",
+          "run_id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-verify:session-sha256:edb25ecf0cd0180173928112fb3c9476b19f18a364107c4af5ea706353c921ca"
+        },
+        "id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-reassess-1ee3b561e3d04f0453df73500a7bd92833c80034-check",
+        "issuer": "custode.assurance.v1",
+        "kind": "native_check",
+        "limits": [
+          "all_descendants_attestation_missing",
+          "unobserved_managed_native_settings",
+          "harness_judgment_is_not_human_approval"
+        ],
+        "missing_bindings": [],
+        "outcome": "failed",
+        "predicate": "check",
+        "recorded_at": "2026-10-04T19:35:28.293559Z",
+        "source": {
+          "native_run_id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-verify",
+          "stream_sha256": "8b8a0af7ff08da64ef5288a2b3373352d7a92cd445eb8a6dead77973927e7cf6"
+        }
+      },
+      "controls": {
+        "duplicate_capture_no_new_effect": true,
+        "effect_authority_none": true,
+        "native_launch_replay_returns_original": true,
+        "round_bound_refused": true,
+        "sqlite_store_process_reopen_preserves_native_evidence": true,
+        "stale_refused": true
+      },
+      "decision": {
+        "binding": {
+          "artifact_revision": "a5df02b0fdb3bc57d1bff17780e11d5a129b7a636f3382ffc238747036a45fcd",
+          "case_revision": "3f964b92e75f44c29d7cb66d88f9fd1488418dbb327e23620a733817ecf5edb3",
+          "generation": 2,
+          "policy_digest": "a695babdd32ed86a2ca8b703f67e42bafcbbee378fc0e99292d2aedec997bc63"
+        },
+        "contradictory": [
+          "check",
+          "opinion"
+        ],
+        "effect_authority": "none",
+        "evidence_ids": [
+          "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-check",
+          "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-judge",
+          "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-opinion",
+          "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-reassess-1ee3b561e3d04f0453df73500a7bd92833c80034-check"
+        ],
+        "id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-reassess-1ee3b561e3d04f0453df73500a7bd92833c80034-decision",
+        "missing": [],
+        "predicates": [
+          {
+            "considered_evidence_ids": [
+              "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-check",
+              "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-reassess-1ee3b561e3d04f0453df73500a7bd92833c80034-check"
+            ],
+            "eligible_evidence_ids": [
+              "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-reassess-1ee3b561e3d04f0453df73500a7bd92833c80034-check"
+            ],
+            "excluded_evidence": [
+              {
+                "id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-check",
+                "reasons": [
+                  "required_claim_class",
+                  "source_bindings"
+                ]
+              }
+            ],
+            "name": "check",
+            "state": "contradictory"
+          },
+          {
+            "considered_evidence_ids": [
+              "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-opinion"
+            ],
+            "eligible_evidence_ids": [
+              "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-opinion"
+            ],
+            "excluded_evidence": [],
+            "name": "opinion",
+            "state": "contradictory"
+          },
+          {
+            "considered_evidence_ids": [
+              "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-judge"
+            ],
+            "eligible_evidence_ids": [
+              "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-judge"
+            ],
+            "name": "designated_judge",
+            "state": "satisfied"
+          }
+        ],
+        "recorded_at": "2026-10-04T19:35:28.297824Z",
+        "satisfied": [
+          "designated_judge"
+        ],
+        "status": "rejected"
+      },
+      "initial_check_receipt": {
+        "binding": {
+          "artifact_revision": "a5df02b0fdb3bc57d1bff17780e11d5a129b7a636f3382ffc238747036a45fcd",
+          "case_revision": "3f964b92e75f44c29d7cb66d88f9fd1488418dbb327e23620a733817ecf5edb3",
+          "generation": 2,
+          "policy_digest": "a695babdd32ed86a2ca8b703f67e42bafcbbee378fc0e99292d2aedec997bc63"
+        },
+        "claim_class": "host_observed",
+        "custody_class": "host_observed",
+        "execution": {
+          "actor": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-verifier",
+          "native_session_id": "session-sha256:edb25ecf0cd0180173928112fb3c9476b19f18a364107c4af5ea706353c921ca",
+          "observed_effort": null,
+          "observed_model": null,
+          "provider": "codex",
+          "requested_effort": "low",
+          "requested_model": "gpt-5.5",
+          "revision": "3a170d7e2ec31a91f7427e4375fc6341ed6a4f8aa5da0a898b9d039269a2e856",
+          "run_id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-verify:session-sha256:edb25ecf0cd0180173928112fb3c9476b19f18a364107c4af5ea706353c921ca"
+        },
+        "id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-check",
+        "issuer": "custode.assurance.v1",
+        "kind": "native_check",
+        "limits": [
+          "all_descendants_attestation_missing",
+          "unobserved_managed_native_settings",
+          "harness_judgment_is_not_human_approval"
+        ],
+        "missing_bindings": [
+          "exact_native_command_case_artifact_config_session"
+        ],
+        "outcome": "unknown",
+        "predicate": "check",
+        "recorded_at": "2026-10-04T19:22:28.808608Z",
+        "source": {
+          "native_run_id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-verify",
+          "stream_sha256": "8b8a0af7ff08da64ef5288a2b3373352d7a92cd445eb8a6dead77973927e7cf6"
+        }
+      },
+      "initial_controls": {
+        "duplicate_capture_no_new_effect": true,
+        "effect_authority_none": true,
+        "native_launch_replay_returns_original": true,
+        "round_bound_refused": true,
+        "sqlite_store_process_reopen_preserves_native_evidence": false,
+        "stale_refused": true
+      },
+      "initial_decision": {
+        "binding": {
+          "artifact_revision": "a5df02b0fdb3bc57d1bff17780e11d5a129b7a636f3382ffc238747036a45fcd",
+          "case_revision": "3f964b92e75f44c29d7cb66d88f9fd1488418dbb327e23620a733817ecf5edb3",
+          "generation": 2,
+          "policy_digest": "a695babdd32ed86a2ca8b703f67e42bafcbbee378fc0e99292d2aedec997bc63"
+        },
+        "contradictory": [
+          "opinion"
+        ],
+        "effect_authority": "none",
+        "evidence_ids": [
+          "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-check",
+          "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-judge",
+          "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-opinion"
+        ],
+        "id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-decision",
+        "missing": [
+          "check"
+        ],
+        "predicates": [
+          {
+            "considered_evidence_ids": [
+              "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-check"
+            ],
+            "eligible_evidence_ids": [],
+            "excluded_evidence": [
+              {
+                "id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-check",
+                "reasons": [
+                  "required_claim_class",
+                  "source_bindings"
+                ]
+              }
+            ],
+            "name": "check",
+            "state": "missing"
+          },
+          {
+            "considered_evidence_ids": [
+              "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-opinion"
+            ],
+            "eligible_evidence_ids": [
+              "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-opinion"
+            ],
+            "excluded_evidence": [],
+            "name": "opinion",
+            "state": "contradictory"
+          },
+          {
+            "considered_evidence_ids": [
+              "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-judge"
+            ],
+            "eligible_evidence_ids": [
+              "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-judge"
+            ],
+            "name": "designated_judge",
+            "state": "satisfied"
+          }
+        ],
+        "recorded_at": "2026-10-04T19:22:28.817564Z",
+        "satisfied": [
+          "designated_judge"
+        ],
+        "status": "rejected"
+      },
+      "opinion_receipt": {
+        "binding": {
+          "artifact_revision": "a5df02b0fdb3bc57d1bff17780e11d5a129b7a636f3382ffc238747036a45fcd",
+          "case_revision": "3f964b92e75f44c29d7cb66d88f9fd1488418dbb327e23620a733817ecf5edb3",
+          "generation": 2,
+          "policy_digest": "a695babdd32ed86a2ca8b703f67e42bafcbbee378fc0e99292d2aedec997bc63"
+        },
+        "claim_class": "independent_opinion",
+        "custody_class": "host_observed",
+        "execution": {
+          "actor": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-verifier",
+          "native_session_id": "session-sha256:edb25ecf0cd0180173928112fb3c9476b19f18a364107c4af5ea706353c921ca",
+          "observed_effort": null,
+          "observed_model": null,
+          "provider": "codex",
+          "requested_effort": "low",
+          "requested_model": "gpt-5.5",
+          "revision": "3a170d7e2ec31a91f7427e4375fc6341ed6a4f8aa5da0a898b9d039269a2e856",
+          "run_id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-verify:session-sha256:edb25ecf0cd0180173928112fb3c9476b19f18a364107c4af5ea706353c921ca"
+        },
+        "id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-opinion",
+        "issuer": "custode.assurance.v1",
+        "kind": "native_opinion",
+        "limits": [
+          "all_descendants_attestation_missing",
+          "unobserved_managed_native_settings",
+          "harness_judgment_is_not_human_approval"
+        ],
+        "missing_bindings": [],
+        "outcome": "failed",
+        "predicate": "opinion",
+        "recorded_at": "2026-10-04T19:22:28.811662Z",
+        "source": {
+          "native_run_id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-verify",
+          "stream_sha256": "8b8a0af7ff08da64ef5288a2b3373352d7a92cd445eb8a6dead77973927e7cf6"
+        }
+      },
+      "passed": true,
+      "producer": {
+        "native_run_id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-produce"
+      },
+      "variant": "seeded",
+      "verifier": {
+        "native_run_id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-verify"
+      }
+    }
+  ],
+  "effect_authority": "none",
+  "failed_setup_attempts": [
+    {
+      "automatic_retry": false,
+      "diagnostic": "Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.\nError: Input must be provided either through stdin or as a prompt argument when using --print\n",
+      "exit_code": 1,
+      "native_model_session_observed": false,
+      "native_session_id": null,
+      "raw_record_sha256": "a2b10a7d94e09fd57535360971f1e25cdbc89b565a7a5336e9a2e4e5d1ae789e",
+      "runner_status": "test_failure",
+      "source_revision": "161ac7c05cd556e18c78eb2b5b3c3e7e04281017",
+      "source_tree": "6c44e696ed7784cfa1afb1c54baecca1fe9f1f45",
+      "stage": "claude_cli_argument_startup"
+    },
+    {
+      "automatic_retry": false,
+      "diagnostic": "Not logged in; filtered native environment omitted non-secret USER required for this macOS account lookup.",
+      "exit_code": 1,
+      "native_version": "2.1.284 (Claude Code)",
+      "observed": {
+        "commands": [],
+        "malformed_lines": 0,
+        "observed_model": "claude-sonnet-5-5",
+        "opinion": null,
+        "protocol_errors": [
+          "missing_or_conflicting_successful_terminal"
+        ],
+        "session_id": "session-sha256:0367423736d4377d5abb9ecf30564f22366e7ffda9f181437bff62d87c57bdcf",
+        "stream_sha256": "4bb8d736b5f11eacaae710351350947244664d48aca52336887852129024cb2c",
+        "terminal_observed": false
+      },
+      "raw_record_sha256": "5fffed1d215729b4513731adc6f269475e44c2b15001d047f15ec0cf8bb243be",
+      "runner_status": "test_failure",
+      "source_revision": "1e7eb06ca2fe769f79277ef045a1b88de4b8379e",
+      "source_tree": "f835ac549bdbf8c19ea841fd5d2bfe300b29ff2d",
+      "stage": "claude_native_authentication"
+    },
+    {
+      "automatic_retry": false,
+      "producer": {
+        "id": "native-795-clean-6580d9d6-f087-4389-8011-282e0e81c102-produce",
+        "produced_revision": "821c72265cc90bc50ded3e2dc8d37158b157b6fa",
+        "status": "completed"
+      },
+      "producer_native": {
+        "observed_model": "claude-sonnet-5-5",
+        "session_id": "session-sha256:c26b0fe89d0228cd8396e6a752196024103b5f7d6946bcff0e4348169b73502d"
+      },
+      "raw_record_sha256": {
+        "produce": "4638b0e02ab242d200f38bb3e75949b50134461bf5c4fab0fe2c12b27b061b62",
+        "verify": "e8e8eda7c35641b680207542fd7f5e013011e972f0f8ce4577bfdd182d8d0c00"
+      },
+      "source_revision": "d7c0498bf8a7d9b10362371a52b2a08d4d99ca7b",
+      "source_tree": "ec5da5f961c769e9fb38657c26856cf3724e1891",
+      "stage": "codex_stdin_eof_timeout",
+      "verifier": {
+        "diagnostic": "Reading additional input from stdin...\n",
+        "exit_code": null,
+        "reason": ":timeout",
+        "runner_status": "timeout",
+        "session_id": null,
+        "status": "incomplete"
+      }
+    }
+  ],
+  "grading_source_revision": "1ee3b561e3d04f0453df73500a7bd92833c80034",
+  "grading_source_sha256": {
+    "lib/custode/assurance/native.ex": "543b4aa50f7a273195cdd3d26e3afd381ff726409b9dd031c5a84a1631461b14",
+    "lib/custode/assurance/native/events.ex": "46a557f9cdc50235b4723e98e02874aa45bd0aecfd07f38cf5990aa24422d5ad",
+    "lib/custode/assurance/native/proof.ex": "b4588cfd3e5b61adda3a1a6c8fd9401cd0b835df628fbe9787815a84252d7053",
+    "lib/custode/verification/runner.ex": "f1002c8e81e4f7b830af3a127b6bc847f4ae5e80c861f6409bf079d5ee92e63a",
+    "lib/mix/tasks/custode.assurance.proof.ex": "2f053ea1c2b146efe5a0f1d04c672ebc4462fe48fef9fba3acccc63099144e9c",
+    "priv/assurance_native/baseline.py": "630976e0c6dc969ff5136434878e335719d4882b75e1906c38f1519456e2dec8",
+    "priv/assurance_native/verify.py": "b2f8799bee747a55d319ed4b6b625be9832fabef18575f6553714712893b77d2",
+    "priv/verification/exec_argv.sh": "bd7546e0fb8ec1ce15e285044879caef40e543a78eb1036c2a3523a3122214ba"
+  },
+  "judge": "synthetic_host_proof_harness_not_human_approval",
+  "limits": [
+    "no_all_descendants_attestation_or_automatic_redelivery",
+    "four_configured_calls_no_automatic_retry",
+    "claude_budget_stop_not_total_billing_ceiling_codex_cost_unknown",
+    "fixture_defect_seed_and_git_commits_owned_by_host_harness",
+    "repository_check_is_small_fixed_contract_not_general_provider_correctness"
+  ],
+  "manual_corrections": [
+    "Add Claude '--' prompt terminator after variadic allowedTools.",
+    "Retain non-secret USER in the native environment allowlist for macOS account lookup.",
+    "Select explicit EOF in the fixed runner helper for native CLI stdin; default runner input remains inherited."
+  ],
+  "native_calls": [
+    {
+      "captured_record_sha256": "524712a2bb985ab221af010984b5873e7f40a72b5bc0fbcef504262a7261dcfb",
+      "id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-produce",
+      "native_version": "2.1.284 (Claude Code)",
+      "observed": {
+        "commands": [],
+        "malformed_lines": 0,
+        "observed_model": "claude-sonnet-5-5",
+        "opinion": null,
+        "protocol_errors": [],
+        "session_id": "session-sha256:36bc9f05d9e3069470dcc67c30d0b4442db42830780f6e748002be255214c442",
+        "stream_sha256": "24e1f136a2bf07a3953f042fa893851b263b5bcac4b714ac0f28f39c2a3178ba",
+        "terminal_observed": true
+      },
+      "physical_settlement": {
+        "all_descendants_attestation": "missing",
+        "native_exit_observed": true,
+        "observed_descendant_cleanup": "verification-runner-v3"
+      },
+      "produced_revision": "2355a359100029ed044b52565098bc7c76aaa666",
+      "profile": {
+        "actor_id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-owner",
+        "actor_revision": "0b10eeb2dd11f6621e07740677d4c870fa2432a7a4004e28464b2030b070ed3f",
+        "binary": "<native-claude-binary>",
+        "configured_profile_digest": "b74f99afd818510fc62ae1ca09572b54b2b354cb5e4db15341a1e49d6a73f071",
+        "effort": "low",
+        "id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-produce",
+        "max_budget_usd": 0.5,
+        "model": "sonnet",
+        "owner_id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-owner",
+        "provider": "claude",
+        "role": "producer",
+        "timeout_ms": 90000,
+        "working_dir": "<private-proof-root>/clean/producer"
+      },
+      "profile_revision": "3a1657729b9ef9c64c2a2c2b24fae24c0f0969f9564be6c1d100d89b19286105",
+      "redelivery": "refused_without_all_descendants_attestation",
+      "status": "completed",
+      "stdin_mode": "null"
+    },
+    {
+      "captured_record_sha256": "09fa930f1023485ef933867f2be753ae7a6a406bbd6c9141f81925f8ca89bc09",
+      "id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-verify",
+      "native_version": "codex-cli 0.157.1",
+      "observed": {
+        "commands": [
+          {
+            "aggregated_output": "git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead\n{\"artifact_revision\": \"2355a359100029ed044b52565098bc7c76aaa666\", \"check_sha256\": \"b2f8799bee747a55d319ed4b6b625be9832fabef18575f6553714712893b77d2\", \"checks\": [{\"check\": \"baseline_add\", \"expected\": 0, \"input\": [0, 0], \"observed\": 0, \"passed\": true}, {\"check\": \"sum_pair\", \"expected\": 0, \"input\": [0, 0], \"observed\": 0, \"passed\": true}, {\"check\": \"baseline_add\", \"expected\": 3, \"input\": [1, 2], \"observed\": 3, \"passed\": true}, {\"check\": \"sum_pair\", \"expected\": 3, \"input\": [1, 2], \"observed\": 3, \"passed\": true}, {\"check\": \"baseline_add\", \"expected\": -1, \"input\": [-2, 1], \"observed\": -1, \"passed\": true}, {\"check\": \"sum_pair\", \"expected\": -1, \"input\": [-2, 1], \"observed\": -1, \"passed\": true}, {\"check\": \"baseline_add\", \"expected\": -7, \"input\": [-4, -3], \"observed\": -7, \"passed\": true}, {\"check\": \"sum_pair\", \"expected\": -7, \"input\": [-4, -3], \"observed\": -7, \"passed\": true}, {\"check\": \"baseline_add\", \"expected\": 222, \"input\": [123, 99], \"observed\": 222, \"passed\": true}, {\"check\": \"sum_pair\", \"expected\": 222, \"input\": [123, 99], \"observed\": 222, \"passed\": true}], \"failure\": null, \"passed\": true}\n",
+            "command": "/bin/zsh -lc \"cd '<private-proof-root>/clean/verifier' && python3 -B verify.py\"",
+            "exit_code": 0,
+            "id": "item_1",
+            "status": "completed"
+          }
+        ],
+        "malformed_lines": 0,
+        "observed_model": null,
+        "opinion": {
+          "artifact_revision": "2355a359100029ed044b52565098bc7c76aaa666",
+          "case_revision": "932b29ff68ef257311b5e068bef98698dfd18bb1a02d3549e5c0d4d02e604360",
+          "findings": [],
+          "verdict": "clean"
+        },
+        "protocol_errors": [],
+        "session_id": "session-sha256:5f470155712f9ce20e0ee60868799d7f8711963299f1c229816668360b375396",
+        "stream_sha256": "580328d92149cd0e6fc4fadfcbeab9ab08fd8472a2520c5bc8e797476f89a3b4",
+        "terminal_observed": true
+      },
+      "physical_settlement": {
+        "all_descendants_attestation": "missing",
+        "native_exit_observed": true,
+        "observed_descendant_cleanup": "verification-runner-v3"
+      },
+      "produced_revision": null,
+      "profile": {
+        "actor_id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-verifier",
+        "actor_revision": "e89d4992c791699f53a9f58ce3931007e450287d9f6586f4d42ca8cd7076bcfe",
+        "binary": "<native-binary>",
+        "configured_profile_digest": "2ef19abf9642436046131842afaeb72b5ad77b4466ee0a1b0ca9f1ebf04a1c64",
+        "effort": "low",
+        "id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-verify",
+        "max_budget_usd": 0.5,
+        "model": "gpt-5.5",
+        "owner_id": "native-795-clean-14835632-8489-4a15-9976-5c126997f39b-owner",
+        "provider": "codex",
+        "role": "verifier",
+        "timeout_ms": 90000,
+        "working_dir": "<private-proof-root>/clean/verifier"
+      },
+      "profile_revision": "bdea70b24a6e410a46d5ace93f60930c84e7f5511a960ee8cf1dd6b734554369",
+      "redelivery": "refused_without_all_descendants_attestation",
+      "status": "completed",
+      "stdin_mode": "null"
+    },
+    {
+      "captured_record_sha256": "e3f661775aebb1657ce42f1b4a3bf1f31043ccf11fc6bcaacb8704227a8da358",
+      "id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-produce",
+      "native_version": "2.1.284 (Claude Code)",
+      "observed": {
+        "commands": [],
+        "malformed_lines": 0,
+        "observed_model": "claude-sonnet-5-5",
+        "opinion": null,
+        "protocol_errors": [],
+        "session_id": "session-sha256:6e3a695f301b0dccca128feb4dee983b92b3726bae4c05b9075354ddd0d8cf2c",
+        "stream_sha256": "6dec7339c603ef7cf4d0917dec9709bd172b6b5091d55f13bbf145d34603b0c2",
+        "terminal_observed": true
+      },
+      "physical_settlement": {
+        "all_descendants_attestation": "missing",
+        "native_exit_observed": true,
+        "observed_descendant_cleanup": "verification-runner-v3"
+      },
+      "produced_revision": "761acbb820a2a1bab3d674c31619f82bbf37c798",
+      "profile": {
+        "actor_id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-owner",
+        "actor_revision": "ceec9a0c65afed5bea2c91714cf2277c140de7c4a6652e844def0803c22c4bcb",
+        "binary": "<native-claude-binary>",
+        "configured_profile_digest": "f8a15505091887d07c2e54381c57e0b754585d4470f8d8ba117b795322afad63",
+        "effort": "low",
+        "id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-produce",
+        "max_budget_usd": 0.5,
+        "model": "sonnet",
+        "owner_id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-owner",
+        "provider": "claude",
+        "role": "producer",
+        "timeout_ms": 90000,
+        "working_dir": "<private-proof-root>/seeded/producer"
+      },
+      "profile_revision": "ee90281f8f64da4b5cf820e0a671e5e52ee02f8c2ca3f807a0b91a38df8077a6",
+      "redelivery": "refused_without_all_descendants_attestation",
+      "status": "completed",
+      "stdin_mode": "null"
+    },
+    {
+      "captured_record_sha256": "6466f4f8ab9d63860cb5c7033dfe78da27fad57cac9809894dcfab144cc554b8",
+      "id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-verify",
+      "native_version": "codex-cli 0.157.1",
+      "observed": {
+        "commands": [
+          {
+            "aggregated_output": "git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead\n{\"artifact_revision\": \"761acbb820a2a1bab3d674c31619f82bbf37c798\", \"check_sha256\": \"b2f8799bee747a55d319ed4b6b625be9832fabef18575f6553714712893b77d2\", \"checks\": [{\"check\": \"baseline_add\", \"expected\": 0, \"input\": [0, 0], \"observed\": 0, \"passed\": true}, {\"check\": \"sum_pair\", \"expected\": 0, \"input\": [0, 0], \"observed\": 0, \"passed\": true}, {\"check\": \"baseline_add\", \"expected\": 3, \"input\": [1, 2], \"observed\": -1, \"passed\": false}, {\"check\": \"sum_pair\", \"expected\": 3, \"input\": [1, 2], \"observed\": -1, \"passed\": false}, {\"check\": \"baseline_add\", \"expected\": -1, \"input\": [-2, 1], \"observed\": -3, \"passed\": false}, {\"check\": \"sum_pair\", \"expected\": -1, \"input\": [-2, 1], \"observed\": -3, \"passed\": false}, {\"check\": \"baseline_add\", \"expected\": -7, \"input\": [-4, -3], \"observed\": -1, \"passed\": false}, {\"check\": \"sum_pair\", \"expected\": -7, \"input\": [-4, -3], \"observed\": -1, \"passed\": false}, {\"check\": \"baseline_add\", \"expected\": 222, \"input\": [123, 99], \"observed\": 24, \"passed\": false}, {\"check\": \"sum_pair\", \"expected\": 222, \"input\": [123, 99], \"observed\": 24, \"passed\": false}], \"failure\": null, \"passed\": false}\n",
+            "command": "/bin/zsh -lc \"cd '<private-proof-root>/seeded/verifier' && python3 -B verify.py\"",
+            "exit_code": 1,
+            "id": "item_0",
+            "status": "failed"
+          }
+        ],
+        "malformed_lines": 0,
+        "observed_model": null,
+        "opinion": {
+          "artifact_revision": "761acbb820a2a1bab3d674c31619f82bbf37c798",
+          "case_revision": "3f964b92e75f44c29d7cb66d88f9fd1488418dbb327e23620a733817ecf5edb3",
+          "findings": [
+            {
+              "check": "baseline_add",
+              "expected": 3,
+              "input": [
+                1,
+                2
+              ],
+              "observed": -1
+            },
+            {
+              "check": "sum_pair",
+              "expected": 3,
+              "input": [
+                1,
+                2
+              ],
+              "observed": -1
+            },
+            {
+              "check": "baseline_add",
+              "expected": -1,
+              "input": [
+                -2,
+                1
+              ],
+              "observed": -3
+            },
+            {
+              "check": "sum_pair",
+              "expected": -1,
+              "input": [
+                -2,
+                1
+              ],
+              "observed": -3
+            },
+            {
+              "check": "baseline_add",
+              "expected": -7,
+              "input": [
+                -4,
+                -3
+              ],
+              "observed": -1
+            },
+            {
+              "check": "sum_pair",
+              "expected": -7,
+              "input": [
+                -4,
+                -3
+              ],
+              "observed": -1
+            },
+            {
+              "check": "baseline_add",
+              "expected": 222,
+              "input": [
+                123,
+                99
+              ],
+              "observed": 24
+            },
+            {
+              "check": "sum_pair",
+              "expected": 222,
+              "input": [
+                123,
+                99
+              ],
+              "observed": 24
+            }
+          ],
+          "verdict": "findings"
+        },
+        "protocol_errors": [],
+        "session_id": "session-sha256:edb25ecf0cd0180173928112fb3c9476b19f18a364107c4af5ea706353c921ca",
+        "stream_sha256": "8b8a0af7ff08da64ef5288a2b3373352d7a92cd445eb8a6dead77973927e7cf6",
+        "terminal_observed": true
+      },
+      "physical_settlement": {
+        "all_descendants_attestation": "missing",
+        "native_exit_observed": true,
+        "observed_descendant_cleanup": "verification-runner-v3"
+      },
+      "produced_revision": null,
+      "profile": {
+        "actor_id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-verifier",
+        "actor_revision": "398ff335cffac96c0ea34cadcb73536ab8802e562aaf2bd8ca6bdda81ab356a0",
+        "binary": "<native-binary>",
+        "configured_profile_digest": "16019ff9cd131ebaedbd9fd37dc207b0b01ffe517bc16f6c359d4ddfddef55c0",
+        "effort": "low",
+        "id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-verify",
+        "max_budget_usd": 0.5,
+        "model": "gpt-5.5",
+        "owner_id": "native-795-seeded-56f682bb-a5f3-4765-a9ae-81158d5b72cd-owner",
+        "provider": "codex",
+        "role": "verifier",
+        "timeout_ms": 90000,
+        "working_dir": "<private-proof-root>/seeded/verifier"
+      },
+      "profile_revision": "3a170d7e2ec31a91f7427e4375fc6341ed6a4f8aa5da0a898b9d039269a2e856",
+      "redelivery": "refused_without_all_descendants_attestation",
+      "status": "completed",
+      "stdin_mode": "null"
+    }
+  ],
+  "native_launch_source_revision": "98a64f7e2227f7f5aee200430294d398783cab47",
+  "native_records_unchanged": true,
+  "new_native_calls": 0,
+  "original_launch_report_status": "incomplete",
+  "original_report_sha256": "7f0505dd396de3f8ff44636c628783e526531bf0678b04f44af268a2ad48305c",
+  "private_report_sha256": "16410760697a081d9637736f01c01287d75de38278252093feed09c967aed238",
+  "public_redaction": {
+    "account_usage_and_cost": "Omitted from public metadata; complete original native rows retained privately.",
+    "local_paths": "Native executable paths and actual proof root replaced with placeholders.",
+    "native_session_identifiers": "Stable SHA-256 aliases, including embedded execution run IDs; original IDs retained privately.",
+    "retained_private_evidence": "Original SHA-256 record/report hashes remain unchanged; public fields are explicitly redacted projections."
+  },
+  "raw_native_retention": "Private mode-0600 recorder files and isolated operations SQLite store; raw streams are not committed.",
+  "schema": "custode.native-assurance-proof.v1",
+  "source_revision": "98a64f7e2227f7f5aee200430294d398783cab47",
+  "source_sha256": {
+    "lib/custode/assurance/native.ex": "2666188c6ed108f06b8a4d2fd872a2d0ffd935ad050d9b1899fe253b707ed754",
+    "lib/custode/assurance/native/events.ex": "46a557f9cdc50235b4723e98e02874aa45bd0aecfd07f38cf5990aa24422d5ad",
+    "lib/custode/assurance/native/proof.ex": "9a1a0b02c387abdafc7805d3c78059524840600776da7ff5ed09502ad93871da",
+    "lib/custode/verification/runner.ex": "f1002c8e81e4f7b830af3a127b6bc847f4ae5e80c861f6409bf079d5ee92e63a",
+    "lib/mix/tasks/custode.assurance.proof.ex": "9acde5e039e1da58cfcb96e6fe057392ee41f95cd91244a56ab54d242f53429c",
+    "priv/assurance_native/baseline.py": "630976e0c6dc969ff5136434878e335719d4882b75e1906c38f1519456e2dec8",
+    "priv/assurance_native/verify.py": "b2f8799bee747a55d319ed4b6b625be9832fabef18575f6553714712893b77d2",
+    "priv/verification/exec_argv.sh": "bd7546e0fb8ec1ce15e285044879caef40e543a78eb1036c2a3523a3122214ba"
+  },
+  "source_tree": "1486970185bdeda5f0e3483a8ac66f04b71bd3dd",
+  "status": "passed"
+}

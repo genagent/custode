@@ -5,13 +5,14 @@ defmodule Custode.Verification.Runner do
   A fixed private shell helper performs only stdout/stderr redirection before
   `exec`. Command text is never interpolated or evaluated by that helper.
   Completion includes terminating every descendant identity observed while the
-  command was running. A cleanup that cannot verify process death is reported
+  command was running. The optional `stdin: :null` setting supplies EOF through
+  the fixed helper; the default retains inherited port input. A cleanup that cannot verify process death is reported
   as an infrastructure error.
   """
 
   alias Custode.Verification.CommandSpec
 
-  @runner_version "verification-runner-v2"
+  @runner_version "verification-runner-v3"
   @poll_ms 10
   @tree_poll_ms 100
   @kill_grace_ms 50
@@ -125,7 +126,7 @@ defmodule Custode.Verification.Runner do
     stderr = Path.join(directory, "stderr")
 
     with :ok <- File.mkdir(directory),
-         {:ok, port} <- open_port(spec, runtime, stdout, stderr) do
+         {:ok, port} <- open_port(spec, runtime, stdout, stderr, options) do
       os_pid = port_pid(port)
       deadline = started + spec.timeout_ms
 
@@ -143,7 +144,8 @@ defmodule Custode.Verification.Runner do
 
       output = capture_output(stdout, stderr, spec)
       File.rm_rf(directory)
-      finish_execution(spec, outcome, started, output)
+      {:ok, result} = finish_execution(spec, outcome, started, output)
+      {:ok, Map.put(result, "stdin_mode", stdin_mode(options))}
     else
       {:error, reason} ->
         File.rm_rf(directory)
@@ -160,7 +162,7 @@ defmodule Custode.Verification.Runner do
     end
   end
 
-  defp open_port(spec, runtime, stdout, stderr) do
+  defp open_port(spec, runtime, stdout, stderr, options) do
     [_command | arguments] = spec.argv
 
     environment =
@@ -173,6 +175,7 @@ defmodule Custode.Verification.Runner do
           runtime.helper,
           stdout,
           stderr,
+          stdin_mode(options),
           runtime.executable
           | arguments
         ]
@@ -185,6 +188,9 @@ defmodule Custode.Verification.Runner do
   rescue
     error -> {:error, {:port_open_failed, Exception.message(error), hd(spec.argv)}}
   end
+
+  defp stdin_mode(options),
+    do: if(Keyword.get(options, :stdin) == :null, do: "null", else: "inherit")
 
   defp port_pid(port) do
     case Port.info(port, :os_pid) do

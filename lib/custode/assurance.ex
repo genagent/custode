@@ -5,7 +5,7 @@ defmodule Custode.Assurance do
   """
   import Ecto.Query, only: [from: 2]
   alias Custode.{AgentHandoff, Repo, Repository, Routine}
-  alias Custode.Assurance.{Evaluator, Sources}
+  alias Custode.Assurance.{Evaluator, Native, Sources}
   alias Snodo.Schema.Validator.Basic
 
   defmodule Row do
@@ -22,12 +22,13 @@ defmodule Custode.Assurance do
 
   @bindings ~w(case_revision artifact_revision policy_digest generation)
   @classes ~w(self_reported host_observed external_attested independent_opinion independently_reproduced)
-  @sources ~w(owner_review document execution repository_check)
+  @sources ~w(owner_review document execution repository_check native_check native_opinion)
 
   @doc "Freeze one configured assignment and its initial logical attempt. No work is launched."
   def open(actor, request) do
     with :ok <- operator(actor),
          :ok <- validate(request, open_schema()),
+         :ok <- producer_reference(request),
          {:ok, assignment} <- assignment(request["assignment_id"]),
          {:ok, owner_revision} <- current_owner(assignment["owner_id"]),
          :ok <- validate_artifact(assignment["owner_id"], request["artifact"]) do
@@ -40,7 +41,9 @@ defmodule Custode.Assurance do
 
   @doc "Start a new bounded revision; old attempts and their receipts are immutable."
   def revise(actor, case_id, request) do
-    with :ok <- operator(actor), :ok <- validate(request, revise_schema()) do
+    with :ok <- operator(actor),
+         :ok <- validate(request, revise_schema()),
+         :ok <- producer_reference(request) do
       event(actor, case_id, request, "revision", &revise_record!(&1, request))
     end
   end
@@ -156,7 +159,7 @@ defmodule Custode.Assurance do
         Repo.rollback(:idempotency_conflict)
 
       nil ->
-        attempt = freeze(assignment, request, owner_revision, 1)
+        attempt = freeze(assignment, request, owner_revision, 1, id)
 
         record = %{
           "schema_version" => "custode.assurance.v1",
@@ -187,7 +190,14 @@ defmodule Custode.Assurance do
       if record["current"]["generation"] >= record["max_rounds"] do
         {:error, :revision_round_bound}
       else
-        {:ok, freeze(assignment, request, owner_revision, record["current"]["generation"] + 1)}
+        {:ok,
+         freeze(
+           assignment,
+           request,
+           owner_revision,
+           record["current"]["generation"] + 1,
+           record["case_id"]
+         )}
       end
     end
   end
@@ -304,7 +314,7 @@ defmodule Custode.Assurance do
 
   defp transaction(fun), do: Repo.transaction(fun, mode: :immediate)
 
-  defp freeze(assignment, request, owner_revision, generation) do
+  defp freeze(assignment, request, owner_revision, generation, case_id) do
     frozen = %{
       "objective" => request["objective"],
       "input" => request["input"],
@@ -322,7 +332,28 @@ defmodule Custode.Assurance do
       "generation" => generation
     }
 
+    frozen =
+      if request["producer_native_run_id"],
+        do:
+          Map.put(
+            frozen,
+            "producer",
+            Native.producer(
+              assignment["owner_id"],
+              request["producer_native_run_id"],
+              case_id,
+              frozen
+            )
+          ),
+        else: frozen
+
     Map.put(frozen, "case_revision", digest(frozen))
+  end
+
+  defp producer_reference(request) do
+    if request["producer_job_id"] && request["producer_native_run_id"],
+      do: {:error, :ambiguous_producer_reference},
+      else: :ok
   end
 
   defp validate_artifact(owner_id, %{
@@ -429,7 +460,8 @@ defmodule Custode.Assurance do
       "objective" => text(16_384),
       "input" => text(100_000),
       "artifact" => artifact_schema(),
-      "producer_job_id" => integer(1, 2_147_483_647)
+      "producer_job_id" => integer(1, 2_147_483_647),
+      "producer_native_run_id" => text(160)
     }
 
   defp open_schema,
@@ -467,7 +499,8 @@ defmodule Custode.Assurance do
         "slot" => integer(1, 2),
         "request_id" => text(160),
         "job_id" => integer(1, 2_147_483_647),
-        "name" => text(200)
+        "name" => text(200),
+        "native_run_id" => text(160)
       })
 
     object(

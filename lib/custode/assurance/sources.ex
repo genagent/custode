@@ -1,5 +1,6 @@
 defmodule Custode.Assurance.Sources do
   @moduledoc "Recorder-owned adapters. Authored propositions retain their original class."
+  alias Custode.Assurance.Native
   alias Custode.{ExecutionFacts, OwnerReviews, Repo, Repository, SubjectDocuments}
 
   def producer(owner_id, job_id) do
@@ -20,6 +21,9 @@ defmodule Custode.Assurance.Sources do
 
       %{"kind" => "repository_check", "name" => name} ->
         repository(record, name)
+
+      %{"kind" => kind, "native_run_id" => id} when kind in ~w(native_check native_opinion) ->
+        Native.evidence(record, kind, id)
 
       _unknown ->
         {:error, :unsupported_source}

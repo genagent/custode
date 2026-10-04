@@ -28,6 +28,7 @@ for table <- [
       "route_decisions",
       "owner_reviews",
       "composition_records",
+      "assurance_native_runs",
       "assurance_records",
       "subject_root_bindings",
       "subject_document_operations",
