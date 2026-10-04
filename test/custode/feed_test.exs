@@ -384,6 +384,35 @@ defmodule Custode.FeedTest do
     assert entry["detail"] =~ "codex failed"
   end
 
+  test "Codex stdout failure diagnostics are safe in storage, publication and the feed mirror", %{
+    path: path
+  } do
+    agent = uid("feed-codex-diagnostic")
+    Custode.PubSubBridge.subscribe()
+
+    stdout =
+      String.duplicate("startup metadata\n", 100) <>
+        "Error: account rejected OPENAI_API_KEY='PRIVATE_FEED_SECRET with spaces'"
+
+    result = CodexWrapper.Result.from_cmd({stdout, 1})
+
+    assert {{:error, {:command_failed, 1}}, ^result} =
+             ObanCodex.run(%{"prompt" => "fixture only"},
+               job: job_meta(agent),
+               query_fun: ObanCodex.Testing.respond(result)
+             )
+
+    assert [entry] = Custode.Feed.recent_by_event("turn_failed", agent: agent)
+    assert entry["detail"] =~ "exit 1: Error: account rejected"
+    assert entry["detail"] =~ "[credential-bearing diagnostic omitted]"
+    assert entry["category"] == "unknown_harness_error"
+    assert entry["retryable"]
+    assert_receive {:feed_entry, ^entry}
+    refute Jason.encode!(entry) =~ "PRIVATE_FEED_SECRET"
+    refute File.read!(path) =~ "PRIVATE_FEED_SECRET"
+    refute File.read!(path) =~ "startup metadata"
+  end
+
   test "Claude result errors stay failures for integer and float costs" do
     workspace = tmp_workspace!()
     agents = [uid("result-zero"), uid("result-float")]
