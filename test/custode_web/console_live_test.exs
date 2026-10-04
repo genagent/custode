@@ -76,7 +76,8 @@ defmodule CustodeWeb.ConsoleLiveTest do
 
     assert has_element?(view, "#selected-attention form[phx-submit=op] textarea[name=text]")
     assert has_element?(view, "#selected-attention p", "raised")
-    refute has_element?(view, "#subject-content", "which branch should I use?")
+    refute has_element?(view, "#subject-content h2", "which branch should I use?")
+    refute has_element?(view, "#subject-content form[phx-submit=op]")
     assert length(Regex.scan(~r/id="reply-answer_ask-0"/, html)) == 1
     assert Regex.match?(~r/id="selected-attention".*id="subject-content"/s, html)
     assert has_element?(view, ~s(#selected-attention input[name=ask_id][value="#{ask.id}"]))
@@ -339,7 +340,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
        %{conn: conn, asker: asker, sleeper: sleeper} do
     {:ok, view, html} = live(conn, "/console/#{sleeper.id}")
 
-    assert html =~ ~s(<h1 class="font-mono text-2xl font-bold">#{sleeper.id}</h1>)
+    assert has_element?(view, "#subject-content h1", sleeper.id)
     assert html =~ "@daily"
     assert has_element?(view, ~s(nav#subject-rail[phx-hook="SubjectRail"]))
 

@@ -52,9 +52,9 @@ defmodule CustodeWeb.HostBannerTest do
   test "the header chip includes host attention", %{conn: conn} do
     Host.put_doctor({:failed, @report})
 
-    {:ok, _view, html} = live(conn, "/inbox")
+    {:ok, view, html} = live(conn, "/inbox")
 
-    assert Floki.find(html, "[data-attention-count]") != []
+    assert has_element?(view, "[data-attention-count]")
     assert html =~ "Attention:"
   end
 end

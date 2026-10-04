@@ -23,7 +23,6 @@ defmodule CustodeWeb.ConversationLive do
   import CustodeWeb.Console.Item, only: [conversation_actions: 1]
 
   alias Custode.Agents
-  alias CustodeWeb.AttentionSnapshot
   alias Custode.Attention.Fleet
   alias Custode.ExecutionFacts
   alias Custode.Operator.Actions
@@ -32,6 +31,7 @@ defmodule CustodeWeb.ConversationLive do
   alias Custode.Routine
   alias Custode.Signal
   alias Custode.SpendLedger
+  alias CustodeWeb.AttentionSnapshot
   alias CustodeWeb.Console.Rail
   alias CustodeWeb.ManagerPanel
 

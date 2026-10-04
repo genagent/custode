@@ -4,6 +4,7 @@ defmodule Custode.Operator.InboxTest do
   import Custode.TestHelpers
 
   alias Custode.Asks
+  alias Custode.Attention.Fleet
   alias Custode.Operator.Inbox
 
   setup do
@@ -95,7 +96,7 @@ defmodule Custode.Operator.InboxTest do
     routine: routine
   } do
     {:ok, first} = Asks.ask(routine.id, "first")
-    snapshot = Custode.Attention.Fleet.signals()
+    snapshot = Fleet.signals()
     {:ok, _dismissed} = Asks.dismiss(first.id)
     {:ok, second} = Asks.ask(routine.id, "second")
 
