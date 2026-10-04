@@ -324,9 +324,14 @@ defmodule Custode.Workflow.Launch do
   node inferred from error prose. A missing catalog entry or cursor yields
   one `:unavailable` entry retaining the error and every saved node result.
 
-  Historical runs have no definition snapshot: this projection uses the
-  current catalog and cannot detect a definition that was reordered later.
+  New runs use their persisted ordered definition. Legacy runs without a
+  snapshot use the current catalog and cannot detect historical reordering.
   """
+  def checklist(%{definition_snapshot: %{"stages" => stages}} = run) do
+    definition = %{stages: Enum.map(stages, &%{name: &1["name"], per_item: &1["per_item"]})}
+    checklist_for(run, definition)
+  end
+
   def checklist(run) do
     case Catalog.fetch(run.workflow) do
       :error -> unavailable_checklist(run, :workflow_unavailable)

@@ -49,6 +49,9 @@ defmodule Custode.Workflow.Run do
       field(:error, :string)
       field(:budget_usd, :float)
       field(:work_item_id, :string)
+      field(:execution_generation, :string)
+      field(:definition_snapshot, :string)
+      field(:failure_identity, :string)
       field(:started_at, :utc_datetime_usec)
       field(:finished_at, :utc_datetime_usec)
     end
@@ -61,7 +64,16 @@ defmodule Custode.Workflow.Run do
   `budget_usd` is the run's rail, or nil for an unbounded run (iex, tests --
   the launch gate always sets one).
   """
-  def start(run_id, workflow, repo, stage, context \\ %{}, budget_usd \\ nil, work_item_id \\ nil) do
+  def start(
+        run_id,
+        workflow,
+        repo,
+        stage,
+        context \\ %{},
+        budget_usd \\ nil,
+        work_item_id \\ nil,
+        execution \\ []
+      ) do
     Repo.insert!(%Row{
       run_id: to_string(run_id),
       workflow: to_string(workflow),
@@ -72,6 +84,8 @@ defmodule Custode.Workflow.Run do
       notes: Jason.encode!([]),
       budget_usd: budget_usd,
       work_item_id: work_item_id,
+      execution_generation: Keyword.get(execution, :generation),
+      definition_snapshot: encode_optional(Keyword.get(execution, :definition)),
       started_at: DateTime.utc_now()
     })
     |> load()
@@ -110,10 +124,11 @@ defmodule Custode.Workflow.Run do
   record of how far the run got, and a failed run that has forgotten where it
   stopped cannot be read back or (later) resumed.
   """
-  def fail(run_id, reason) do
+  def fail(run_id, reason, identity \\ nil) do
     update(run_id,
       status: "failed",
       error: to_string(reason),
+      failure_identity: encode_optional(identity),
       finished_at: DateTime.utc_now()
     )
   end
@@ -196,6 +211,11 @@ defmodule Custode.Workflow.Run do
     end
   end
 
+  defp encode_optional(nil), do: nil
+  defp encode_optional(value), do: Jason.encode!(value)
+  defp decode_optional(nil), do: nil
+  defp decode_optional(value), do: Jason.decode!(value)
+
   defp load(nil), do: nil
 
   defp load(%Row{} = row) do
@@ -210,6 +230,9 @@ defmodule Custode.Workflow.Run do
       error: row.error,
       budget_usd: row.budget_usd,
       work_item_id: row.work_item_id,
+      execution_generation: row.execution_generation,
+      definition_snapshot: decode_optional(row.definition_snapshot),
+      failure_identity: decode_optional(row.failure_identity),
       started_at: row.started_at,
       finished_at: row.finished_at
     }

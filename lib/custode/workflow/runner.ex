@@ -55,8 +55,10 @@ defmodule Custode.Workflow.Runner do
 
   require Logger
 
+  alias Custode.Repo
   alias Custode.Workflow
   alias Custode.Workflow.Catalog
+  alias Custode.Workflow.Definition
   alias Custode.Workflow.Launch
   alias Custode.Workflow.NodeJob
   alias Custode.Workflow.Report
@@ -119,7 +121,9 @@ defmodule Custode.Workflow.Runner do
           first.name,
           context,
           Keyword.get(opts, :budget_usd),
-          Keyword.get(opts, :work_item_id)
+          Keyword.get(opts, :work_item_id),
+          generation: Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false),
+          definition: Definition.snapshot(definition)
         )
 
       record(run, "workflow_launched", launch_summary(definition, run))
@@ -136,6 +140,11 @@ defmodule Custode.Workflow.Runner do
   Returns `{:ok, run}` with the run as it now stands, or `{:error, reason}`.
   """
   def advance(run_id) do
+    {:ok, outcome} = Repo.transaction(fn -> advance_locked(run_id) end, mode: :immediate)
+    outcome
+  end
+
+  defp advance_locked(run_id) do
     case Run.get(run_id) do
       nil -> {:error, :no_such_run}
       %{status: "running"} = run -> advance_running(run)
@@ -170,6 +179,26 @@ defmodule Custode.Workflow.Runner do
   worse than a digest of JSON, and silently nothing is worse than both.
   """
   def node_finished(%{"workflow_run" => run_id} = meta, result) do
+    {:ok, outcome} =
+      Repo.transaction(
+        fn ->
+          run = Run.get(run_id)
+
+          cond do
+            not callback_current?(run, meta) -> {:ok, run}
+            Results.fetch(run_id, meta["node_name"], meta["args_hash"]) != nil -> {:ok, run}
+            true -> persist_completion(run_id, meta, result)
+          end
+        end,
+        mode: :immediate
+      )
+
+    outcome
+  end
+
+  def node_finished(_meta, _result), do: :ok
+
+  defp persist_completion(run_id, meta, result) do
     {payload, note} =
       case ObanClaude.structured(result) do
         %{} = structured ->
@@ -180,7 +209,7 @@ defmodule Custode.Workflow.Runner do
            "node #{meta["node_name"]} returned no schema-shaped result; stored its text"}
       end
 
-    Results.put(%{
+    Results.put_once(%{
       workflow_run: run_id,
       workflow: meta["workflow"],
       stage: meta["stage"],
@@ -195,8 +224,6 @@ defmodule Custode.Workflow.Runner do
     advance(run_id)
   end
 
-  def node_finished(_meta, _result), do: :ok
-
   @doc """
   A node failed terminally. The run fails with it: a workflow whose merge node
   never ran has nothing honest to hand the stages below it, and half a sweep
@@ -204,22 +231,76 @@ defmodule Custode.Workflow.Runner do
   cursor and every result so far stay on the record.
   """
   def node_failed(%{"workflow_run" => run_id} = meta, reason) do
-    detail = "node #{meta["node_name"]} failed: #{inspect(reason)}"
-    failed = Run.fail(run_id, detail)
+    {:ok, failed} =
+      Repo.transaction(
+        fn ->
+          run = Run.get(run_id)
 
-    if failed do
-      # A stage enqueues its siblings together. Once one fails terminally,
-      # every sibling that has not started must be cancelled before this
-      # worker returns and the queue can dispatch another paid call (#387).
-      # The query is run-scoped and excludes executing/completed jobs.
-      cancel_pending(run_id)
-      record(failed, "workflow_failed", detail)
-    end
+          if callback_current?(run, meta) and
+               Results.fetch(run_id, meta["node_name"], meta["args_hash"]) == nil do
+            fail_current(run, meta, reason)
+          else
+            run
+          end
+        end,
+        mode: :immediate
+      )
 
     failed
   end
 
   def node_failed(_meta, _reason), do: :ok
+
+  defp fail_current(run, meta, reason) do
+    detail = "node #{meta["node_name"]} failed: #{inspect(reason)}"
+
+    identity =
+      Map.take(meta, [
+        "stage",
+        "node_name",
+        "args_hash",
+        "execution_generation",
+        "callback_job_id"
+      ])
+
+    failed = Run.fail(run.run_id, detail, identity)
+    cancel_pending(run.run_id)
+    record(failed, "workflow_failed", detail)
+    failed
+  end
+
+  defp callback_current?(%{status: status} = run, meta)
+       when status in ["running", "budget_paused"] do
+    run.workflow == meta["workflow"] and run.stage == meta["stage"] and
+      run.execution_generation == meta["execution_generation"] and callback_owned?(run, meta)
+  end
+
+  defp callback_current?(_run, _meta), do: false
+
+  defp callback_owned?(%{execution_generation: nil}, _meta), do: true
+
+  defp callback_owned?(run, %{"node_name" => node, "args_hash" => hash} = meta)
+       when is_binary(node) and is_binary(hash) do
+    query =
+      from(j in Oban.Job,
+        where: j.worker == "Custode.Workflow.NodeJob",
+        where: fragment("json_extract(?, '$.workflow_run')", j.meta) == ^run.run_id,
+        where:
+          fragment("json_extract(?, '$.execution_generation')", j.meta) ==
+            ^run.execution_generation,
+        where: fragment("json_extract(?, '$.stage')", j.meta) == ^meta["stage"],
+        where: fragment("json_extract(?, '$.node_name')", j.meta) == ^meta["node_name"],
+        where: fragment("json_extract(?, '$.args_hash')", j.meta) == ^meta["args_hash"]
+      )
+
+    case meta["callback_job_id"] do
+      nil -> Repo.exists?(query)
+      id when is_integer(id) -> Repo.exists?(from(j in query, where: j.id == ^id))
+      _ -> false
+    end
+  end
+
+  defp callback_owned?(_run, _meta), do: false
 
   @doc """
   The nodes the current stage would enqueue, rendered. Exposed because it is
@@ -241,13 +322,14 @@ defmodule Custode.Workflow.Runner do
     with {:ok, definition} <- resolve(run.workflow),
          %Workflow.Stage{} = stage <-
            Workflow.stage(definition, stage_name(definition, run.stage)) do
-      planned = plan_stage(run, definition, stage)
-      pending = Enum.reject(planned, &landed?(run, &1))
-
-      cond do
-        pending == [] -> next_stage(run, definition, stage)
-        Launch.over_rail?(run) -> park(run, pending)
-        true -> enqueue_all(run, definition, stage, pending)
+      if run.definition_snapshot != nil and
+           run.definition_snapshot["fingerprint"] !=
+             Definition.snapshot(definition)["fingerprint"] do
+        Run.fail(run.run_id, "workflow definition changed since launch")
+        cancel_pending(run.run_id)
+        {:error, :definition_changed}
+      else
+        advance_stage(run, definition, stage)
       end
     else
       :error ->
@@ -257,6 +339,17 @@ defmodule Custode.Workflow.Runner do
       nil ->
         Run.fail(run.run_id, "unknown stage #{run.stage}")
         {:error, :unknown_stage}
+    end
+  end
+
+  defp advance_stage(run, definition, stage) do
+    planned = plan_stage(run, definition, stage)
+    pending = Enum.reject(planned, &landed?(run, &1))
+
+    cond do
+      pending == [] -> next_stage(run, definition, stage)
+      Launch.over_rail?(run) -> park(run, pending)
+      true -> enqueue_all(run, definition, stage, pending)
     end
   end
 
@@ -492,6 +585,7 @@ defmodule Custode.Workflow.Runner do
     meta =
       %{
         "workflow_run" => run.run_id,
+        "execution_generation" => run.execution_generation,
         "workflow" => definition.name,
         "stage" => to_string(stage.name),
         "node_name" => planned.node_name,

@@ -59,7 +59,12 @@ defmodule Custode.Workflow.Results do
   `:stage`, `:node_name`, `:args_hash`, the `:result` map, and an optional
   `:artifact` path. Returns the stored map.
   """
-  def put(attrs) do
+  def put(attrs), do: persist(attrs, :replace)
+
+  @doc "Keep the first accepted result for an execution key; duplicate callbacks cannot rewrite it."
+  def put_once(attrs), do: persist(attrs, :nothing)
+
+  defp persist(attrs, conflict) do
     row = %Result{
       workflow_run: to_string(attrs.workflow_run),
       workflow: to_string(attrs.workflow),
@@ -73,11 +78,15 @@ defmodule Custode.Workflow.Results do
     }
 
     Repo.insert!(row,
-      on_conflict: {:replace, [:result, :artifact, :attempt_id, :stage, :workflow, :at]},
+      on_conflict:
+        if(conflict == :nothing,
+          do: :nothing,
+          else: {:replace, [:result, :artifact, :attempt_id, :stage, :workflow, :at]}
+        ),
       conflict_target: [:workflow_run, :node_name, :args_hash]
     )
 
-    load(row)
+    fetch(row.workflow_run, row.node_name, row.args_hash)
   end
 
   @doc """
