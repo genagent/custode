@@ -63,6 +63,7 @@ defmodule Custode.Application do
       # two servers never poll one db and double-run jobs during a restart's
       # graceful-shutdown overlap. CUSTODE_TAKEOVER=1 seizes a wedged one.
       Custode.Instance,
+      Custode.SubjectDocumentBridge,
       # Provider prompt queues live in the agent process, while provider jobs
       # live in Oban. Reconcile their durable message rows before accepting new
       # operator traffic after a restart (#657).

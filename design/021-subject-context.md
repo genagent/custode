@@ -108,3 +108,40 @@ operations plus durable assignment/output links come first. Existing-document
 apply is separately deferred; no general store, synchronization or kernel revival.
 
 Implementation follow-up: #784.
+
+## First production slice (#784)
+
+SubjectDocuments and subject_context now share current identity and explicit root
+and destination grants. They use ordinary Markdown for current source, SQLite
+for root identities and immutable operation/producer receipts, and an OTP-owned
+optional Python 3 POSIX stdlib port for descriptor-relative filesystem operations.
+No Python process is opened until a configured root is accessed. The helper takes
+JSON data only and never executes commands or imports caller code.
+
+The first portable boundary is a flat configured root: direct child .md names,
+held directory descriptor, no symlinks or nonregular files, bounded reads/search,
+exclusive atomic publication with file/directory fsync, and no existing-source
+replacement. Separate roots can represent research/plans/decisions. Initial root
+binding refuses symlinked directories and mutable parents; only fixed root-owned
+macOS /var, /tmp and /etc platform aliases are normalized. Directory identity
+persists across helper and application restarts. Replacing the pathname refuses
+instead of silently adopting a new directory. Authority is the original directory
+identity; rename during an admitted write may leave an unconfirmed file in that
+original directory, but cannot redirect it into a replacement root. This is a
+protocol destination boundary, not an OS sandbox for an agent's other tools.
+
+Actual descriptor race tests cover root substitution, read-time symlink swaps,
+post-open replacement and temporary-file substitution at publication. A changed
+publication never becomes a success receipt. A prepared mutation with a lost
+receipt never repeats the write. Identical completed requests return historical
+published bytes; read always inspects current source, including uncommitted human
+corrections. Temporary workers have exact, independently configured grants and
+retain output links after their spawn record/workspace is removed.
+
+Recursive directories, Git history/diff and automatic apply are explicitly
+unavailable. Native assignment-to-destination provisioning is still manual
+operator configuration; no broad write grant or #554 policy posture is selected.
+Those parts keep #784 open. #785 may build views over this supported production
+surface without pretending the recursive Python spike is the runtime or treating
+prepared files as delivered context. Configuration and recovery instructions are
+in docs/subject-context.md.

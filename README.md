@@ -80,6 +80,10 @@ Stop it with `mix custode drain`: queues pause, executing turns finish, the
 node exits. A second boot against the same database refuses while the first
 is alive.
 
+Configured subject roots can retain current Markdown across worker cleanup.
+See [scoped subject documents](docs/subject-context.md) for exact destination
+grants, supported operations and replacement/crash recovery.
+
 ## Setup and troubleshooting
 
 The complete fresh-machine sequence is in

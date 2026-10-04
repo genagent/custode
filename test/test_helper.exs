@@ -27,6 +27,8 @@ for table <- [
       "integration_requests",
       "route_decisions",
       "owner_reviews",
+      "subject_root_bindings",
+      "subject_document_operations",
       "peer_messages",
       "disowned_prs",
       "asks",

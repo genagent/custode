@@ -89,8 +89,8 @@ Routine instructions, prompt files, the `prompt_agent` tool, and an agent's stru
 
 | Endpoint | Server | Tools | Resources | Templates | Prompts |
 | --- | --- | ---: | ---: | ---: | ---: |
-| `/mcp` | custode 0.3.0 | 90 | 4 | 13 | 0 |
-| `/mcp/memory` | memory 0.3.0 | 5 | 0 | 0 | 0 |
+| `/mcp` | custode 0.3.0 | 91 | 4 | 13 | 0 |
+| `/mcp/memory` | memory 0.3.0 | 6 | 0 | 0 | 0 |
 
 **`/mcp`**: protocol versions 2026-07-28, 2025-11-25, 2025-06-18; capabilities `{"resources":{},"tools":{}}`.
 
@@ -190,6 +190,7 @@ Categories are descriptive policy metadata, not an authorization guarantee.
 | [set_presence](#tool-set_presence) | operator |
 | [spend_today](#tool-spend_today) | read |
 | [start_agent](#tool-start_agent) | delegate |
+| [subject_context](#tool-subject_context) | self_write |
 | [todo_add](#tool-todo_add) | self_write |
 | [todo_complete](#tool-todo_complete) | self_write |
 | [todo_list](#tool-todo_list) | read |
@@ -1964,6 +1965,31 @@ Start a persistent helper agent in an existing directory.
 **Access:** Main endpoint capability: operator, caretaker, or specialist routine. A routine may start a new temporary identity or restart its recorded child, but cannot use a configured routine ID or take over another parent's child. The operator may override target scope. Temporary agents are refused at the endpoint and by the shared delegation check.
 
 **Behavior, defaults and errors:** agent_id and workspace are required. workspace must exist and is expanded to an absolute path. model defaults to configuration. The child has a 240000 ms turn timeout and elevated approved continuations. Retry is not idempotent: credentials/config are written before the start result. Errors include a nonexistent workspace and 'start failed'. Temporary helpers receive eligible captured external read integrations without fleet control or recursive delegation. The memory endpoint also offers caller-filtered integration_list.
+
+### Tool: subject_context
+
+Bounded access to current working Markdown in independently retained subject roots, with exclusive outputs and revision-bound proposals.
+
+**Endpoints:** /mcp, /mcp/memory. **Category:** self_write.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| action | string | yes |  | {"enum":["roots","browse","read","search","create","propose","receipt","history","diff"]} |
+| content | string | no |  | {"maxLength":16384} |
+| destination | string | no |  | {"maxLength":200,"minLength":1} |
+| expected_revision | string | no |  | {"maxLength":64,"minLength":1} |
+| path | string | no |  | {"maxLength":200,"minLength":1} |
+| query | string | no |  | {"maxLength":200,"minLength":1} |
+| request_id | string | no |  | {"maxLength":160,"minLength":1} |
+| root_id | string | no |  | {"maxLength":160,"minLength":1} |
+
+**Result:** custode.subject_roots.v1 or custode.subject_document.v1: root/subject, relative path, observed or published bytes and SHA256 revision, bounded search/browse, root identity and known producer/grant/operation receipt. Git revision is null. A proposal names its captured source revision, separate destination and applied=false. Refused/unconfirmed outcomes remain durable and idempotent.
+
+**Side effects:** First access pins directory identity in SQLite. Create/propose retain a durable mutation record and exclusively publish a new Markdown file; proposals never replace the source. No git commands, commit, publication, worker resume or notebook migration. Ambiguous prepared operations never retry writes automatically.
+
+**Access:** Authenticated human, or a current standing owner/temporary helper with an explicit configured root grant. Helpers require their retained live spawn record and current parent authorization. References do not grant creation. Exact destinations and proposed source paths are separately granted.
+
+**Behavior, defaults and errors:** Opt-in subject_roots configuration; default empty. Optional Python 3 POSIX stdlib port holds a directory descriptor and accepts data-only JSON. Flat direct-child .md names only; symlinks, traversal, nonregular files and replacement roots are refused. 16KiB file, 100-file/500-entry browse, 100KiB search and 5s helper timeout bounds. Recursive paths, git history/diff and auto apply are unsupported. Root authority is its retained directory identity, not a movable pathname or an OS sandbox. Existing native shell tools are unaffected. Source bytes include external uncommitted edits; historical mutation receipts never substitute for current reads. Missing producer execution/session/usage remains unknown.
 
 ### Tool: todo_add
 
