@@ -3,6 +3,77 @@ defmodule CustodeWeb.ComponentsTest do
 
   import CustodeWeb.Components
 
+  describe "global attention and local navigation counts" do
+    import Phoenix.LiveViewTest, only: [render_component: 2]
+
+    test "the supplied resolver snapshot owns the global count and accessible explanation" do
+      signals = [
+        %Custode.Signal{
+          subject: "one",
+          kind: :needs_answer,
+          group: :needs_you,
+          urgency: :high,
+          headline: "question"
+        },
+        %Custode.Signal{
+          subject: "host",
+          kind: :host_down,
+          group: :needs_you,
+          urgency: :high,
+          headline: "host"
+        },
+        %Custode.Signal{
+          subject: "quiet",
+          kind: :quiet,
+          group: :quiet,
+          urgency: :normal,
+          headline: "resting"
+        }
+      ]
+
+      header =
+        render_component(&app_header/1,
+          fleet_today: 0,
+          attention_signals: signals,
+          unread: 4,
+          launch_gates: 1
+        )
+
+      chip = render_component(&attention_chip/1, signals: signals)
+
+      for html <- [header, chip] do
+        assert html =~ ~s(data-attention-count="2")
+        assert html =~ "Attention: 2"
+        assert html =~ "one asked you"
+        assert html =~ "host cannot run turns"
+        assert html =~ "One signal per agent, plus host, repository and"
+        assert html =~ "Inbox new items and advisor suggestions are separate."
+      end
+
+      document = LazyHTML.from_document(header)
+      assert document |> LazyHTML.query(~s(a[href="/inbox"])) |> LazyHTML.text() =~ "4 new"
+
+      assert document |> LazyHTML.query(~s(a[href="/workflows"])) |> LazyHTML.text() =~
+               "1 pending launch"
+
+      refute header =~ "1 pending launches"
+    end
+
+    test "an explicit empty snapshot stays empty and local counts remain local" do
+      html =
+        render_component(&app_header/1,
+          fleet_today: 0,
+          attention_signals: [],
+          unread: 3,
+          launch_gates: 2
+        )
+
+      refute html =~ "data-attention-count"
+      assert html =~ "3 new"
+      assert html =~ "2 pending launches"
+    end
+  end
+
   describe "foldable_text/1" do
     import Phoenix.LiveViewTest, only: [render_component: 2]
 

@@ -332,7 +332,7 @@ defmodule CustodeWeb.Components do
             class={nav_class(@active == :inbox)}
             aria-current={if @active == :inbox, do: "page"}
           >
-            Inbox<span :if={@unread > 0} class="ml-1 font-mono text-warning">{@unread}</span>
+            Inbox<span :if={@unread > 0} class="ml-1 whitespace-nowrap font-mono text-warning">{@unread} new</span>
           </.link>
           <.link
             navigate="/repos"
@@ -354,7 +354,7 @@ defmodule CustodeWeb.Components do
             aria-current={if @active == :workflows, do: "page"}
           >
             Workflows<span :if={@launch_gates > 0} class="ml-1 font-mono text-warning">
-              {@launch_gates}
+              {@launch_gates} pending {if @launch_gates == 1, do: "launch", else: "launches"}
             </span>
           </.link>
           <%!-- /feed leaves the top nav (#301) and keeps its route: a firehose
@@ -380,6 +380,7 @@ defmodule CustodeWeb.Components do
   end
 
   slot(:inner_block, required: true)
+  attr(:attention_signals, :any, default: nil)
   attr(:fleet_today, :any, required: true)
   attr(:active, :atom, default: :console)
   attr(:readouts, :boolean, default: true)
@@ -393,6 +394,7 @@ defmodule CustodeWeb.Components do
       <.app_header
         fleet_today={@fleet_today}
         active={@active}
+        attention_signals={@attention_signals}
         readouts={@readouts}
         unread={@unread}
         launch_gates={@launch_gates}
@@ -448,12 +450,12 @@ defmodule CustodeWeb.Components do
   """
   def reject_form(assigns) do
     ~H"""
-    <details id={"reject-#{@action}"} phx-update="ignore" class="dropdown dropdown-end">
+    <details id={"reject-#{@action}"} phx-update="ignore" class="dropdown w-full sm:dropdown-end sm:w-auto">
       <summary class={["btn btn-ghost", @size]}>{@label}</summary>
       <form
         id={"reject-form-#{@action}"}
         phx-submit="reject"
-        class="dropdown-content z-10 mt-1 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2 rounded-box bg-base-100 p-3 text-left shadow-lg"
+        class="dropdown-content z-10 mt-1 flex w-full max-w-[calc(100vw-2rem)] flex-col gap-2 rounded-box bg-base-100 p-3 text-left shadow-lg sm:w-80"
       >
         <input type="hidden" name="agent" value={@agent} />
         <input type="hidden" name="action" value={@action} />
@@ -536,6 +538,9 @@ defmodule CustodeWeb.Components do
     <.link
       :if={@attention != [] && @wrap}
       navigate="/console"
+      data-attention-count={length(@attention)}
+      aria-label={attention_description(@attention)}
+      title={attention_description(@attention)}
       class={[
         "block rounded-lg bg-warning px-2 py-1 text-xs font-medium text-warning-content",
         @class
@@ -546,6 +551,9 @@ defmodule CustodeWeb.Components do
     <.link
       :if={@attention != [] && !@wrap}
       navigate="/console"
+      data-attention-count={length(@attention)}
+      aria-label={attention_description(@attention)}
+      title={attention_description(@attention)}
       class={["badge badge-warning gap-1 whitespace-nowrap", @class]}
     >
       {attention_text(@attention)}
@@ -1088,9 +1096,16 @@ defmodule CustodeWeb.Components do
   # "something somewhere" and goes stale in the operator's head the moment
   # they resolve any one thing. Name the subjects while the list is short.
   defp attention_text(attention) when length(attention) <= 2,
-    do: Enum.map_join(attention, ", ", fn {id, word} -> "#{id} #{word}" end)
+    do:
+      "Attention: #{length(attention)} · " <>
+        Enum.map_join(attention, ", ", fn {id, word} -> "#{id} #{word}" end)
 
-  defp attention_text(attention), do: "#{length(attention)} need attention"
+  defp attention_text(attention), do: "Attention: #{length(attention)}"
+
+  defp attention_description(attention) do
+    "Global attention: #{length(attention)}. One signal per agent, plus host, repository and " <>
+      "workflow signals. Inbox new items and advisor suggestions are separate."
+  end
 
   defp nav_class(true), do: "font-semibold underline underline-offset-4"
   defp nav_class(false), do: "text-base-content/60 hover:text-base-content"

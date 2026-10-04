@@ -57,6 +57,38 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ "#{asker.id} asked you"
   end
 
+  test "one selected request owns its controls before subject history", %{
+    conn: conn,
+    asker: asker,
+    sleeper: sleeper
+  } do
+    {:ok, ask} =
+      Asks.ask(asker.id, "which branch should I use?", detail: "The release branch has diverged.")
+
+    {:ok, next} = Asks.ask(sleeper.id, "which environment should I use?")
+    {:ok, view, html} = live(conn, "/console/#{asker.id}")
+
+    assert has_element?(
+             view,
+             "#selected-attention #ask-context",
+             "The release branch has diverged."
+           )
+
+    assert has_element?(view, "#selected-attention form[phx-submit=op] textarea[name=text]")
+    assert has_element?(view, "#selected-attention p", "raised")
+    refute has_element?(view, "#subject-content", "which branch should I use?")
+    assert length(Regex.scan(~r/id="reply-answer_ask-0"/, html)) == 1
+    assert Regex.match?(~r/id="selected-attention".*id="subject-content"/s, html)
+    assert has_element?(view, ~s(#selected-attention input[name=ask_id][value="#{ask.id}"]))
+
+    view |> element(~s(#subject-rail a[href="/console/#{sleeper.id}"])) |> render_click()
+    assert_patched(view, "/console/#{sleeper.id}")
+    assert has_element?(view, "#selected-attention", "which environment should I use?")
+    refute has_element?(view, "#selected-attention", "which branch should I use?")
+    assert has_element?(view, ~s(#selected-attention input[name=ask_id][value="#{next.id}"]))
+    assert Asks.get(ask.id).status == "open"
+  end
+
   test "the fleet caretaker is visibly identified without leaving the normal rail", %{
     conn: conn
   } do
@@ -458,6 +490,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
 
     assert html =~ "Start and send"
     assert html =~ "Sending starts a turn with your message."
+    refute html =~ "offline -- the next beat starts it"
     assert html =~ prepared.arc_id
     assert html =~ "fresh/no_session"
     assert has_element?(view, ~s(form[phx-hook="SubjectDraft"][data-subject="#{sleeper.id}"]))
@@ -644,8 +677,24 @@ defmodule CustodeWeb.ConsoleLiveTest do
       Custode.Presence.set(:present)
       on_exit(fn -> Custode.Presence.set(:auto) end)
 
-      {:ok, view, html} = live(conn, "/console")
-      assert html =~ "present"
+      {:ok, view, _html} = live(conn, "/console")
+
+      assert has_element?(
+               view,
+               "button[phx-click=toggle_presence][aria-describedby=presence-help]",
+               "Presence: present"
+             )
+
+      assert has_element?(view, "#presence-help", "Away silences them and stays pinned")
+      assert has_element?(view, "#fleet-actions summary", "Fleet actions")
+      assert has_element?(view, "#pause-all-help", "Pause every running agent.")
+      assert has_element?(view, "#resume-all-help", "Resume paused agents.")
+      assert has_element?(view, "#drain-help", "then stop Custode")
+
+      assert has_element?(
+               view,
+               "button[phx-click=drain][data-confirm][aria-describedby=drain-help]"
+             )
 
       html = view |> element("button[phx-click=toggle_presence]") |> render_click()
       assert html =~ "away"
@@ -1766,13 +1815,17 @@ defmodule CustodeWeb.ConsoleLiveTest do
       {:ok, view, _html} = live(conn, "/console")
       header = view |> element("#console-controls") |> render()
 
+      refute header =~ "Claude plan usage"
       refute header =~ "5h"
       refute header =~ "7d"
       refute header =~ "%"
     end
 
-    test "an observation shows each window, and updates when the probe lands", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/console")
+    test "an observation labels Claude even for a Codex subject and refreshes its windows", %{
+      conn: conn
+    } do
+      routine = routine_fixture!(tmp_workspace!(), %{provider: :codex})
+      {:ok, view, _html} = live(conn, "/console/#{routine.id}")
 
       {:ok, _snapshot} =
         ClaudeUsage.observe(%{
@@ -1789,6 +1842,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
       send(view.pid, {:usage_changed, "claude"})
       html = render(view)
 
+      assert has_element?(view, "#console-controls", "Claude plan usage")
       assert html =~ "5h 15%"
       assert html =~ "7d 87%"
       # past the warn threshold reads as a warning

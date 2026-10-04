@@ -9,6 +9,8 @@ defmodule CustodeWeb.SuggestionsLive do
 
   use Phoenix.LiveView
 
+  alias CustodeWeb.AttentionSnapshot
+
   import CustodeWeb.Components
 
   alias Custode.Advisors.Record
@@ -64,7 +66,7 @@ defmodule CustodeWeb.SuggestionsLive do
   @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
-    <.page fleet_today={@fleet_today} active={:suggestions}>
+    <.page attention_signals={@attention_signals} fleet_today={@fleet_today} active={:suggestions}>
       <p class="mb-4 text-sm text-base-content/50">
         {length(@suggestions)} standing suggestion(s) from the fleet's advisors. Applying one
         writes through the roster and takes effect at the next sweep; the advisor stops re-proposing it.
@@ -175,6 +177,8 @@ defmodule CustodeWeb.SuggestionsLive do
   defp decision_class(_other), do: "badge-ghost"
 
   defp refresh(socket) do
+    socket = AttentionSnapshot.refresh(socket)
+
     assign(socket,
       suggestions: Custode.Suggestions.standing(),
       decisions: Outcome.history(),

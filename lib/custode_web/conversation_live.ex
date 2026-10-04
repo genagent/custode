@@ -23,6 +23,7 @@ defmodule CustodeWeb.ConversationLive do
   import CustodeWeb.Console.Item, only: [conversation_actions: 1]
 
   alias Custode.Agents
+  alias CustodeWeb.AttentionSnapshot
   alias Custode.Attention.Fleet
   alias Custode.ExecutionFacts
   alias Custode.Operator.Actions
@@ -93,7 +94,7 @@ defmodule CustodeWeb.ConversationLive do
       when event in [:status_changed, :feed_entry],
       do: {:noreply, refresh_entry(socket)}
 
-  def handle_info(_message, socket), do: {:noreply, socket}
+  def handle_info(message, socket), do: {:noreply, AttentionSnapshot.refresh_for(socket, message)}
 
   @impl Phoenix.LiveView
   def handle_event("older", _params, %{assigns: %{agent_id: nil}} = socket),
@@ -486,9 +487,10 @@ defmodule CustodeWeb.ConversationLive do
   end
 
   defp refresh_context(socket) do
+    socket = AttentionSnapshot.refresh(socket)
+
     assign(socket,
       manager_context: if(socket.assigns.manager, do: ManagerPanel.read(socket.assigns.agent_id)),
-      attention_signals: Fleet.signals(),
       fleet_today: SpendLedger.fleet_today()
     )
   end

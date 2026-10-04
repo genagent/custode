@@ -69,7 +69,11 @@ defmodule Custode.Operator.Inbox do
   standing advisor suggestions newest-first.
   """
   @spec items() :: [Item.t()]
-  def items, do: signal_items() ++ suggestion_items()
+  def items, do: items(Attention.Fleet.signals())
+
+  @doc "Project a caller's resolver snapshot without reading the fleet again."
+  @spec items([Signal.t()]) :: [Item.t()]
+  def items(signals), do: signal_items(signals) ++ suggestion_items()
 
   @doc "Items raised since `at`, or all of them when `at` is nil."
   @spec since(DateTime.t() | nil) :: [Item.t()]
@@ -122,8 +126,8 @@ defmodule Custode.Operator.Inbox do
     :ok
   end
 
-  defp signal_items do
-    for signal <- Attention.Fleet.signals(), Signal.needs_you?(signal) do
+  defp signal_items(signals) do
+    for signal <- signals, Signal.needs_you?(signal) do
       %Item{
         kind: signal.kind,
         subject: signal.subject,

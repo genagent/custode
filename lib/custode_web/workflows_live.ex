@@ -21,6 +21,8 @@ defmodule CustodeWeb.WorkflowsLive do
 
   use Phoenix.LiveView
 
+  alias CustodeWeb.AttentionSnapshot
+
   import CustodeWeb.Components
 
   alias Custode.Operator.Actions
@@ -36,7 +38,7 @@ defmodule CustodeWeb.WorkflowsLive do
 
   @impl Phoenix.LiveView
   def handle_info({:feed_entry, _entry}, socket), do: {:noreply, refresh(socket)}
-  def handle_info(_message, socket), do: {:noreply, socket}
+  def handle_info(message, socket), do: {:noreply, AttentionSnapshot.refresh_for(socket, message)}
 
   @impl Phoenix.LiveView
   def handle_event("approve_launch", %{"id" => id}, socket) do
@@ -73,7 +75,7 @@ defmodule CustodeWeb.WorkflowsLive do
   @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
-    <.page fleet_today={@fleet_today} active={:workflows} launch_gates={length(@pending)}>
+    <.page attention_signals={@attention_signals} fleet_today={@fleet_today} active={:workflows} launch_gates={length(@pending)}>
       <section :if={@pending != []} class="mb-8">
         <h3 class="mb-2 text-lg font-semibold text-base-content/70">
           launch gates ({length(@pending)})
@@ -253,6 +255,8 @@ defmodule CustodeWeb.WorkflowsLive do
   defp run_badge(_status), do: "badge-ghost"
 
   defp refresh(socket) do
+    socket = AttentionSnapshot.refresh(socket)
+
     runs =
       for run <- Launch.recent() do
         %{
