@@ -109,6 +109,7 @@ defmodule Custode.MCP.ToolPolicy do
     "list_roles" => :read,
     "list_policies" => :read,
     "list_workflows" => :read,
+    "workflow_retry_status" => :read,
     "executing_turns" => :read,
     "operator_bootstrap" => :read,
     "project_progress" => :read,

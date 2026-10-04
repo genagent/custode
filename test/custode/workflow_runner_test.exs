@@ -188,7 +188,7 @@ defmodule Custode.WorkflowRunnerTest do
       assert spec.args["prompt"] =~ "do genagent/custode"
     end
 
-    test "nodes cannot write: the tools are pinned off the worker, not the job" do
+    test "named writing tools are pinned off, without claiming Bash or MCP confinement" do
       # pinned args win over a job's own args and are merged at perform time,
       # so a stored job cannot ask the writing tools back
       assert NodeJob.pinned_args()["disallowed_tools"] ==

@@ -24,11 +24,13 @@ defmodule Custode.Workflow.NodeJob do
   claude call. Discarded and cancelled jobs are outside the key's states, so a
   dead node can be re-planned.
 
-  ## Nodes do not write
+  ## Named write tools are disabled
 
-  `Write`, `Edit`, and `NotebookEdit` are pinned off, so a job cannot ask for
-  them back. Nodes analyse and draft; the writes that follow a run -- filing
-  issues, saving a report -- happen after it, through a gate.
+  `Write`, `Edit`, and `NotebookEdit` are pinned off. This does not mechanically
+  confine Bash, native settings or MCP write operations. Nodes are instructed
+  to analyse and draft; that instruction is not a side-effect replay guarantee.
+  Oban terminal state also does not attest physical process settlement. Failed
+  stage retry remains unavailable until those worker boundaries are proved.
   """
 
   use ObanClaude.Worker,
@@ -47,7 +49,7 @@ defmodule Custode.Workflow.NodeJob do
   @doc """
   The args pinned over every node job. They are merged in `perform/1`, not at
   enqueue time, so they are not in a stored job's args -- this is where the
-  "nodes do not write" guarantee is actually readable.
+  named-tool restrictions are readable; this is not a general no-write guarantee.
   """
   def pinned_args, do: @oban_claude_pinned_args
 

@@ -59,6 +59,7 @@ defmodule Custode.MCP.Server do
     Custode.MCP.ReadTools.Roles,
     Custode.MCP.ReadTools.Policies,
     Custode.MCP.ReadTools.Workflows,
+    Custode.MCP.WorkflowRetryTools.Read,
     Custode.MCP.ReadTools.ExecutingTurns,
     Custode.MCP.ProjectProgressTools.Read,
     Custode.MCP.CurrentRunTools.Read,
