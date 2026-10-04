@@ -103,6 +103,8 @@ defmodule CustodeWeb.WorkflowsLiveTest do
     assert html =~ "merge"
     assert html =~ "check"
     assert html =~ "per item"
+    assert has_element?(view, "[data-stage-state='running'] .sr-only", "Running")
+    assert has_element?(view, "[data-stage-state='pending'] .sr-only", "Pending")
     refute html =~ "launch gate"
 
     assert [run] = Run.list()
@@ -138,12 +140,93 @@ defmodule CustodeWeb.WorkflowsLiveTest do
     assert html =~ "budget_paused"
     assert html =~ "what it did not do"
     assert html =~ "Raise the rail and resume"
+    assert has_element?(view, "[data-stage-state='done'] .sr-only", "Done")
 
     resumed = view |> element("button[phx-click='resume_run']") |> render_click()
     assert resumed =~ "running"
     # the rail was RAISED, not removed -- resuming onto the same ceiling would
     # park the run again immediately
     assert Run.get(run.run_id).budget_usd == 2.0
+  end
+
+  test "a failed stage contains its full escaped error and keeps successful siblings", %{
+    conn: conn
+  } do
+    workflow = register(uid("failed-display"))
+    {:ok, run} = Runner.launch(workflow.name, "owner/repo")
+    finish(run.run_id, "spec")
+
+    error =
+      "<script>alert('failure')</script> " <> String.duplicate("long-error-without-spaces", 40)
+
+    Run.fail(run.run_id, error)
+
+    {:ok, view, html} = live(conn, "/workflows")
+    card = "[data-workflow-run='#{run.run_id}']"
+    stage = card <> " [data-workflow-stage='mine'][data-stage-state='failed']"
+
+    assert has_element?(view, stage, "Failed")
+    assert has_element?(view, stage, "spec")
+    assert has_element?(view, stage <> " [data-foldable-full]", error)
+    assert has_element?(view, stage <> " details:not([open]) summary", "Show more")
+
+    assert has_element?(
+             view,
+             card <> " [data-workflow-stage='merge'][data-stage-state='not_run']",
+             "Not run"
+           )
+
+    assert has_element?(
+             view,
+             card <> " [data-workflow-stage='check'][data-stage-state='not_run']",
+             "Not run"
+           )
+
+    refute has_element?(view, card <> " script")
+    refute has_element?(view, card <> " button[phx-click='resume_run']")
+    refute html =~ "retry_run"
+    assert Run.get(run.run_id).error == error
+  end
+
+  test "unknown attribution shows saved error and successes without completed stages", %{
+    conn: conn
+  } do
+    for cursor <- [nil, "merge_missing"] do
+      workflow = register(uid("unknown-display"))
+      {:ok, run} = Runner.launch(workflow.name, "owner/repo")
+      finish(run.run_id, "spec")
+      Run.fail(run.run_id, "node merge failed; do not infer that stage from this text")
+      row = Repo.get_by!(Run.Row, run_id: run.run_id)
+      row |> Ecto.Changeset.change(stage: cursor) |> Repo.update!()
+
+      {:ok, view, _html} = live(conn, "/workflows")
+      card = "[data-workflow-run='#{run.run_id}']"
+      fallback = card <> " [data-stage-state='unavailable']"
+
+      assert has_element?(view, fallback, "Recorded stopping stage unavailable")
+      assert has_element?(view, fallback, "Recorded successful nodes: spec")
+      assert has_element?(view, fallback, "node merge failed")
+      refute has_element?(view, card <> " [data-stage-state='done']")
+      refute has_element?(view, card <> " [data-stage-state='failed']")
+      refute has_element?(view, card <> " button[phx-click='resume_run']")
+      GenServer.stop(view.pid)
+    end
+  end
+
+  test "removed catalog entry shows its saved failure and results", %{conn: conn} do
+    workflow = register(uid("removed-display"))
+    {:ok, run} = Runner.launch(workflow.name, "owner/repo")
+    finish(run.run_id, "spec")
+    Run.fail(run.run_id, "saved failure")
+    Application.delete_env(:custode, :extra_workflows)
+
+    {:ok, view, _html} = live(conn, "/workflows")
+    fallback = "[data-workflow-run='#{run.run_id}'] [data-stage-state='unavailable']"
+
+    assert has_element?(view, fallback, "This workflow is no longer in the catalog")
+    assert has_element?(view, fallback, "Recorded stage: mine")
+    assert has_element?(view, fallback, "Recorded successful nodes: spec")
+    assert has_element?(view, fallback, "saved failure")
   end
 
   test "with nothing to show the page says a run starts at a gate", %{conn: conn} do
