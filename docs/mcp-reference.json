@@ -35,7 +35,7 @@
       ],
       "serverInfo": {
         "name": "custode",
-        "version": "0.2.1"
+        "version": "0.3.0"
       },
       "tools": [
         "add_routine",
@@ -140,7 +140,7 @@
       "resources": [],
       "serverInfo": {
         "name": "memory",
-        "version": "0.2.1"
+        "version": "0.3.0"
       },
       "tools": [
         "forget",

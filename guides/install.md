@@ -121,6 +121,30 @@ Custode restarts, reload `CUSTODE_OPERATOR_TOKEN` from the new token file and
 restart or reconnect each provider session. The installed operator skill's
 lifecycle reference carries the full drain, failure and recovery procedure.
 
+### Upgrading from v0.2.2 to v0.3.0
+
+This remains a source-installed GitHub release, with no Hex package or binary
+artifact. Use the update procedure above with the v0.3.0 source. The release
+adds one migration, `20261004034345_create_peer_messages.exs`, for durable
+peer envelopes and delivery state. Back up `CUSTODE_HOME` before migrating.
+If upgrading from an older release, review every pending migration rather
+than assuming this is the only one.
+
+The caretaker prompt now describes the continuing project-manager workflow.
+Its `project_progress` read can inspect full direct operator exchanges for
+configured projects. Peer message bodies remain participant-scoped for agent
+identities; the human operator retains fleet-wide visibility. The manager
+cannot approve a sibling's gate or answer an operator question on the human's
+behalf. Restart Custode after the update so the prompt, MCP capabilities, and
+provider execution path are loaded.
+
+The release uses published ObanClaude 0.10.0, ObanCodex 0.7.0, Claude wrapper
+0.15.1, Codex wrapper 0.6.0, and Forcola 0.6.0. Normal installations need no
+local wrapper overrides. Early session observations help compatible later
+turns resume after interruption; they do not prove work completed. Workflow
+failure display preserves recorded evidence, while safe retry remains deferred
+under #750.
+
 ## 7. Give interactive agents the operator skill
 
 Claude Code and Codex can use the same thin operating contract when they

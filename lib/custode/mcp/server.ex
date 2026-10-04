@@ -10,7 +10,7 @@ defmodule Custode.MCP.Server do
 
   use Anubis.Server,
     name: "custode",
-    version: "0.2.1",
+    version: "0.3.0",
     capabilities: [:tools, :resources]
 
   @impl true
@@ -164,7 +164,7 @@ defmodule Custode.MCP.MemoryServer do
 
   use Anubis.Server,
     name: "memory",
-    version: "0.2.1",
+    version: "0.3.0",
     capabilities: [:tools]
 
   @impl true
