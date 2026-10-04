@@ -23,6 +23,44 @@ defmodule Custode.FeedTest do
     %{path: path}
   end
 
+  test "transactional events publish only after commit and roll back without side effects", %{
+    path: path
+  } do
+    agent = uid("transactional-feed")
+    Custode.PubSubBridge.subscribe()
+
+    assert {:error, :cancel} =
+             Custode.Repo.transaction(fn ->
+               assert {:ok, _entry} =
+                        Custode.Feed.record_in_transaction(%{
+                          event: "peer_message_sent",
+                          agent: agent
+                        })
+
+               refute File.exists?(path)
+               refute_receive {:feed_entry, _}, 10
+               Custode.Repo.rollback(:cancel)
+             end)
+
+    assert Custode.Feed.for_agent(agent) == []
+    refute File.exists?(path)
+
+    assert {:ok, entry} =
+             Custode.Repo.transaction(fn ->
+               {:ok, entry} =
+                 Custode.Feed.record_in_transaction(%{event: "peer_message_sent", agent: agent})
+
+               entry
+             end)
+
+    assert [^entry] = Custode.Feed.for_agent(agent)
+    refute File.exists?(path)
+    assert :ok = Custode.Feed.publish_committed(entry)
+    assert_receive {:feed_entry, ^entry}
+    assert File.read!(path) =~ agent
+    assert [^entry] = Custode.Feed.for_agent(agent)
+  end
+
   defp job_meta(agent_id), do: %Oban.Job{meta: %{"agent_id" => agent_id}}
 
   test "a finished run writes a turn entry with directive, summary, and spend" do

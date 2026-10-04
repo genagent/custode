@@ -96,8 +96,9 @@ defmodule Custode.MCP.Tools do
   sub-agent, the least trusted caller in the tree (design/000), could write
   under its parent's id or a sibling routine's.
 
-  Reads (`todo_list`, `inbox_list`, `recall`) are deliberately NOT scoped: an
-  agent may read a sibling's todos, inbox and memories by id. Transparency is
+  Reads (`todo_list`, ordinary `inbox_list` notes, `recall`) are deliberately
+  NOT scoped: an agent may read a sibling's todos, ordinary inbox notes and
+  memories by id. Peer notes retain participant scope. Transparency is
   a feature, and agents knowing about each other is what the mesh (#461)
   builds on. To tell another agent something, drop a note in its inbox.
   """

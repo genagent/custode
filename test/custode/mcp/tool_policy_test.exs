@@ -35,11 +35,21 @@ defmodule Custode.MCP.ToolPolicyTest do
   end
 
   test "every category is a known one" do
-    known = [:read, :self_write, :delegate, :roster_write, :operator]
+    known = [:read, :self_write, :delegate, :peer_message, :roster_write, :operator]
 
     for {tool, category} <- ToolPolicy.all() do
       assert category in known or match?({:repo_write, verb} when is_atom(verb), category),
              "#{tool} has unknown category #{inspect(category)}"
+    end
+  end
+
+  test "peer correspondence is distinct from delegated authority and inert reads" do
+    for tool <- ~w(peer_send peer_reply peer_ack) do
+      assert ToolPolicy.fetch(tool) == {:ok, :peer_message}
+    end
+
+    for tool <- ~w(peer_list peer_read) do
+      assert ToolPolicy.fetch(tool) == {:ok, :read}
     end
   end
 

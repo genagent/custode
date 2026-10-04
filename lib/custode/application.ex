@@ -130,6 +130,9 @@ defmodule Custode.Application do
       # can recover queued delivery. Its boot-only provider path does not call
       # the coordinator, which deliberately starts later as the replay fence.
       Custode.InboxWakes.BootReconciler,
+      # Accepted peer envelopes and acknowledged notes survive a worker crash.
+      # Queue their idempotent projections before the ticks queue is released.
+      Custode.PeerMessageDelivery.BootReconciler,
       # a workflow run whose last node landed while the app was down has
       # nothing to call it forward (#271). Slice 1b left this unwired on the
       # grounds that an enqueue-on-boot side effect belongs with the rail that

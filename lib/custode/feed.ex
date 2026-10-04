@@ -297,17 +297,44 @@ defmodule Custode.Feed do
     })
   end
 
+  @doc """
+  Persist an event inside the caller's transaction, without publishing it.
+  Publish the returned JSON-clean entry only after the outer transaction commits.
+  """
+  def record_in_transaction(entry) when is_map(entry) do
+    unless Repo.in_transaction?(), do: raise(ArgumentError, "a transaction is required")
+    persist(entry)
+  end
+
+  @doc """
+  Publish an already committed event to the optional mirror and subscribers.
+  This does not insert another database record. A missed notification after a
+  crash is recovered by reading the durable feed.
+  """
+  def publish_committed(decoded, opts \\ []) do
+    mirror(Jason.encode!(decoded))
+    Custode.PubSubBridge.broadcast({:feed_entry, decoded})
+
+    notification =
+      Map.new([:agent, :event, :action, :question, :summary, :kind], fn key ->
+        {key, decoded[Atom.to_string(key)]}
+      end)
+
+    Notify.dispatch(notification, decoded, notify: opts[:notify])
+    :ok
+  end
+
   defp write(entry, opts \\ []) do
+    {:ok, decoded} = persist(entry)
+    publish_committed(decoded, opts)
+  end
+
+  defp persist(entry) do
     entry = Map.put(entry, :at, DateTime.to_iso8601(DateTime.utc_now()))
     encoded = Jason.encode!(entry)
-    # the canonical shape consumers see: string keys, JSON-clean
     decoded = Jason.decode!(encoded)
 
-    {:ok, _row} = insert(decoded, encoded)
-    mirror(encoded)
-    Custode.PubSubBridge.broadcast({:feed_entry, decoded})
-    Notify.dispatch(entry, decoded, notify: opts[:notify])
-    :ok
+    with {:ok, _row} <- insert(decoded, encoded), do: {:ok, decoded}
   end
 
   defp insert(decoded, encoded) do

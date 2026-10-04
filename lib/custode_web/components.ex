@@ -190,6 +190,7 @@ defmodule CustodeWeb.Components do
         </div>
         <.foldable_text text={feed_text(@entry)} class="text-base-content/80" />
         <.prompt_answer entry={@entry} />
+        <.peer_exchange_link entry={@entry} />
         <button
           :if={@restore_prompt && restore_text(@entry)}
           type="button"
@@ -676,9 +677,24 @@ defmodule CustodeWeb.Components do
         </div>
         <.foldable_text text={feed_text(@entry)} class="text-base-content/80" />
         <.prompt_answer entry={@entry} />
+        <.peer_exchange_link entry={@entry} />
       </div>
       <hr />
     </li>
+    """
+  end
+
+  attr(:entry, :map, required: true)
+
+  defp peer_exchange_link(assigns) do
+    ~H"""
+    <.link
+      :if={is_binary(@entry["peer_message_id"])}
+      navigate={"/messages/#{@entry["peer_message_id"]}"}
+      class="link mt-1 text-xs"
+    >
+      View agent exchange
+    </.link>
     """
   end
 

@@ -208,7 +208,10 @@ defmodule Custode.Notebook do
       File.write!(path, "FILED #{stamp}\n\n" <> content)
     end
 
-    :ok
+    case Custode.PeerMessages.acknowledge_note(routine.id, name) do
+      {:error, reason} -> raise "could not acknowledge peer note: #{inspect(reason)}"
+      _other -> :ok
+    end
   end
 
   # ---------------------------------------------------------------------------

@@ -51,6 +51,8 @@ defmodule CustodeWeb.Router do
       live("/suggestions", CustodeWeb.SuggestionsLive)
       live("/workflows", CustodeWeb.WorkflowsLive)
       live("/feed", CustodeWeb.FeedLive)
+      live("/messages", CustodeWeb.PeerMessagesLive)
+      live("/messages/:id", CustodeWeb.PeerMessagesLive)
       live("/inbox", CustodeWeb.InboxLive)
       live("/metrics", CustodeWeb.MetricsLive)
     end

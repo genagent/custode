@@ -22,6 +22,7 @@ for table <- [
       "conversation_arc_events",
       "conversation_arcs",
       "operator_messages",
+      "peer_messages",
       "disowned_prs",
       "asks",
       "observations",

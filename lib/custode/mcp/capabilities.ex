@@ -21,6 +21,7 @@ defmodule Custode.MCP.Capabilities do
 
   @worker_tools ~w(
     ask_operator
+    peer_send peer_reply peer_list peer_read peer_ack
     list_routines agent_status start_agent prompt_agent await_agent
     agent_history approve_action reject_action run_job
     journal_append journal_read compact_journal

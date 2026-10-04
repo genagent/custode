@@ -64,6 +64,9 @@ policy and grant rules.
 | Write journal, todo, and memory records | Any target | Own | Own | Own |
 | Ask the operator | No personal target | Own | Own | Own |
 | Answer or dismiss an operator ask | Yes | No | No | No |
+| Read peer messages | All exchanges | Own exchanges | Own exchanges | No |
+| Send or reply to peer messages | No | Own identity | Own identity | No |
+| Acknowledge a peer message | No | Received messages | Received messages | No |
 | Beat, note, pause, or resume a routine | Yes | Yes | No | No |
 | Set operator presence or drain the fleet | Yes | No | No | No |
 | Read served repositories and local facts | Yes | Yes | Yes | No |
@@ -74,17 +77,40 @@ policy and grant rules.
 | Provision or refresh a routine-owned checkout | Yes | Yes | No | No |
 | Run an arbitrary job | Yes | Scoped continuation only | Scoped continuation only | No |
 
-Cross-agent reads by `recall`, `todo_list`, and `inbox_list` are deliberate.
+Cross-agent reads by `recall`, `todo_list`, and ordinary `inbox_list` notes are deliberate.
 They make durable fleet context transparent while journal and all notebook or
 memory writes remain self-scoped. This choice requires callers to keep secrets
 out of shared agent memory; issue #597 covers the broader context-store trust
 model.
+
+Peer inbox projections retain the participant-only read boundary of their
+durable envelopes. The older inbox tools filter them for unrelated readers and
+require the authenticated recipient before filing, even for an operator caller.
+`drop_note` cannot write reserved peer projection filenames. These exceptions
+preserve ordinary-note transparency without exposing peer bodies or letting
+another caller manufacture the recipient's acknowledgment.
 
 The caretaker operates the fleet but does not judge sibling work. Its bounded
 operator bundle exists to wake, pause, resume, inspect, and maintain agents.
 Only the human operator may decide another routine's approval gate. This
 restriction applies even when the caretaker's role grants operator-tier shared
 operations elsewhere.
+
+Peer messaging is a separate `peer_message` policy category, not delegation.
+`peer_send` and `peer_reply` derive the sender from verified authentication;
+replies also derive their recipient and correlation from the original message.
+`peer_read` and `peer_list` are inert participant-scoped reads, with fleet-wide
+visibility for the human operator. `peer_ack` records receipt only and is
+restricted to the recipient. Operators can inspect an exchange but cannot
+impersonate either routine by sending or acknowledging it. The normal worker
+bundle includes all five tools, so Claude and Codex routines use the same
+service and authority checks.
+
+A peer message is untrusted evidence or a request. It cannot approve a gate,
+grant a tool, change a role or override an operator constraint. The recipient
+decides whether and how to act under its existing rules. Durable acceptance,
+inbox delivery and acknowledgment do not establish that any requested work
+was completed.
 
 ## Current runtime enforcement
 
