@@ -7,6 +7,7 @@ defmodule Custode.WorkflowRunnerTest do
   alias Custode.Repo
   alias Custode.Workflow
   alias Custode.Workflow.Catalog
+  alias Custode.Workflow.Launch
   alias Custode.Workflow.Node
   alias Custode.Workflow.NodeJob
   alias Custode.Workflow.Results
@@ -71,6 +72,77 @@ defmodule Custode.WorkflowRunnerTest do
     job = Enum.find(jobs(run_id), &(&1.meta["node_name"] == node_name))
     refute is_nil(job), "no job enqueued for #{node_name}"
     Runner.node_finished(job.meta, result(structured))
+  end
+
+  test "terminal callbacks cannot overwrite failure identity or accepted sibling results" do
+    workflow = register(toy_workflow(uid("fenced")))
+    {:ok, run} = Runner.launch(workflow.name, "acme/repo")
+    [first, sibling] = jobs(run.run_id)
+    Runner.node_finished(first.meta, result(%{"saved" => "first"}))
+    failed = Runner.node_failed(sibling.meta, :first_failure)
+    assert failed.failure_identity["node_name"] == sibling.meta["node_name"]
+    assert failed.failure_identity["execution_generation"] == run.execution_generation
+    assert failed.failure_identity["stage"] == "mine"
+
+    Runner.node_finished(first.meta, result(%{"saved" => "overwritten"}))
+    Runner.node_finished(sibling.meta, result(%{"late" => true}))
+    Runner.node_failed(first.meta, :late_failure)
+    assert Run.get(run.run_id) == failed
+    assert [%{result: %{"saved" => "first"}}] = Results.for_run(run.run_id)
+  end
+
+  test "wrong generation and prior-stage callbacks are refused before persistence" do
+    workflow = register(toy_workflow(uid("stale-generation")))
+    {:ok, run} = Runner.launch(workflow.name, "acme/repo")
+    [first, sibling] = jobs(run.run_id)
+    stale = Map.put(first.meta, "execution_generation", "another-generation")
+    Runner.node_finished(stale, result(%{"wrong" => true}))
+
+    Runner.node_finished(
+      Map.put(first.meta, "args_hash", "wrong-input"),
+      result(%{"wrong" => true})
+    )
+
+    Runner.node_failed(Map.put(first.meta, "callback_job_id", sibling.id), :wrong_job)
+    Runner.node_failed(Map.delete(first.meta, "args_hash"), :missing_input_identity)
+    Runner.node_failed(Map.put(first.meta, "callback_job_id", "not-a-job-id"), :malformed_job)
+    Runner.node_failed(stale, :wrong_failure)
+    assert Results.for_run(run.run_id) == []
+    assert Run.get(run.run_id).status == "running"
+    Runner.node_finished(first.meta, result(%{"items" => []}))
+    Runner.node_finished(sibling.meta, result(%{"items" => []}))
+    assert Run.get(run.run_id).stage == "merge"
+    Runner.node_failed(first.meta, :late_old_stage_failure)
+    assert Run.get(run.run_id).stage == "merge"
+    assert Run.get(run.run_id).status == "running"
+  end
+
+  test "duplicate concurrent results keep the first accepted value" do
+    workflow = register(toy_workflow(uid("first-result")))
+    {:ok, run} = Runner.launch(workflow.name, "acme/repo")
+    first = hd(jobs(run.run_id))
+    Runner.node_finished(first.meta, result(%{"value" => "accepted"}))
+
+    1..8
+    |> Task.async_stream(fn n -> Runner.node_finished(first.meta, result(%{"value" => n})) end)
+    |> Enum.each(fn {:ok, {:ok, _}} -> :ok end)
+
+    assert [%{result: %{"value" => "accepted"}}] = Results.for_run(run.run_id)
+    Runner.node_failed(first.meta, :contradictory_failure)
+    assert Run.get(run.run_id).status == "running"
+  end
+
+  test "definition changes stop advancement while the checklist retains launch order" do
+    workflow = register(toy_workflow(uid("snapshot")))
+    {:ok, run} = Runner.launch(workflow.name, "acme/repo")
+    register(%{workflow | stages: Enum.reverse(workflow.stages)})
+    assert {:error, :definition_changed} = Runner.advance(run.run_id)
+    failed = Run.get(run.run_id)
+    assert failed.error =~ "definition changed"
+    assert Enum.map(Launch.checklist(failed), & &1.name) == ["mine", "merge", "check"]
+    Application.delete_env(:custode, :extra_workflows)
+    assert Enum.map(Launch.checklist(failed), & &1.state) == [:failed, :not_run, :not_run]
+    assert Enum.all?(jobs(run.run_id), &(&1.state == "cancelled"))
   end
 
   describe "launch (#271)" do

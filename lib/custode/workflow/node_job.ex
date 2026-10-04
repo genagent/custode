@@ -52,16 +52,16 @@ defmodule Custode.Workflow.NodeJob do
   def pinned_args, do: @oban_claude_pinned_args
 
   @impl ObanClaude.Worker
-  def handle_result(result, %Oban.Job{meta: %{"workflow_run" => _} = meta}) do
-    Runner.node_finished(meta, result)
+  def handle_result(result, %Oban.Job{id: id, meta: %{"workflow_run" => _} = meta}) do
+    Runner.node_finished(Map.put(meta, "callback_job_id", id), result)
     :ok
   end
 
   def handle_result(_result, _job), do: :ok
 
   @impl ObanClaude.Worker
-  def handle_error(oban_return, _payload, %Oban.Job{meta: %{"workflow_run" => _} = meta}) do
-    Runner.node_failed(meta, oban_return)
+  def handle_error(oban_return, _payload, %Oban.Job{id: id, meta: %{"workflow_run" => _} = meta}) do
+    Runner.node_failed(Map.put(meta, "callback_job_id", id), oban_return)
     oban_return
   end
 

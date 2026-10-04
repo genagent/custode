@@ -273,7 +273,7 @@ defmodule Custode.WorkflowLaunchTest do
       finish(run.run_id, "spec")
 
       assert [mine, merge, check] = Launch.checklist(Run.get(run.run_id))
-      assert mine.name == :mine
+      assert mine.name == "mine"
       assert mine.state == :running
       assert Enum.map(mine.nodes, & &1.node_name) == ["spec"]
       assert merge.state == :pending
@@ -346,7 +346,8 @@ defmodule Custode.WorkflowLaunchTest do
       saved = Results.for_run(run.run_id)
 
       cases = [
-        {%{failed | workflow: "removed-workflow"}, :workflow_unavailable},
+        {%{failed | workflow: "removed-workflow", definition_snapshot: nil},
+         :workflow_unavailable},
         {%{failed | stage: nil}, :stage_unavailable},
         {%{failed | stage: "merge_missing"}, :stage_unavailable}
       ]

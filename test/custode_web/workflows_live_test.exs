@@ -220,6 +220,10 @@ defmodule CustodeWeb.WorkflowsLiveTest do
     Run.fail(run.run_id, "saved failure")
     Application.delete_env(:custode, :extra_workflows)
 
+    Repo.update_all(from(r in Run.Row, where: r.run_id == ^run.run_id),
+      set: [definition_snapshot: nil]
+    )
+
     {:ok, view, _html} = live(conn, "/workflows")
     fallback = "[data-workflow-run='#{run.run_id}'] [data-stage-state='unavailable']"
 
