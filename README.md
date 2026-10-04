@@ -196,7 +196,7 @@ toggles them ([guides/ui-hierarchy.md](guides/ui-hierarchy.md)).
 |---|---|
 | `/` | **The console.** A rail of every subject grouped by what it needs (needs you, watching, working, scheduled, quiet), filterable by name, repository, tag or state. A subject pane with a message box that works in any state and tabs: attention, activity, work, notebook, panel, turns, config. An item pane with the evidence (failing checks, risk, the agent's context) and one control per thing you can do. |
 | `/agents/:id/conversation` | **A focused agent conversation.** Operator prompts, provider replies, questions, approvals, and their outcomes appear as correlated exchanges in one full-height transcript, with stable older-history loading and the same saved draft as the console. |
-| `/custode` | **Talking to custode**, `Cmd/Ctrl+K` from anywhere. A sentence box, custode's pending proposal as a plan with `do it` and `cancel`, its answers, and what it did while you were away. |
+| `/custode` | **Ask custode.** Discuss ideas and coordinate project work in the manager's durable conversation. Pending plans, reports and fleet actions stay reachable beside the transcript; direct project conversations remain available. |
 | `/messages`, `/messages/:id` | Durable agent-to-agent messages and correlated exchanges. Reach them from either agent or fleet activity; reads never acknowledge a message. |
 | `/metrics` | Spend, approval rates by agent, by gate class and risk, and writes observed outside an approval. |
 | `/inbox`, `/repos`, `/workflows`, `/suggestions` | The needs-you queue, repository overviews, workflow runs, advisor suggestions. |
@@ -310,6 +310,25 @@ acknowledgment means receipt, not completion. Return results and evidence in a
 correlated reply; the recipient still proposes any gated action itself. Bounded
 message size, sender rate and reply-chain limits prevent an unbounded exchange.
 The [MCP reference](docs/mcp-reference.md) gives exact defaults and errors.
+
+### Custode as your project manager
+
+Use **Ask custode** for design, discussion, priorities, and coordination. Open
+any project agent's conversation when you want to work with it directly.
+Both entry points use the same durable conversation records and shared actions.
+
+The caretaker can read `project_progress` for a configured project: current
+execution, continuity, pending input, blockers, and full direct operator
+messages. A new queued message is visible immediately; the project does not
+have to finish a turn first. The manager refreshes that evidence before
+coordinating, sends bounded peer requests when work is authorized, and keeps
+its plan and evidence in its notebook. Reading an older conversation page
+is not a fresh check for new instructions.
+
+Discussion does not authorize dispatch. Delivery, acknowledgment, an agent's
+report, and accepted work remain separate. Existing schedule previews, gates,
+spend rails, and direct project control still apply. See the
+[project-manager guide](guides/project-manager.md) for the workflow and proof.
 
 ## Development
 

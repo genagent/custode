@@ -46,7 +46,7 @@ defmodule CustodeWeb.Router do
       live("/console", CustodeWeb.ConsoleLive)
       live("/console/:id", CustodeWeb.ConsoleLive)
       live("/agents/:id/conversation", CustodeWeb.ConversationLive)
-      live("/custode", CustodeWeb.RootLive)
+      live("/custode", CustodeWeb.ConversationLive, :manager)
       live("/repos", CustodeWeb.ReposLive)
       live("/suggestions", CustodeWeb.SuggestionsLive)
       live("/workflows", CustodeWeb.WorkflowsLive)

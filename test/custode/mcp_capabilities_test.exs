@@ -84,6 +84,9 @@ defmodule Custode.MCPCapabilitiesTest do
 
     assert "set_presence" in operator_tools
     assert "drain" in operator_tools
+    assert "project_progress" in operator_tools
+    assert "project_progress" in caretaker_tools
+    refute "project_progress" in worker_tools
 
     assert "journal_append" in worker_tools
     assert "repo_open_pr" in worker_tools
@@ -154,6 +157,7 @@ defmodule Custode.MCPCapabilitiesTest do
 
     assert "journal_append" in old_tools
     refute "beat" in old_tools
+    refute "project_progress" in old_tools
 
     job
     |> Ecto.Changeset.change(state: "completed")
@@ -165,6 +169,7 @@ defmodule Custode.MCPCapabilitiesTest do
            })
 
     assert "beat" in tool_names(worker)
+    assert "project_progress" in tool_names(worker)
   end
 
   test "peer calls preserve authenticated authorship through the HTTP adapter", ctx do
@@ -235,12 +240,51 @@ defmodule Custode.MCPCapabilitiesTest do
 
     assert "mcp__custode__journal_append" in worker
     refute "mcp__custode__beat" in worker
+    refute "mcp__custode__project_progress" in worker
 
+    assert "mcp__custode__project_progress" in caretaker
     assert "mcp__custode__beat" in caretaker
     refute "mcp__custode__list_attention" in caretaker
     refute "mcp__custode__provision_owned_checkout" in caretaker
     refute "mcp__custode__answer_ask" in caretaker
     refute "mcp__custode__dismiss_ask" in caretaker
+  end
+
+  test "project progress is an explicit read without sibling control authority", ctx do
+    operator = session(ctx.operator_token, "/mcp")
+    caretaker = session(ctx.caretaker_token, "/mcp")
+    worker = session(ctx.worker_token, "/mcp")
+    sub = session(ctx.sub_token, "/mcp/memory")
+
+    for client <- [operator, caretaker] do
+      result = call(client, "project_progress", %{routine_id: ctx.worker_id})
+      assert result["schema_version"] == "custode.project_progress.v1"
+      assert result["project"]["routine_id"] == ctx.worker_id
+    end
+
+    response =
+      rpc(worker, "tools/call", %{
+        name: "project_progress",
+        arguments: %{
+          routine_id: ctx.caretaker_id,
+          actor: %{kind: "operator"}
+        }
+      })
+
+    assert get_in(response, ["error", "message"]) =~ "MCP capability refused"
+
+    assert %{"error" => _error} =
+             rpc(sub, "tools/call", %{
+               name: "project_progress",
+               arguments: %{routine_id: ctx.worker_id}
+             })
+
+    assert tool_error(caretaker, "agent_status", %{agent_id: ctx.worker_id}) =~ "may not control"
+
+    assert tool_error(caretaker, "prompt_agent", %{agent_id: ctx.worker_id, prompt: "start work"}) =~
+             "may not control"
+
+    assert Custode.InboxWakes.get(ctx.worker_id) == nil
   end
 
   test "blind calls are refused before side effects", ctx do

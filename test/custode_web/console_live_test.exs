@@ -1161,11 +1161,12 @@ defmodule CustodeWeb.ConsoleLiveTest do
   } do
     value = String.duplicate("bounded context stays readable. ", 20)
     Custode.Memory.remember(sleeper.id, "long-context", value)
+    memory = Enum.find(Custode.Memory.recall(sleeper.id), &(&1.key == "long-context"))
 
     {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
     view |> element("button[phx-value-tab=notebook]") |> render_click()
 
-    disclosure = view |> element("[data-foldable-text]") |> render()
+    disclosure = view |> element("#memory-#{memory.id}[data-foldable-text]") |> render()
     assert disclosure =~ "Show more"
     assert disclosure =~ "Show less"
     assert disclosure =~ value
@@ -1604,6 +1605,34 @@ defmodule CustodeWeb.ConsoleLiveTest do
       end)
 
       %{roster: roster}
+    end
+
+    test "Ask setup opens the existing caretaker preview without creating a routine", %{
+      conn: conn,
+      roster: roster
+    } do
+      put_env!(:routines, [])
+      {:ok, view, _html} = live(conn, "/console?new=caretaker")
+      assert has_element?(view, "#new-routine")
+      assert has_element?(view, ~s(#new-routine option[value="caretaker"][selected]))
+      assert Custode.Routine.all() == []
+      refute File.exists?(roster)
+    end
+
+    test "Ask setup does not open a second caretaker form when one already exists", %{conn: conn} do
+      put_env!(:routines, [
+        %{
+          id: uid("manager"),
+          role: :caretaker,
+          cron: "@daily",
+          prompt: "coordinate",
+          workspace: tmp_workspace!()
+        }
+      ])
+
+      {:ok, view, _html} = live(conn, "/console?new=caretaker")
+      refute has_element?(view, "#new-routine")
+      refute has_element?(view, "#caretaker-setup")
     end
 
     test "the form previews the TOML as you type, creates, and opens the new agent",

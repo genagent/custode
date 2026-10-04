@@ -367,8 +367,8 @@ defmodule CustodeWeb.Components do
             Metrics
           </.link>
         </nav>
-        <div class="ml-auto flex items-center gap-3">
-          <.attention_chip :if={@readouts} signals={@attention_signals} />
+        <div class="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-x-3 gap-y-2">
+          <.attention_chip :if={@readouts} signals={@attention_signals} wrap class="max-w-full [overflow-wrap:anywhere]" />
           <span :if={@readouts} class="whitespace-nowrap font-mono text-sm text-base-content/70">
             fleet today ${usd(@fleet_today)}
           </span>
@@ -537,7 +537,7 @@ defmodule CustodeWeb.Components do
       :if={@attention != [] && @wrap}
       navigate="/console"
       class={[
-        "block rounded-lg bg-warning/20 px-2 py-1 text-xs font-medium text-warning-content/80",
+        "block rounded-lg bg-warning px-2 py-1 text-xs font-medium text-warning-content",
         @class
       ]}
     >

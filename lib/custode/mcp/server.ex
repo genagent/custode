@@ -116,6 +116,9 @@ defmodule Custode.MCP.Server do
   component(Custode.MCP.ReadTools.Workflows, name: "list_workflows")
   component(Custode.MCP.ReadTools.ExecutingTurns, name: "executing_turns")
 
+  # Bounded caretaker coordination reads keep sibling lifecycle control scoped.
+  component(Custode.MCP.ProjectProgressTools.Read, name: "project_progress")
+
   # the operator's first read (#647): granted to NO routine, refused by the
   # handler for any non-operator caller
   component(Custode.MCP.BootstrapTools.OperatorBootstrap, name: "operator_bootstrap")
