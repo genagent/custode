@@ -57,6 +57,7 @@ defmodule Custode.MCP.ToolPolicy do
     "assurance_read" => :read,
     # Read actions retain root/context records; exact grants also guard Git reads.
     "subject_context" => :self_write,
+    # Scoped diff is read-only; typed feedback retains comment rows, never applies source.
     "return_context" => :self_write,
     # roster and profiles: a preview writes nothing
     "preview_routine" => :read,
