@@ -11,6 +11,7 @@ defmodule CustodeWeb.MetricsLive do
 
   import CustodeWeb.Charts
   import CustodeWeb.Components, only: [page: 1, usd: 1, tok: 1]
+  import CustodeWeb.DigestPanel, only: [digest_panel: 1]
 
   alias Custode.Gates.Grant
 
@@ -249,10 +250,7 @@ defmodule CustodeWeb.MetricsLive do
         </section>
 
         <section class="rounded-lg bg-base-100 p-4 shadow-sm xl:col-span-2">
-          <h3 class="mb-3 font-semibold text-base-content/70">
-            fleet digest &middot; last 7 days
-          </h3>
-          <pre class="overflow-x-auto whitespace-pre-wrap text-xs text-base-content/80">{@digest}</pre>
+          <.digest_panel id="metrics-digest-panel" digest={@digest} />
         </section>
       </div>
     </.page>
@@ -283,7 +281,7 @@ defmodule CustodeWeb.MetricsLive do
       grant_observations: Grant.observations(),
       grant_mode: Grant.mode(),
       by_model: Custode.Metrics.by_model(@days),
-      digest: Custode.Digest.build(7) |> Custode.Digest.to_markdown(),
+      digest: Custode.Digest.build(7),
       tokens_today: Custode.SpendLedger.fleet_today_tokens(),
       turns_today: Map.get(turns, today, %{ok: 0, failed: 0}),
       days_shown: @days,

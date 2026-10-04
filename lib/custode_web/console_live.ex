@@ -31,6 +31,7 @@ defmodule CustodeWeb.ConsoleLive do
   import CustodeWeb.Console.CommandPalette
   import CustodeWeb.Console.Rail, only: [rail: 1]
   import CustodeWeb.Console.Subject, only: [subject: 1]
+  import CustodeWeb.DigestPanel, only: [digest_panel: 1]
 
   alias Custode.Attention
   alias Custode.Operator.Actions
@@ -640,7 +641,7 @@ defmodule CustodeWeb.ConsoleLive do
                 dismiss
               </button>
             </div>
-            <pre class="max-h-64 overflow-auto whitespace-pre-wrap text-xs text-base-content/80">{@away_digest}</pre>
+            <.digest_panel id="away-digest-panel" digest={@away_digest} />
           </div>
           <.new_agent_form :if={@new_agent} new_agent={@new_agent} />
           <p
@@ -735,7 +736,7 @@ defmodule CustodeWeb.ConsoleLive do
 
   defp away_digest(_socket) do
     case Custode.Presence.away_window() do
-      {:since, since} -> since |> Custode.Digest.build_since() |> Custode.Digest.to_markdown()
+      {:since, since} -> Custode.Digest.build_since(since)
       :none -> nil
     end
   end
