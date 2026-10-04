@@ -112,3 +112,29 @@ never fabricate clean reviews or zero usage. Cancel requests Oban cancellation;
 a returned query and Oban state do not attest OS settlement. A duplicate job
 cannot relaunch or replace an already running or terminal review. No automatic
 retry, recurring fan-out, synthesis by vote or recursive helper delegation.
+
+## Admission and receipt follow-up (#778)
+
+The next slice strengthens the existing durable coordinator without changing
+the routine runtime or adding a scheduler. Reuse the owner_reviews record and
+Oban jobs; no new table is planned. Capture the exact submitting authority,
+current owner configuration and gate-grant observation, fixed query policy and
+child option digests. Serialize submission and child admission with configuration
+handoff, then revalidate those contracts in the database transaction.
+
+Retain bounded terminal and late delivery observations without replacing an
+accepted result or booking usage twice. Reconciliation records missing receipts
+as unconfirmed without relaunch, and inspection carries owner/child links and
+explicit unknown settlement. Tests cover duplicate and altered delivery, current
+revision changes, concurrent reservations, crash/reconciliation and independent
+results under seeds 1, 12345 and 777. The five repository gates precede each push.
+
+Cross-provider execution is conditional on exact native option and rail parity.
+The released Codex adapter exposes no native USD stop, hard token stop or
+single-turn cap matching this operation. Publish a versioned capability and
+refusal explanation and keep unsupported requests fail-closed rather than
+silently weakening the existing contract. Hard token caps remain unavailable
+for both providers. These are blocking findings, not proof that #778 is complete.
+The maintained MCP behavior/reference must describe every admitted guarantee
+and unsupported boundary. No paid models, GenAgent pool, automatic fan-out,
+approval, merge, physical-settlement attestation or runtime adoption is included.
