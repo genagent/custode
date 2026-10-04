@@ -1,5 +1,6 @@
 defmodule Custode.ReturnViewsTest do
   use ExUnit.Case, async: false
+  import Ecto.Query, only: [from: 2]
   import Custode.TestHelpers
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
@@ -108,7 +109,10 @@ defmodule Custode.ReturnViewsTest do
     assert {:error, "revision_changed_reread_and_reanchor"} =
              view(@human, ctx, "feedback", params)
 
-    assert Repo.aggregate(ReturnViews.Feedback, :count) == 1
+    assert Repo.aggregate(
+             from(row in ReturnViews.Feedback, where: row.root_id == ^ctx.definition.id),
+             :count
+           ) == 1
   end
 
   test "prepared text and nonmatching or chunked sends do not become delivery evidence", ctx do
@@ -215,7 +219,12 @@ defmodule Custode.ReturnViewsTest do
       |> render_submit()
 
     assert result =~ "revision_changed_reread_and_reanchor"
-    assert Repo.aggregate(ReturnViews.Feedback, :count) == 0
+
+    assert Repo.aggregate(
+             from(row in ReturnViews.Feedback, where: row.root_id == ^ctx.definition.id),
+             :count
+           ) == 0
+
     assert Repo.aggregate(Oban.Job, :count) == jobs
   end
 
@@ -236,7 +245,10 @@ defmodule Custode.ReturnViewsTest do
     assert retired["exact_tool_text"] == nil
     assert {:ok, newest} = ContextReceipts.read(@human, List.last(ids))
     assert newest["payload_state"] == "retained"
-    assert Repo.aggregate(ContextReceipts.Row, :count) == 101
+    key = "sub_agent:" <> ctx.first.id
+
+    assert Repo.aggregate(from(row in ContextReceipts.Row, where: row.actor_key == ^key), :count) ==
+             101
   end
 
   test "historical payload authority survives source deletion but not revoked identity", ctx do
