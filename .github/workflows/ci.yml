@@ -47,6 +47,8 @@ jobs:
         with:
           elixir-version: "1.20"
           otp-version: "29"
+      - name: Assurance contract proof
+        run: python3 -m unittest discover -s spikes/assurance -v
       - name: Production subject descriptor races
         run: python3 -m unittest discover -s spikes/subject_descriptor -v
       - name: Persistent subject contract
