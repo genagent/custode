@@ -48,7 +48,7 @@ defmodule Custode.Roles do
   @roles %{
     caretaker: %{
       summary:
-        "The custode agent: the singleton fleet meta-agent -- watches gates, siblings, and sensors, and escalates to the operator.",
+        "The custode agent: discusses ideas, coordinates project work, tracks progress, and watches fleet health within existing approval rules.",
       tier: :custode,
       singleton: true,
       watches: :fleet,

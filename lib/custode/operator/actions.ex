@@ -739,14 +739,19 @@ defmodule Custode.Operator.Actions do
   defp to_id(id) when is_binary(id), do: String.to_integer(id)
 
   @doc """
-  The caretaker: the routine tagged `:meta` (design/000's custode, the
-  operator's right hand). `nil` when the roster has none.
+  The configured caretaker role, with the historical `:meta` tag as a
+  fallback for legacy rosters. `nil` when the roster has neither.
   """
   @spec caretaker() :: String.t() | nil
   def caretaker do
-    Enum.find_value(Custode.Routine.all(), fn routine ->
-      if :meta in routine.tags, do: routine.id
-    end)
+    routines = Custode.Routine.all()
+    caretaker = Enum.find(routines, &(&1.role == :caretaker))
+    legacy = Enum.find(routines, &(:meta in &1.tags))
+
+    case caretaker || legacy do
+      nil -> nil
+      routine -> routine.id
+    end
   end
 
   @doc """

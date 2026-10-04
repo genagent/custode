@@ -43,12 +43,12 @@ defmodule Custode.Routine.PromptsTest do
     assert caretaker =~ "feed_tail"
     assert caretaker =~ "NEVER approve or reject a sibling's gate"
     # aging gates are a timer's job now, not a sweep's (#446)
-    assert caretaker =~ "re-notified to the human"
-    assert caretaker =~ "do NOT escalate one yourself"
+    assert caretaker =~ "re-notified mechanically"
+    assert caretaker =~ "Do not duplicate those"
     refute caretaker =~ "STALE GATES"
-    assert caretaker =~ "ONE beat"
-    assert caretaker =~ "SILENT SENSORS"
-    assert caretaker =~ "resume is the human's call"
+    assert caretaker =~ "at most one recovery beat"
+    assert caretaker =~ "A sensor silent well beyond its cadence"
+    assert caretaker =~ "paused routine only when the human instructs you"
   end
 
   test "role bodies keep their loops without restating the charter" do

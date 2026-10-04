@@ -10,7 +10,14 @@ defmodule CustodeWeb.ConversationLive do
   use Phoenix.LiveView
 
   import CustodeWeb.Components,
-    only: [ago: 1, app_header: 1, markdown: 1, message_content: 1, status_badge: 1]
+    only: [
+      ago: 1,
+      app_header: 1,
+      host_banner: 1,
+      markdown: 1,
+      message_content: 1,
+      status_badge: 1
+    ]
 
   import CustodeWeb.Console.Composer, only: [message_composer: 1]
   import CustodeWeb.Console.Item, only: [conversation_actions: 1]
@@ -25,6 +32,7 @@ defmodule CustodeWeb.ConversationLive do
   alias Custode.Signal
   alias Custode.SpendLedger
   alias CustodeWeb.Console.Rail
+  alias CustodeWeb.ManagerPanel
 
   @page_size 20
   @opts [via: :liveview]
@@ -42,6 +50,8 @@ defmodule CustodeWeb.ConversationLive do
      )
      |> assign(
        agent_id: nil,
+       manager: false,
+       manager_context: nil,
        subject: nil,
        signal: nil,
        pending_exchange_id: nil,
@@ -55,10 +65,17 @@ defmodule CustodeWeb.ConversationLive do
   end
 
   @impl Phoenix.LiveView
+  def handle_params(_params, _uri, %{assigns: %{live_action: :manager}} = socket) do
+    {:noreply,
+     socket
+     |> assign(manager: true, agent_id: Actions.caretaker(), notice: nil)
+     |> load_initial()}
+  end
+
   def handle_params(%{"id" => agent_id}, _uri, socket) do
     {:noreply,
      socket
-     |> assign(agent_id: agent_id, notice: nil)
+     |> assign(manager: false, manager_context: nil, agent_id: agent_id, notice: nil)
      |> load_initial()}
   end
 
@@ -70,11 +87,18 @@ defmodule CustodeWeb.ConversationLive do
       do: {:noreply, refresh_latest(socket)}
 
   def handle_info({:status_changed, agent_id}, %{assigns: %{agent_id: agent_id}} = socket),
-    do: {:noreply, refresh_subject(socket)}
+    do: {:noreply, refresh_entry(socket)}
+
+  def handle_info({event, _payload}, %{assigns: %{manager: true}} = socket)
+      when event in [:status_changed, :feed_entry],
+      do: {:noreply, refresh_entry(socket)}
 
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl Phoenix.LiveView
+  def handle_event("older", _params, %{assigns: %{agent_id: nil}} = socket),
+    do: {:noreply, socket}
+
   def handle_event("older", _params, socket) do
     case OperatorMessages.conversation(socket.assigns.agent_id,
            limit: @page_size,
@@ -100,6 +124,9 @@ defmodule CustodeWeb.ConversationLive do
   def handle_event("drop_image", %{"ref" => ref}, socket),
     do: {:noreply, cancel_upload(socket, :image, ref)}
 
+  def handle_event("message", _params, %{assigns: %{agent_id: nil}} = socket),
+    do: {:noreply, assign(socket, notice: "set up a caretaker before sending")}
+
   def handle_event("message", %{"text" => text}, socket) do
     text = Attachments.compose(text, save_images(socket))
 
@@ -113,10 +140,63 @@ defmodule CustodeWeb.ConversationLive do
     end
   end
 
+  def handle_event(
+        "try",
+        %{"sentence" => sentence},
+        %{assigns: %{manager: true, agent_id: id}} = socket
+      )
+      when is_binary(id) do
+    if ManagerPanel.quick_prompt?(sentence),
+      do: {:noreply, push_event(socket, "draft:restore", %{subject: id, text: sentence})},
+      else: {:noreply, socket}
+  end
+
+  def handle_event("try", _params, socket), do: {:noreply, socket}
+
+  def handle_event("do_it", params, socket) do
+    case current_manager_plan(socket, params["action"]) do
+      {:ok, agent, action} ->
+        agent
+        |> Actions.approve(action, @opts)
+        |> after_action(socket, "approved: custode is doing it")
+
+      _stale ->
+        after_action({:error, :no_longer_pending}, socket, nil)
+    end
+  end
+
+  def handle_event("recover_plan", params, socket) do
+    case current_manager_plan(socket, params["action"]) do
+      {:ok, agent, action} ->
+        agent
+        |> Actions.recover_gate(action, @opts)
+        |> after_action(socket, "approval requeued for agent re-evaluation")
+
+      _stale ->
+        after_action({:error, :no_longer_pending}, socket, nil)
+    end
+  end
+
+  def handle_event("reject", params, %{assigns: %{manager: true}} = socket) do
+    with {:ok, agent, action} <- current_manager_plan(socket, params["action"]),
+         true <- params["agent"] == agent do
+      :reject
+      |> Actions.run(%{agent: agent, action: action}, params, @opts)
+      |> after_action(socket, "cancelled")
+    else
+      _stale -> after_action({:error, :no_longer_pending}, socket, nil)
+    end
+  end
+
   def handle_event("reject", %{"agent" => agent, "action" => action} = params, socket) do
     :reject
     |> Actions.run(%{agent: agent, action: action}, params, @opts)
     |> after_action(socket, "rejected")
+  end
+
+  def handle_event("op", %{"op" => op}, %{assigns: %{manager: true}} = socket)
+      when op in ["approve", "reject"] do
+    after_action({:error, :no_longer_pending}, socket, nil)
   end
 
   def handle_event("op", %{"op" => op} = params, socket) do
@@ -148,26 +228,33 @@ defmodule CustodeWeb.ConversationLive do
     ~H"""
     <div class="flex h-screen min-h-0 flex-col bg-base-200">
       <.app_header
-        active={:console}
+        active={if @manager, do: :custode, else: :console}
         fleet_today={@fleet_today}
         attention_signals={@attention_signals}
       />
       <header class="shrink-0 border-b border-base-300 bg-base-100 px-4 py-3 sm:px-6">
         <div class="mx-auto flex max-w-5xl flex-wrap items-center gap-x-3 gap-y-1">
           <.link
-            navigate={Rail.subject_path(@agent_id)}
+            navigate={if @agent_id, do: Rail.subject_path(@agent_id), else: "/console"}
             class="link text-xs font-semibold text-base-content/60"
           >
             &larr; control room
           </.link>
           <span class="text-base-content/30">/</span>
-          <h1 class="font-mono text-lg font-bold">{@agent_id}</h1>
+          <h1 class="font-mono text-lg font-bold">{if @manager, do: "Ask custode", else: @agent_id}</h1>
+          <span :if={@manager && @agent_id} class="text-xs text-base-content/60">{@agent_id}</span>
           <.status_badge :if={@subject} status={@subject.status} />
           <p :if={@subject} class="ml-auto font-mono text-xs text-base-content/50">
             {execution_label(@subject)}
           </p>
+          <.link :if={@manager} navigate="/" class="link text-xs text-base-content/50">esc to close</.link>
         </div>
       </header>
+
+      <div :if={@manager} class="shrink-0 empty:hidden px-4 pt-3 sm:px-6"><.host_banner /></div>
+      <div :if={@manager && @manager_context.plan} class="max-h-[35vh] shrink-0 overflow-y-auto px-4 py-3 sm:px-6">
+        <ManagerPanel.plan plan={@manager_context.plan} caretaker={@agent_id} recovery={@manager_context.recovery} />
+      </div>
 
       <main
         id="conversation-scroll"
@@ -178,6 +265,11 @@ defmodule CustodeWeb.ConversationLive do
         class="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6"
       >
         <div class="mx-auto flex max-w-3xl flex-col gap-6">
+          <section :if={@manager && @agent_id == nil} id="manager-setup" class="rounded-box border border-base-300 bg-base-100 p-6">
+            <h2 class="font-semibold">Set up your caretaker</h2>
+            <p class="mt-2 text-sm text-base-content/60">There is no custode to talk to yet. The existing setup form lets you review a caretaker before creating it.</p>
+            <.link navigate="/console?new=caretaker" class="btn btn-primary btn-sm mt-4">set up caretaker</.link>
+          </section>
           <button
             :if={@has_older}
             id="load-older-conversation"
@@ -198,7 +290,7 @@ defmodule CustodeWeb.ConversationLive do
           </p>
 
           <section
-            :if={@exchanges == []}
+            :if={@agent_id && @exchanges == []}
             id="conversation-empty"
             class="my-auto rounded-box border border-base-300 bg-base-100 p-8 text-center"
           >
@@ -263,16 +355,18 @@ defmodule CustodeWeb.ConversationLive do
             </div>
 
             <.conversation_actions
-              :if={exchange.id == @pending_exchange_id && @signal}
+              :if={exchange.id == @pending_exchange_id && @signal && not manager_approval?(@manager_context, @signal)}
               signal={@signal}
               message_gen={@message_gen}
             />
           </article>
+          <ManagerPanel.activity :if={@manager && @agent_id} context={@manager_context} />
         </div>
       </main>
 
       <footer :if={@subject && @subject.messageable} class="shrink-0 border-t border-base-300 bg-base-100 px-4 py-3 sm:px-6">
         <div class="mx-auto max-w-3xl">
+          <ManagerPanel.prompts :if={@manager} sentences={@manager_context.also_try} />
           <.message_composer
             subject_id={@agent_id}
             state={@subject.state}
@@ -280,12 +374,58 @@ defmodule CustodeWeb.ConversationLive do
             message_gen={@message_gen}
             upload={@uploads.image}
           />
-          <p :if={@notice} class="mt-1 text-xs text-base-content/60">{@notice}</p>
+          <p :if={@notice} id="conversation-notice" class="mt-1 text-xs text-base-content/60">{@notice}</p>
         </div>
       </footer>
     </div>
     """
   end
+
+  defp current_manager_plan(
+         %{
+           assigns: %{
+             manager: true,
+             agent_id: agent,
+             manager_context: %{plan: %{action_id: action}}
+           }
+         },
+         action
+       )
+       when is_binary(action) do
+    with ^agent <- Actions.caretaker(),
+         %{action_id: ^action} <- ManagerPanel.current_plan(agent) do
+      {:ok, agent, action}
+    else
+      _stale -> {:error, :no_longer_pending}
+    end
+  end
+
+  defp current_manager_plan(_socket, _action), do: {:error, :no_longer_pending}
+
+  defp manager_approval?(%{plan: %{action_id: action}}, %Signal{resolving: resolving}),
+    do:
+      Enum.any?(
+        resolving,
+        &(&1.op in [:approve, :reject, :recover_gate] && &1.args[:action] == action)
+      )
+
+  defp manager_approval?(_context, _signal), do: false
+
+  defp refresh_entry(%{assigns: %{manager: true}} = socket) do
+    case Actions.caretaker() do
+      id when id == socket.assigns.agent_id ->
+        refresh_subject(socket)
+
+      id ->
+        socket
+        |> assign(agent_id: id, exchanges: [], before: nil, has_older: false)
+        |> load_initial()
+    end
+  end
+
+  defp refresh_entry(socket), do: refresh_subject(socket)
+
+  defp load_initial(%{assigns: %{agent_id: nil}} = socket), do: refresh_subject(socket)
 
   defp load_initial(socket) do
     {:ok, page} = OperatorMessages.conversation(socket.assigns.agent_id, limit: @page_size)
@@ -299,12 +439,20 @@ defmodule CustodeWeb.ConversationLive do
     |> refresh_subject()
   end
 
+  defp refresh_latest(%{assigns: %{agent_id: nil}} = socket), do: refresh_subject(socket)
+
   defp refresh_latest(socket) do
     {:ok, page} = OperatorMessages.conversation(socket.assigns.agent_id, limit: @page_size)
 
     socket
     |> assign(exchanges: merge_exchanges(socket.assigns.exchanges, page.exchanges))
     |> refresh_subject()
+  end
+
+  defp refresh_subject(%{assigns: %{agent_id: nil}} = socket) do
+    socket
+    |> assign(subject: nil, signal: nil, pending_exchange_id: nil)
+    |> refresh_context()
   end
 
   defp refresh_subject(socket) do
@@ -332,7 +480,14 @@ defmodule CustodeWeb.ConversationLive do
     assign(socket,
       subject: subject,
       signal: signal,
-      pending_exchange_id: pending_exchange_id,
+      pending_exchange_id: pending_exchange_id
+    )
+    |> refresh_context()
+  end
+
+  defp refresh_context(socket) do
+    assign(socket,
+      manager_context: if(socket.assigns.manager, do: ManagerPanel.read(socket.assigns.agent_id)),
       attention_signals: Fleet.signals(),
       fleet_today: SpendLedger.fleet_today()
     )

@@ -40,7 +40,7 @@ defmodule Custode.MCP.Capabilities do
   # ask decisions are deliberately absent even though older allowlists exposed
   # them; their handlers have always refused routine callers.
   @caretaker_exposed_tools ~w(
-    list_asks list_disowned
+    project_progress list_asks list_disowned
     beat drop_note list_gates feed_tail pause_agent resume_agent spend_today
     preview_routine add_routine preview_routine_edit update_routine
     remove_routine
