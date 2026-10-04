@@ -28,21 +28,24 @@ defmodule CustodeWeb.Console.CommandPalette do
         <div class="border-b border-base-300 p-3">
           <div class="mb-2 flex items-center gap-2 text-xs text-base-content/50">
             <h2 id="command-palette-title" class="font-bold uppercase tracking-widest text-base-content/70">
-              commands
+              Commands
             </h2>
-            <span class="ml-auto">manager <kbd class="kbd kbd-xs">⇧⌘K</kbd></span>
-            <span>close <kbd class="kbd kbd-xs">esc</kbd></span>
+            <span class="ml-auto">Ask <kbd class="kbd kbd-xs">⇧⌘K</kbd></span>
+            <span>Close <kbd class="kbd kbd-xs">esc</kbd></span>
           </div>
           <form id="command-search" phx-change="command_search" phx-submit="command_search">
+            <label for="command-query" class="mb-1 block text-sm font-medium">Search commands</label>
             <input
+              id="command-query"
               data-command-input
               type="search"
               name="q"
               value={@query}
               autocomplete="off"
-              placeholder="Search subjects, attention, results and actions"
+              aria-describedby="command-search-help"
               class="input input-ghost w-full px-1 text-base focus:outline-none"
             />
+            <p id="command-search-help" class="mt-1 text-xs text-base-content/60">Search subjects, attention, results and actions.</p>
           </form>
         </div>
         <div role="listbox" aria-label="commands" class="max-h-[60vh] overflow-y-auto p-2">

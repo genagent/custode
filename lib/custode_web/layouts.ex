@@ -32,9 +32,44 @@ defmodule CustodeWeb.Layouts do
               the operator's remembered choice, else what the OS prefers. --%>
         <script>
           (() => {
-            const saved = localStorage.getItem("custode-theme");
-            const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-            document.documentElement.dataset.theme = saved || (dark ? "ink" : "paper");
+            const resolveTheme = saved => {
+              if (saved === "paper" || saved === "ink") return saved;
+              return window.matchMedia("(prefers-color-scheme: dark)").matches ? "ink" : "paper";
+            };
+            const syncToggle = button => {
+              const dark = document.documentElement.dataset.theme === "ink";
+              const current = dark ? "Ink (dark)" : "Paper (light)";
+              const next = dark ? "Paper (light)" : "Ink (dark)";
+              button.setAttribute("aria-pressed", String(dark));
+              button.title = `Current theme: ${current}. Switch to ${next}.`;
+              button.querySelector("[data-theme-current]").textContent = `Current theme: ${current}.`;
+            };
+            const sync = () => document.querySelectorAll("[data-theme-toggle]").forEach(syncToggle);
+            const apply = theme => {
+              document.documentElement.dataset.theme = theme;
+              sync();
+            };
+            const toggle = () => {
+              const theme = document.documentElement.dataset.theme === "ink" ? "paper" : "ink";
+              apply(theme);
+              try { localStorage.setItem("custode-theme", theme); } catch (_) {}
+            };
+
+            let saved;
+            try { saved = localStorage.getItem("custode-theme"); } catch (_) {}
+            apply(resolveTheme(saved));
+            window.CustodeTheme = {sync, syncToggle};
+            document.addEventListener("DOMContentLoaded", sync);
+            window.addEventListener("phx:page-loading-stop", sync);
+            document.addEventListener("click", event => {
+              if (event.defaultPrevented || !(event.target instanceof Element)) return;
+              if (event.target.closest("[data-theme-toggle]")) toggle();
+            });
+            window.addEventListener("storage", event => {
+              if (event.key === "custode-theme" || event.key === null) {
+                apply(resolveTheme(event.newValue));
+              }
+            });
           })();
         </script>
         <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
@@ -59,6 +94,11 @@ defmodule CustodeWeb.Layouts do
             };
 
             const Hooks = {
+              ThemeToggle: {
+                mounted() { window.CustodeTheme.syncToggle(this.el); },
+                updated() { window.CustodeTheme.syncToggle(this.el); }
+              },
+
               SubjectRail: {
                 mounted() {
                   this.onKeydown = event => {
@@ -266,6 +306,10 @@ defmodule CustodeWeb.Layouts do
           });
         </script>
         <style>
+          /* The icon follows the root theme before LiveView connects. */
+          [data-theme="paper"] [data-theme-icon="ink"],
+          [data-theme="ink"] [data-theme-icon="paper"] { display: none; }
+
           /* Native long-text disclosure: one marker and at most three lines. */
           [data-foldable-preview] { position: relative; padding-inline-end: 1.25em; }
           [data-foldable-preview-text] { margin: 0; line-height: 1.5; max-height: 4.5em; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }

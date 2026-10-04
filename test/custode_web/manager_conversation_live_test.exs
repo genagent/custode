@@ -127,7 +127,7 @@ defmodule CustodeWeb.ManagerConversationLiveTest do
     caretaker: caretaker
   } do
     {:ok, view, html} = live(conn, "/custode")
-    assert html =~ "also try"
+    assert html =~ "Also try"
 
     view |> element(~s(button[phx-click=try]), "pause everything except") |> render_click()
 
@@ -163,8 +163,8 @@ defmodule CustodeWeb.ManagerConversationLiveTest do
 
     plan = view |> element("#custode-will") |> render()
     assert plan =~ "add routine mcp-repl"
-    assert plan =~ "do it"
-    assert plan =~ "cancel"
+    assert plan =~ "Approve plan"
+    assert plan =~ "Cancel"
 
     html = view |> element("button[phx-click=do_it]") |> render_click()
     assert html =~ "approved: custode is doing it"
@@ -218,7 +218,7 @@ defmodule CustodeWeb.ManagerConversationLiveTest do
 
     {:ok, view, html} = live(conn, "/custode")
     assert html =~ "There is no custode to talk to"
-    assert has_element?(view, ~s(a[href="/console?new=caretaker"]), "set up caretaker")
+    assert has_element?(view, ~s(a[href="/console?new=caretaker"]), "Set up caretaker")
     refute has_element?(view, "form[phx-submit=message]")
   end
 

@@ -101,14 +101,14 @@ defmodule Custode.SuggestionDismissReasonTest do
       {:ok, view, html} = live(conn, "/suggestions")
 
       # the common path stays one click: the reasons are not on the card yet
-      assert html =~ "dismiss"
-      refute html =~ "right, but not now"
+      assert html =~ "Dismiss"
+      refute html =~ "Right, but not now"
 
-      html = view |> element("button", "dismiss") |> render_click()
-      assert html =~ "why?"
-      assert html =~ "right, but not now"
+      html = view |> element("button[phx-click=dismiss_open]", "Dismiss") |> render_click()
+      assert html =~ "Reason for dismissal"
+      assert html =~ "Right, but not now"
 
-      view |> element("button", "right, but not now") |> render_click()
+      view |> element("button[phx-value-reason=not_now]", "Right, but not now") |> render_click()
 
       [entry | _rest] = Feed.recent_by_event("advisor_dismissed", limit: 1)
       assert entry["reason"] == "not_now"
@@ -119,8 +119,12 @@ defmodule Custode.SuggestionDismissReasonTest do
       suggest!(routine.id, "cron", "*/30 9-18 * * *")
 
       {:ok, view, _html} = live(conn, "/suggestions")
-      view |> element("button", "dismiss") |> render_click()
-      html = view |> element("button", "right, but not now") |> render_click()
+      view |> element("button[phx-click=dismiss_open]", "Dismiss") |> render_click()
+
+      html =
+        view
+        |> element("button[phx-value-reason=not_now]", "Right, but not now")
+        |> render_click()
 
       # the card leaves the standing list and reappears as a decision
       assert html =~ "decisions"
@@ -131,10 +135,10 @@ defmodule Custode.SuggestionDismissReasonTest do
       suggest!(routine.id, "cron", "*/30 9-18 * * *")
 
       {:ok, view, _html} = live(conn, "/suggestions")
-      view |> element("button", "dismiss") |> render_click()
-      html = view |> element("button", "cancel") |> render_click()
+      view |> element("button[phx-click=dismiss_open]", "Dismiss") |> render_click()
+      html = view |> element("button[phx-click=dismiss_cancel]", "Cancel") |> render_click()
 
-      refute html =~ "why?"
+      refute html =~ "Reason for dismissal"
       assert Feed.recent_by_event("advisor_dismissed", limit: 1) == []
     end
   end

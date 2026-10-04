@@ -229,7 +229,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert html =~ "JetBrains+Mono"
 
     {:ok, view, _html} = live(conn, "/console")
-    assert has_element?(view, "header button", "theme")
+    assert has_element?(view, ~s(#theme-toggle[aria-label="Dark theme"][aria-pressed=false]))
   end
 
   # #530: a fresh checkout has no roster, and used to boot the maintainer's
@@ -244,7 +244,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
     # and the way to add one is on the page
     assert has_element?(view, "button[phx-click=new_open]")
     assert has_element?(view, "#first-agent-setup", "Fleet caretaker")
-    assert has_element?(view, "button[phx-click=new_skip]", "skip for now")
+    assert has_element?(view, "button[phx-click=new_skip]", "Skip for now")
   end
 
   test "the console is home and legacy dashboard URLs redirect into it", %{
@@ -289,7 +289,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
     refute has_element?(view, "#away-digest > pre")
     refute has_element?(view, "#away-digest-panel details[open]")
 
-    view |> element("#away-digest button", "dismiss") |> render_click()
+    view |> element("#away-digest button", "Dismiss") |> render_click()
     refute render(view) =~ "while you were away"
 
     send(view.pid, {:feed_entry, %{}})
@@ -324,7 +324,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
 
     assert view
            |> element(~s(#advisor-suggestions a[href="/suggestions"]))
-           |> render() =~ ~r/see all \d+/
+           |> render() =~ ~r/See all \d+/
 
     view
     |> element(
@@ -534,7 +534,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
     {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
 
     view |> element("button[phx-click=tab][phx-value-tab=activity]") |> render_click()
-    assert has_element?(view, "button[phx-click=restore_message]", "edit and send again")
+    assert has_element?(view, "button[phx-click=restore_message]", "Edit and send again")
 
     view |> element("button[phx-click=restore_message]") |> render_click()
     assert_push_event(view, "draft:restore", %{subject: ^subject, text: ^prompt})
@@ -708,11 +708,11 @@ defmodule CustodeWeb.ConsoleLiveTest do
       {:ok, view, _html} = live(conn, "/console")
       html = view |> element("button[phx-click=pause_all]") |> render_click()
 
-      assert html =~ ~r/paused \d+ agent/
+      assert html =~ ~r/Paused \d+ agents?\./
       assert {:ok, :paused} = ObanClaude.Agent.await(id, :paused, 1_000)
 
       html = view |> element("button[phx-click=resume_all]") |> render_click()
-      assert html =~ ~r/resumed \d+ agent/
+      assert html =~ ~r/Resumed \d+ agents?\./
     end
   end
 
@@ -723,7 +723,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
     html = view |> element("button[phx-value-tab=config]") |> render_click()
     assert html =~ "sweeps on"
     assert html =~ "@daily"
-    assert html =~ "standing orders"
+    assert html =~ "Standing orders"
 
     html = view |> element("button[phx-value-tab=turns]") |> render_click()
     assert html =~ "no machine log"
@@ -1112,7 +1112,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
 
     # a workflow signal is not an agent: nothing to beat, pause or talk to
     assert html =~ "not an agent"
-    refute html =~ "beat now"
+    refute html =~ "Beat now"
     refute html =~ ~s(phx-click="pause")
     refute html =~ ~s(phx-submit="message")
 
@@ -1251,7 +1251,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
 
       {:ok, view, html} = live(conn, "/console/#{sleeper.id}")
       # the tab carries a count while a panel waits on the operator
-      assert html =~ ~r/panel<span[^>]*>\s*1/
+      assert html =~ ~r/Panel<span[^>]*>\s*1/
 
       html = view |> element("button[phx-value-tab=panel]") |> render_click()
       assert html =~ "proposed panel"
@@ -1374,7 +1374,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
       refute work =~ "backlog item 6"
 
       # the rest is one click away, and nothing left the work tab
-      html = view |> element("#open-work button", "all 7 on the work tab") |> render_click()
+      html = view |> element("#open-work button", "All 7 on the work tab") |> render_click()
       assert html =~ "backlog item 7"
     end
 
@@ -1570,7 +1570,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
     {:ok, view, _html} = live(conn, "/console")
     html = view |> element("button[phx-click=drain]") |> render_click()
 
-    assert html =~ "draining: queues paused"
+    assert html =~ "Draining: queues paused"
     assert_receive {:drain_called, _opts}, 1_000
   end
 
@@ -1691,7 +1691,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
       {:ok, view, _html} = live(conn, "/console")
 
       html = view |> element("button[phx-click=new_open]") |> render_click()
-      assert html =~ "new agent"
+      assert html =~ "New agent"
 
       html =
         view

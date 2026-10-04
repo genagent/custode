@@ -332,12 +332,24 @@ defmodule CustodeWeb.ConsoleLive do
 
   def handle_event("pause_all", _params, socket) do
     {:ok, ids} = Actions.pause_all(@opts)
-    {:noreply, socket |> assign(fleet_notice: "paused #{length(ids)} agent(s)") |> refresh()}
+
+    {:noreply,
+     socket
+     |> assign(
+       fleet_notice: "Paused #{length(ids)} #{if length(ids) == 1, do: "agent", else: "agents"}."
+     )
+     |> refresh()}
   end
 
   def handle_event("resume_all", _params, socket) do
     {:ok, ids} = Actions.resume_all(@opts)
-    {:noreply, socket |> assign(fleet_notice: "resumed #{length(ids)} agent(s)") |> refresh()}
+
+    {:noreply,
+     socket
+     |> assign(
+       fleet_notice: "Resumed #{length(ids)} #{if length(ids) == 1, do: "agent", else: "agents"}."
+     )
+     |> refresh()}
   end
 
   def handle_event("toggle_presence", _params, socket) do
@@ -371,7 +383,7 @@ defmodule CustodeWeb.ConsoleLive do
     case Actions.drain(@opts) do
       {:ok, executing} ->
         notice =
-          "draining: queues paused, #{executing} turn(s) executing. The node stops when they finish."
+          "Draining: queues paused, #{executing} #{if executing == 1, do: "turn", else: "turns"} still running. Custode stops when no turns remain."
 
         {:noreply, socket |> assign(fleet_notice: notice) |> refresh()}
 
@@ -649,7 +661,7 @@ defmodule CustodeWeb.ConsoleLive do
                 suggestions
               </h2>
               <.link navigate="/suggestions" class="ml-auto text-xs text-primary hover:underline">
-                see all {@suggestion_count} &rarr;
+                See all {@suggestion_count} &rarr;
               </.link>
             </div>
             <.suggestion_card
@@ -669,7 +681,7 @@ defmodule CustodeWeb.ConsoleLive do
             <div class="mb-2 flex items-center gap-2">
               <span class="text-xs font-semibold text-info">while you were away</span>
               <button class="btn btn-ghost btn-xs ml-auto" phx-click="dismiss_away_digest">
-                dismiss
+                Dismiss
               </button>
             </div>
             <.digest_panel id="away-digest-panel" digest={@away_digest} />
@@ -693,7 +705,7 @@ defmodule CustodeWeb.ConsoleLive do
             <p class="font-semibold text-base-content">No agents on this machine yet.</p>
             <p class="mt-2">
               The fleet is local: a routine names a repository and a checkout of it here.
-              Add one with <span class="font-mono">new agent</span>
+              Add one with <span class="font-mono">New agent</span>
               in the rail, or copy <span class="font-mono">routines.example.toml</span>
               to <span class="font-mono">routines.toml</span>
               and restart.
@@ -713,7 +725,7 @@ defmodule CustodeWeb.ConsoleLive do
               Add the fixed caretaker role to make the Custode surface available.
             </p>
             <button class="btn btn-primary btn-sm mt-3" phx-click="new_kind" phx-value-kind="caretaker">
-              set up caretaker
+              Set up caretaker
             </button>
           </div>
           <.subject

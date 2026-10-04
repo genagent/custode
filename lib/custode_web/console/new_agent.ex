@@ -10,7 +10,7 @@ defmodule CustodeWeb.Console.NewAgent do
   def new_agent_form(assigns) do
     ~H"""
     <div :if={@new_agent.choosing} id="first-agent-setup" class="max-w-4xl">
-      <h1 class="text-2xl font-bold">choose your agent</h1>
+      <h1 class="text-2xl font-bold">Choose your agent</h1>
       <p class="mt-2 font-semibold">No agents on this machine yet.</p>
       <p class="mt-1 text-sm text-base-content/60">
         The fleet caretaker is the recommended first agent. You can start with any supported
@@ -34,47 +34,47 @@ defmodule CustodeWeb.Console.NewAgent do
         </button>
       </div>
       <div class="mt-4 flex gap-2">
-        <button type="button" class="btn btn-ghost btn-sm" phx-click="new_skip">skip for now</button>
-        <button type="button" class="btn btn-ghost btn-sm" phx-click="new_close">cancel</button>
+        <button type="button" class="btn btn-ghost btn-sm" phx-click="new_skip">Skip for now</button>
+        <button type="button" class="btn btn-ghost btn-sm" phx-click="new_close">Cancel</button>
       </div>
     </div>
 
     <div :if={!@new_agent.choosing} class="max-w-4xl">
       <div class="flex items-start gap-3">
         <div>
-          <h1 class="text-2xl font-bold">new agent</h1>
+          <h1 class="text-2xl font-bold">New agent</h1>
           <p class="mt-1 text-sm text-base-content/60">
             Review the provider, cadence, and resolved capacity before creation. Profile defaults
             stay concise in the roster and remain editable later.
           </p>
         </div>
         <button type="button" class="btn btn-ghost btn-sm ml-auto" phx-click="new_choose">
-          change type
+          Change type
         </button>
       </div>
 
       <form id="new-routine" phx-change="new_change" phx-submit="new_create" class="mt-4">
         <input type="hidden" name="routine[kind]" value={@new_agent.params["kind"]} />
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <.field label="id">
+          <.field label="Agent ID" help="For example, my-agent." help_id="new-agent-id-help">
             <input type="text" name="routine[id]" value={@new_agent.params["id"]} required
-              autocomplete="off" placeholder="my-agent"
+              autocomplete="off" aria-describedby="new-agent-id-help"
               class="input input-bordered input-sm w-full font-mono" />
           </.field>
-          <.field label="provider">
+          <.field label="Provider">
             <select name="routine[provider]" class="select select-bordered select-sm w-full">
-              <option value="claude" selected={@new_agent.params["provider"] in [nil, "", "claude"]}>claude</option>
-              <option value="codex" selected={@new_agent.params["provider"] == "codex"}>codex</option>
+              <option value="claude" selected={@new_agent.params["provider"] in [nil, "", "claude"]}>Claude</option>
+              <option value="codex" selected={@new_agent.params["provider"] == "codex"}>Codex</option>
             </select>
           </.field>
-          <.field label="profile">
+          <.field label="Profile">
             <select name="routine[profile]" class="select select-bordered select-sm w-full">
-              <option value="">(none: bespoke)</option>
+              <option value="">None (bespoke)</option>
               <option :for={profile <- RoutineNew.profiles()} value={profile}
                 selected={to_string(profile) == @new_agent.params["profile"]}>{profile}</option>
             </select>
           </.field>
-          <.field label="cadence">
+          <.field label="Cadence">
             <select name="routine[cadence]" class="select select-bordered select-sm w-full">
               <option :for={{value, label} <- RoutineNew.cadences()} value={value}
                 selected={value == (@new_agent.params["cadence"] || "profile")}>
@@ -86,60 +86,64 @@ defmodule CustodeWeb.Console.NewAgent do
                 do: RoutineNew.profile_cadence(@new_agent.params) <> " · ", else: ""}timezone: {RoutineNew.timezone()}
             </span>
           </.field>
-          <.field :if={@new_agent.params["cadence"] == "custom"} label="custom cron">
+          <.field :if={@new_agent.params["cadence"] == "custom"} label="Custom cron" help="For example, */30 9-18 * * 1-5." help_id="new-agent-cron-help">
             <input type="text" name="routine[cron]" value={@new_agent.params["cron"]}
-              autocomplete="off" placeholder="*/30 9-18 * * 1-5"
+              autocomplete="off" aria-describedby="new-agent-cron-help"
               class="input input-bordered input-sm w-full font-mono" />
           </.field>
 
-          <.field :if={RoutineNew.repository_available?(@new_agent.params)} label="repository">
+          <.field :if={RoutineNew.repository_available?(@new_agent.params)} label="Repository" help="Use owner/name, for example, acme/widgets." help_id="new-agent-repo-help">
             <input type="text" name="routine[repo]" value={@new_agent.params["repo"]}
-              autocomplete="off" placeholder="owner/name"
+              autocomplete="off" aria-describedby="new-agent-repo-help"
               class="input input-bordered input-sm w-full font-mono" />
           </.field>
 
           <div :if={RoutineNew.repository_kind?(@new_agent.params)} class="md:col-span-2 rounded-lg border border-base-300 p-3">
-            <span class="font-mono text-xs text-base-content/60">checkout on this Custode host</span>
+            <span class="font-mono text-xs text-base-content/60">Checkout on this Custode host</span>
             <div class="mt-2 flex flex-wrap gap-4 text-sm">
               <label class="label cursor-pointer gap-2 p-0">
                 <input type="radio" name="routine[checkout_mode]" value="managed" class="radio radio-sm"
                   checked={@new_agent.params["checkout_mode"] in [nil, "", "managed"]} />
-                <span><strong>managed clone</strong> <span class="text-base-content/50">recommended</span></span>
+                <span><strong>Managed clone</strong> <span class="text-base-content/50">recommended</span></span>
               </label>
               <label class="label cursor-pointer gap-2 p-0">
                 <input type="radio" name="routine[checkout_mode]" value="existing" class="radio radio-sm"
                   checked={@new_agent.params["checkout_mode"] == "existing"} />
-                <span>existing checkout</span>
+                <span>Existing checkout</span>
               </label>
             </div>
-            <div :if={@new_agent.params["checkout_mode"] == "existing"} class="mt-3 flex gap-2">
-              <input type="text" name="routine[working_dir]" value={@new_agent.params["working_dir"]}
-                autocomplete="off" placeholder="/absolute/path/on/the/custode/host"
-                class="input input-bordered input-sm min-w-0 flex-1 font-mono" />
-              <button type="button" class="btn btn-outline btn-sm" phx-click="new_browse">browse host</button>
+            <div :if={@new_agent.params["checkout_mode"] == "existing"} class="mt-3">
+              <label for="new-agent-working-dir" class="mb-1 block font-mono text-xs text-base-content/60">Checkout path</label>
+              <div class="flex gap-2">
+                <input id="new-agent-working-dir" type="text" name="routine[working_dir]" value={@new_agent.params["working_dir"]}
+                  autocomplete="off" aria-describedby="new-agent-working-dir-help"
+                  class="input input-bordered input-sm min-w-0 flex-1 font-mono" />
+                <button type="button" class="btn btn-outline btn-sm" phx-click="new_browse">Browse host</button>
+              </div>
+              <p id="new-agent-working-dir-help" class="mt-1 text-xs text-base-content/60">Use an absolute path on this Custode host, for example, /home/me/projects/my-repo.</p>
             </div>
           </div>
 
-          <.field label="model override">
+          <.field label="Model override" help="Leave blank to use the profile or provider default." help_id="new-agent-model-help">
             <input type="text" name="routine[model]" value={@new_agent.params["model"]}
-              autocomplete="off" placeholder="profile default"
+              autocomplete="off" aria-describedby="new-agent-model-help"
               class="input input-bordered input-sm w-full font-mono" />
           </.field>
-          <.field label="effort override">
+          <.field label="Effort override">
             <select name="routine[effort]" class="select select-bordered select-sm w-full">
-              <option value="">profile default</option>
+              <option value="">Profile default</option>
               <option :for={effort <- ~w(low medium high xhigh max ultra)} value={effort}
                 selected={@new_agent.params["effort"] == effort}>{effort}</option>
             </select>
           </.field>
-          <.field label="tags">
+          <.field label="Tags" help="Separate tags with commas, for example, repo, rust." help_id="new-agent-tags-help">
             <input type="text" name="routine[tags]" value={@new_agent.params["tags"]}
-              autocomplete="off" placeholder="repo, rust"
+              autocomplete="off" aria-describedby="new-agent-tags-help"
               class="input input-bordered input-sm w-full font-mono" />
           </.field>
-          <.field :if={RoutineNew.standing_prompt_available?(@new_agent.params)} label="standing prompt" class="md:col-span-2">
+          <.field :if={RoutineNew.standing_prompt_available?(@new_agent.params)} label="Standing prompt" help="Describe what this agent owns and should do each sweep." help_id="new-agent-prompt-help" class="md:col-span-2">
             <textarea name="routine[prompt]" rows="3" class="textarea textarea-bordered w-full text-sm"
-              placeholder="What this agent owns and should do each sweep">{@new_agent.params["prompt"]}</textarea>
+              aria-describedby="new-agent-prompt-help">{@new_agent.params["prompt"]}</textarea>
           </.field>
         </div>
 
@@ -147,8 +151,8 @@ defmodule CustodeWeb.Console.NewAgent do
 
         <div :if={@new_agent.browser} id="host-directory-browser" class="mt-4 rounded-lg border border-base-300 bg-base-100 p-3">
           <div class="flex items-center gap-2">
-            <strong class="text-sm">directories on the Custode host</strong>
-            <button type="button" class="btn btn-ghost btn-xs ml-auto" phx-click="new_browse_close">close</button>
+            <strong class="text-sm">Directories on the Custode host</strong>
+            <button type="button" class="btn btn-ghost btn-xs ml-auto" phx-click="new_browse_close">Close</button>
           </div>
           <div class="mt-2 flex flex-wrap gap-1">
             <button :for={root <- @new_agent.browser.roots} type="button" class="btn btn-ghost btn-xs font-mono"
@@ -163,7 +167,7 @@ defmodule CustodeWeb.Console.NewAgent do
               phx-click="new_browse_dir" phx-value-path={path}>{Path.basename(path)}/</button>
           </div>
           <button type="button" class="btn btn-primary btn-sm mt-3" phx-click="new_browse_choose"
-            phx-value-path={@new_agent.browser.path}>use this directory</button>
+            phx-value-path={@new_agent.browser.path}>Use this directory</button>
         </div>
 
         <div :if={@new_agent.plan} class="mt-4 grid gap-3 lg:grid-cols-2">
@@ -183,8 +187,8 @@ defmodule CustodeWeb.Console.NewAgent do
         </div>
 
         <div class="mt-4 flex gap-2">
-          <button type="submit" class="btn btn-primary btn-sm" disabled={@new_agent.error != nil}>create</button>
-          <button type="button" class="btn btn-ghost btn-sm" phx-click="new_close">cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm" disabled={@new_agent.error != nil}>Create</button>
+          <button type="button" class="btn btn-ghost btn-sm" phx-click="new_close">Cancel</button>
         </div>
       </form>
     </div>
@@ -193,14 +197,19 @@ defmodule CustodeWeb.Console.NewAgent do
 
   attr(:label, :string, required: true)
   attr(:class, :string, default: nil)
+  attr(:help, :string, default: nil)
+  attr(:help_id, :string, default: nil)
   slot(:inner_block, required: true)
 
   defp field(assigns) do
     ~H"""
-    <label class={["form-control", @class]}>
-      <span class="mb-1 font-mono text-xs text-base-content/60">{@label}</span>
-      {render_slot(@inner_block)}
-    </label>
+    <div class={["form-control", @class]}>
+      <label class="block">
+        <span class="mb-1 block font-mono text-xs text-base-content/60">{@label}</span>
+        {render_slot(@inner_block)}
+      </label>
+      <p :if={@help} id={@help_id} class="mt-1 text-xs text-base-content/60">{@help}</p>
+    </div>
     """
   end
 end

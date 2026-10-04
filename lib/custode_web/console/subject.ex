@@ -51,7 +51,7 @@ defmodule CustodeWeb.Console.Subject do
           navigate={"/agents/#{@subject.id}/conversation"}
           class="btn btn-ghost btn-sm"
         >
-          conversation
+          Conversation
         </.link>
         <.link
           :if={@subject.kind == :routine}
@@ -61,13 +61,13 @@ defmodule CustodeWeb.Console.Subject do
           Agent messages
         </.link>
         <button :if={@subject.kind == :routine} class="btn btn-outline btn-sm" phx-click="beat">
-          beat now
+          Beat now
         </button>
         <button :if={@subject.state != :paused} class="btn btn-outline btn-sm" phx-click="pause">
-          pause
+          Pause
         </button>
         <button :if={@subject.state == :paused} class="btn btn-outline btn-sm" phx-click="resume">
-          resume
+          Resume
         </button>
       </div>
     </div>
@@ -140,7 +140,7 @@ defmodule CustodeWeb.Console.Subject do
         phx-value-tab={tab}
         class={["tab", tab == @tab && "tab-active"]}
       >
-        {tab}<span :if={tab_count(tab, @subject, @signal)} class="ml-1 font-mono text-xs text-warning">
+        {String.capitalize(tab)}<span :if={tab_count(tab, @subject, @signal)} class="ml-1 font-mono text-xs text-warning">
           {tab_count(tab, @subject, @signal)}
         </span>
       </button>
@@ -246,7 +246,7 @@ defmodule CustodeWeb.Console.Subject do
           phx-click="tab"
           phx-value-tab="work"
         >
-          all {@issues.total} on the work tab
+          All {@issues.total} on the work tab
         </button>
       </div>
     </section>
@@ -291,7 +291,7 @@ defmodule CustodeWeb.Console.Subject do
       class="btn btn-ghost btn-sm mt-3"
       phx-click="feed_older"
     >
-      show older
+      Show older
     </button>
     """
   end
@@ -340,7 +340,7 @@ defmodule CustodeWeb.Console.Subject do
             <span class="text-xs text-base-content/40">({row.agent_id})</span>
           </span>
           <button class="btn btn-ghost btn-xs" phx-click="reclaim" phx-value-number={row.number}>
-            reclaim
+            Reclaim
           </button>
         </li>
       </ul>
@@ -349,21 +349,30 @@ defmodule CustodeWeb.Console.Subject do
         phx-submit="disown"
         class="flex flex-wrap items-center gap-2"
       >
-        <input
-          type="text"
-          name="number"
-          required
-          inputmode="numeric"
-          placeholder="PR #"
-          class="input input-bordered input-sm w-24 font-mono"
-        />
-        <input
-          type="text"
-          name="reason"
-          placeholder="why it is yours (the agents read this)"
-          class="input input-bordered input-sm min-w-0 flex-1"
-        />
-        <button type="submit" class="btn btn-outline btn-sm">disown</button>
+        <div>
+          <label for={"disown-number-#{@message_gen}"} class="mb-1 block text-sm font-medium">Pull request number</label>
+          <input
+            id={"disown-number-#{@message_gen}"}
+            type="text"
+            name="number"
+            required
+            inputmode="numeric"
+            aria-describedby={"disown-help-#{@message_gen}"}
+            class="input input-bordered input-sm w-32 font-mono"
+          />
+        </div>
+        <div class="min-w-0 flex-1">
+          <label for={"disown-reason-#{@message_gen}"} class="mb-1 block text-sm font-medium">Reason (optional)</label>
+          <input
+            id={"disown-reason-#{@message_gen}"}
+            type="text"
+            name="reason"
+            aria-describedby={"disown-help-#{@message_gen}"}
+            class="input input-bordered input-sm w-full"
+          />
+        </div>
+        <button type="submit" class="btn btn-outline btn-sm">Disown</button>
+        <p id={"disown-help-#{@message_gen}"} class="w-full text-xs text-base-content/60">Marks this pull request as human-owned. Failing checks will need your attention; agents can read your reason.</p>
       </form>
     </div>
     """
@@ -383,9 +392,9 @@ defmodule CustodeWeb.Console.Subject do
           class="btn btn-ghost btn-xs"
           phx-click="todo_done"
           phx-value-todo={todo.id}
-          title="mark done"
+          title="Mark done"
         >
-          done
+          Done
         </button>
         <span class="min-w-0">{todo.text}</span>
       </li>
@@ -404,12 +413,12 @@ defmodule CustodeWeb.Console.Subject do
       />
       <button
         class="btn btn-ghost btn-xs text-base-content/30 opacity-0 group-hover:opacity-100"
-        title={"forget #{memory.key}"}
+        title={"Forget #{memory.key}"}
         phx-click="forget_memory"
         phx-value-key={memory.key}
-        data-confirm={"forget #{memory.key}? The agent will not miss what it cannot recall."}
+        data-confirm={"Forget #{memory.key}? The agent will not miss what it cannot recall."}
       >
-        forget
+        Forget
       </button>
     </div>
 
@@ -417,7 +426,7 @@ defmodule CustodeWeb.Console.Subject do
           alone cannot say whether last week's queue was worked or dropped --%>
     <details :if={@subject.done_todos != []} id="done-todos" class="mt-3 text-sm">
       <summary class="cursor-pointer text-xs text-base-content/50">
-        done {length(@subject.done_todos)}
+        Done {length(@subject.done_todos)}
       </summary>
       <ul class="mt-1 space-y-1">
         <li :for={todo <- @subject.done_todos} class="flex items-baseline gap-2 text-base-content/60">
@@ -448,7 +457,7 @@ defmodule CustodeWeb.Console.Subject do
       class="btn btn-ghost btn-sm mt-3"
       phx-click="journal_older"
     >
-      show older
+      Show older
     </button>
     """
   end
@@ -473,8 +482,8 @@ defmodule CustodeWeb.Console.Subject do
           proposed panel
         </h3>
         <span class="text-xs text-base-content/50">preview, then decide</span>
-        <button class="btn btn-success btn-xs ml-auto" phx-click="approve_panel">approve</button>
-        <button class="btn btn-ghost btn-xs" phx-click="reject_panel">reject</button>
+        <button class="btn btn-success btn-xs ml-auto" phx-click="approve_panel">Approve</button>
+        <button class="btn btn-ghost btn-xs" phx-click="reject_panel">Reject</button>
       </div>
       <.sandboxed_panel html={@subject.panel_pending} />
     </section>
@@ -488,7 +497,7 @@ defmodule CustodeWeb.Console.Subject do
           phx-click="revert_panel"
           data-confirm="Restore the previous approved panel?"
         >
-          revert
+          Revert
         </button>
       </div>
       <.sandboxed_panel html={@subject.panel_html} />
@@ -628,13 +637,13 @@ defmodule CustodeWeb.Console.Subject do
 
       <details>
         <summary class="cursor-pointer text-xs text-base-content/50">
-          standing orders (the composed system prompt)
+          Standing orders (the composed system prompt)
         </summary>
         <pre class="mt-2 max-h-96 overflow-y-auto whitespace-pre-wrap rounded bg-base-100 p-3 text-xs">{@subject.routine.system_prompt}</pre>
       </details>
 
       <button :if={@edit == nil} class="btn btn-outline btn-sm" phx-click="edit_open">
-        edit
+        Edit
       </button>
 
       <form
@@ -676,15 +685,15 @@ defmodule CustodeWeb.Console.Subject do
         </div>
         <p :if={@edit.error} class="mt-3 text-xs text-error">{@edit.error}</p>
         <div class="mt-4 flex items-center gap-2">
-          <button type="submit" class="btn btn-primary btn-sm">save</button>
-          <button type="button" class="btn btn-ghost btn-sm" phx-click="edit_close">cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm">Save</button>
+          <button type="button" class="btn btn-ghost btn-sm" phx-click="edit_close">Cancel</button>
           <button
             type="button"
             class="btn btn-ghost btn-sm ml-auto text-error"
             phx-click="edit_remove"
             data-confirm={"Remove #{@subject.id} from the roster? Its notebook and workspace are kept."}
           >
-            remove from the roster
+            Remove from the roster
           </button>
         </div>
       </form>
