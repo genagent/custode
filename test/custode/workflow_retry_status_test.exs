@@ -24,7 +24,7 @@ defmodule Custode.WorkflowRetryStatusTest do
 
   test "failure inventory preserves accepted siblings and does not change execution" do
     workflow = register!()
-    {:ok, run} = Runner.launch(workflow.name, "owner/repo")
+    run = launch!(workflow)
     [saved, failed, active] = jobs(run.run_id)
 
     Runner.node_finished(saved.meta, %ClaudeWrapper.Result{
@@ -50,7 +50,7 @@ defmodule Custode.WorkflowRetryStatusTest do
 
   test "even terminal Oban rows cannot prove physical settlement or replay safety" do
     workflow = register!()
-    {:ok, run} = Runner.launch(workflow.name, "owner/repo")
+    run = launch!(workflow)
     [failed | _] = jobs(run.run_id)
     Runner.node_failed(Map.put(failed.meta, "callback_job_id", failed.id), :fixture_failure)
 
@@ -68,7 +68,7 @@ defmodule Custode.WorkflowRetryStatusTest do
 
   test "definition replacement and legacy unbound failures stay explicit" do
     workflow = register!()
-    {:ok, run} = Runner.launch(workflow.name, "owner/repo")
+    run = launch!(workflow)
     Run.fail(run.run_id, "legacy failure")
     changed = %{workflow | model: "a-different-model"}
     Application.put_env(:custode, :extra_workflows, %{workflow.name => changed})
@@ -84,7 +84,7 @@ defmodule Custode.WorkflowRetryStatusTest do
 
   test "running and budget-paused runs are not stage retries" do
     workflow = register!()
-    {:ok, run} = Runner.launch(workflow.name, "owner/repo")
+    run = launch!(workflow)
     assert {:ok, running} = RetryStatus.read(@actor, run.run_id)
     assert "run_not_failed" in codes(running)
     Run.budget_pause(run.run_id, "budget")
@@ -95,7 +95,7 @@ defmodule Custode.WorkflowRetryStatusTest do
 
   test "authority is checked before exposing a run and MCP uses verified identity" do
     workflow = register!()
-    {:ok, run} = Runner.launch(workflow.name, "owner/repo")
+    run = launch!(workflow)
 
     for actor <- [
           nil,
@@ -119,7 +119,7 @@ defmodule Custode.WorkflowRetryStatusTest do
 
   test "CLI and both HTTP protocol revisions return the shared read without new jobs" do
     workflow = register!()
-    {:ok, run} = Runner.launch(workflow.name, "owner/repo")
+    run = launch!(workflow)
     Run.fail(run.run_id, "legacy fixture failure")
     before = observations(run.run_id)
 
@@ -157,7 +157,7 @@ defmodule Custode.WorkflowRetryStatusTest do
 
   test "truncated inventories cannot establish replay readiness" do
     workflow = register!()
-    {:ok, run} = Runner.launch(workflow.name, "owner/repo")
+    run = launch!(workflow)
     jobs = Enum.map(1..101, &%{id: &1, state: "completed", meta: %{}})
     status = RetryStatus.explain(run, run.definition_snapshot, jobs)
     assert status.job_inventory_truncated
@@ -168,7 +168,7 @@ defmodule Custode.WorkflowRetryStatusTest do
 
   test "missing failure fields never match nil job metadata" do
     workflow = register!()
-    {:ok, run} = Runner.launch(workflow.name, "owner/repo")
+    run = launch!(workflow)
 
     run = %{
       run
@@ -186,6 +186,22 @@ defmodule Custode.WorkflowRetryStatusTest do
     }
 
     refute RetryStatus.explain(run, run.definition_snapshot, [job]).failure_bound
+  end
+
+  defp launch!(workflow) do
+    {:ok, run} = Runner.launch(workflow.name, "owner/repo")
+    id = run.run_id
+
+    on_exit(fn ->
+      Repo.delete_all(
+        from(j in Oban.Job, where: fragment("json_extract(?, '$.workflow_run')", j.meta) == ^id)
+      )
+
+      Repo.delete_all(from(r in Results.Result, where: r.workflow_run == ^id))
+      Repo.delete_all(from(r in Run.Row, where: r.run_id == ^id))
+    end)
+
+    run
   end
 
   defp codes(status), do: Enum.map(status.reasons, & &1.code)
