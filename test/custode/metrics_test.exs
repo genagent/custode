@@ -103,13 +103,15 @@ defmodule Custode.MetricsTest do
     agent = uid("page")
     :ok = Custode.SpendLedger.record(agent, 1.0, "turn", usage: %{input: 500, output: 100})
 
-    {:ok, view, html} = live(build_conn(), "/metrics")
-    assert html =~ "spend per day"
-    assert html =~ "tokens per day"
-    assert html =~ "turns per day"
-    assert html =~ "gate latency"
-    assert html =~ "by model"
-    assert html =~ agent
+    {:ok, view, _html} = live(build_conn(), "/metrics")
+    assert has_element?(view, "h3", "Spend per day")
+    assert has_element?(view, "h3", "Tokens per day")
+    assert has_element?(view, "h3", "Turns per day")
+    assert has_element?(view, "h3", "gate latency")
+    assert has_element?(view, "h3", "by model")
+    assert has_element?(view, "#daily-spend")
+    assert has_element?(view, "#daily-tokens")
+    assert has_element?(view, "#daily-turns")
     # the fleet digest panel (the design/004 D2 human reader)
     assert has_element?(view, "#metrics-digest-panel[data-digest-panel]", "Fleet digest")
     refute has_element?(view, "#metrics-digest-panel > pre")

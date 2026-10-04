@@ -8,6 +8,9 @@ defmodule CustodeWeb.MetricsLiveTest do
   alias Custode.Gates.Gate
   alias Custode.Gates.Grant
   alias Custode.Repo
+  alias Custode.SpendLedger
+  alias Custode.SpendLedger.Entry
+  alias Custode.Workflow.Run
 
   @endpoint CustodeWeb.Endpoint
 
@@ -16,6 +19,46 @@ defmodule CustodeWeb.MetricsLiveTest do
     put_env!(:feed_path, path)
     on_exit(fn -> File.rm(path) end)
     %{conn: build_conn()}
+  end
+
+  test "daily charts use recorded workflow ownership and separate metric rankings", %{conn: conn} do
+    Repo.delete_all(Entry)
+    workflow = uid("review-project")
+    custom_run = uid("arbitrary-run")
+    other_run = uid("another-run")
+    Run.start(custom_run, workflow, "owner/repo", "review")
+    Run.start(other_run, workflow, "owner/repo", "review")
+
+    for run <- [custom_run, other_run] do
+      SpendLedger.record(Run.spend_agent_id(run), 5.0, "turn", usage: %{input: 50})
+    end
+
+    agents = for n <- 1..6, do: {n, uid("project-#{n}")}
+
+    for {n, agent} <- agents do
+      SpendLedger.record(agent, n * 1.0, "turn", usage: %{input: (7 - n) * 100})
+    end
+
+    [{_, token_leader} | _] = agents
+    {:ok, view, _html} = live(conn, "/metrics")
+
+    assert has_element?(view, "#daily-spend-legend", "Workflow: #{workflow}")
+    refute has_element?(view, "#daily-spend", custom_run)
+    refute has_element?(view, "#daily-spend", other_run)
+    refute has_element?(view, "#daily-spend-legend", "Agent: #{token_leader}")
+    assert has_element?(view, "#daily-tokens-legend", "Agent: #{token_leader}")
+    refute has_element?(view, "#daily-tokens-legend", "Workflow: #{workflow}")
+
+    for chart <- ["daily-spend", "daily-tokens"] do
+      assert has_element?(view, "##{chart}-legend", "Other")
+      assert has_element?(view, "##{chart} [data-chart-zero]")
+      assert has_element?(view, "##{chart} [data-chart-today=true]")
+      assert has_element?(view, "##{chart}-values-disclosure summary", "Exact daily values")
+    end
+
+    assert has_element?(view, "#daily-spend-values", "31.0 USD")
+    assert has_element?(view, "#daily-tokens-values", "2200 tokens")
+    assert has_element?(view, "#daily-turns-values", "8 turns")
   end
 
   defp gate!(agent_id, outcome, class \\ nil) do
