@@ -47,6 +47,8 @@ jobs:
         with:
           elixir-version: "1.20"
           otp-version: "29"
+      - name: Production subject descriptor races
+        run: python3 -m unittest discover -s spikes/subject_descriptor -v
       - name: Persistent subject contract
         run: python3 -m unittest discover -s spikes/subject_context -v
       - uses: actions/cache@v6
