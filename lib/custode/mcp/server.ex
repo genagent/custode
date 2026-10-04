@@ -69,6 +69,8 @@ defmodule Custode.MCP.Server do
     Custode.MCP.IntegrationTools.List,
     Custode.MCP.IntegrationTools.UpdateAccess,
     Custode.MCP.RouteTools.Preview,
+    Custode.MCP.ReadCompositionTools.Read,
+    Custode.MCP.ReadCompositionTools.Configure,
     Custode.MCP.BootstrapTools.OperatorBootstrap,
     Custode.MCP.OperatorTools.Beat,
     Custode.MCP.OperatorTools.DropNote,

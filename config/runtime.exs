@@ -6,6 +6,10 @@ import Config
 # serves, exactly the source-repo behavior. Rooted here (not config.exs) so
 # releases work and the merge is the normal runtime one.
 if config_env() != :test do
+  if owner = System.get_env("CUSTODE_READ_COMPOSITION_OWNER") do
+    config :custode, read_composition_owner: owner
+  end
+
   config :custode, Custode.Repo,
     database: Custode.Home.resolve_in(&Custode.Home.data_dir/0, "custode.db")
 

@@ -193,6 +193,11 @@ workflow runner, sub-agents, the mission mockups in `design/ui/`, and the
 reopen trigger on crews (#421), which a mission is. It depends on rung 3,
 because something has to stand up a mission's workers and answer for them.
 
+The bounded 2026-10-04 review in [design/026](026-missions-protocol.md)
+proposes a protocol over the manager notebook, GitHub and durable peer mail.
+The kernel stays frozen; #459 retains the real labelled-backlog comparison
+and any justified implementation. This does not claim that comparison ran.
+
 ## Progress
 
 Kept current as rungs land. The tracking issue (#453) has the checklist.
