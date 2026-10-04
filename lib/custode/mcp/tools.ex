@@ -395,7 +395,7 @@ defmodule Custode.MCP.Tools.StartAgent do
         args:
           Custode.Routine.sub_agent_args(
             workspace,
-            Map.put(params, :mcp_config_path, mcp_config_path)
+            params |> Map.put(:mcp_config_path, mcp_config_path) |> Map.put(:agent_id, agent_id)
           ),
         approved_args: %{"permission_mode" => "bypass_permissions"},
         job_timeout: 240_000
@@ -876,7 +876,15 @@ defmodule Custode.MCP.Tools.RunJob do
            ),
          :ok <- existing_directory(paths.report_inbox, "report_inbox"),
          :ok <- existing_optional_directory(paths.workspace, "workspace") do
-      {:ok, job} = params |> job_args(prompt, paths, max_turns) |> enqueue()
+      args =
+        params
+        |> job_args(prompt, paths, max_turns)
+        |> Custode.IntegrationCatalog.apply_claude(%{
+          agent_id: Custode.MCP.caller(frame).id,
+          audience: "one_shot"
+        })
+
+      {:ok, job} = enqueue(args)
       reply(frame, %{job_id: job.id, reports_to: paths.report_inbox, max_turns: max_turns})
     else
       {:error, message} -> fail(frame, message)

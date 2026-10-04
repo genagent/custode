@@ -323,7 +323,8 @@ defmodule Custode.Routine do
 
     args =
       agent_args(routine, context_path, @instructions_contract_ref,
-        identity_token: "<routine-token>"
+        identity_token: "<routine-token>",
+        materialize: false
       )
 
     execution_contract(routine, args, protected_approved_args(routine, args), instructions)
@@ -446,10 +447,23 @@ defmodule Custode.Routine do
   end
 
   defp protected_approved_args(%{provider: :claude} = routine, args) do
-    routine.approved_args
-    |> Map.drop(["setting_sources", "hermetic"])
-    |> copy_base_arg(args, "setting_sources")
-    |> copy_base_arg(args, "hermetic")
+    approved =
+      routine.approved_args
+      |> Map.drop(["setting_sources", "hermetic"])
+      |> copy_base_arg(args, "setting_sources")
+      |> copy_base_arg(args, "hermetic")
+
+    if routine.mcp and approved["permission_mode"] == "bypass_permissions" do
+      approved
+      |> Map.put("mcp_config", [Custode.MCP.config_path(routine.id)])
+      |> Map.put("strict_mcp_config", true)
+    else
+      approved
+      |> copy_base_arg(args, "mcp_config")
+      |> copy_base_arg(args, "strict_mcp_config")
+      |> copy_base_arg(args, "allowed_tools")
+      |> copy_base_arg(args, "custode_integration_capture")
+    end
   end
 
   defp protected_approved_args(%{provider: :codex} = routine, args) do
@@ -508,7 +522,7 @@ defmodule Custode.Routine do
         url: Custode.MCP.url(),
         allowed_tools: mcp_tools(routine.role)
       },
-      external_servers: Custode.MCP.external_servers()
+      external_servers: Custode.IntegrationCatalog.definitions()
     }
   end
 
@@ -545,9 +559,13 @@ defmodule Custode.Routine do
       allowed_tools: ["mcp__memory"],
       append_system_prompt: opts[:system_prompt] || sub_agent_prompt()
     )
+    |> Custode.IntegrationCatalog.apply_claude(%{
+      agent_id: Map.get(opts, :agent_id, "temporary"),
+      audience: "sub_agent"
+    })
   end
 
-  defp claude_args(routine, context_path, instructions) do
+  defp claude_args(routine, context_path, instructions, opts) do
     # No permission_mode: since bookkeeping goes through the notebook MCP
     # tools, a routine agent needs NO standing filesystem write permission --
     # claude's default mode denies writes non-interactively, and anything
@@ -566,14 +584,14 @@ defmodule Custode.Routine do
 
     mcp_tools =
       if routine.mcp,
-        do: mcp_tools(routine.role) ++ Custode.MCP.external_allowed(),
+        do: mcp_tools(routine.role),
         else: []
 
     allowed = mcp_tools ++ routine.extra_allowed_tools
 
     extra =
       if routine.mcp,
-        do: [mcp_config: Custode.MCP.config_paths(routine.id)],
+        do: [mcp_config: [Custode.MCP.config_path(routine.id)]],
         else: []
 
     extra = if allowed == [], do: extra, else: Keyword.put(extra, :allowed_tools, allowed)
@@ -595,16 +613,36 @@ defmodule Custode.Routine do
         do: Keyword.put(extra, :agent, routine.agent),
         else: extra
 
-    ObanClaude.Args.defaults(base ++ extra)
+    args = ObanClaude.Args.defaults(base ++ extra)
+
+    if routine.mcp,
+      do:
+        Custode.IntegrationCatalog.apply_claude(
+          args,
+          %{agent_id: routine.id, audience: "routine"},
+          materialize: Keyword.get(opts, :materialize, true)
+        ),
+      else: args
   end
 
-  defp agent_args(%{provider: :claude} = routine, context_path, instructions, _opts),
-    do: claude_args(routine, context_path, instructions)
+  defp agent_args(%{provider: :claude} = routine, context_path, instructions, opts),
+    do: claude_args(routine, context_path, instructions, opts)
 
   defp agent_args(%{provider: :codex} = routine, context_path, instructions, opts),
     do: codex_args(routine, context_path, instructions, opts)
 
   defp codex_args(routine, context_path, instructions, opts) do
+    capture =
+      if routine.mcp,
+        do:
+          Custode.IntegrationCatalog.capture(%{
+            agent_id: routine.id,
+            audience: "routine",
+            provider: "codex"
+          })
+
+    opts = Keyword.put(opts, :integration_capture, capture)
+
     base = [
       working_dir: Path.expand(routine.working_dir),
       timeout: routine.timeout_ms,
@@ -619,7 +657,17 @@ defmodule Custode.Routine do
 
     base = if routine.model, do: Keyword.put(base, :model, routine.model), else: base
     base = if routine.hermetic == true, do: Keyword.put(base, :ignore_rules, true), else: base
-    ObanCodex.Args.defaults(base)
+    args = ObanCodex.Args.defaults(base)
+
+    if routine.mcp do
+      Map.put(args, "custode_integration_capture", %{
+        revision: capture.revision,
+        entries: capture.entries,
+        credential_binding: capture.credential_binding
+      })
+    else
+      args
+    end
   end
 
   defp codex_config_overrides(routine, instructions, opts) do
@@ -636,7 +684,7 @@ defmodule Custode.Routine do
     if routine.mcp do
       overrides ++
         codex_custode_overrides(routine, opts[:identity_token]) ++
-        codex_external_overrides()
+        opts[:integration_capture].codex_overrides
     else
       overrides
     end
@@ -666,25 +714,6 @@ defmodule Custode.Routine do
       toml_override(server <> ".default_tools_approval_mode", "approve"),
       server <> ".required=true"
     ]
-  end
-
-  defp codex_external_overrides do
-    Enum.flat_map(Custode.MCP.external_servers(), fn server ->
-      root = codex_mcp_server_root!(server.name)
-
-      case server do
-        %{type: :http, url: url} when is_binary(url) ->
-          [toml_override(root <> ".url", url)]
-
-        %{type: :stdio, command: command, args: args} when is_binary(command) ->
-          [toml_override(root <> ".command", command), toml_override(root <> ".args", args)]
-
-        # Codex supports streamable HTTP and stdio. A Claude SSE entry cannot
-        # be translated without changing the transport contract.
-        _unsupported ->
-          []
-      end
-    end)
   end
 
   defp codex_mcp_server_root!(name) when is_binary(name) do

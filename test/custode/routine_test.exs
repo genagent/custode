@@ -772,7 +772,9 @@ defmodule Custode.RoutineTest do
                %{
                  "permission_mode" => "bypass_permissions",
                  "setting_sources" => "project,local",
-                 "worktree" => "dev-wt"
+                 "worktree" => "dev-wt",
+                 "mcp_config" => [Custode.MCP.config_path(dev.id)],
+                 "strict_mcp_config" => true
                }
 
       plain = routine_fixture!("workspace")
@@ -788,7 +790,7 @@ defmodule Custode.RoutineTest do
       dev = dev_fixture!()
       claude_args = Custode.Routine.tick_args(dev)["start"]["args"]
 
-      assert List.last(claude_args["allowed_tools"]) == "Bash(git log:*)"
+      assert "Bash(git log:*)" in claude_args["allowed_tools"]
       assert "mcp__custode__run_job" in claude_args["allowed_tools"]
     end
 
@@ -1002,14 +1004,16 @@ defmodule Custode.RoutineTest do
   end
 
   describe "sub_agent_args/2" do
-    test "defaults: worker-bee prompt, memory-only MCP, sandboxed to the workspace" do
+    test "defaults: worker-bee prompt, memory identity and shared reads, sandboxed to the workspace" do
       args = Custode.Routine.sub_agent_args("/tmp", %{mcp_config_path: "/tmp/sub.json"})
 
       assert args["working_dir"] == "/tmp"
       assert args["append_system_prompt"] =~ "sub-agent"
-      # persistence without delegation: the memory-only server, nothing else
-      assert args["mcp_config"] == ["/tmp/sub.json"]
-      assert args["allowed_tools"] == ["mcp__memory"]
+      # Persistence and catalog reads, without fleet lifecycle or delegation.
+      assert List.first(args["mcp_config"]) == "/tmp/sub.json"
+      assert "mcp__memory" in args["allowed_tools"]
+      refute Enum.any?(args["allowed_tools"], &String.starts_with?(&1, "mcp__custode"))
+      assert args["strict_mcp_config"]
       assert args["permission_mode"] == "accept_edits"
       assert args["setting_sources"] == "project,local"
     end

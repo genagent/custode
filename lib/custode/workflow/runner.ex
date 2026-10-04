@@ -581,6 +581,10 @@ defmodule Custode.Workflow.Runner do
       |> put_unless_nil(:model, planned.settings.model)
       |> put_effort(planned.settings.effort)
       |> ObanClaude.Args.new()
+      |> Custode.IntegrationCatalog.apply_claude(%{
+        agent_id: "workflow-" <> run.run_id,
+        audience: "workflow"
+      })
 
     meta =
       %{

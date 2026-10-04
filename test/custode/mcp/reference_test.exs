@@ -35,7 +35,9 @@ defmodule Custode.MCP.ReferenceTest do
     memory = Enum.find(catalog["endpoints"], &(&1["path"] == "/mcp/memory"))
     assert memory["resources"] == []
     assert memory["resourceTemplates"] == []
-    assert memory["tools"] |> Enum.sort() == ~w(forget journal_read recall remember)
+
+    assert memory["tools"] |> Enum.sort() ==
+             ~w(forget integration_list journal_read recall remember)
   end
 
   test "missing, stale and blank semantics fail instead of producing incomplete documentation" do
