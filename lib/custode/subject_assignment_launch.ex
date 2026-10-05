@@ -48,7 +48,7 @@ defmodule Custode.SubjectAssignmentLaunch do
   end
 
   defp insert_launch!(assignment, args, meta, path, launch_id) do
-    args = scoped_args(args, assignment, path)
+    args = args |> canonical_arguments!() |> scoped_args(assignment, path)
 
     job =
       case Job.new(args, meta: meta) |> Oban.insert() do
@@ -58,6 +58,32 @@ defmodule Custode.SubjectAssignmentLaunch do
 
     SubjectAssignments.bind!(assignment, args, meta, path, launch_id, job)
   end
+
+  # Freeze the same JSON representation that Oban persists, including nested
+  # host integration metadata. Lossy/nonJSON inputs must never gain a binding.
+  defp canonical_arguments!(args) do
+    if json_value?(args),
+      do: args |> Jason.encode!() |> Jason.decode!(),
+      else: raise(ArgumentError, "unsupported scoped launch arguments")
+  end
+
+  defp json_value?(value)
+       when is_binary(value) or is_number(value) or is_boolean(value) or is_nil(value),
+       do: true
+
+  defp json_value?(value) when is_list(value), do: Enum.all?(value, &json_value?/1)
+
+  defp json_value?(value) when is_map(value) and not is_struct(value) do
+    keys = Map.keys(value)
+
+    Enum.all?(keys, &(is_atom(&1) or is_binary(&1))) and
+      length(keys) == length(Enum.uniq_by(keys, &json_key/1)) and
+      Enum.all?(Map.values(value), &json_value?/1)
+  end
+
+  defp json_value?(_unsupported), do: false
+  defp json_key(key) when is_atom(key), do: Atom.to_string(key)
+  defp json_key(key) when is_binary(key), do: key
 
   defp scoped_args(args, assignment, path) do
     instruction =

@@ -226,3 +226,40 @@ because its ordinary caller credential identifies a routine rather than a turn.
 Legacy helper launches, human-parent epochs without typed ownership, and Codex
 helper provisioning are outside this initial launch slice. A migration and restart
 are required; existing helper launch configurations are unchanged until restarted.
+
+### Completed scoped-MCP acceptance (#784, #832)
+
+The production slices and controlled worker proof now cover the stated #784
+acceptance within the supported scoped-MCP boundary. Earlier remainder notes
+above describe the state before recursive layouts, Git reads and admitted helper
+launches were implemented. No native model consumption is required by #784's
+controlled-worker criterion.
+
+| #784 criterion | Production evidence |
+|---|---|
+| Configured independent roots; shared bounded browse/read/search/history/diff/create/propose | SubjectDocuments, SubjectDocumentBridge and the registered subject_context tool share one application contract; subject_documents_test and subject_git_test exercise application and both authenticated Snodo protocols. ToolPolicy and generated references cover the surface. |
+| Current human working bytes; operational records stay in SQLite | Document reads and current-versus-HEAD diff use current bytes, including uncommitted edits; roots, assignments, producer and retrieval receipts remain operational records. No notebook migration or source promotion occurs. |
+| Explicit assignment and create-only destination; references confer no writes | Human-only subject_assignment admits a configured root/revision, helper epoch, exact reads, one destination and expiry. SubjectAssignmentLaunch automatically binds its first eligible durable job and private credential. Ordinary tokens, routine-parent admission, retries, altered jobs and stale epochs refuse in subject_assignments_test. |
+| Two fresh controlled workers without a transcript; sourced/date/uncertainty output and fresh preferences | subject_worker_plumbing_test runs two distinct actual ObanClaude.Agent.Job.perform executions through a deterministic test-only runner and authenticated HTTP from issued private configurations. It retains real IntegrationCatalog captures, reads current preferences, retains sourced/dated/uncertain output, removes the first helper/workspace, observes an external preference edit and publishes a second output. The harness drives queue state; no native provider or model is invoked. |
+| Durable assignment/output/execution/revision links after cleanup | Immutable publication and retrieval receipts pin admitted execution and content revisions. RunContextReceipts and ReturnNavigation retain exact historical links; subject_assignments_test covers helper reuse, external edits and navigation beyond the latest 100 contexts without broadening read authority. |
+| Read-only refusal, duplicate create/refused overwrite and stale proposals | subject_documents_test and the integrated worker fixture reject ungranted destinations and overwrites. Current proposals remain separate documents; external source edits make stale proposals refuse without source replacement. |
+| Descriptor confinement, filesystem races and bounded retrieval | Production subject descriptor tests cover root/ancestor/file/temporary-object replacement races, symlinks, exclusive publication, traversal and shared traversal/search/Git budgets. These run in the public design-proofs CI job against the production helper. |
+| Index/HEAD/unrelated-file preservation; no automatic Git commit or remote publication | Nested proposal and Git history/diff tests preserve source HEAD, index and unrelated staged/unstaged edits. Fixed private Git reads do not evaluate source config/hooks/attributes or perform remote operations. |
+
+#832 repairs the stored-argument identity uncovered by the integrated fixture:
+nested host metadata is canonicalized to JSON before scoped policy writes and
+immutable binding. Unsupported values and colliding JSON keys refuse before job
+insertion; existing bindings are never rehashed or bypassed. The controlled
+subject/receipt/runner regression group passes 72 tests under each required seed
+1, 12345 and 777 after integration with the output-navigation and runner-observation
+slices. All five repository gates and exact updated-head CI remain publication
+and merge requirements.
+
+Supported Git reads intentionally refuse linked stores, alternates, delta packs
+and over-budget or malformed repositories. Admission remains human-only; legacy
+launches and Codex helper provisioning are outside the initial launch contract.
+Descriptor confinement enforces the document protocol destination, not an OS
+sandbox for other tools. Server-emitted retrieval and controlled publication do
+not prove native provider receipt, model use or physical descendant settlement.
+These limits do not add an unmet criterion to #784's stated controlled scoped-MCP
+acceptance; automatic existing-document apply remains explicitly unavailable.

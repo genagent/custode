@@ -274,14 +274,17 @@ defmodule Custode.SubjectAssignmentsTest do
     {job, launch, _actor, _token} = bound(ctx)
     assert SubjectAssignments.pending(ctx.helper_id) == nil
 
+    ordinary_args = %{"prompt" => "next", "host_capture" => %{nested: true}}
+
     assert {:ok, ordinary_job} =
              SubjectAssignmentLaunch.enqueue(
                ctx.helper_id,
                job.meta["config_revision"],
-               %{"prompt" => "next"},
+               ordinary_args,
                Map.put(job.meta, "agent_turn_id", uid("next-turn"))
              )
 
+    assert ordinary_job.args == ordinary_args
     refute ordinary_job.args["mcp_config"]
     assert Repo.aggregate(Launch, :count) == 1
     assert Repo.get!(Assignment, launch.assignment_id).status == "bound"
@@ -687,6 +690,84 @@ defmodule Custode.SubjectAssignmentsTest do
     refute Custode.RunContextReceipts.assignment_reference(@human, binding)["link"]
   end
 
+  test "scoped arguments freeze JSON identity without mutating the original host capture", ctx do
+    original = %{
+      "custode_integration_capture" => %{
+        entries: [%{name: "controlled", enabled: true, optional: nil}],
+        revision: "fixture-revision"
+      }
+    }
+
+    {job, launch, actor, _token} = bound(ctx, %{}, original)
+
+    assert original["custode_integration_capture"].entries == [
+             %{name: "controlled", enabled: true, optional: nil}
+           ]
+
+    refute Map.has_key?(original, "mcp_config")
+
+    assert job.args["custode_integration_capture"]["entries"] == [
+             %{"name" => "controlled", "enabled" => true, "optional" => nil}
+           ]
+
+    assert launch.record["arguments_sha256"] == SubjectDocuments.digest(job.args)
+    assert {:ok, _} = read(actor, ctx)
+  end
+
+  test "nonJSON and colliding scoped arguments refuse before job or credential retention", ctx do
+    assert {:ok, _} = SubjectAssignments.invoke(@human, admission(ctx))
+    prompt = "Controlled JSON validation"
+
+    assert {:ok, message, :created} =
+             OperatorMessages.submit(
+               ctx.helper_id,
+               prompt,
+               [actor: @human, idempotency_key: uid("json-delivery")],
+               fn _message -> {:ok, :queued} end
+             )
+
+    meta = Map.put(metadata(ctx), "correlation_id", message.provider_correlation_id)
+    count = Repo.aggregate(Oban.Job, :count)
+
+    invalid_args =
+      Enum.map(
+        [
+          self(),
+          {:tuple, 1},
+          :unsupported,
+          DateTime.utc_now(),
+          %{:key => 1, "key" => 2},
+          %{nil => 1, "nil" => 2},
+          %{1 => "invalid key"}
+        ],
+        &%{"prompt" => prompt, "host_capture" => %{nested: [&1]}}
+      ) ++
+        [
+          %{"prompt" => prompt, "mcp_config" => self()},
+          %{:prompt => prompt, "prompt" => prompt}
+        ]
+
+    for args <- invalid_args do
+      assert {:error, :subject_assignment_enqueue_refused} =
+               SubjectAssignmentLaunch.enqueue(ctx.helper_id, meta["config_revision"], args, meta)
+
+      assert Repo.aggregate(Oban.Job, :count) == count
+      assert Repo.aggregate(Launch, :count) == 0
+      assert Path.wildcard(Path.join(ctx.config_dir, "subject-launches/*.json")) == []
+      assert {:ok, ctx.ordinary} == Identity.token(:sub_agent, ctx.helper_id)
+    end
+
+    assert {:ok, job} =
+             SubjectAssignmentLaunch.enqueue(
+               ctx.helper_id,
+               meta["config_revision"],
+               %{"prompt" => prompt, "host_capture" => %{nested: [nil, true, 1, 2.5, "ok"]}},
+               meta
+             )
+
+    assert Repo.get!(Oban.Job, job.id).args["host_capture"]["nested"] == [nil, true, 1, 2.5, "ok"]
+  end
+
   test "expected root revision and helper record fence admission before any grant exists", ctx do
     params = admission(ctx)
 
@@ -741,7 +822,7 @@ defmodule Custode.SubjectAssignmentsTest do
     }
   end
 
-  defp bound(ctx, overrides \\ %{}) do
+  defp bound(ctx, overrides \\ %{}, extra_args \\ %{}) do
     assert {:ok, _} = SubjectAssignments.invoke(@human, Map.merge(admission(ctx), overrides))
     meta = metadata(ctx)
     prompt = "Research using current preferences"
@@ -760,7 +841,7 @@ defmodule Custode.SubjectAssignmentsTest do
              SubjectAssignmentLaunch.enqueue(
                ctx.helper_id,
                meta["config_revision"],
-               %{"prompt" => prompt},
+               Map.merge(%{"prompt" => prompt}, extra_args),
                meta
              )
 
