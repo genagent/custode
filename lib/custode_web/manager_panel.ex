@@ -32,9 +32,11 @@ defmodule CustodeWeb.ManagerPanel do
     said = Custode.Feed.said(feed)
     said_set = MapSet.new(said)
     plan = current_plan(caretaker)
+    {:ok, project_digest} = Custode.ProjectReportDigest.read(%{kind: :operator, id: "operator"})
 
     %{
       plan: plan,
+      project_digest: project_digest,
       recovery: recovery?(caretaker, plan),
       said:
         said |> Enum.reject(&(&1["event"] in ["needs_approval", "needs_input"])) |> Enum.take(3),

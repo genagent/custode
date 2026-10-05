@@ -118,6 +118,7 @@ defmodule Custode.MCP.ToolPolicy do
     "executing_turns" => :read,
     "operator_bootstrap" => :read,
     "project_progress" => :read,
+    "project_report_digest" => :read,
     "current_run" => :read,
     "integration_list" => :read,
     "integration_access_update" => :operator,

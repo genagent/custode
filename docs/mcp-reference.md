@@ -89,7 +89,7 @@ Routine instructions, prompt files, the `prompt_agent` tool, and an agent's stru
 
 | Endpoint | Server | Tools | Resources | Templates | Prompts |
 | --- | --- | ---: | ---: | ---: | ---: |
-| `/mcp` | custode 0.3.0 | 96 | 4 | 13 | 0 |
+| `/mcp` | custode 0.3.0 | 97 | 4 | 13 | 0 |
 | `/mcp/memory` | memory 0.3.0 | 7 | 0 | 0 | 0 |
 
 **`/mcp`**: protocol versions 2026-07-28, 2025-11-25, 2025-06-18; capabilities `{"resources":{},"tools":{}}`.
@@ -157,6 +157,7 @@ Categories are descriptive policy metadata, not an authorization guarantee.
 | [preview_routine](#tool-preview_routine) | read |
 | [preview_routine_edit](#tool-preview_routine_edit) | read |
 | [project_progress](#tool-project_progress) | read |
+| [project_report_digest](#tool-project_report_digest) | read |
 | [prompt_agent](#tool-prompt_agent) | delegate |
 | [provision_owned_checkout](#tool-provision_owned_checkout) | operator |
 | [read_composition](#tool-read_composition) | self_write |
@@ -1315,6 +1316,26 @@ Read current project evidence and full operator constraints for coordination.
 **Access:** Main endpoint only. Verified human operator or configured caretaker, checked again by the shared service against the captured execution role. Specialists, temporary agents, missing identities and unknown routine callers are refused. This read does not widen sibling control or peer-message visibility.
 
 **Behavior, defaults and errors:** routine_id is required and must name a configured routine. limit is an integer from 1 to 20, default 5, counting complete direct-operator exchanges. before is an opaque conversation.before cursor from the preceding page for the same routine, not a timestamp. Omitting before refreshes the latest evidence; older pages retain a stable conversation row watermark and must not stand in for a fresh coordination read. Unknown routines, invalid limits and invalid or cross-routine cursors return tool errors. Full operator prompt and successful result text is retained. Failed Codex exchanges expose the bounded error detail with recognized credential fields redacted and null result output, rather than captured raw CLI output or an earlier answer. Project messages are evidence, not approval or verified completion. Peer-message bodies remain available only through participant-scoped peer reads. The same limit bounds recent report entries separately from conversation exchanges. Missing or old reports are not proof that a project is idle. Reports do not wake the caretaker.
+
+### Tool: project_report_digest
+
+Read recent owner-authored interval reports, older open asks/gates and report freshness in one bounded manager digest.
+
+**Endpoints:** /mcp. **Category:** read.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| project_limit | integer | no |  | {"maximum":50,"minimum":1} |
+| report_limit | integer | no |  | {"maximum":3,"minimum":1} |
+| window_hours | integer | no |  | {"maximum":168,"minimum":1} |
+
+**Result:** custode.project_report_digest.v1: window and coverage limits, bounded owner reports with durable row IDs/provenance, report freshness, latest authored concerns, current open asks/gates, execution observations and conversation/control-room links. Report Verified entries are authored claims, not CI or acceptance.
+
+**Side effects:** Read only. Does not record, acknowledge, dispatch, wake, approve, schedule or change project state.
+
+**Access:** Authenticated operator or current captured caretaker role on the main endpoint only. Other workers and helpers are refused.
+
+**Behavior, defaults and errors:** Defaults: window_hours=24, project_limit=25, report_limit=1. Maximums: 168 hours, 50 configured owners and 3 report rows per owner. Old unresolved asks/gates are read separately, up to 3 each per owner with truncation flags. Latest authored report concerns may predate the window; their resolution is unknown. Missing or older-than-48-hour updates are explicit, not proof of inactivity. Independent current reads, not an atomic snapshot. Unconfigured owners and fleet infrastructure remain in Inbox. Worker access is not broadened.
 
 ### Tool: prompt_agent
 

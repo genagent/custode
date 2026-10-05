@@ -1,6 +1,6 @@
 # 027: Central project-report digest
 
-Status: implementation plan for #815.
+Status: implemented bounded read projection for #815.
 
 The manager needs one bounded view of project accomplishments, blockers and
 operator decisions. Interval reports already live in the durable Feed and
@@ -29,3 +29,35 @@ Read the finished diff against #815 and require CI on the updated main head.
 This slice adds no scheduler, outbound notifications, automatic wake, approval,
 new task board or external project ingestion. It does not broaden workers'
 read access. A running fleet needs a pull/restart; no migration is planned.
+
+## Delivered contract
+
+The project_report_digest MCP read and manager conversation use the same
+ProjectReportDigest operation. Only the operator or current captured caretaker
+role may read it. This does not add worker or helper access.
+
+The default window is 24 hours, with at most 25 configured owners and one
+report each. Callers may request 1 to 168 hours, 1 to 50 owners and 1 to 3
+reports per owner. Time boundaries are inclusive; future rows do not affect
+report freshness. Ordering is stable by recorded timestamp and row id.
+Each owner also shows up to three current open asks and gates per kind,
+independent of the report window, with truncation flags.
+
+Latest retained typed-report concerns can predate the window; their resolution
+is not established by this view. A newer typed report may no longer state
+them, while actual open asks/gates remain visible independently. No lexical
+matching or agent-reported completion resolves an obligation. Missing reports
+are explicit; updates older than 48 hours are stale. Neither establishes
+inactivity. Legacy summary-only and failed turns retain honest provenance.
+
+Configured owners only are included, with omission counts when a caller's
+limit cuts the list short. Removed owners and fleet-wide infrastructure
+remain visible in Inbox; the overview links there rather than implying the
+project digest is a complete inventory of human obligations. Execution facts
+and decisions are independent current reads, not an atomic snapshot.
+
+The manager's Project digest link opens a folded overview beside its existing
+conversation. Source links keep direct owner conversations reachable. The
+read never starts a model, polls an owner, acknowledges a message or creates
+a scheduled morning notification. Such delivery can consume this operation
+when its cadence and destination are selected.
