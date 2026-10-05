@@ -1,7 +1,8 @@
 # 026: Missions without another work engine
 
-Status: bounded design review for #459, 2026-10-04. Runtime implementation and
-comparative delivery proof remain deferred. Inspected baseline: `4ebb581`.
+Status: bounded design review and API convention fixture for #459, 2026-10-04.
+A mission runtime and comparative native delivery proof remain deferred. Original
+review baseline: `4ebb581`; fixture baseline: `a10db98`.
 
 ## Decision
 
@@ -24,9 +25,9 @@ missions improve delivery.
 | Piece | Useful role | Limit |
 |---|---|---|
 | Manager entry point and prompt | `/custode` uses `ConversationLive`; `priv/prompts/caretaker.md` already requires plans, current project evidence, bounded delegation and verified results | A notebook plan is agent-authored, not a mechanical mission lifecycle |
-| `project_progress` | Reads current operator exchanges, execution, blockers and recent reports without dispatching | Reads are separate observations; a successful turn or report does not verify acceptance |
+| `project_progress` and `project_report_digest` | Current operator exchanges/execution/blockers and bounded central owner reports, without dispatching | Separate observations and agent-authored reports do not verify acceptance |
 | `PeerMessages` and `PeerMessage` | Authenticated sender, durable request/FYI/reply, stable ID, correlation root, retry key, acknowledgment and bounded wake-up | Delivery state is pending/delivered/failed; it has no accepted-assignment or completed-work state |
-| `Notebook` | Durable journal, memory and todos; workspace files are regenerable views | Free prose needs explicit IDs and reconciliation to recover assignments |
+| `Notebook` and `Memory` | Durable journal/todos and current per-owner key/value memory; workspace notebook files are regenerable views | Free prose needs explicit IDs; memory upserts and peer sends are separate transactions, without mission version enforcement |
 | Routine delegation and one-shot jobs | Existing execution, budgets, parent ownership and result paths | Configured peers and owned children have different authority; peer mail adds no control edge |
 | `Workflow`, `Workflow.Run`, `Workflow.Runner` | Predeclared barriers, structured node results, run budget, durable stage cursor and restart recovery | Node execution is Claude-based; a dynamic mixed-provider writing crew is not the existing workflow contract |
 | `Mission`, `Missions`, legacy projection and work resources | Existing kernel scope records and compatibility read projections | Active/archived scope does not supply a bounded objective's acceptance lifecycle; compatibility records can still exist while intake is frozen |
@@ -82,6 +83,26 @@ creating a mission does not grant broader approval authority. Temporary
 children, configured project owners, their worktrees and their budgets keep
 their current owners. No automatic crew provisioning is implied.
 
+## Concrete convention fixture
+
+The [pinned comparison contract](../docs/missions-protocol-contract.md) uses one
+inventory-and-check objective with the same final operator constraint, criteria
+and host fixture artifact for an ordered one-routine TODO baseline and a
+caretaker/two-peer convention. Real application APIs retain the objective,
+original operator message, immutable peer requests and correlated handoff.
+A fixture coordinator process exits after peer send but before saving its link;
+exact retry recovers the original envelope. A changed request needs a new key,
+a blocked checker gets the pinned artifact through its received reply, and
+fresh readers reconstruct the records without another dispatch.
+
+The fixture's two todos versus seven peer envelopes compare constructed record
+overhead only. Operator delivery is deliberately queued; mail stays pending and
+no provider executes. The host authors the artifact and all report bodies.
+This does not prove an actual caretaker/worker restart, acceptance or delivery
+benefit. Keep one coordinator, persist exact request intent before dispatch and
+retain the original constraint alongside supersession. No new mission engine is
+justified by these controls; the real comparison below remains outstanding.
+
 ## Which substrate, and when
 
 Use routines and peer mail for work whose decomposition or constraints change
@@ -114,7 +135,8 @@ running the comparison. Extra parallelism alone is not a benefit measurement.
 Retain the simple path if it delivers with less coordination. Propose a
 small implementation only for an observed failure of the convention, naming
 that failure, its owner and the smallest durable operation it needs. No
-comparison or live mission was executed for this review. #459 remains open
+live objective or comparable native delivery run was executed. The API fixture
+supplies record behavior only. #459 remains open
 for that proof and any justified implementation; #421's multi-worker trigger
 is a condition to demonstrate, not evidence supplied by mockups.
 
