@@ -62,6 +62,7 @@ defmodule Custode.Workflow.Runner do
   alias Custode.Workflow.Launch
   alias Custode.Workflow.NodeJob
   alias Custode.Workflow.Report
+  alias Custode.Workflow.ResultContract
   alias Custode.Workflow.Results
   alias Custode.Workflow.Run
 
@@ -107,6 +108,7 @@ defmodule Custode.Workflow.Runner do
         |> Map.new(fn {k, v} -> {to_string(k), v} end)
         |> Map.put("working_dir", working_dir(repo, opts))
         |> Map.put("max_budget_usd", per_node_budget(opts))
+        |> Map.put("result_contract_version", ResultContract.version())
         # where a report artifact lands (slice 5). Stored on the run rather
         # than derived at write time, so a resume writes where the launch
         # would have, and the janitor can tell later which tree it may delete
@@ -174,9 +176,10 @@ defmodule Custode.Workflow.Runner do
   A node reported in. Persists its result and walks the run forward -- the
   `ObanClaude.Agent.job_finished/2` analogue.
 
-  A result that did not honour its schema is stored as its text under `"text"`
-  and noted on the run rather than dropped: a downstream digest of prose is
-  worse than a digest of JSON, and silently nothing is worse than both.
+  Legacy runs retain prose fallback under `"text"` when output does not honour
+  its schema. Runs with the versioned result contract validate the frozen schema
+  before storing a result; invalid output fails the current stage without
+  replacing previously accepted results.
   """
   def node_finished(%{"workflow_run" => run_id} = meta, result) do
     {:ok, outcome} =
@@ -199,6 +202,27 @@ defmodule Custode.Workflow.Runner do
   def node_finished(_meta, _result), do: :ok
 
   defp persist_completion(run_id, meta, result) do
+    run = Run.get(run_id)
+
+    if ResultContract.required?(run) do
+      job = callback_job(run, meta)
+      payload = ObanClaude.structured(result)
+
+      case ResultContract.validate(run, job, payload, meta) do
+        {:ok, receipt} ->
+          persist_valid_completion(run_id, meta, payload, nil, receipt)
+
+        {:error, receipt} ->
+          bound = Map.put(meta, "callback_job_id", job.id)
+          failed = fail_current(run, bound, :invalid_or_unverifiable_structured_result, receipt)
+          {:ok, failed}
+      end
+    else
+      persist_legacy_completion(run_id, meta, result)
+    end
+  end
+
+  defp persist_legacy_completion(run_id, meta, result) do
     {payload, note} =
       case ObanClaude.structured(result) do
         %{} = structured ->
@@ -209,7 +233,12 @@ defmodule Custode.Workflow.Runner do
            "node #{meta["node_name"]} returned no schema-shaped result; stored its text"}
       end
 
+    persist_valid_completion(run_id, meta, payload, note, nil)
+  end
+
+  defp persist_valid_completion(run_id, meta, payload, note, validation) do
     Results.put_once(%{
+      validation: validation,
       workflow_run: run_id,
       workflow: meta["workflow"],
       stage: meta["stage"],
@@ -251,7 +280,7 @@ defmodule Custode.Workflow.Runner do
 
   def node_failed(_meta, _reason), do: :ok
 
-  defp fail_current(run, meta, reason) do
+  defp fail_current(run, meta, reason, validation \\ nil) do
     detail = "node #{meta["node_name"]} failed: #{inspect(reason)}"
 
     identity =
@@ -262,6 +291,9 @@ defmodule Custode.Workflow.Runner do
         "execution_generation",
         "callback_job_id"
       ])
+
+    identity =
+      if validation, do: Map.put(identity, "result_validation", validation), else: identity
 
     failed = Run.fail(run.run_id, detail, identity)
     cancel_pending(run.run_id)
@@ -279,7 +311,20 @@ defmodule Custode.Workflow.Runner do
 
   defp callback_owned?(%{execution_generation: nil}, _meta), do: true
 
-  defp callback_owned?(run, %{"node_name" => node, "args_hash" => hash} = meta)
+  defp callback_owned?(run, meta) do
+    case callback_job(run, meta) do
+      nil ->
+        false
+
+      job ->
+        attempt = meta["callback_attempt"]
+
+        (not ResultContract.required?(run) or is_nil(attempt) or attempt == job.attempt) and
+          ResultContract.check(run, job) == :ok
+    end
+  end
+
+  defp callback_job(run, %{"node_name" => node, "args_hash" => hash} = meta)
        when is_binary(node) and is_binary(hash) do
     query =
       from(j in Oban.Job,
@@ -294,13 +339,21 @@ defmodule Custode.Workflow.Runner do
       )
 
     case meta["callback_job_id"] do
-      nil -> Repo.exists?(query)
-      id when is_integer(id) -> Repo.exists?(from(j in query, where: j.id == ^id))
-      _ -> false
+      nil ->
+        case Repo.all(from(j in query, limit: 2)) do
+          [job] -> job
+          _ambiguous -> nil
+        end
+
+      id when is_integer(id) ->
+        Repo.one(from(j in query, where: j.id == ^id))
+
+      _ ->
+        nil
     end
   end
 
-  defp callback_owned?(_run, _meta), do: false
+  defp callback_job(_run, _meta), do: nil
 
   @doc """
   The nodes the current stage would enqueue, rendered. Exposed because it is
@@ -600,6 +653,11 @@ defmodule Custode.Workflow.Runner do
       }
       |> put_meta_unless_nil("work_item_id", run.work_item_id)
       |> put_meta_unless_nil("mission_id", mission_id(run.work_item_id))
+
+    meta =
+      if ResultContract.required?(run),
+        do: Map.put(meta, "result_contract", ResultContract.capture(run, args, meta)),
+        else: meta
 
     case args |> NodeJob.new(meta: meta) |> Oban.insert() do
       {:ok, _job} ->

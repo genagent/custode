@@ -255,6 +255,8 @@ defmodule CustodeWeb.WorkflowsLive do
         </p>
         <details :if={@entry.run.status == "failed"} data-workflow-retry-status={@entry.run.run_id}>
           <summary class="cursor-pointer text-xs">Why retry is unavailable</summary>
+          <p class="text-xs text-base-content/70">Saved results: {@entry.retry_status.result_validation.schema_validated} validated against their declared structure; {@entry.retry_status.result_validation.legacy_or_unbound} without bound validation. This does not make a retry safe.</p>
+          <p :if={@entry.retry_status.result_validation.truncated} class="text-xs text-base-content/70">Showing the first 100 result bindings.</p>
           <ul class="list-disc pl-4 text-xs text-base-content/70"><li :for={reason <- @entry.retry_status.reasons}>{reason.message}</li></ul>
         </details>
         <p :if={@entry.run.error && @entry.run.status != "failed"} class="text-xs text-error">

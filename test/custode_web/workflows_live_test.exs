@@ -199,6 +199,8 @@ defmodule CustodeWeb.WorkflowsLiveTest do
              "does not mechanically confine Bash or MCP effects"
            )
 
+    assert html =~ "without bound validation"
+    assert html =~ "This does not make a retry safe."
     refute html =~ "retry_run"
     assert Run.get(run.run_id).error == error
   end

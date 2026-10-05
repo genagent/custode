@@ -44,7 +44,7 @@ defmodule Custode.Workflow.NodeJob do
       states: [:scheduled, :available, :executing, :retryable, :suspended, :completed]
     ]
 
-  alias Custode.Workflow.Runner
+  alias Custode.Workflow.{ResultContract, Runner}
 
   @doc """
   The args pinned over every node job. They are merged in `perform/1`, not at
@@ -53,17 +53,37 @@ defmodule Custode.Workflow.NodeJob do
   """
   def pinned_args, do: @oban_claude_pinned_args
 
+  @impl Oban.Worker
+  def perform(job) do
+    case ResultContract.launch_check(job) do
+      :ok -> super(job)
+      {:error, reason} -> handle_error({:cancel, reason}, nil, job)
+    end
+  end
+
   @impl ObanClaude.Worker
-  def handle_result(result, %Oban.Job{id: id, meta: %{"workflow_run" => _} = meta}) do
-    Runner.node_finished(Map.put(meta, "callback_job_id", id), result)
+  def handle_result(result, %Oban.Job{id: id, meta: %{"workflow_run" => _} = meta} = job) do
+    Runner.node_finished(
+      Map.merge(meta, %{"callback_job_id" => id, "callback_attempt" => job.attempt}),
+      result
+    )
+
     :ok
   end
 
   def handle_result(_result, _job), do: :ok
 
   @impl ObanClaude.Worker
-  def handle_error(oban_return, _payload, %Oban.Job{id: id, meta: %{"workflow_run" => _} = meta}) do
-    Runner.node_failed(Map.put(meta, "callback_job_id", id), oban_return)
+  def handle_error(
+        oban_return,
+        _payload,
+        %Oban.Job{id: id, meta: %{"workflow_run" => _} = meta} = job
+      ) do
+    Runner.node_failed(
+      Map.merge(meta, %{"callback_job_id" => id, "callback_attempt" => job.attempt}),
+      oban_return
+    )
+
     oban_return
   end
 

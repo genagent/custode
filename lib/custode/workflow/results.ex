@@ -17,9 +17,10 @@ defmodule Custode.Workflow.Results do
     everything downstream of it (their digests change, so their hashes do)
     while untouched nodes keep their results.
 
-  `put/2` upserts on that key: a retried node overwrites its own row rather
-  than accumulating near-duplicates. Same key means same inputs, so the
-  newest run of it is the one to keep.
+  The runner uses `put_once/1`: duplicate callbacks preserve the first accepted
+  result and its validation receipt. Legacy administrative `put/1` still upserts;
+  replacing a row without its receipt leaves it explicitly unbound. Neither key
+  equality nor schema validation alone authorizes a failed-stage replay.
 
   ## Retention (#39)
 
@@ -50,6 +51,7 @@ defmodule Custode.Workflow.Results do
       field(:result, :string)
       field(:artifact, :string)
       field(:attempt_id, :string)
+      field(:validation, :map)
       field(:at, :utc_datetime_usec)
     end
   end
@@ -74,6 +76,7 @@ defmodule Custode.Workflow.Results do
       result: Jason.encode!(Map.get(attrs, :result) || %{}),
       artifact: Map.get(attrs, :artifact),
       attempt_id: Map.get(attrs, :attempt_id),
+      validation: Map.get(attrs, :validation),
       at: DateTime.utc_now()
     }
 
@@ -81,7 +84,7 @@ defmodule Custode.Workflow.Results do
       on_conflict:
         if(conflict == :nothing,
           do: :nothing,
-          else: {:replace, [:result, :artifact, :attempt_id, :stage, :workflow, :at]}
+          else: {:replace, [:result, :artifact, :attempt_id, :validation, :stage, :workflow, :at]}
         ),
       conflict_target: [:workflow_run, :node_name, :args_hash]
     )
@@ -217,6 +220,7 @@ defmodule Custode.Workflow.Results do
       result: Jason.decode!(row.result),
       artifact: row.artifact,
       attempt_id: row.attempt_id,
+      validation: row.validation,
       at: row.at
     }
   end
