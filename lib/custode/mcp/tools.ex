@@ -391,12 +391,20 @@ defmodule Custode.MCP.Tools.StartAgent do
          true <- File.dir?(workspace) do
       mcp_config_path = Custode.MCP.write_sub_agent_config!(agent_id)
 
+      args =
+        Custode.Routine.sub_agent_args(
+          workspace,
+          params |> Map.put(:mcp_config_path, mcp_config_path) |> Map.put(:agent_id, agent_id)
+        )
+
+      revision = Custode.SubjectAssignmentLaunch.config_revision(args)
+
       config = [
-        args:
-          Custode.Routine.sub_agent_args(
-            workspace,
-            params |> Map.put(:mcp_config_path, mcp_config_path) |> Map.put(:agent_id, agent_id)
-          ),
+        args: args,
+        config_revision: revision,
+        enqueue_fun: fn turn_args, meta ->
+          Custode.SubjectAssignmentLaunch.enqueue(agent_id, revision, turn_args, meta)
+        end,
         approved_args: %{"permission_mode" => "bypass_permissions"},
         job_timeout: 240_000
       ]

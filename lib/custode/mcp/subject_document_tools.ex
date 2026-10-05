@@ -39,3 +39,21 @@ defmodule Custode.MCP.ReturnViewTools.View do
     end
   end
 end
+
+defmodule Custode.MCP.SubjectAssignmentTools.Configure do
+  @moduledoc "Operator-only admission, inspection and revocation of exact helper subject assignments."
+  use Custode.MCP.Tool, name: "subject_assignment"
+  import Custode.MCP.Tools, only: [reply: 2, fail: 2]
+  input_schema(Custode.SubjectAssignments.input_schema())
+
+  @impl true
+  def execute(params, frame) do
+    case Custode.SubjectAssignments.invoke(
+           frame.assigns[:custode_identity],
+           params |> Jason.encode!() |> Jason.decode!()
+         ) do
+      {:ok, result} -> reply(frame, result)
+      {:error, reason} -> fail(frame, "subject assignment refused: #{inspect(reason)}")
+    end
+  end
+end

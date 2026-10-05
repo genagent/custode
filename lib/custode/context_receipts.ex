@@ -24,6 +24,8 @@ defmodule Custode.ContextReceipts do
       %{custode_identity: actor, custode_delivery_id: id} when is_binary(id) ->
         text = JSON.encode!(Map.put(document, "context_receipt_id", id))
 
+        assignment = Custode.SubjectAssignments.receipt_binding(actor)
+
         record = %{
           "actor" => json(actor),
           "revision" => document["revision"],
@@ -35,7 +37,8 @@ defmodule Custode.ContextReceipts do
           "native_hidden_context" => "unknown",
           "instruction_layers" => "unavailable_on_this_tool_seam",
           "observed_execution" => execution(actor),
-          "execution_binding" => "unknown_observation_not_session_attribution",
+          "execution_binding" => execution_binding(assignment),
+          "assignment_execution" => assignment,
           "expires_at" => DateTime.utc_now() |> DateTime.add(7, :day) |> DateTime.to_iso8601()
         }
 
@@ -176,6 +179,11 @@ defmodule Custode.ContextReceipts do
       set: [payload: nil]
     )
   end
+
+  defp execution_binding(assignment) when is_map(assignment),
+    do: "host_launch_credential_exact_job_not_model_use"
+
+  defp execution_binding(_actor), do: "unknown_observation_not_session_attribution"
 
   defp execution(%{kind: :routine, id: id}), do: json(ExecutionFacts.read(id))
   defp execution(_actor), do: nil

@@ -110,6 +110,8 @@ defmodule Custode.RunContextReceipts do
     payload = Jason.encode!(layers)
     now = DateTime.utc_now()
 
+    assignment = Custode.SubjectAssignments.adapter_binding(job)
+
     record = %{
       "receipt_id" => id,
       "agent_id" => meta["agent_id"],
@@ -131,7 +133,12 @@ defmodule Custode.RunContextReceipts do
         Enum.map(~w(system_prompt_file append_system_prompt_file), fn name ->
           %{"name" => name, "requested_path" => args[name], "content_state" => "not_observed"}
         end),
-      "document_tool_binding" => "unknown_without_turn_scoped_tool_credential",
+      "document_tool_binding" =>
+        if(assignment,
+          do: "host_assignment_credential_available_at_adapter_entry",
+          else: "unknown_without_turn_scoped_tool_credential"
+        ),
+      "assignment_execution" => assignment,
       "native_hidden_context" => "unknown",
       "provider_received" => "unknown",
       "model_used" => "unknown",
@@ -237,7 +244,9 @@ defmodule Custode.RunContextReceipts do
 
     Map.merge(row.record, %{
       "payload_state" => state,
-      "exact_inline_layers" => if(state == "retained", do: Jason.decode!(row.payload), else: nil)
+      "exact_inline_layers" => if(state == "retained", do: Jason.decode!(row.payload), else: nil),
+      "document_retrievals" =>
+        Custode.SubjectAssignments.retrievals(row.record["assignment_execution"])
     })
   end
 
