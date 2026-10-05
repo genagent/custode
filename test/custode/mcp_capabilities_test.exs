@@ -251,6 +251,28 @@ defmodule Custode.MCPCapabilitiesTest do
     refute "mcp__custode__dismiss_ask" in caretaker
   end
 
+  test "project digest shares the authorized fleet read without worker access", ctx do
+    for token <- [ctx.operator_token, ctx.caretaker_token] do
+      client = session(token, "/mcp")
+      assert "project_report_digest" in tool_names(client)
+      result = call(client, "project_report_digest", %{window_hours: 24})
+      assert result["schema_version"] == "custode.project_report_digest.v1"
+      assert Enum.any?(result["projects"], &(&1["owner"] == ctx.worker_id))
+    end
+
+    worker = session(ctx.worker_token, "/mcp")
+    refute "project_report_digest" in tool_names(worker)
+    response = rpc(worker, "tools/call", %{name: "project_report_digest", arguments: %{}})
+    assert get_in(response, ["error", "message"]) =~ "MCP capability refused"
+    sub = session(ctx.sub_token, "/mcp/memory")
+    refute "project_report_digest" in tool_names(sub)
+
+    assert %{"error" => _} =
+             rpc(sub, "tools/call", %{name: "project_report_digest", arguments: %{}})
+
+    assert Custode.InboxWakes.get(ctx.worker_id) == nil
+  end
+
   test "project progress is an explicit read without sibling control authority", ctx do
     operator = session(ctx.operator_token, "/mcp")
     caretaker = session(ctx.caretaker_token, "/mcp")

@@ -256,6 +256,7 @@ defmodule CustodeWeb.ConversationLive do
             &larr; control room
           </.link>
           <.link navigate="/subjects" class="link text-xs">Outputs</.link>
+          <a :if={@manager} href="#project-report-digest" class="link text-xs">Project digest</a>
           <.link :if={@agent_id} navigate={"/contexts/" <> URI.encode_www_form(@agent_id)} class="link text-xs">Run context</.link>
           <span class="text-base-content/30">/</span>
           <h1 class="font-mono text-lg font-bold">{if @manager, do: "Ask custode", else: @agent_id}</h1>
@@ -413,6 +414,7 @@ defmodule CustodeWeb.ConversationLive do
             </div>
           </article>
           </div>
+          <CustodeWeb.ProjectReportDigestPanel.panel :if={@manager} digest={@manager_context.project_digest} />
           <ManagerPanel.activity :if={@manager && @agent_id} context={@manager_context} include_said={false} />
         </div>
       </main>

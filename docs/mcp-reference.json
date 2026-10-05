@@ -90,6 +90,7 @@
         "preview_routine",
         "preview_routine_edit",
         "project_progress",
+        "project_report_digest",
         "prompt_agent",
         "provision_owned_checkout",
         "read_composition",
@@ -2923,6 +2924,47 @@
         "/mcp"
       ],
       "name": "project_progress"
+    },
+    {
+      "behavior": {
+        "access": "Authenticated operator or current captured caretaker role on the main endpoint only. Other workers and helpers are refused.",
+        "effects": "Read only. Does not record, acknowledge, dispatch, wake, approve, schedule or change project state.",
+        "notes": "Defaults: window_hours=24, project_limit=25, report_limit=1. Maximums: 168 hours, 50 configured owners and 3 report rows per owner. Old unresolved asks/gates are read separately, up to 3 each per owner with truncation flags. Latest authored report concerns may predate the window; their resolution is unknown. Missing or older-than-48-hour updates are explicit, not proof of inactivity. Independent current reads, not an atomic snapshot. Unconfigured owners and fleet infrastructure remain in Inbox. Worker access is not broadened.",
+        "result": "custode.project_report_digest.v1: window and coverage limits, bounded owner reports with durable row IDs/provenance, report freshness, latest authored concerns, current open asks/gates, execution observations and conversation/control-room links. Report Verified entries are authored claims, not CI or acceptance.",
+        "summary": "Read recent owner-authored interval reports, older open asks/gates and report freshness in one bounded manager digest."
+      },
+      "category": "read",
+      "definition": {
+        "annotations": {},
+        "description": "Read bounded fleet owner reports, current decisions and report freshness. No dispatch.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "project_limit": {
+              "maximum": 50,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "report_limit": {
+              "maximum": 3,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "window_hours": {
+              "maximum": 168,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "name": "project_report_digest",
+        "title": "project_report_digest"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "project_report_digest"
     },
     {
       "behavior": {
