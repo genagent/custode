@@ -67,6 +67,12 @@ defmodule CustodeWeb.RunContextLive do
             <h2 class="card-title">Exact adapter-entry context</h2>
             <p class="text-sm">{@receipt["payload_state"]}; provider receipt and use unknown.</p>
             <p :if={@receipt["exact_inline_layers"] == nil} class="text-sm">Payload is unavailable. Current files are not substituted.</p>
+            <section :if={@receipt["native_observation"]} id="run-context-native" class="space-y-1">
+              <h3 class="font-semibold">Native session observation</h3>
+              <p class="font-mono text-sm break-all">{@receipt["native_observation"]["provider_session_id"]}</p>
+              <p class="text-sm">{@receipt["native_observation"]["source"]} · {@receipt["native_observation"]["observed_at"]}</p>
+              <p class="text-sm text-base-content/70">The owning engine accepted this native handle for the exact captured attempt. Context receipt and model use remain unknown.</p>
+            </section>
             <section :if={@receipt["assignment_execution"]} id="run-context-documents" class="space-y-2">
               <h3 class="font-semibold">Document retrieval receipts</h3>
               <p class="text-sm">The host credential was available for this execution. Each separate receipt distinguishes prepared text from server-emitted text; model receipt and use remain unknown.</p>

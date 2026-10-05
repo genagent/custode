@@ -4,7 +4,12 @@ defmodule Custode.RunContextReceipts do
   require Logger
   alias Custode.Repo
 
-  @events [[:oban_claude, :run, :start], [:oban_codex, :run, :start]]
+  @events [
+    [:oban_claude, :run, :start],
+    [:oban_codex, :run, :start],
+    [:oban_claude, :agent, :session_observed],
+    [:oban_codex, :agent, :session_observed]
+  ]
   @layers ~w(prompt system_prompt append_system_prompt developer_instructions)
   @identity ~w(agent_id agent_generation agent_turn_id arc_id config_revision)
   @payload_limit 131_072
@@ -39,6 +44,13 @@ defmodule Custode.RunContextReceipts do
     end
   rescue
     error -> Logger.warning("Run context capture unavailable: #{inspect(error.__struct__)}")
+  end
+
+  def handle_event([provider, :agent, :session_observed], _measurements, meta, _config)
+      when provider in [:oban_claude, :oban_codex] do
+    Custode.RunContextObservation.observe(provider, meta)
+  rescue
+    error -> Logger.warning("Run context observation unavailable: #{inspect(error.__struct__)}")
   end
 
   def handle_event(_event, _measurements, _meta, _config), do: :ok
@@ -146,6 +158,7 @@ defmodule Custode.RunContextReceipts do
       "payload_bytes" => byte_size(payload),
       "payload_sha256" => digest(payload),
       "arguments_sha256" => digest(args),
+      "job_metadata_sha256" => digest(job.meta),
       "execution_identity_sha256" =>
         digest(Map.take(meta, @identity ++ ["correlation_id", "snoozed"])),
       "payload_budget" => @payload_limit,

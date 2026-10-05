@@ -179,3 +179,25 @@ Deterministic service, HTTP and launch tests prove this host boundary without mo
 calls. Fresh native Tower/Travel workers and their actual context use remain a
 separate acceptance experiment after the launch path is deployed; test fixtures do
 not satisfy that native proof.
+
+
+## Exact native session observations (#785)
+
+Retained adapter contexts can attach a separate first native-session observation
+from the accepted released Claude/Codex engine callback. The synchronous emitter
+must own the provider registry entry without a sibling owner; no call back into
+that process occurs. One immediate transaction matches the executing durable job,
+provider/generation/turn/arc/configuration/correlation, attempt/snooze and frozen
+argument/full metadata hashes to an existing retained unexpired context receipt.
+This closes native handle attribution for that receipt, not context receipt/use.
+
+Identical replay preserves the first fact; conflicting, stale, terminal, changed,
+legacy/unhashed, expired or retired contexts refuse new attachment. An observation
+before adapter capture is unavailable and not backfilled. Restarted agent ids and
+old native callback references cannot relabel a new attempt. Accepted historical
+observations survive producer cleanup and payload expiry without reviving bytes.
+The folded operator context view exposes the source and recorded time separately
+from frozen inline instructions and prepared/server-emitted document payloads.
+Hidden/file instructions, provider context receipt and model use remain unknown.
+Controlled nonpaid engine tests are not fresh-session native worker acceptance.
+Pull and restart; no migration, prompt or authority change.
