@@ -28,7 +28,7 @@ defmodule Custode.RunContextObservationTest do
           "native-handle"
         )
 
-        eventually(fn -> observation(ctx)["provider_session_id"] == "native-handle" end)
+        eventually(fn -> assert observation(ctx)["provider_session_id"] == "native-handle" end)
         {:error, :synthetic_nonpaid_stop}
       end
 
@@ -49,7 +49,7 @@ defmodule Custode.RunContextObservationTest do
     ctx = execution(:oban_claude)
     first_payload = Repo.get!(Row, ctx.receipt["receipt_id"]).payload
     emit_observation(ctx.observer, ctx.provider, "first")
-    eventually(fn -> observation(ctx)["provider_session_id"] == "first" end)
+    eventually(fn -> assert observation(ctx)["provider_session_id"] == "first" end)
     first = observation(ctx)
     emit_observation(ctx.observer, ctx.provider, "first")
     emit_observation(ctx.observer, ctx.provider, "conflict")

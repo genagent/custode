@@ -17,6 +17,8 @@ defmodule CustodeWeb.StatusVocabularyTest do
   @endpoint CustodeWeb.Endpoint
 
   setup do
+    # The unselected homepage opens the highest-ranked whole-fleet signal.
+    clear_attention!()
     path = Path.join(System.tmp_dir!(), uid("sv-feed") <> ".jsonl")
     put_env!(:feed_path, path)
     on_exit(fn -> File.rm(path) end)
@@ -96,6 +98,10 @@ defmodule CustodeWeb.StatusVocabularyTest do
       {:ok, {:awaiting_permission, _action}} =
         Agent.await(routine.id, :awaiting_permission, 1_000)
 
+      eventually(fn ->
+        assert [%{kind: "approval", detail: "act"}] = Custode.Gates.open_gates(routine.id)
+      end)
+
       Custode.Feed.record(%{event: "needs_approval", agent: routine.id, action: "act"})
 
       assert_same_word(conn, routine.id, :awaiting_permission, "awaiting_permission")
@@ -116,6 +122,11 @@ defmodule CustodeWeb.StatusVocabularyTest do
         )
 
       {:ok, {:waiting_for_user, _q}} = Agent.await(routine.id, :waiting_for_user, 1_000)
+
+      eventually(fn ->
+        assert [%{kind: "question", detail: "which env?"}] = Custode.Gates.open_gates(routine.id)
+      end)
+
       Custode.Feed.record(%{event: "needs_input", agent: routine.id, question: "which env?"})
 
       assert_same_word(conn, routine.id, :waiting_for_user, "waiting_for_user")
@@ -126,7 +137,15 @@ defmodule CustodeWeb.StatusVocabularyTest do
       label = status_label(status)
 
       for path <- ["/", "/console/#{id}", "/feed"] do
-        {:ok, _view, html} = live(conn, path)
+        {:ok, view, html} = live(conn, path)
+
+        if path != "/feed" do
+          assert has_element?(
+                   view,
+                   ~s(#subject-rail a[href="/console/#{id}"][aria-current="page"])
+                 )
+        end
+
         assert html =~ label, "#{path} does not say #{inspect(label)}"
         refute html =~ machine_word
       end
