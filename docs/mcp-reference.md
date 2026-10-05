@@ -2283,7 +2283,7 @@ Inspect failed-stage replay preconditions without starting work.
 
 **Access:** Verified human or current caretaker fleet-control identity. Ordinary owners and temporary helpers cannot read this fleet operation.
 
-**Behavior, defaults and errors:** Terminal queue state is not physical settlement; disallowing Write/Edit does not confine Bash or MCP. The read is not atomic retry admission and never offers unsupported replay. New workflow runs capture exact job arguments, pinned policy/package, frozen definition/input/schema and host callback validation receipts; changed or missing bindings cannot be downgraded to legacy. Unsupported schema assertions never become validated receipts. Legacy rows remain unbound. Schema validation is not native execution, physical settlement or reuse authority; absent callback attempts remain explicitly unavailable.
+**Behavior, defaults and errors:** Terminal queue state is not physical settlement; disallowing Write/Edit does not confine Bash or MCP. The read is not atomic retry admission and never offers unsupported replay. New workflow runs capture exact job arguments, pinned policy/package, frozen definition/input/schema and host callback validation receipts; changed or missing bindings cannot be downgraded to legacy. New reviewed definitions may opt in to a frozen tool-free host profile; its configured empty tools/MCP and sealed settings are not successful native conformance or physical settlement. Existing catalog entries retain their current policy. Unsupported schema assertions never become validated receipts. Legacy rows remain unbound. Schema validation is not native execution, physical settlement or reuse authority; absent callback attempts remain explicitly unavailable.
 
 ## Resources
 

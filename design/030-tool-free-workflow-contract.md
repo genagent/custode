@@ -1,6 +1,6 @@
 # 030: Opt-in tool-free workflow execution contract
 
-Status: implementation plan, refs #750.
+Status: bounded host-policy implementation, refs #750.
 
 New workflow definitions may explicitly select a versioned tool-free Claude
 profile. Existing definitions and already queued jobs keep their current policy.
@@ -27,3 +27,30 @@ host-pinned policy is not sufficient replay authority. #750 stays open.
 
 Operating note: pull and restart loads the new opt-in definition field. No
 migration, prompt-file change or existing launch-policy change is planned.
+
+## Implementation boundary
+
+`Workflow.new/3` accepts only nil or the exact profile version. A nil profile
+is omitted from the definition snapshot, preserving historical fingerprints.
+No built-in catalog entry opts in. New selected jobs omit integration-catalog
+configuration and retain the full effective wrapper-option policy and package
+versions with their existing result contract. A missing policy, altered stored
+options, a changed destination or a changed per-node USD cap fails before launch,
+even if a caller rebuilds the job's result-contract map. Unknown wrapper options
+are omitted at the query boundary rather than passing through future capabilities.
+
+The same NodeJob and callback/result validation remain in use; accepted sibling
+results and the current definition/generation/schema checks are unchanged.
+The deadline remains a whole-command timeout, not a descendant containment
+receipt. A configured CLI USD stop is not a billing guarantee or a hard token
+cap. File artifacts written by the host report subsystem are separate from
+native tools. CLI binary resolution and managed/native host policy are not
+attested here. Session persistence is disabled only for this opt-in profile;
+existing jobs retain their current session-observation path.
+
+Nonpaid tests run the actual NodeJob and released ClaudeWrapper argument builder
+with a controlled transport backend. They verify emitted flags, JSON completion,
+refused substitutions and immutable result-policy receipts. They make no model
+call and establish host behavior only. Retry remains unavailable for both profiles
+until native conformance, supported physical settlement, cumulative admission
+and explicit replay rules are proved.

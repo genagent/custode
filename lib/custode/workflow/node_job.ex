@@ -44,7 +44,7 @@ defmodule Custode.Workflow.NodeJob do
       states: [:scheduled, :available, :executing, :retryable, :suspended, :completed]
     ]
 
-  alias Custode.Workflow.{ResultContract, Runner}
+  alias Custode.Workflow.{ExecutionPolicy, ResultContract, Run, Runner}
 
   @doc """
   The args pinned over every node job. They are merged in `perform/1`, not at
@@ -56,8 +56,33 @@ defmodule Custode.Workflow.NodeJob do
   @impl Oban.Worker
   def perform(job) do
     case ResultContract.launch_check(job) do
-      :ok -> super(job)
-      {:error, reason} -> handle_error({:cancel, reason}, nil, job)
+      :ok ->
+        if tool_free?(job) do
+          perform_tool_free(job)
+        else
+          super(job)
+        end
+
+      {:error, reason} ->
+        handle_error({:cancel, reason}, nil, job)
+    end
+  end
+
+  defp tool_free?(%{meta: %{"workflow_run" => id}}),
+    do: ExecutionPolicy.selected?(Run.get(id))
+
+  defp tool_free?(_job), do: false
+
+  defp perform_tool_free(job) do
+    case ExecutionPolicy.check(Run.get(job.meta["workflow_run"]), job) do
+      :ok ->
+        case ObanClaude.Worker.__run__(job.args, [query_fun: &ExecutionPolicy.query/2], job) do
+          {:ok, %ClaudeWrapper.Result{} = result} -> handle_result(result, job)
+          {return, payload} -> handle_error(return, payload, job)
+        end
+
+      {:error, reason} ->
+        handle_error({:cancel, reason}, nil, job)
     end
   end
 

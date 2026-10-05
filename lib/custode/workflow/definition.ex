@@ -3,13 +3,19 @@ defmodule Custode.Workflow.Definition do
 
   @doc "Capture ordered stages, prompts, schemas and configured settings without interning names."
   def snapshot(definition) do
-    body = normalize(definition)
+    body = definition |> normalize() |> omit_default_profile()
 
     fingerprint =
       :crypto.hash(:sha256, :erlang.term_to_binary(body)) |> Base.encode16(case: :lower)
 
     Map.put(body, "fingerprint", fingerprint)
   end
+
+  # Adding an opt-in field must not invalidate already captured default definitions.
+  defp omit_default_profile(%{"execution_profile" => nil} = body),
+    do: Map.delete(body, "execution_profile")
+
+  defp omit_default_profile(body), do: body
 
   defp normalize(%_{} = value), do: value |> Map.from_struct() |> normalize()
 
