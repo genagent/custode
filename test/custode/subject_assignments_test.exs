@@ -504,7 +504,7 @@ defmodule Custode.SubjectAssignmentsTest do
     assert has_element?(
              output_view,
              "#document-return-navigation a[href='#{production["producing_context"]["link"]}']",
-             "Open producing adapter context"
+             "Open captured run context"
            )
 
     definition =

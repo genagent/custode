@@ -190,7 +190,7 @@ defmodule CustodeWeb.SubjectOutputsLive do
               <div :for={production <- @document["navigation"]["productions"]} class="rounded-box border border-base-300 p-2">
                 <p>Publication record {production["recorded_at"]} · {if production["matches_current_revision"], do: "matches current source", else: "historical source revision"}</p>
                 <.link :if={production["recorded_owner"]["link"]} navigate={production["recorded_owner"]["link"]} class="link">Return to recorded owner {production["recorded_owner"]["id"]}</.link>
-                <p><.link :if={production["producing_context"]["link"]} navigate={production["producing_context"]["link"]} class="link">Open producing adapter context</.link><span :if={!production["producing_context"]["link"]} class="text-base-content/60">Producing context: {production["producing_context"]["availability"]}</span></p>
+                <p><.link :if={production["producing_context"]["link"]} navigate={production["producing_context"]["link"]} class="link">Open captured run context</.link><span :if={!production["producing_context"]["link"]} class="text-base-content/60">No captured run context is available for this publication.</span></p>
                 <details class="mt-2"><summary class="cursor-pointer">Recorded helper context</summary>
                   <p>{production["helper"]["availability"]}; native publication run binding unknown.</p>
                   <div :if={production["helper"]["record"]}>
