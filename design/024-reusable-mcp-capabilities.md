@@ -77,16 +77,19 @@ observations to this interpreter.
 | --- | --- | --- |
 | Versioned read definition and one-owner activation | #800, `ReadCompositions`, [operator contract](../docs/read-compositions.md) | No automatic publication or authored executable code |
 | Caller-scoped invocation, denial and partial failures | Production shared operations and MCP tests | Does not widen current repository or role grants |
-| Replacement, disable, rollback and persistence | Real operations-store records and Repo process reopen | Full OS-process reconstruction is not established by that test |
+| Replacement, disable, rollback and persistence | Real operations-store records, Repo process reopen and three separate OS-process reconstructions through scoped HTTP | Controlled backend; no held native-session refresh claim |
 | Actual saved client calls | #807, eight controlled native comparisons | Three MCP reads become one; backend calls remain three; no general latency/token/quality gain |
 | Protocol catalogs and reconnect | Controlled real Snodo HTTP proof plus installed Codex nonpaid status and Claude health checks | Claude catalog contents, native prompts and held-session notification refresh remain unknown |
 
 The implementation budget is consumed by the shipped dispatcher/store slice and
 its bounded native proof. #799 retains protocol/native compatibility acceptance;
-#577 remains open until its named first-proof requirements are met or explicitly
-narrowed. Updating this accounting does not close either issue or authorize a
-third production extension slice. The desired future synthesis loop remains
-outside this first proof.
+#577 concludes its bounded first-proof design spike with the fixed dispatcher as
+the chosen transport. Versioned definitions, scoped activation/discovery/invocation,
+denial, partial failures, reconstruction, replacement, disable and rollback have
+bounded evidence. Individual dynamic publication, mining and write activation
+remain deferred. This decision retains the explicit opt-in composition; it does
+not establish general quality improvement or authorize a third production
+extension slice. The desired future synthesis loop remains outside this proof.
 
 ## Original bounded slice plan
 

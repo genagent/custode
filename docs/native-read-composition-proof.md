@@ -137,3 +137,80 @@ notification handling and refresh remain unknown. Fresh discovery/reconnect is
 bounded evidence, not complete dynamic-catalog acceptance. Keep individual dynamic
 entries disabled; the fixed dispatcher does not require them. This follow-up
 expands no activation, provider authority, automatic mining or effect admission.
+
+## Retained-output semantic review
+
+A later review checked the meaning of the eight retained final answers, rather
+than treating words such as `differ` or `not bound` as a quality score. Seven
+answers met the controlled case rubric. The Codex partial-failure answer
+compared the composition definition revision with the single returned PR head
+and said they differed. Those identifiers describe different things; the missing
+checks read supplied no second repository head to compare. That answer requires
+a correction. No corrective native run was performed.
+
+This review is a case-specific assessment by the interactive reviewer, not an
+independent statistical evaluation of either provider. The detailed assessments
+and raw-capture bindings remain private. Native session identifiers, capture
+hashes and account telemetry are not added to this public follow-up.
+
+The useful rubric is:
+
+- Compare repository heads only from the PR head and checks SHA fields.
+- Treat the composition revision as the definition's identity.
+- A partial result with only one head cannot establish whether two heads differ.
+- Denial supplies no usable repository evidence.
+- Successful reads still leave the diff binding and atomic snapshot unavailable.
+
+The original lexical markers remain historical observations. They cannot
+establish correctness: a partial answer can contain a mismatch word while
+comparing the wrong identifiers, and correct prose can describe an unbound diff
+without using one of the selected keywords. The demonstrated two-call saving
+remains valid. General token, latency, cost and quality benefit remain unproven.
+Keep the existing explicit owner opt-in; these results do not justify expanding
+activation or publishing individual dynamic entries.
+
+
+## OS-process reconstruction
+
+The opt-in nonpaid `mix custode.composition.proof` task passed `init`, `reopen`
+and `final` in three separate OS processes over one private isolated test store.
+It exercises the actual `ReadCompositions` implementation and fixed MCP dispatcher
+through authenticated Snodo HTTP, using controlled backend reads. It publishes
+two immutable definitions, activates the first, reconstructs it, replaces it,
+disables it, rolls back, and reconstructs the restored activation. The final
+generation is four. A valid peer credential is denied without backend reads;
+retained traces identify the original caller and three underlying operations.
+No model is launched, and executable queues and schedulers are disabled.
+
+Private manifests and source copies bind every phase to the same exact source
+files and lockfile. The final repeat uses a committed implementation after
+integration with current main. Earlier prototype runs recorded uncommitted
+source using file hashes and copies; those are separate from the final repeat. These are
+process-reconstruction results, not evidence that a held Claude or Codex session
+received changed catalogs or prompts. No native identifiers, private capture
+hashes, account data or raw answers are added to this public report.
+
+To reproduce, use a private `TMPDIR`, an isolated test MCP port and a fresh direct
+child root, then invoke each phase in a separate OS process. Observe the normal
+instance-start cooldown between phases. Never use the fleet checkout or store.
+
+```sh
+MIX_ENV=test CUSTODE_COMPOSITION_RESTART_PROOF=1 \
+TMPDIR=/private/tmp/custode-composition-proof CUSTODE_TEST_MCP_PORT=6185 \
+mix custode.composition.proof --root /private/tmp/custode-composition-proof/run --phase init
+```
+
+Repeat the command with `--phase reopen`, then `--phase final`. Each phase refuses
+an unsuitable root, environment or missing opt-in. Existing private recorded roots
+are required after initialization, and exact source bindings must still match.
+
+## First-proof decision for #577
+
+Retain the fixed dispatcher behind explicit owner activation. It meets the
+bounded design spike's typed, caller-scoped read composition and lifecycle
+requirements and saved two MCP calls in each controlled native complete case.
+The backend still performed three reads. The retained partial-answer error means
+this evidence supports neither a correctness gain nor expanded promotion.
+Individual dynamic tools, prompts and resources, automatic synthesis and write
+activation are deferred. #799 keeps held native-session refresh, broader quality,
+token and latency benefit acceptance open.
