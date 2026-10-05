@@ -100,6 +100,61 @@ defmodule Custode.RunContextReceipts do
 
   def list(_actor, _agent_id), do: {:error, "operator_required"}
 
+  @doc "Operator-only exact historical assignment link, independent of current jobs and list windows."
+  def assignment_reference(%{kind: :operator, id: actor}, %{"execution" => execution} = binding)
+      when is_binary(actor) and actor != "" and is_map(execution) do
+    rows =
+      execution
+      |> assignment_receipt_ids()
+      |> then(fn ids -> Repo.all(from(row in Row, where: row.receipt_id in ^ids)) end)
+      |> Enum.filter(fn row ->
+        row.agent_id == execution["agent_id"] and row.record["assignment_execution"] == binding and
+          Map.take(row.record["execution"] || %{}, Map.keys(execution)) == execution
+      end)
+
+    agent = execution["agent_id"]
+
+    case rows do
+      [row] ->
+        {:ok, receipt} = read(%{kind: :operator, id: actor}, row.receipt_id)
+
+        %{
+          "availability" => "captured_adapter_entry",
+          "receipt_id" => row.receipt_id,
+          "payload_state" => receipt["payload_state"],
+          "link" =>
+            "/contexts/" <>
+              URI.encode_www_form(agent) <> "?receipt=" <> URI.encode_www_form(row.receipt_id),
+          "native_context_receipt_and_use" => "unknown"
+        }
+
+      _unavailable ->
+        %{"availability" => "exact_assignment_context_unavailable"}
+    end
+  end
+
+  def assignment_reference(%{kind: :operator}, _binding),
+    do: %{"availability" => "exact_assignment_context_unavailable"}
+
+  def assignment_reference(_actor, _binding), do: %{"availability" => "operator_required"}
+
+  # First attempts historically hashed raw nil; the retained binding normalizes it to zero.
+  # Only these primary keys are candidates, and full provenance must still match afterward.
+  defp assignment_receipt_ids(%{
+         "provider" => provider,
+         "job_id" => job,
+         "attempt" => attempt,
+         "snoozed" => snoozed
+       })
+       when provider in ["claude", "codex"] and is_integer(job) and job > 0 and
+              is_integer(attempt) and attempt > 0 and is_integer(snoozed) and snoozed >= 0 do
+    provider = if provider == "claude", do: :oban_claude, else: :oban_codex
+    candidates = if snoozed == 0, do: [nil, 0], else: [snoozed]
+    Enum.map(candidates, &("rc-" <> digest({provider, job, attempt, &1})))
+  end
+
+  defp assignment_receipt_ids(_invalid), do: []
+
   defp exact_job?(job, provider, args, attempt, meta) do
     worker = if provider == :oban_claude, do: "ObanClaude.Agent.Job", else: "ObanCodex.Agent.Job"
 

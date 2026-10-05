@@ -56,7 +56,7 @@ defmodule CustodeWeb.SubjectOutputsLive do
            ReturnViews.invoke(@human, %{"action" => "contexts", "root_id" => root}) do
       socket = assign(socket, outputs: outputs["outputs"], contexts: contexts)
 
-      socket |> load_document(params["file"]) |> load_receipt(params["receipt"], contexts)
+      socket |> load_document(params["file"]) |> load_receipt(params["receipt"])
     else
       {:error, reason} -> assign(socket, outputs: [], contexts: [], error: inspect(reason))
     end
@@ -78,14 +78,17 @@ defmodule CustodeWeb.SubjectOutputsLive do
     end
   end
 
-  defp load_receipt(socket, id, contexts) do
-    if Enum.any?(contexts, &(&1["receipt_id"] == id)), do: read_receipt(socket, id), else: socket
-  end
+  defp load_receipt(socket, nil), do: socket
 
-  defp read_receipt(socket, id) do
+  defp load_receipt(socket, id) do
     case ReturnViews.invoke(@human, %{"action" => "context", "receipt_id" => id}) do
-      {:ok, receipt} -> assign(socket, receipt: receipt)
-      {:error, reason} -> assign(socket, error: inspect(reason))
+      {:ok, receipt} ->
+        if receipt["root_id"] == socket.assigns.root_id,
+          do: assign(socket, receipt: receipt),
+          else: assign(socket, receipt: nil, error: "Receipt belongs to another subject root.")
+
+      {:error, reason} ->
+        assign(socket, error: inspect(reason))
     end
   end
 
@@ -187,6 +190,7 @@ defmodule CustodeWeb.SubjectOutputsLive do
               <div :for={production <- @document["navigation"]["productions"]} class="rounded-box border border-base-300 p-2">
                 <p>Publication record {production["recorded_at"]} · {if production["matches_current_revision"], do: "matches current source", else: "historical source revision"}</p>
                 <.link :if={production["recorded_owner"]["link"]} navigate={production["recorded_owner"]["link"]} class="link">Return to recorded owner {production["recorded_owner"]["id"]}</.link>
+                <p><.link :if={production["producing_context"]["link"]} navigate={production["producing_context"]["link"]} class="link">Open captured run context</.link><span :if={!production["producing_context"]["link"]} class="text-base-content/60">No captured run context is available for this publication.</span></p>
                 <details class="mt-2"><summary class="cursor-pointer">Recorded helper context</summary>
                   <p>{production["helper"]["availability"]}; native publication run binding unknown.</p>
                   <div :if={production["helper"]["record"]}>
