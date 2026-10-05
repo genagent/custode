@@ -46,6 +46,12 @@ defmodule Custode.SubjectAssignmentsTest do
         )
       )
 
+      Repo.delete_all(from(row in ContextReceipts.Row, where: row.root_id == ^definition.id))
+
+      Repo.delete_all(
+        from(row in Custode.RunContextReceipts.Row, where: row.agent_id == ^helper_id)
+      )
+
       SubjectDocumentBridge.reset()
       SubAgents.forget(helper_id)
     end)
@@ -477,6 +483,208 @@ defmodule Custode.SubjectAssignmentsTest do
              )
 
     assert File.read!(Path.join(ctx.root, "result.md")) == "Retained research from producer"
+
+    assert {:ok, detail} =
+             Custode.ReturnViews.invoke(@human, %{
+               "action" => "detail",
+               "root_id" => ctx.definition.id,
+               "path" => "result.md"
+             })
+
+    assert [production] = detail["navigation"]["productions"]
+    assert production["recorded_owner"]["id"] == ctx.parent.id
+    assert production["helper"]["reference"] == adapter["assignment_execution"]["helper_epoch"]
+    assert production["helper"]["record"]["registry_state"] == "removed"
+    assert production["producing_context"]["receipt_id"] == adapter["receipt_id"]
+    assert production["producing_context"]["native_context_receipt_and_use"] == "unknown"
+
+    assert {:ok, output_view, _} =
+             live(build_conn(), "/subjects/#{ctx.definition.id}?file=result.md")
+
+    assert has_element?(
+             output_view,
+             "#document-return-navigation a[href='#{production["producing_context"]["link"]}']",
+             "Open captured run context"
+           )
+
+    definition =
+      Map.put(ctx.definition, :grants, [%{kind: :routine, id: ctx.parent.id, read_paths: "all"}])
+
+    put_env!(:subject_roots, [definition])
+
+    assert {:ok, parent_detail} =
+             Custode.ReturnViews.invoke(%{kind: :routine, id: ctx.parent.id}, %{
+               "action" => "detail",
+               "root_id" => definition.id,
+               "path" => "result.md"
+             })
+
+    assert [parent_production] = parent_detail["navigation"]["productions"]
+    assert parent_production["producing_context"] == %{"availability" => "operator_required"}
+    refute Jason.encode!(parent_production) =~ adapter["receipt_id"]
+    assert parent_production["helper"]["reference"] == production["helper"]["reference"]
+
+    assert {:ok, outputs} = SubjectDocuments.outputs(@human, definition.id)
+    receipt = Enum.find(outputs, &(&1["request"]["path"] == "result.md"))
+
+    for conflicting <- [
+          put_in(receipt, ["producer", "assignment_execution", "root_id"], "another-root"),
+          put_in(receipt, ["producer", "parent"], "another-parent"),
+          put_in(receipt, ["producer", "identity", "subject_launch_id"], "another-launch")
+        ] do
+      navigation =
+        Custode.ReturnNavigation.read(@human, definition.id, detail["revision"], [conflicting])
+
+      assert [refused] = navigation["productions"]
+      refute refused["recorded_owner"]["link"]
+      refute refused["producing_context"]["link"]
+      assert refused["helper"]["availability"] == "conflicting_provenance"
+    end
+  end
+
+  test "historical context and document links survive newer unrelated receipts without broadening authority",
+       ctx do
+    {job, _launch, actor, _token} = bound(ctx)
+
+    assert {:ok, adapter} =
+             Custode.RunContextReceipts.capture(:oban_claude, %{args: job.args, job: job})
+
+    frame = %CallContext{
+      assigns: %{custode_identity: actor, custode_delivery_id: uid("old-retrieval")}
+    }
+
+    payload =
+      tool_json(
+        SubjectDocumentTools.Context.execute(
+          %{action: "read", root_id: ctx.definition.id, path: "preferences.md"},
+          frame
+        )
+      )
+
+    original = Repo.get!(ContextReceipts.Row, payload["context_receipt_id"])
+    run_row = Repo.get!(Custode.RunContextReceipts.Row, adapter["receipt_id"])
+
+    for n <- 1..101 do
+      Repo.insert!(%ContextReceipts.Row{
+        original
+        | receipt_id: uid("unrelated-retrieval"),
+          record:
+            put_in(original.record, ["assignment_execution", "launch_id"], uid("other-launch")),
+          payload: nil,
+          at: DateTime.add(original.at, n, :second)
+      })
+
+      Repo.insert!(%Custode.RunContextReceipts.Row{
+        run_row
+        | receipt_id: uid("newer-context"),
+          record: Map.put(run_row.record, "assignment_execution", nil),
+          payload: nil,
+          at: DateTime.add(run_row.at, n, :second)
+      })
+    end
+
+    binding = adapter["assignment_execution"]
+
+    for changed_execution <- [
+          Map.put(
+            original.record["assignment_execution"]["execution"],
+            "agent_turn_id",
+            "other-turn"
+          ),
+          Map.put(original.record["assignment_execution"]["execution"], "unexpected", true),
+          Map.delete(original.record["assignment_execution"]["execution"], "correlation_id")
+        ] do
+      Repo.insert!(%ContextReceipts.Row{
+        original
+        | receipt_id: uid("wrong-execution"),
+          record:
+            put_in(original.record, ["assignment_execution", "execution"], changed_execution),
+          payload: nil,
+          at: DateTime.add(original.at, 200, :second)
+      })
+    end
+
+    assert [found] = SubjectAssignments.retrievals(binding)["receipts"]
+    assert found["receipt_id"] == original.receipt_id
+    refute SubjectAssignments.retrievals(binding)["has_more"]
+
+    assert Custode.RunContextReceipts.assignment_reference(@human, binding)["receipt_id"] ==
+             adapter["receipt_id"]
+
+    refute Custode.RunContextReceipts.assignment_reference(
+             @human,
+             put_in(binding, ["execution", "agent_turn_id"], "other-turn")
+           )["link"]
+
+    assert length(elem(Custode.RunContextReceipts.list(@human, ctx.helper_id), 1)) == 100
+
+    jobs_before_navigation = Repo.aggregate(Oban.Job, :count)
+
+    assert {:ok, run_view, _} =
+             live(build_conn(), "/contexts/#{ctx.helper_id}?receipt=#{adapter["receipt_id"]}")
+
+    assert has_element?(run_view, "#run-context-detail")
+
+    assert {:ok, document_view, _} =
+             live(build_conn(), "/subjects/#{ctx.definition.id}?receipt=#{original.receipt_id}")
+
+    assert has_element?(document_view, "#context-receipt")
+    another = %{ctx.definition | id: uid("different-root"), path: tmp_workspace!()}
+    put_env!(:subject_roots, [ctx.definition, another])
+
+    assert {:ok, _wrong_view, wrong} =
+             live(build_conn(), "/subjects/#{another.id}?receipt=#{original.receipt_id}")
+
+    assert wrong =~ "Receipt belongs to another subject root"
+    refute wrong =~ "No car; stay near"
+
+    assert Repo.aggregate(Oban.Job, :count) == jobs_before_navigation
+
+    for _ <- 1..20,
+        do:
+          Repo.insert!(%ContextReceipts.Row{
+            original
+            | receipt_id: uid("same-launch-retrieval"),
+              payload: nil
+          })
+
+    assert length(SubjectAssignments.retrievals(binding)["receipts"]) == 20
+    assert SubjectAssignments.retrievals(binding)["has_more"]
+    Repo.update!(Ecto.Changeset.change(run_row, payload: nil))
+
+    assert Custode.RunContextReceipts.assignment_reference(@human, binding)["payload_state"] ==
+             "retired"
+
+    Repo.update!(Ecto.Changeset.change(run_row, at: DateTime.add(run_row.at, -8, :day)))
+
+    assert Custode.RunContextReceipts.assignment_reference(@human, binding)["payload_state"] ==
+             "expired"
+
+    Repo.update!(
+      Ecto.Changeset.change(run_row,
+        record: put_in(run_row.record, ["execution", "agent_turn_id"], "wrong-outer-turn")
+      )
+    )
+
+    refute Custode.RunContextReceipts.assignment_reference(@human, binding)["link"]
+
+    Repo.update!(
+      Ecto.Changeset.change(Repo.get!(Custode.RunContextReceipts.Row, run_row.receipt_id),
+        record: run_row.record
+      )
+    )
+
+    second_id =
+      "rc-" <>
+        (:crypto.hash(
+           :sha256,
+           :erlang.term_to_binary({:oban_claude, job.id, job.attempt, 0}, [:deterministic])
+         )
+         |> Base.encode16(case: :lower))
+
+    refute second_id == run_row.receipt_id
+    Repo.insert!(%Custode.RunContextReceipts.Row{run_row | receipt_id: second_id})
+    refute Custode.RunContextReceipts.assignment_reference(@human, binding)["link"]
   end
 
   test "expected root revision and helper record fence admission before any grant exists", ctx do

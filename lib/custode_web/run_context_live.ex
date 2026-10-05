@@ -26,7 +26,7 @@ defmodule CustodeWeb.RunContextLive do
   def handle_params(%{"agent_id" => agent} = params, _uri, socket) do
     with {:ok, result} <-
            ReturnViews.invoke(@human, %{"action" => "run_contexts", "agent_id" => agent}),
-         {:ok, receipt} <- selected(params["receipt"], result["receipts"]) do
+         {:ok, receipt} <- selected(params["receipt"], agent) do
       {:noreply,
        assign(socket, agent_id: agent, receipts: result["receipts"], receipt: receipt, error: nil)}
     else
@@ -37,10 +37,15 @@ defmodule CustodeWeb.RunContextLive do
 
   defp selected(nil, _records), do: {:ok, nil}
 
-  defp selected(id, records) do
-    if Enum.any?(records, &(&1["receipt_id"] == id)),
-      do: ReturnViews.invoke(@human, %{"action" => "run_context", "receipt_id" => id}),
-      else: {:error, "Receipt is not in this agent's recent context list."}
+  defp selected(id, agent) do
+    with {:ok, receipt} <-
+           ReturnViews.invoke(@human, %{"action" => "run_context", "receipt_id" => id}),
+         true <- receipt["agent_id"] == agent do
+      {:ok, receipt}
+    else
+      false -> {:error, "Receipt is not in this agent's context history."}
+      error -> error
+    end
   end
 
   @impl true

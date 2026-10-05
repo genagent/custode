@@ -413,26 +413,35 @@ defmodule Custode.SubjectAssignments do
   def retrievals(%{"launch_id" => launch_id, "execution" => execution}) do
     actor_key = "sub_agent:" <> execution["agent_id"]
 
-    rows =
+    encoded = Jason.encode!(execution)
+
+    matching =
       Repo.all(
         from(row in Custode.ContextReceipts.Row,
           where: row.actor_key == ^actor_key,
+          where:
+            fragment("json_extract(?, '$.assignment_execution.launch_id')", row.record) ==
+              ^launch_id,
+          where:
+            fragment(
+              "NOT EXISTS (SELECT fullkey, type, atom FROM json_tree(json_extract(?, '$.assignment_execution.execution')) EXCEPT SELECT fullkey, type, atom FROM json_tree(?))",
+              row.record,
+              ^encoded
+            ),
+          where:
+            fragment(
+              "NOT EXISTS (SELECT fullkey, type, atom FROM json_tree(?) EXCEPT SELECT fullkey, type, atom FROM json_tree(json_extract(?, '$.assignment_execution.execution')))",
+              ^encoded,
+              row.record
+            ),
           order_by: [desc: row.at, asc: row.receipt_id],
-          limit: 100
+          limit: 21
         )
       )
 
-    matching =
-      Enum.filter(rows, fn row ->
-        binding = row.record["assignment_execution"]
-
-        is_map(binding) and binding["launch_id"] == launch_id and
-          binding["execution"] == execution
-      end)
-
     %{
       "source" => "retained_document_receipts_exact_host_launch_not_model_use",
-      "has_more" => length(matching) > 20 or length(rows) == 100,
+      "has_more" => length(matching) > 20,
       "receipts" =>
         Enum.map(Enum.take(matching, 20), fn row ->
           %{
