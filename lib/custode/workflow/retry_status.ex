@@ -3,7 +3,7 @@ defmodule Custode.Workflow.RetryStatus do
   import Ecto.Query, only: [from: 2]
   alias Custode.Operator.Authority
   alias Custode.Repo
-  alias Custode.Workflow.{Catalog, Definition, ResultContract, Results, Run}
+  alias Custode.Workflow.{Catalog, Definition, ExecutionObservation, ResultContract, Results, Run}
 
   def read(actor, id) when is_binary(id) and id != "" do
     with :ok <- Authority.fleet_control(actor), %{} = run <- Run.get(id) do
@@ -29,6 +29,7 @@ defmodule Custode.Workflow.RetryStatus do
 
       {:ok,
        explain(run, definition, jobs)
+       |> Map.put(:runner_observations, ExecutionObservation.summary(id))
        |> Map.put(:successful_result_count, length(results))
        |> Map.put(:result_validation, %{
          basis: "retained_host_schema_receipts_not_replay_authority",

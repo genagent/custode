@@ -22,7 +22,8 @@ defmodule Custode.SubprocessCleanupTest do
   end
 
   test "the configured routine runner is compiled and preserves successful results", context do
-    assert ClaudeWrapper.Runner.impl() == ClaudeWrapper.Runner.Forcola
+    assert ClaudeWrapper.Runner.impl() == Custode.Workflow.ClaudeRunner
+    assert Code.ensure_loaded?(Custode.Workflow.ClaudeRunner)
     assert Code.ensure_loaded?(ClaudeWrapper.Runner.Forcola)
     File.touch!(Path.join(context.dir, "success"))
 

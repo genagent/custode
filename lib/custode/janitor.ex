@@ -25,6 +25,7 @@ defmodule Custode.Janitor do
   import Ecto.Query, only: [from: 2]
 
   alias Custode.Repo
+  alias Custode.Workflow.ExecutionObservation
   alias Custode.Workflow.Results
   alias Custode.Workflow.Run
 
@@ -41,7 +42,7 @@ defmodule Custode.Janitor do
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
-    {runs, node_results, artifacts} = prune_workflow_runs()
+    {runs, node_results, artifacts, observations} = prune_workflow_runs()
 
     removed =
       [
@@ -55,7 +56,8 @@ defmodule Custode.Janitor do
         {"compacted journal entries", prune_compacted_journal()},
         {"retired workflow runs", runs},
         {"workflow node results", node_results},
-        {"workflow report artifacts", artifacts}
+        {"workflow report artifacts", artifacts},
+        {"workflow runner observations", observations}
       ]
       |> Enum.reject(fn {_what, count} -> count == 0 end)
 
@@ -120,7 +122,7 @@ defmodule Custode.Janitor do
   defp prune_workflow_runs do
     case retention(:workflow_runs_days) do
       nil ->
-        {0, 0, 0}
+        {0, 0, 0, 0}
 
       days ->
         cutoff = DateTime.add(DateTime.utc_now(), -days, :day)
@@ -138,11 +140,12 @@ defmodule Custode.Janitor do
         artifacts = Enum.sum(Enum.map(finished, &prune_artifacts/1))
         run_ids = Enum.map(finished, & &1.run_id)
         results = Enum.sum(Enum.map(run_ids, &Results.delete_run/1))
+        observations = Enum.sum(Enum.map(run_ids, &ExecutionObservation.delete_run/1))
 
         {count, _returning} =
           Repo.delete_all(from(r in Run.Row, where: r.run_id in ^run_ids))
 
-        {count, results, artifacts}
+        {count, results, artifacts, observations}
     end
   end
 

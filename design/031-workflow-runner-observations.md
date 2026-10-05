@@ -1,6 +1,6 @@
 # 031: Selected workflow runner observations
 
-Status: implementation plan, refs #750.
+Status: bounded host-observation implementation, refs #750.
 
 The tool-free definition contract captures requested wrapper options, but no
 record currently identifies the actual command delivered to the released
@@ -51,3 +51,26 @@ unattested. #750 stays open.
 A future running installation needs pull, migrate and restart for the new
 observation table and trusted runner decorator. This work performs no fleet
 migration or restart and changes no prompt files.
+
+## Implementation boundary
+
+Only a current selected NodeJob with exact stored arguments, metadata,
+generation and executing attempt 1 can record a request. The decorator delegates
+unchanged to released Forcola; the wrapper builds the actual argv. Resolved
+binary/argv/cwd and deadline are private request facts, not CLI version or
+successful spawn evidence. Caller environment overrides are refused for this
+profile; inherited environment remains unattested. No global runner setting is
+changed during a query.
+
+The first request prevents a second delegation for that job attempt, including
+when the first return is unknown. The first transport return can be attached
+only from its process-local invocation token and cannot be rewritten. A late
+return remains history of its captured generation and changes no run or result.
+Exceptions and killed owners leave an unknown return. Normal and observed
+session execution and streaming outside selected scope still delegate directly.
+The private request accepts at most 256 argv entries and 1 MiB of combined
+serialized request and execution binding. Exceeding either bound refuses before
+persistence or delegation with observation unavailable. Accepted commands pass
+to Forcola unchanged. The shared retry read exposes at most 100 summaries, with no raw command or
+output values; retry remains unavailable. Observations retire with finished
+workflow runs under the existing retention rule.
