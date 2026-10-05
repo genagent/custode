@@ -21,3 +21,25 @@ Expected files: this accounting note, docs/native-assurance-crash-proof.md and a
 anonymous result projection. All five gates before each push, independent review
 of the actual private bindings and exact updated-head CI. No migration, prompt,
 production operation, permission, scheduler or automatic merge change.
+
+
+## Result and decision
+
+Exactly two operator-approved actual native launches passed, with no retries.
+The interrupted Claude worker retained an incomplete row; the interrupted Codex
+owning BEAM retained a running row. Fresh OS-process recovery passed all eight
+controls in each case and made zero model calls. Original frozen contexts, native
+rows, source snapshots and anonymous projection were independently reviewed.
+
+Combined with the retained actual clean/seeded cold cross-provider checks and
+prior fresh-process reconstruction, no original named bounded first-proof
+predicate remains unmet. Close #710 and #795 for that proof. The selected judge
+remains synthetic. Human acceptance, general inference quality, physical
+all-descendant settlement, safe retry, reservation release, effect authority and
+machine reboot remain unproved or unavailable. This result neither grants them
+nor authorizes another model run.
+
+Only anonymous outcome facts and the pinned public Git source revision are added
+to the public report. New native identities, session aliases, capture hashes,
+account telemetry, private paths and raw output stay private. The earlier
+synthetic exercise remains separate and unchanged.

@@ -2,9 +2,10 @@
 
 Status: two bounded slices from #710 are shipped. Scoped assurance records (#794)
 and retained native producer/verifier evidence (#795) advance the original
-synthetic contract fixture. The first proof remains partial: an actual native
-worker crash and recovery are not established. Nothing activates the frozen
-kernel or gives a decision effect authority.
+synthetic contract fixture. Actual worker and owning-host interruptions now
+complete the bounded first proof with fresh-process recovery. General quality,
+human acceptance and all-descendant settlement remain unproved. Nothing activates
+the frozen kernel or gives a decision effect authority.
 
 ## Decision
 
@@ -78,7 +79,7 @@ no provider calls and does not rewrite their history.
 | Independent cross-provider check and opinion | Actual cold Codex verifier reruns ten fixed rows against Claude-produced wrapper; clean passes, seeded fails | A fixed fixture is not general provider-quality evidence or human acceptance |
 | Duplicate delivery and stale result | Native replay returns the original launch; immutable duplicate capture and stale-generation refusal controls pass | No new effect authority or general side-effect retry contract |
 | Custode restart reconstruction | Fresh BEAM OS process reassesses the retained store, persists clean accepted/seeded rejected, and a separate SQLite reader verifies unchanged native rows and original report | This is not a machine reboot or a crash during an actual native call |
-| Worker crash | [Bounded external controller](../docs/native-assurance-crash-proof.md) observes fake CLI initialization and its own process identities, separately kills a worker and its owning BEAM, and checks original-store recovery in fresh BEAM processes | Actual native producer/verifier crash and recovery remain unproved; terminal status is not physical settlement |
+| Worker crash | [Bounded external controller](../docs/native-assurance-crash-proof.md) separately interrupts an actual Claude worker and Codex owning BEAM; both fresh processes preserve the original native row and pass all eight recovery controls | Interrupted initialization does not establish completed inference or quality; observed cleanup is not all-descendant settlement |
 
 The [fresh-process reconstruction audit](https://github.com/genagent/custode/issues/795#issuecomment-5984289899)
 advances the public proof's earlier SQLite store-process reopen control. It uses
@@ -94,9 +95,13 @@ contract fixture: exact revisions, synthetic reviewer separation, contradictions
 duplicate/stale refusal, SQLite restart and payload conflicts. Its fabricated
 reviewer metadata stays synthetic; later native results are separate evidence.
 
-The two-slice implementation budget is consumed. #710 and #795 remain open for
-the original real worker-crash/recovery proof and any explicitly agreed narrowing
-of that requirement. No additional broad runtime slice follows from this note.
+The two-slice implementation budget is consumed. The actual native crash controls
+complete the previously missing named predicate alongside the retained pinned
+clean/seeded checks and fresh-process reconstruction. Close #710 and #795 as the
+bounded first proof. This is anonymous evidence accounting, not another runtime
+extension. The synthetic selected judge remains distinct from human acceptance;
+general provider quality, all-descendant settlement, safe retry and machine reboot
+are not established. No additional broad runtime slice follows from this note.
 A new attempt after changed instructions, criteria or artifact creates a new case
 or attempt revision. Retry settlement remains the specific worker contract, not
 a consequence of an accepted report. Human merge gates keep effect authority.
