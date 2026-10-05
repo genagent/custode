@@ -36,6 +36,7 @@ defmodule CustodeWeb.ConversationLive do
   alias CustodeWeb.AttentionSnapshot
   alias CustodeWeb.Console.Rail
   alias CustodeWeb.ManagerPanel
+  alias Phoenix.LiveView.JS
 
   @page_size 20
   @opts [via: :liveview]
@@ -256,7 +257,9 @@ defmodule CustodeWeb.ConversationLive do
             &larr; control room
           </.link>
           <.link navigate="/subjects" class="link text-xs">Outputs</.link>
-          <a :if={@manager} href="#project-report-digest" class="link text-xs">Project digest</a>
+          <a :if={@manager} href="#project-report-digest" class="link text-xs"
+            phx-click={JS.set_attribute({"open", ""}, to: "#project-report-digest")
+              |> JS.focus(to: "#project-report-digest-summary")}>Project digest</a>
           <.link :if={@agent_id} navigate={"/contexts/" <> URI.encode_www_form(@agent_id)} class="link text-xs">Run context</.link>
           <span class="text-base-content/30">/</span>
           <h1 class="font-mono text-lg font-bold">{if @manager, do: "Ask custode", else: @agent_id}</h1>

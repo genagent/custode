@@ -242,6 +242,76 @@ defmodule Custode.ProjectReportDigestTest do
     refute html =~ "accepted automatically"
   end
 
+  test "manager digest folds long retained summaries and decisions without losing source text",
+       ctx do
+    summary =
+      String.duplicate("A dated finding with its source remains available. ", 12) |> String.trim()
+
+    blocker =
+      String.duplicate("Waiting for the upstream compatibility release. ", 9) |> String.trim()
+
+    decision =
+      String.duplicate("Choose the next bounded project comparison. ", 9) |> String.trim()
+
+    assert {:ok, _} =
+             Custode.IntervalReports.validate(%{
+               "blockers" => [blocker],
+               "decisions" => [decision]
+             })
+
+    row =
+      row!(ctx.codex, DateTime.add(ctx.now, -1), %{
+        summary: summary,
+        report: %{"blockers" => [blocker], "decisions" => [decision]}
+      })
+
+    short = row!(ctx.claude, ctx.now, %{summary: "A short update."})
+
+    ask =
+      Repo.insert!(%Custode.Asks.Ask{
+        agent_id: ctx.codex,
+        question: decision,
+        status: "open"
+      })
+
+    {:ok, view, _html} = live(build_conn(), "/custode")
+
+    refute has_element?(view, "#project-report-digest[open]")
+    assert has_element?(view, "#project-report-digest-summary", "Project digest")
+    assert has_element?(view, ~s(a[href="#project-report-digest"][phx-click]))
+
+    for {id, text} <- [
+          {"project-digest-summary-#{row.id}", summary},
+          {"project-digest-concern-#{row.id}-blocker-0", blocker},
+          {"project-digest-concern-#{row.id}-decision-0", decision},
+          {"project-digest-ask-#{ask.id}", decision}
+        ] do
+      assert has_element?(view, "##{id}-disclosure[phx-hook=DisclosureState]")
+      refute has_element?(view, "##{id}-disclosure[open]")
+      assert has_element?(view, "##{id} [data-foldable-full]", text)
+    end
+
+    assert has_element?(view, "#project-digest-summary-#{short.id}", "A short update.")
+    refute has_element?(view, "#project-digest-summary-#{short.id}-disclosure")
+
+    Custode.Feed.record(%{event: "turn", agent: ctx.claude, summary: "Fresh owner update."})
+    assert render(view) =~ "Fresh owner update."
+
+    assert has_element?(
+             view,
+             "#project-digest-summary-#{row.id}-disclosure [data-foldable-full]",
+             summary
+           )
+
+    assert has_element?(
+             view,
+             "#project-digest-ask-#{ask.id}-disclosure [data-foldable-full]",
+             decision
+           )
+
+    assert :offline = Custode.Agents.live_provider(ctx.codex)
+  end
+
   test "duplicate completion ingestion stays one digest record", ctx do
     key = uid("digest-completion")
     entry = %{agent: ctx.claude, summary: "Finished once.", report: %{"done" => ["One result."]}}

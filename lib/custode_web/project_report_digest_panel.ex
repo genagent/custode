@@ -1,7 +1,7 @@
 defmodule CustodeWeb.ProjectReportDigestPanel do
   @moduledoc "One compact manager view over the shared project-report digest."
   use Phoenix.Component
-  import CustodeWeb.Components, only: [ago: 1, interval_report: 1]
+  import CustodeWeb.Components, only: [ago: 1, interval_report: 1, foldable_text: 1]
 
   attr(:digest, :map, required: true)
 
@@ -16,7 +16,7 @@ defmodule CustodeWeb.ProjectReportDigestPanel do
 
     ~H"""
     <details id="project-report-digest" phx-hook="DisclosureState" class="rounded-box border border-base-300 bg-base-100 p-4">
-      <summary class="cursor-pointer font-semibold">
+      <summary id="project-report-digest-summary" class="cursor-pointer font-semibold">
         Project digest · {length(@updated)} updated · {length(@waiting)} need a decision
       </summary>
       <div class="mt-3 space-y-4 text-sm">
@@ -35,7 +35,7 @@ defmodule CustodeWeb.ProjectReportDigestPanel do
             <p :if={project.repo} class="text-xs text-base-content/60">{project.repo}</p>
             <div :for={report <- project.reports} id={"project-digest-report-#{report.id}"} class="mt-2">
               <p class="text-xs text-base-content/60"><.ago at={report.recorded_at} /> · {if report.event == "turn_failed", do: "Recorded failed turn", else: "Agent report"}</p>
-              <p class="whitespace-pre-wrap break-words">{report.summary || "Recorded update"}</p>
+              <.foldable_text text={report.summary || "Recorded update"} id={"project-digest-summary-#{report.id}"} />
               <.interval_report report={report.report} error={report.report_error} id={"digest-interval-#{report.id}"} />
             </div>
             <p :if={project.has_more_reports} class="text-xs text-base-content/60">More updates in this window are in the source conversation.</p>
@@ -47,8 +47,17 @@ defmodule CustodeWeb.ProjectReportDigestPanel do
           <article :for={project <- @reported} class="mt-2">
             <.link navigate={project.links.conversation} class="link font-mono">{project.owner}</.link>
             <span class="text-xs text-base-content/60"> · last reported <.ago at={project.reported_concerns.recorded_at} /> · resolution not established</span>
-            <ul class="list-inside list-disc break-words"><li :for={text <- project.reported_concerns.blockers}>{text}</li></ul>
-            <ul class="list-inside list-disc break-words"><li :for={text <- project.reported_concerns.decisions}>Reported decision: {text}</li></ul>
+            <ul class="list-disc space-y-1 pl-5">
+              <li :for={{text, index} <- Enum.with_index(project.reported_concerns.blockers)}>
+                <.foldable_text text={text} id={"project-digest-concern-#{project.reported_concerns.id}-blocker-#{index}"} />
+              </li>
+            </ul>
+            <ul class="list-disc space-y-1 pl-5">
+              <li :for={{text, index} <- Enum.with_index(project.reported_concerns.decisions)}>
+                <span class="text-xs text-base-content/60">Reported decision</span>
+                <.foldable_text text={text} id={"project-digest-concern-#{project.reported_concerns.id}-decision-#{index}"} />
+              </li>
+            </ul>
           </article>
         </section>
         <section data-project-digest-section="decisions">
@@ -60,7 +69,7 @@ defmodule CustodeWeb.ProjectReportDigestPanel do
               <li :for={decision <- project.decisions.gates ++ project.decisions.asks} class="break-words">
                 <span class="font-semibold">{if decision.blocking, do: "Waiting at a gate", else: "Open question"} #{decision.id}</span>
                 <span class="text-xs text-base-content/60"> · opened <.ago at={decision.opened_at} /></span>
-                <p>{decision.text}</p>
+                <.foldable_text text={decision.text || ""} id={"project-digest-#{decision.kind}-#{decision.id}"} />
               </li>
             </ul>
             <p :if={project.decisions.has_more_asks || project.decisions.has_more_gates} class="text-xs text-warning">More open decisions are in the control room and Inbox.</p>
