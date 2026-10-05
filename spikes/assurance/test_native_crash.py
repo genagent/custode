@@ -46,7 +46,7 @@ class ControllerTest(unittest.TestCase):
                 proof.public_controls(bad)
 
     def test_public_projection_drops_raw_native_and_account_metadata(self):
-        case = {key: "hash" for key in ["stdout_sha256", "native_identity_sha256", "native_session_sha256"]}
+        case = {key: "hash" for key in ["stdout_sha256", "stderr_sha256", "native_identity_sha256", "native_session_sha256"]}
         case.update(provider="claude", failure="native_worker_killed", initialization_observed=True,
                     native_status="incomplete", observed_processes_gone=True, all_descendants_attestation="missing",
                     private_path="secret", session_id="secret", usage="secret",

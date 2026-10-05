@@ -159,7 +159,15 @@ def phase_command(args, provider, directory, phase):
     return command
 
 
+def check_source(args):
+    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+    current = {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in args.source_sha256}
+    if revision != args.source_revision or current != args.source_sha256:
+        raise ValueError("pinned proof source changed")
+
+
 def spawn_phase(args, provider, directory, phase):
+    check_source(args)
     env = dict(os.environ, MIX_ENV="test", TMPDIR=str(directory), CUSTODE_TEST_MCP_PORT="6184",
                CUSTODE_NATIVE_CRASH_PROOF="1")
     output = open(directory / (phase + "-host.log"), "xb")
@@ -185,6 +193,9 @@ def crash_case(args, provider, directory):
         retained = directory / "native-stdout.jsonl"
         retained.write_bytes(read_bounded(path))
         retained.chmod(0o600)
+        stderr_retained = directory / "native-stderr.raw"
+        stderr_retained.write_bytes(read_bounded(path.with_name("stderr")))
+        stderr_retained.chmod(0o600)
         write(directory / "observation.json", {"host": host, "native": native, "owned": list(owned.values()),
                                                "init": init, "stdout_path": str(path), "case_id": context["case_id"]})
         target = native if provider == "claude" else host
@@ -211,14 +222,18 @@ def crash_case(args, provider, directory):
                 cleanup({pid: rows[pid] for pid in descendants(recovery.pid, rows)})
         if code != 0:
             raise ValueError("fresh recovery phase failed")
+        check_source(args)
         recovered = json.loads((directory / "proof" / "recovery-result.json").read_text())
         expected = "incomplete" if provider == "claude" else "running"
+        if context["source_revision"] != args.source_revision or recovered["source_revision"] != args.source_revision:
+            raise ValueError("phase source revision mismatch")
         if recovered["native_record"]["status"] != expected or not recovered["passed"]:
             raise ValueError("durable interruption classification or controls failed")
         return {"provider": provider, "failure": "native_worker_killed" if provider == "claude" else "owning_BEAM_killed",
                 "initialization_observed": True, "native_status": expected, "recovery": recovered,
                 "observed_processes_gone": settled, "all_descendants_attestation": "missing",
                 "stdout_sha256": hashlib.sha256(retained.read_bytes()).hexdigest(),
+                "stderr_sha256": hashlib.sha256(stderr_retained.read_bytes()).hexdigest(),
                 "native_identity_sha256": hashlib.sha256(json.dumps(native, sort_keys=True).encode()).hexdigest(),
                 "native_session_sha256": hashlib.sha256(init["session_id"].encode()).hexdigest()}
     finally:
@@ -244,7 +259,7 @@ def projection(private):
     cases = []
     for case in private["cases"]:
         cases.append({key: case[key] for key in ["provider", "failure", "initialization_observed", "native_status",
-                      "observed_processes_gone", "all_descendants_attestation", "stdout_sha256",
+                      "observed_processes_gone", "all_descendants_attestation", "stdout_sha256", "stderr_sha256",
                       "native_identity_sha256", "native_session_sha256"]} |
                      {"controls": public_controls(case["recovery"]["controls"]), "recovery_model_invocations": 0,
                       "decision": case["recovery"]["decision"]["status"]})
@@ -286,6 +301,8 @@ def main():
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         target.write_bytes(Path(name).read_bytes())
         target.chmod(0o600)
+    args.source_revision = private["source_revision"]
+    args.source_sha256 = private["source_sha256"]
     write(root / "report-private.json", private)
     for provider in ["claude", "codex"]:
         private["model_launch_requests"] += 1
