@@ -1,0 +1,53 @@
+{
+  "schema": "custode.native-crash-anonymous.v1",
+  "status": "passed",
+  "source_revision": "1a3f275f96d2a8b3b58209c711b6ac5ab18f181d",
+  "synthetic": false,
+  "model_launch_requests": 2,
+  "cases": [
+    {
+      "provider": "claude",
+      "failure": "native_worker_killed",
+      "initialization_observed": true,
+      "native_status": "incomplete",
+      "observed_processes_gone": true,
+      "all_descendants_attestation": "missing",
+      "controls": {
+        "replay_preserves_original": true,
+        "workspace_redelivery_refused": true,
+        "stale_generation_refused": true,
+        "native_records_unchanged": true,
+        "one_original_native_record": true,
+        "missing_success_stays_missing": true,
+        "no_effect_authority": true,
+        "no_imported_late_evidence": true
+      }
+    },
+    {
+      "provider": "codex",
+      "failure": "owning_BEAM_killed",
+      "initialization_observed": true,
+      "native_status": "running",
+      "observed_processes_gone": true,
+      "all_descendants_attestation": "missing",
+      "controls": {
+        "replay_preserves_original": true,
+        "workspace_redelivery_refused": true,
+        "stale_generation_refused": true,
+        "native_records_unchanged": true,
+        "one_original_native_record": true,
+        "missing_success_stays_missing": true,
+        "no_effect_authority": true,
+        "no_imported_late_evidence": true
+      }
+    }
+  ],
+  "limits": {
+    "completed_inference_or_quality_proved": false,
+    "all_descendant_settlement_proved": false,
+    "reservation_released": false,
+    "automatic_retry_permitted": false,
+    "effect_authority_granted": false,
+    "machine_reboot_or_crash_proved": false
+  }
+}

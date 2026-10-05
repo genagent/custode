@@ -88,3 +88,15 @@ retained streams after a recorder correction, use the same guarded invocation
 with `--reassess`; it requires a private existing proof store and calls no provider.
 Observe the same-instance boot cooldown. Neither path starts a fleet or authorizes
 application, publication, gate approval or merge.
+
+
+## Subsequent actual crash controls
+
+The [actual crash exercise](native-assurance-crash-proof.md) adds exactly two
+approved interrupted native launches and fresh-process recovery, separately from
+this completed clean/seeded evidence. Its anonymous report preserves incomplete
+and unresolved running states, all eight refusal/no-authority controls and missing
+success. It closes the bounded first-proof gap for #795/#710. This does not turn
+the selected synthetic judge into human acceptance or establish general quality,
+all-descendant settlement, safe retry or machine reboot. Historical reports and
+original native records remain unchanged.

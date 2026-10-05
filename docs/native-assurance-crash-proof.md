@@ -24,10 +24,44 @@ refused stale native evidence and escalated missing success. Eight controls
 passed per case. Original native rows remained unchanged; no imported late
 receipt, judge approval or effect authority appeared.
 
-Native provider exercise has not been executed for this crash proof. Synthetic
-initialization cannot establish native process behavior, inference completion,
-quality, spend or real provider crash/recovery acceptance. #795 and #710 remain
-open for that evidence and the original acceptance limits.
+Synthetic initialization cannot establish native process behavior, inference
+completion, quality or spend. The subsequent actual native exercise below is
+separate evidence; the synthetic report remains unchanged.
+
+## Actual approved native exercise
+
+Exactly two explicitly approved native launch requests passed the controller at
+source `1a3f275f96d2a8b3b58209c711b6ac5ab18f181d`. Both emitted actual native
+initialization before interruption. No retry or additional native request was
+made, and neither fresh recovery phase called a model.
+
+| Actual interruption | Original durable native state | Fresh recovery controls |
+| --- | --- | --- |
+| Claude owned worker killed; owning BEAM remained alive | `incomplete` | All eight pass |
+| Codex owning BEAM killed | `running` | All eight pass |
+
+The [anonymous report](../spikes/assurance/native-crash-results.json) contains
+provider/failure/state, call count and Boolean controls. Detailed source snapshots,
+raw captures, native and process identities, their hashes, frozen contexts,
+original SQLite stores and recovery records remain private. Independent review
+checked the snapshots against pinned Git source, capture/process/context bindings,
+original rows versus fresh recovery reports, and consistency of this projection.
+Each store retains exactly one native row. Both recovered rows preserve the
+original request and missing success, refuse workspace redelivery and stale
+results, and admit no imported late evidence or effect authority.
+
+The controller observed its own recorded identities disappear. Positive
+all-descendant settlement remains missing, reservations remain held and safe
+retry is not admitted. Initialization and interruption prove these crash controls,
+not completed inference, quality, actual human acceptance or machine reboot.
+The source and lockfile are pinned to the tested snapshot; later dependency
+updates are not silently attributed to this exercise.
+
+Together with the retained actual clean/seeded cross-provider checks and earlier
+fresh-process request-to-decision reconstruction, this completes the bounded
+first proof for #795 and #710. The selected judge remains the synthetic host
+harness under the named policy. Broader human acceptance and physical settlement
+are explicit limits, not facts established by closing that proof.
 
 ## Guard and evidence boundaries
 
@@ -57,8 +91,12 @@ cleanup. Only a missing all-descendant attestation is published.
 
 Every phase verifies the pinned source revision and file hashes. Private evidence
 contains source snapshots, original store, raw native output, launch/context and
-recovery records. Public output contains only allowlisted statuses, Boolean
-controls and hashes; no session/account metadata, raw output or physical paths.
+recovery records. The controller's `report-public.json` remains private for actual
+native runs because it contains native identity and capture hashes. Only the
+anonymous allowlist is published: provider/failure/state, call count, Boolean
+controls and public Git source revision. The earlier synthetic projection is
+separate. No new native identities, capture hashes, session/account metadata,
+raw output or physical paths are published.
 Claude's configured USD 0.5 stop is not a billing ceiling; Codex cost stays
 unknown. Initialization establishes a session, not a completed inference.
 
