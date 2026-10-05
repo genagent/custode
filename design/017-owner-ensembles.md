@@ -150,3 +150,38 @@ caps remain unavailable for both providers and are refused. #778 therefore stays
 open. Paid native conformance, full VM recovery, all-descendant settlement and a
 global concurrent fleet quota are also unproved. No paid models, GenAgent pool,
 automatic fan-out, approval, merge or runtime adoption is included.
+
+## Cancellation recovery receipts (#778)
+
+Cancel first retains a per-child request in the existing owner_reviews record.
+The request binds review/owner, child slot and durable attempt, job id and frozen
+launch-argument digest. Each delivery rechecks the current owner authorization
+and routine revision through the serialized admission path, then checks the
+owned worker, agents queue, single allowed attempt and job arguments inside an
+immediate SQLite transaction before calling the existing Oban cancellation API. Oban counters zero and one describe
+the first execution before and after admission; higher counters or changed
+max_attempts refuse. A changed binding remains pending with an explicit refusal observation; it never cancels a substituted job.
+
+Explicit cancel or reconcile recovers pending delivery after interruption. A
+returned queue API call, an already terminal queue row and a missing job are
+different observations. A terminal row after a missing delivery receipt does
+not manufacture the earlier API receipt or prove native process death. API
+exceptions leave the already durable intent pending; an explicit later action
+can reconcile it. No background recovery or provider relaunch is added.
+
+Cancellation metadata and explicit reconciliation retain at most eight distinct
+observations each per child. Once cancellation is observed, repeat actions do not
+redispatch or append another delivery receipt. Explicit reconciliation can still
+append changed queue-row observations without inferring another cancellation.
+Job observations include the durable row's state,
+attempt and argument digest, with an unknown physical-settlement field. Ordinary
+inspection remains inert. A missing job becomes unconfirmed rather than remaining
+apparently queued or running. Accepted results, late authored evidence and usage
+remain separate and unchanged. Cancellation never releases the conservative USD
+reservation or admits a new call. Existing records gain current queue observations
+only after an explicit action; legacy cancellation binds the current owned job
+without claiming a historical launch-argument contract.
+
+Operating note: pull and restart. No migration, prompt change or provider/cap
+expansion. Codex, hard token caps and native all-descendant settlement remain
+unsupported. These are queue/host observations, not native settlement receipts.

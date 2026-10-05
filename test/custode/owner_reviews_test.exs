@@ -535,6 +535,204 @@ defmodule Custode.OwnerReviewsTest do
     end
   end
 
+  test "interrupted durable cancellation intent recovers without provider relaunch", ctx do
+    put_env!(:owner_review_query_fun, fn _, _ -> flunk("cancellation recovery launched") end)
+    assert {:ok, run} = OwnerReviews.submit(@human, ctx.request)
+    assert {:ok, prepared} = OwnerReviews.prepare_cancel(@human, ctx.request["request_id"])
+    assert prepared["cancel_requested"]
+
+    for child <- prepared["children"] do
+      assert child["cancellation"]["state"] == "pending"
+      assert child["cancellation"]["observations"] == []
+      assert child["cancellation"]["target"]["attempt_id"] == child["attempt_id"]
+      assert Repo.get!(Oban.Job, child["job_id"]).state == "available"
+    end
+
+    assert {:ok, same} = OwnerReviews.read(@human, ctx.request["request_id"])
+    assert same == prepared
+    assert {:ok, recovered} = OwnerReviews.reconcile(@human, ctx.request["request_id"])
+
+    for child <- recovered["children"] do
+      [receipt] = child["cancellation"]["observations"]
+      assert receipt["outcome"] == "request_api_returned"
+      assert receipt["queue_update_count"] == 1
+      assert receipt["physical_settlement"] == "unknown"
+      assert child["reserved_usd"] == 0.5
+      assert child["result"] == nil
+    end
+
+    assert {:ok, settled_observations} = OwnerReviews.reconcile(@human, ctx.request["request_id"])
+    assert {:ok, repeat} = OwnerReviews.reconcile(@human, ctx.request["request_id"])
+    assert repeat == settled_observations
+
+    assert Enum.map(run["children"], & &1["job_id"]) ==
+             Enum.map(repeat["children"], & &1["job_id"])
+  end
+
+  test "queue cancellation before missing receipt is observed without inventing delivery", ctx do
+    assert {:ok, run} = OwnerReviews.submit(@human, ctx.request)
+    assert {:ok, _prepared} = OwnerReviews.prepare_cancel(@human, ctx.request["request_id"])
+    first = hd(run["children"])
+    assert :ok = Oban.cancel_job(first["job_id"])
+    assert {:ok, before} = OwnerReviews.read(@human, ctx.request["request_id"])
+    assert hd(before["children"])["cancellation"]["state"] == "pending"
+    assert {:ok, recovered} = OwnerReviews.reconcile(@human, ctx.request["request_id"])
+    child = hd(recovered["children"])
+    [receipt] = child["cancellation"]["observations"]
+    assert receipt["outcome"] == "terminal_queue_observed"
+    refute receipt["api_invoked"]
+    assert receipt["physical_settlement"] == "unknown"
+    assert child["status"] == "unconfirmed"
+    assert child["settlement"] == "launch_unknown"
+  end
+
+  test "changed job binding refuses cancellation and missing job is durably uncertain", ctx do
+    assert {:ok, run} = OwnerReviews.submit(@human, ctx.request)
+    assert {:ok, _intent} = OwnerReviews.prepare_cancel(@human, ctx.request["request_id"])
+    [first, second] = run["children"]
+    job = Repo.get!(Oban.Job, first["job_id"])
+    job |> Ecto.Changeset.change(args: Map.put(job.args, "prompt", "tampered")) |> Repo.update!()
+    Repo.delete!(Repo.get!(Oban.Job, second["job_id"]))
+    assert {:ok, observed} = OwnerReviews.reconcile(@human, ctx.request["request_id"])
+    [changed, missing] = observed["children"]
+    assert changed["cancellation"]["state"] == "pending"
+    assert hd(changed["cancellation"]["observations"])["outcome"] == "job_binding_changed"
+    assert Repo.get!(Oban.Job, job.id).state == "available"
+    assert hd(missing["cancellation"]["observations"])["outcome"] == "job_missing"
+    assert hd(missing["job_observations"])["job_state"] == "missing"
+    assert missing["status"] == "unconfirmed"
+    assert missing["settlement"] == "unknown"
+    assert {:ok, repeated} = OwnerReviews.reconcile(@human, ctx.request["request_id"])
+    assert repeated == observed
+  end
+
+  test "current owner refusal preserves pending cancellation and accepted results", ctx do
+    assert {:ok, run} = OwnerReviews.submit(@human, ctx.request)
+    [first, second] = Enum.map(run["children"], &Repo.get!(Oban.Job, &1["job_id"]))
+    assert {:ok, _started} = OwnerReviews.start(first)
+
+    assert {:ok, _complete} =
+             OwnerReviews.complete(first, "completed", answer(), nil, "unattested")
+
+    assert {:ok, intent} = OwnerReviews.prepare_cancel(@human, ctx.request["request_id"])
+    put_env!(:routines, [])
+
+    assert {:error, :owner_scope_unavailable} =
+             OwnerReviews.cancel(@human, ctx.request["request_id"])
+
+    assert {:error, :owner_scope_unavailable} =
+             OwnerReviews.reconcile(@human, ctx.request["request_id"])
+
+    assert Repo.get!(Oban.Job, second.id).state == "available"
+    put_env!(:routines, [ctx.owner])
+    assert {:ok, recovered} = OwnerReviews.reconcile(@human, ctx.request["request_id"])
+    child = hd(recovered["children"])
+    assert child["result"] == hd(intent["children"])["result"]
+    assert child["usage"] == hd(intent["children"])["usage"]
+    assert child["settlement"] == "unattested"
+  end
+
+  test "legacy child cancellation binds only its currently owned queue job", ctx do
+    assert {:ok, _run} = OwnerReviews.submit(@human, ctx.request)
+    row = Repo.get!(OwnerReviews.Row, ctx.request["request_id"])
+    children = Enum.map(row.record["children"], &Map.delete(&1, "launch_args_digest"))
+
+    row
+    |> Ecto.Changeset.change(record: Map.put(row.record, "children", children))
+    |> Repo.update!()
+
+    assert {:ok, cancelled} = OwnerReviews.cancel(@human, ctx.request["request_id"])
+
+    for child <- cancelled["children"] do
+      assert child["cancellation"]["target"]["binding_basis"] == "legacy_current_owned_job"
+      assert child["cancellation"]["target"]["launch_args_digest"] == nil
+      assert child["cancellation"]["physical_settlement"] == "unknown"
+      assert child["result"] == nil
+    end
+  end
+
+  test "bounded refused delivery observations cannot manufacture cancellation", ctx do
+    assert {:ok, run} = OwnerReviews.submit(@human, ctx.request)
+    assert {:ok, _intent} = OwnerReviews.prepare_cancel(@human, ctx.request["request_id"])
+    first = hd(run["children"])
+    original = Repo.get!(Oban.Job, first["job_id"])
+
+    for number <- 1..12 do
+      original
+      |> Ecto.Changeset.change(args: Map.put(original.args, "prompt", "changed #{number}"))
+      |> Repo.update!()
+
+      assert {:ok, _refused} = OwnerReviews.reconcile(@human, ctx.request["request_id"])
+    end
+
+    assert {:ok, observed} = OwnerReviews.read(@human, ctx.request["request_id"])
+    child = hd(observed["children"])
+    assert length(child["cancellation"]["observations"]) == 8
+    assert length(child["job_observations"]) == 8
+    assert Enum.all?(child["cancellation"]["observations"], &(not &1["api_invoked"]))
+    assert Repo.get!(Oban.Job, original.id).state == "available"
+    assert child["reserved_usd"] == 0.5
+
+    Repo.get!(Oban.Job, original.id)
+    |> Ecto.Changeset.change(args: original.args)
+    |> Repo.update!()
+
+    assert {:ok, recovered} = OwnerReviews.cancel(@human, ctx.request["request_id"])
+
+    assert List.last(hd(recovered["children"])["cancellation"]["observations"])["outcome"] ==
+             "request_api_returned"
+  end
+
+  test "changed durable cancellation target never cancels a different job", ctx do
+    assert {:ok, run} = OwnerReviews.submit(@human, ctx.request)
+    assert {:ok, _intent} = OwnerReviews.prepare_cancel(@human, ctx.request["request_id"])
+    row = Repo.get!(OwnerReviews.Row, ctx.request["request_id"])
+    [first, second] = row.record["children"]
+    changed = put_in(first, ["cancellation", "target", "job_id"], second["job_id"])
+
+    row
+    |> Ecto.Changeset.change(record: Map.put(row.record, "children", [changed, second]))
+    |> Repo.update!()
+
+    assert {:ok, refused} = OwnerReviews.reconcile(@human, ctx.request["request_id"])
+    [child, _] = refused["children"]
+    assert hd(child["cancellation"]["observations"])["outcome"] == "cancellation_binding_changed"
+    assert Repo.get!(Oban.Job, hd(run["children"])["job_id"]).state == "available"
+  end
+
+  test "substituted queue execution identity refuses cancellation", ctx do
+    assert {:ok, run} = OwnerReviews.submit(@human, ctx.request)
+    first = hd(run["children"])
+    original = Repo.get!(Oban.Job, first["job_id"])
+
+    for change <- [[attempt: 2], [max_attempts: 2], [queue: "foreign"], [worker: "ForeignWorker"]] do
+      Repo.get!(Oban.Job, original.id) |> Ecto.Changeset.change(change) |> Repo.update!()
+      assert {:ok, observed} = OwnerReviews.cancel(@human, ctx.request["request_id"])
+      child = hd(observed["children"])
+      assert child["cancellation"]["state"] == "pending"
+      assert List.last(child["cancellation"]["observations"])["outcome"] == "job_binding_changed"
+      assert Repo.get!(Oban.Job, original.id).state == "available"
+
+      Repo.get!(Oban.Job, original.id)
+      |> Ecto.Changeset.change(
+        attempt: original.attempt,
+        max_attempts: original.max_attempts,
+        queue: original.queue,
+        worker: original.worker
+      )
+      |> Repo.update!()
+    end
+
+    # Oban's first execution legitimately increments its counter from zero to one.
+    Repo.get!(Oban.Job, original.id) |> Ecto.Changeset.change(attempt: 1) |> Repo.update!()
+    assert {:ok, cancelled} = OwnerReviews.cancel(@human, ctx.request["request_id"])
+
+    assert List.last(hd(cancelled["children"])["cancellation"]["observations"])["job_attempt"] ==
+             1
+
+    assert Repo.get!(Oban.Job, original.id).state == "cancelled"
+  end
+
   defp answer,
     do: %{
       "verdict" => "findings",
