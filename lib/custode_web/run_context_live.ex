@@ -67,6 +67,15 @@ defmodule CustodeWeb.RunContextLive do
             <h2 class="card-title">Exact adapter-entry context</h2>
             <p class="text-sm">{@receipt["payload_state"]}; provider receipt and use unknown.</p>
             <p :if={@receipt["exact_inline_layers"] == nil} class="text-sm">Payload is unavailable. Current files are not substituted.</p>
+            <section :if={@receipt["assignment_execution"]} id="run-context-documents" class="space-y-2">
+              <h3 class="font-semibold">Document retrieval receipts</h3>
+              <p class="text-sm">The host credential was available for this execution. Each separate receipt distinguishes prepared text from server-emitted text; model receipt and use remain unknown.</p>
+              <p :if={@receipt["document_retrievals"]["receipts"] == []} class="text-sm text-base-content/60">No retained document retrieval observed for this launch.</p>
+              <ul><li :for={row <- @receipt["document_retrievals"]["receipts"]}>
+                <.link navigate={"/subjects/" <> URI.encode_www_form(row["root_id"]) <> "?receipt=" <> URI.encode_www_form(row["receipt_id"])} class="link text-sm">{row["path"]} · {row["state"]} · revision {String.slice(row["revision"] || "", 0, 12)}</.link>
+              </li></ul>
+              <p :if={@receipt["document_retrievals"]["has_more"]} class="text-sm">The bounded receipt list may have more retained entries.</p>
+            </section>
             <details id="run-context-execution"><summary class="cursor-pointer font-semibold">Captured execution and layer manifest</summary><pre class="max-h-96 overflow-auto whitespace-pre-wrap text-xs">{Jason.encode!(Map.delete(@receipt, "exact_inline_layers"), pretty: true)}</pre></details>
             <details :if={@receipt["exact_inline_layers"]} id="run-context-inline"><summary class="cursor-pointer font-semibold">Exact retained inline instructions and prompt</summary><pre class="max-h-96 overflow-auto whitespace-pre-wrap text-sm">{Jason.encode!(@receipt["exact_inline_layers"], pretty: true)}</pre></details>
           </div>

@@ -60,6 +60,16 @@ defmodule Custode.MCP.Capabilities do
 
   @doc "Whether an authenticated identity may initialize this endpoint."
   @spec authorize_endpoint(endpoint(), identity()) :: :ok | {:error, String.t()}
+  def authorize_endpoint(:memory, %{subject_launch_id: _id} = actor) do
+    case Custode.SubjectAssignments.authorize(actor) do
+      :ok -> :ok
+      _refused -> {:error, "subject assignment execution is unavailable"}
+    end
+  end
+
+  def authorize_endpoint(_endpoint, %{subject_launch_id: _id}),
+    do: {:error, "subject assignment credential requires the memory endpoint"}
+
   def authorize_endpoint(:main, %{kind: :operator}), do: :ok
 
   def authorize_endpoint(:main, %{kind: :routine, id: id}) do
@@ -89,6 +99,9 @@ defmodule Custode.MCP.Capabilities do
 
   @doc "Tool names a caller may discover and invoke at an endpoint."
   @spec authorized_tool_names(endpoint(), identity()) :: :all | [String.t()]
+  def authorized_tool_names(:memory, %{subject_launch_id: _id}), do: ["subject_context"]
+  def authorized_tool_names(_endpoint, %{subject_launch_id: _id}), do: []
+
   def authorized_tool_names(:main, %{kind: :operator}), do: :all
 
   def authorized_tool_names(:main, %{kind: :routine, id: id}) do

@@ -23,6 +23,14 @@ defmodule Custode.MCP.Identity do
     GenServer.call(__MODULE__, {:mint, kind, id})
   end
 
+  @doc "Mint a separate host-issued, subject-only credential for one persisted helper launch."
+  def mint_assignment(id, launch_id) when is_binary(id) and is_binary(launch_id),
+    do: GenServer.call(__MODULE__, {:assignment, id, launch_id})
+
+  @doc "Revoke one launch credential without changing ordinary helper credentials."
+  def revoke_assignment(launch_id),
+    do: GenServer.call(__MODULE__, {:revoke_assignment, launch_id})
+
   @doc "Resolve a bearer token: `{:ok, %{kind: kind, id: id}}` | `:error`."
   def verify(token) when is_binary(token) do
     case :ets.lookup(@table, token) do
@@ -35,8 +43,9 @@ defmodule Custode.MCP.Identity do
 
   @doc "Return the live token for an identity, or `:error` when none was minted."
   def token(kind, id) when kind in [:operator, :routine, :sub_agent] do
-    case :ets.match(@table, {:"$1", %{kind: kind, id: id}}) do
-      [[token]] -> {:ok, token}
+    case :ets.match_object(@table, {:_, %{kind: kind, id: id}})
+         |> Enum.filter(fn {_token, actor} -> map_size(actor) == 2 end) do
+      [{token, _identity}] -> {:ok, token}
       [] -> :error
     end
   end
@@ -94,6 +103,17 @@ defmodule Custode.MCP.Identity do
   @impl GenServer
   def handle_call({:mint, kind, id}, _from, state) do
     {:reply, do_mint(kind, id), state}
+  end
+
+  def handle_call({:assignment, id, launch_id}, _from, state) do
+    token = 32 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
+    :ets.insert(@table, {token, %{kind: :sub_agent, id: id, subject_launch_id: launch_id}})
+    {:reply, token, state}
+  end
+
+  def handle_call({:revoke_assignment, launch_id}, _from, state) do
+    :ets.match_delete(@table, {:_, %{subject_launch_id: launch_id}})
+    {:reply, :ok, state}
   end
 
   defp do_mint(kind, id) do
