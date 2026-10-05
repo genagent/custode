@@ -26,10 +26,7 @@ defmodule Custode.Assurance.Native.CrashProof do
     request = context["launch"]
     id = context["case_id"]
 
-    unless row.id == request["request_id"] and row.case_id == id and
-             row.workspace == Path.join(options.root, "worker") and
-             row.fingerprint == Assurance.digest({@human, id, request}),
-           do: raise("original native reservation binding required before recovery")
+    validate_original!(row, context, options)
 
     configure(context)
     {:ok, replay} = Native.launch(@human, id, request)
@@ -70,6 +67,26 @@ defmodule Custode.Assurance.Native.CrashProof do
 
     write(options.root, "recovery-result.json", report)
     report
+  end
+
+  defp validate_original!(row, context, options) do
+    request = context["launch"]
+    attempt = row.record["attempt"]
+    open_matches = Enum.all?(~w(objective input artifact), &(attempt[&1] == context["open"][&1]))
+
+    assignment_matches =
+      Enum.all?(~w(criteria policy judge_id), &(attempt[&1] == context["assignment"][&1]))
+
+    identity_matches =
+      row.id == request["request_id"] and row.case_id == context["case_id"] and
+        row.workspace == Path.join(options.root, "worker") and
+        row.fingerprint == Assurance.digest({@human, context["case_id"], request})
+
+    profile_matches =
+      row.record["profile"]["configured_profile_digest"] == Assurance.digest(context["profile"])
+
+    unless identity_matches and profile_matches and open_matches and assignment_matches,
+      do: raise("original native reservation and frozen context binding required before recovery")
   end
 
   defp controls(before, replay, denied, stale, decision, projection) do
