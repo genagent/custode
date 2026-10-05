@@ -34,6 +34,8 @@ for table <- [
       "subject_document_operations",
       "context_receipts",
       "run_context_receipts",
+      "subject_assignment_launches",
+      "subject_assignments",
       "document_feedback",
       "peer_messages",
       "disowned_prs",

@@ -66,6 +66,7 @@ defmodule Custode.MCP.Server do
     Custode.MCP.CurrentRunTools.Read,
     Custode.MCP.OwnerReviewTools.Review,
     Custode.MCP.AssuranceTools.Read,
+    Custode.MCP.SubjectAssignmentTools.Configure,
     Custode.MCP.SubjectDocumentTools.Context,
     Custode.MCP.ReturnViewTools.View,
     Custode.MCP.IntegrationTools.List,

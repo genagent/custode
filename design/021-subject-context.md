@@ -191,3 +191,38 @@ Automatic assignment provisioning remains a separate authority design: current
 run_job/SubAgents workspace or identity rows do not encode an operator-admitted
 exact subject/destination grant. Deriving grants from these would widen authority.
 Keep manual configured exact destinations and #784 open for that remainder.
+
+
+### Admitted helper assignment launches
+
+`subject_assignment` is human-only. Admission requires one existing recorded helper
+with a current routine parent, a configured root, its expected configuration revision,
+the expected helper record ID, exact Markdown read paths, one create-only destination,
+and an expiry of 60 to 3600 seconds. It retains an idempotent operational receipt;
+there is at most one pending admission per helper and a hard limit of 1000 retained
+admissions. Admission enables no rights on ordinary helper tokens.
+
+Newly started Claude helpers use a host enqueue closure around the existing
+`ObanClaude.Agent.Job`. The first eligible durable delivery consumes one admission.
+One transaction pins its helper epoch, root revision, generated generation/turn,
+correlation, configuration identity, immutable job arguments and admission-message
+reference. A separate private configuration carries a subject-only credential.
+Only `subject_context` is discoverable through that credential. Every invocation
+requires the exact executing first attempt, unchanged job arguments/meta, current
+helper epoch and routine parent, unchanged configured root, unexpired admission and
+no revocation. Snoozes, retries and terminal executions do not retain authority.
+The enqueue callback avoids coordinator calls while a coordinator may be waiting
+on the helper; current parent authorization is rechecked before any document right
+is exercised. Root descriptor confinement remains the same as ordinary reads.
+
+The assignment destination permits exclusive creation only. Workspace paths,
+`accept_edits`, reports and parent requests do not imply root access. No directories
+are created in a subject root and no existing-document apply is enabled. Revocation,
+terminal adapter events and lazy cleanup remove scoped credentials/configurations;
+outputs and producer receipts remain. The persisted `settled` flag only closes
+document credentials; it never proves native descendants physically settled.
+The original parent execution is unknown
+because its ordinary caller credential identifies a routine rather than a turn.
+Legacy helper launches, human-parent epochs without typed ownership, and Codex
+helper provisioning are outside this initial launch slice. A migration and restart
+are required; existing helper launch configurations are unchanged until restarted.
