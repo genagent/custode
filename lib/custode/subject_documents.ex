@@ -41,6 +41,7 @@ defmodule Custode.SubjectDocuments do
         %{
           root_id: definition.id,
           subject: definition.subject,
+          configuration_revision: digest(definition),
           current_plan:
             if(includes?(grant.read_paths, definition[:current_plan]),
               do: definition[:current_plan]
@@ -109,7 +110,8 @@ defmodule Custode.SubjectDocuments do
       "request" => params,
       "actor" => json(actor),
       "producer" => producer,
-      "grant_revision" => digest(definition),
+      "grant_revision" =>
+        get_in(producer, ["assignment_execution", "grant_revision"]) || digest(definition),
       "binding" => binding,
       "status" => "prepared",
       "at" => DateTime.to_iso8601(DateTime.utc_now()),
@@ -267,6 +269,9 @@ defmodule Custode.SubjectDocuments do
       proposal_destinations: "all"
     }
 
+  defp grant(%{subject_launch_id: _id} = actor, definition),
+    do: Custode.SubjectAssignments.grant(actor, definition)
+
   defp grant(actor, definition) do
     entry = Enum.find(definition.grants, &(&1.kind == actor.kind and &1.id == actor.id))
 
@@ -323,6 +328,9 @@ defmodule Custode.SubjectDocuments do
 
   defp relative_path?(_path), do: false
 
+  defp current_identity(%{subject_launch_id: _id} = actor),
+    do: Custode.SubjectAssignments.authorize(actor)
+
   defp current_identity(%{kind: :operator, id: id}) when is_binary(id) and id != "", do: :ok
 
   defp current_identity(%{kind: :routine, id: id}) do
@@ -340,6 +348,9 @@ defmodule Custode.SubjectDocuments do
   end
 
   defp current_identity(_actor), do: {:error, "unauthenticated"}
+
+  defp producer(%{subject_launch_id: _id} = actor),
+    do: Custode.SubjectAssignments.producer(actor)
 
   defp producer(%{kind: :routine, id: id} = actor),
     do: json(%{identity: actor, observed_execution: ExecutionFacts.read(id)})
@@ -368,6 +379,12 @@ defmodule Custode.SubjectDocuments do
   end
 
   defp producer(actor), do: json(%{identity: actor, observed_execution: nil})
+
+  @doc "Configured roots are authority only after explicit assignment admission."
+  def assignment_root(root_id), do: Enum.find(definitions(), &(&1.id == root_id))
+
+  @doc false
+  def assignment_path?(path), do: relative_path?(path)
 
   @doc false
   def input_schema do

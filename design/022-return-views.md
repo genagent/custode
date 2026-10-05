@@ -152,3 +152,30 @@ new store, IDE or native delivery claim is added. Production tests cover Unicode
 boundaries, historical selection evidence, exact current grants, both HTTP
 protocols, external source/HEAD changes and unchanged source/index/HEAD effects.
 Fresh native instruction/handoff delivery acceptance remains separate scope.
+
+
+### Exact assignment execution and separate document retrieval evidence
+
+For an admitted helper turn, producer and retrieval receipts retain the exact host
+assignment, recorded helper epoch, persisted job, generated generation/turn,
+correlation/configuration identity and durable delivery reference. These values come
+from the host enqueue seam, not a caller execution ID or current-agent snapshot.
+Native session attribution, hidden context, model receipt and model use remain
+unknown. Private bearer tokens and configuration contents are never copied into
+Feed, output reports, MCP replies or adapter context payloads.
+
+An operator-only adapter receipt may record that a verified host assignment
+credential was available at adapter entry. Its detail separately lists up to 20
+retained document retrieval references, selected from the newest 100 for the helper
+and matched to that exact launch/job. Each reference preserves revision, payload
+hash, bytes, expiry and `prepared` or `server_emitted` state. Credential availability
+is not a retrieval, and server emission is not model receipt. The detail link opens
+the historical tool payload; current source bytes are not substituted. Current
+subject read grants still guard opening that payload. Output and retrieval history
+survive producer cleanup, while a fresh admitted worker reads current human edits
+and retained output through its own distinct host execution.
+
+Deterministic service, HTTP and launch tests prove this host boundary without model
+calls. Fresh native Tower/Travel workers and their actual context use remain a
+separate acceptance experiment after the launch path is deployed; test fixtures do
+not satisfy that native proof.

@@ -33,6 +33,7 @@ defmodule Custode.Application do
     Custode.ConversationArcs.attach()
     Custode.OperatorMessages.attach()
     Custode.RunContextReceipts.attach()
+    Custode.SubjectAssignments.attach()
     Custode.InboxWakes.attach()
     Barrier.attach()
     Custode.WorktreeBreadcrumb.attach()

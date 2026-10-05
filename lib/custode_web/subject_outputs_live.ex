@@ -226,6 +226,7 @@ defmodule CustodeWeb.SubjectOutputsLive do
         </details>
         <article :if={@receipt} id="context-receipt" class="card border border-base-300 bg-base-100"><div class="card-body">
           <h2 class="card-title">Historical tool payload</h2><p class="text-sm">{@receipt["state"]}; model receipt and use unknown. Hidden native context unavailable.</p>
+          <p class="text-sm">Execution binding: {@receipt["execution_binding"]}. This historical payload is separate from the current document.</p>
           <p :if={@receipt["payload_state"] == "expired"}>Payload expired. Current files are not substituted.</p>
           <details :if={@receipt["exact_tool_text"]} id="receipt-content"><summary class="cursor-pointer">Exact retained text</summary><pre class="max-h-96 overflow-auto whitespace-pre-wrap text-sm">{@receipt["exact_tool_text"]}</pre></details>
         </div></article>
