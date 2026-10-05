@@ -53,6 +53,29 @@ defmodule Custode.SubprocessCleanupTest do
     assert_stopped(context.dir)
   end
 
+  test "a continuously emitting stream obeys the deadline and stops its child", context do
+    assert ClaudeWrapper.Runner.impl() == Custode.Workflow.ClaudeRunner
+    File.touch!(Path.join(context.dir, "stream"))
+
+    task =
+      Task.async(fn ->
+        "fixture"
+        |> ClaudeWrapper.stream(
+          binary: context.binary,
+          working_dir: context.dir,
+          timeout: 500
+        )
+        |> Enum.to_list()
+      end)
+
+    on_exit(fn -> if Process.alive?(task.pid), do: Process.exit(task.pid, :kill) end)
+    outcome = Task.yield(task, 5_000) || Task.shutdown(task, :brutal_kill)
+    assert {:ok, events} = outcome
+    assert Enum.any?(events, &(&1.type == "system"))
+    assert %{type: "error", data: %{"error" => "stream_truncated"}} = List.last(events)
+    assert_stopped(context.dir)
+  end
+
   test "terminating the worker owner stops its CLI and child", context do
     owner = spawn(fn -> ObanClaude.Agent.Job.perform(job(context, 30_000)) end)
     on_exit(fn -> if Process.alive?(owner), do: Process.exit(owner, :kill) end)
