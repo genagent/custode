@@ -2,6 +2,7 @@
 # runs), so truncate everything for hermetic runs -- the earlier "passes
 # alone, fails on the third run" class of flake came from exactly this.
 Custode.Repo.query!("UPDATE work_items SET parent_id = NULL")
+Custode.Repo.query!("DELETE FROM workflow_runner_observations")
 Custode.Repo.query!("DELETE FROM workflow_node_results")
 Custode.Repo.query!("DELETE FROM workflow_runs")
 Custode.Repo.query!("UPDATE artifacts SET producer_attempt_id = NULL")

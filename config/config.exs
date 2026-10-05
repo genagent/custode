@@ -1,7 +1,7 @@
 import Config
 
 # The routine query path must reap subprocesses when its owner exits.
-config :claude_wrapper, runner: ClaudeWrapper.Runner.Forcola
+config :claude_wrapper, runner: Custode.Workflow.ClaudeRunner
 
 # Provider Tick jobs enter Custode's live-configuration boundary immediately
 # before they inspect, start or deliver to an agent. Configure the hooks before
