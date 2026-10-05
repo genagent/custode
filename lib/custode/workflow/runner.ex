@@ -176,9 +176,10 @@ defmodule Custode.Workflow.Runner do
   A node reported in. Persists its result and walks the run forward -- the
   `ObanClaude.Agent.job_finished/2` analogue.
 
-  A result that did not honour its schema is stored as its text under `"text"`
-  and noted on the run rather than dropped: a downstream digest of prose is
-  worse than a digest of JSON, and silently nothing is worse than both.
+  Legacy runs retain prose fallback under `"text"` when output does not honour
+  its schema. Runs with the versioned result contract validate the frozen schema
+  before storing a result; invalid output fails the current stage without
+  replacing previously accepted results.
   """
   def node_finished(%{"workflow_run" => run_id} = meta, result) do
     {:ok, outcome} =

@@ -126,6 +126,13 @@ defmodule Custode.WorkflowResultContractTest do
     for schema <- [
           Map.put(@schema, "oneOf", [%{"required" => ["missing"]}]),
           Map.put(@schema, "multipleOf", 3),
+          Map.put(@schema, "$schema", "https://example.invalid/schema"),
+          Map.put(@schema, "$schema", "http://json-schema.org/draft-04/schema#"),
+          put_in(
+            @schema,
+            ["properties", "value", "$schema"],
+            "https://json-schema.org/draft/2020-12/schema"
+          ),
           Map.put(@schema, "properties", []),
           put_in(@schema, ["properties", "value", "type"], "unknown"),
           put_in(@schema, ["properties", "value", "minLength"], 2)

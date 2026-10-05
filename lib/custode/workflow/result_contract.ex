@@ -9,7 +9,7 @@ defmodule Custode.Workflow.ResultContract do
   @sizes ~w(minItems maxItems minProperties maxProperties)
   @bounds ~w(minimum maximum exclusiveMinimum exclusiveMaximum)
   @json_types ~w(object array string boolean number integer null)
-  @annotations ~w(title description default examples $schema $id $comment deprecated readOnly writeOnly)
+  @annotations ~w(title description default examples $id $comment deprecated readOnly writeOnly)
 
   def version, do: @version
   def required?(run), do: Map.has_key?(run.context, "result_contract_version")

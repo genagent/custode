@@ -91,7 +91,8 @@ Already queued legacy jobs keep their previous text fallback and remain unbound.
 
 The versioned validator accepts type, required, recursive properties/items and
 additionalProperties, enum/const, numeric bounds, uniqueItems, and array/object
-size bounds. Schema annotations have no assertion meaning. Other assertions,
+size bounds. Schema annotations have no assertion meaning. Explicit `$schema`
+dialect declarations are refused at every nesting level. Other assertions,
 including references/combinators, format, pattern, multipleOf and string length
 bounds, are unavailable rather than ignored. This avoids claiming full JSON
 Schema conformance from the current basic validator.
