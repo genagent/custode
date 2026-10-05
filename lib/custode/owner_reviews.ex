@@ -9,6 +9,7 @@ defmodule Custode.OwnerReviews do
     ExecutionFacts,
     Feed,
     Gates,
+    OwnerReviewCancellation,
     OwnerReviewContract,
     Repo,
     Routine,
@@ -57,13 +58,31 @@ defmodule Custode.OwnerReviews do
   end
 
   def cancel(actor, id) do
+    with {:ok, _intent} <- prepare_cancel(actor, id),
+         :ok <- deliver_cancellations(actor, id) do
+      read(actor, id)
+    end
+  end
+
+  @doc false
+  def prepare_cancel(actor, id) do
+    with %Row{} = row <- Repo.get(Row, id),
+         {:ok, owner} <- authorize(actor, row.owner_id) do
+      scoped_mutation(owner, fn -> mutate(id, &cancel_record(&1, owner)) end)
+      |> project_reply()
+    else
+      nil -> {:error, :unknown_review}
+      error -> error
+    end
+  end
+
+  @doc "Persist job observations and recover pending cancellation without relaunch or settlement claims."
+  def reconcile(actor, id) do
     with %Row{} = row <- Repo.get(Row, id),
          {:ok, owner} <- authorize(actor, row.owner_id),
-         {:ok, record} <- scoped_mutation(owner, fn -> mutate(id, &cancel_record(&1, owner)) end) do
-      for child <- record["children"], child["status"] in ~w(queued running) do
-        Oban.cancel_job(child["job_id"])
-      end
-
+         {:ok, _record} <-
+           scoped_mutation(owner, fn -> mutate(id, &reconcile_record(&1, owner)) end),
+         :ok <- deliver_cancellations(actor, id) do
       read(actor, id)
     else
       nil -> {:error, :unknown_review}
@@ -71,18 +90,40 @@ defmodule Custode.OwnerReviews do
     end
   end
 
-  @doc "Persist missing terminal receipts without rerunning or claiming process settlement."
-  def reconcile(actor, id) do
+  defp deliver_cancellations(actor, id) do
+    case Repo.get(Row, id) do
+      nil -> {:error, :unknown_review}
+      row -> Enum.reduce_while(row.record["children"], :ok, &deliver_pending(&1, &2, actor, id))
+    end
+  end
+
+  defp deliver_pending(child, :ok, actor, id) do
+    if OwnerReviewCancellation.pending?(child) do
+      case deliver_cancellation(actor, id, child["slot"]) do
+        {:ok, _record} -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    else
+      {:cont, :ok}
+    end
+  end
+
+  defp deliver_cancellation(actor, id, slot) do
     with %Row{} = row <- Repo.get(Row, id),
          {:ok, owner} <- authorize(actor, row.owner_id) do
       scoped_mutation(owner, fn ->
-        mutate(id, &reconcile_record(&1, owner))
+        mutate(id, &deliver_cancel_record(&1, owner, slot))
       end)
-      |> project_reply()
     else
       nil -> {:error, :unknown_review}
       error -> error
     end
+  end
+
+  defp deliver_cancel_record(record, owner, slot) do
+    current_owner!(owner)
+    child = Enum.find(record["children"], &(&1["slot"] == slot))
+    replace_child(record, OwnerReviewCancellation.deliver(child, record))
   end
 
   @doc false
@@ -661,15 +702,20 @@ defmodule Custode.OwnerReviews do
 
   defp reconcile_record(record, owner) do
     current_owner!(owner)
+
+    record =
+      if record["cancel_requested"], do: OwnerReviewCancellation.prepare(record), else: record
+
     Map.put(record, "children", Enum.map(record["children"], &reconcile_child/1))
   end
 
   defp cancel_record(record, owner) do
     current_owner!(owner)
-    Map.put(record, "cancel_requested", true)
+    OwnerReviewCancellation.prepare(record)
   end
 
   defp reconcile_child(child) do
+    child = OwnerReviewCancellation.retain_job_observation(child)
     projected = project_child(child)
 
     if projected == child do
@@ -690,6 +736,13 @@ defmodule Custode.OwnerReviews do
           "status" => "unconfirmed",
           "job_state" => terminal,
           "settlement" => if(status == "queued", do: "launch_unknown", else: "unknown")
+        })
+
+      {status, nil} when status in ~w(queued running) ->
+        Map.merge(child, %{
+          "status" => "unconfirmed",
+          "job_state" => "missing",
+          "settlement" => "unknown"
         })
 
       _other ->
