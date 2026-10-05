@@ -66,8 +66,9 @@ as ordinary normalized events in this release.
 
 The updated standalone project resolves and compiles both released adapters
 with Custode's exact current engines and wrappers: ObanClaude 0.10.1,
-ObanCodex 0.7.0, ClaudeWrapper 0.15.2, CodexWrapper 0.6.0 and Forcola 0.6.0.
-The previous wrapper-version conflict is resolved. Root dependencies remain unchanged.
+ObanCodex 0.7.0, ClaudeWrapper 0.15.3, CodexWrapper 0.6.0 and Forcola 0.6.0.
+The previous wrapper-version conflict is resolved. The root lockfile adopts the
+ClaudeWrapper patch; production GenAgent dependencies remain absent.
 
 Six provider tests use the actual default backends, wrapper argument builders
 and frame parsers with a runner fixture that cannot launch a subprocess.
@@ -78,13 +79,17 @@ runner. The optional cleanup runner modules compile with the same Forcola
 release. This is released API interoperability, not durable Custode restore,
 live CLI flag conformance or process settlement.
 
-An exact deadline blocker remains in ClaudeWrapper 0.15.2 streaming:
-`Query.do_stream/2` passes `nil` as the runner timeout even when Config holds
-an explicit value. The provider fixture records that gap; the Codex path
-passes the requested deadline on fresh and resumed execution. The upstream
-session owns the wrapper fix. Custode's existing one-shot Claude execution
-uses a separate timeout path. Compatible package constraints alone do not
-make the standing host ready.
+ClaudeWrapper 0.15.3 fixes the streaming deadline dropped by 0.15.2
+([wrapper PR #283](https://github.com/genagent/claude_wrapper_ex/pull/283)).
+The provider fixture now requires the requested runner timeout on both fresh
+and resumed Claude streams, as it does for Codex. An additional root test uses
+a continuously emitting no-model CLI through Custode's configured Forcola
+runner: the finite deadline ends the stream with observable truncation and
+stops the fixture parent and child before their delayed write. This bounded
+fixture check does not establish arbitrary subprocess-tree settlement,
+Custode restore or native provider conformance. The default Port runner still
+cannot guarantee subprocess-tree cleanup. Compatible package constraints and
+runner deadlines alone do not make the standing host ready.
 
 ## Decision and implementation boundary
 

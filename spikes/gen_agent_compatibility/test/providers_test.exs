@@ -102,10 +102,8 @@ defmodule CustodeGenAgentProof.ProvidersTest do
 
     {:ok, session} = Claude.start_session(options)
     {events, session} = consume(Claude, session, "first")
-    assert_receive {:launch, :claude, initial, opts, nil}
+    assert_receive {:launch, :claude, initial, opts, 500}
     assert opts[:cd] == System.tmp_dir!()
-    # Released Claude streaming discards Config.timeout. This is a host blocker,
-    # not proof of a 500ms runner deadline. The one-shot path is separate.
     assert session.opts[:timeout] == 500
     refute "--resume" in initial
     assert_claude_policy(initial)
@@ -114,7 +112,7 @@ defmodule CustodeGenAgentProof.ProvidersTest do
 
     {:ok, restored} = Claude.resume_session(session.session_id, options)
     consume(Claude, restored, "second")
-    assert_receive {:launch, :claude, resumed, _, nil}
+    assert_receive {:launch, :claude, resumed, _, 500}
     assert pair?(resumed, "--resume", "claude-fixture")
     assert_claude_policy(resumed)
   end

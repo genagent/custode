@@ -2,7 +2,7 @@
 
 This separate Mix project pins core 0.6.2, ensemble 0.6.1, Claude adapter 0.2.6
 and Codex adapter 0.5.0 alongside Custode's current ObanClaude 0.10.1,
-ObanCodex 0.7.0, ClaudeWrapper 0.15.2, CodexWrapper 0.6.0 and Forcola 0.6.0.
+ObanCodex 0.7.0, ClaudeWrapper 0.15.3, CodexWrapper 0.6.0 and Forcola 0.6.0.
 Its lockfile
 records a resolved, compiled released dependency set. It does not add runtime
 dependencies to Custode.
@@ -39,15 +39,18 @@ with Custode's pinned cleanup dependency; no process settlement is tested.
 These tests call backend callbacks directly; the core/coordinator tests above
 use a separate fixture backend.
 
-A remaining deadline gap is explicit: Claude accepts `timeout: 500`, but
-ClaudeWrapper 0.15.2 streaming calls the runner with `nil`. The fixture asserts
-that observed limitation rather than claiming an enforced deadline. Codex
-passes the requested timeout on both fresh and resumed streams. The current
-Custode one-shot Claude query is a separate path. `tools: [""]` supplies the
-empty CLI tool argument; `tools: []` merely omits that flag.
+The fresh and resumed provider fixtures require the explicit `timeout: 500`
+to reach both Claude and Codex runners. ClaudeWrapper 0.15.3 fixes the dropped
+streaming deadline in 0.15.2. This standalone runner cannot prove elapsed-time
+enforcement or cleanup. The root `Custode.SubprocessCleanupTest` additionally
+checks a continuously emitting no-model CLI through the configured Forcola
+runner, including terminal truncation and fixture parent/child cleanup. The
+default Port runner still cannot guarantee subprocess-tree cleanup.
+`tools: [""]` supplies the empty CLI tool argument; `tools: []` merely omits
+that flag.
 
-No provider CLI, paid request, live fleet, network MCP endpoint, approval gate or
-external subprocess is exercised. Killing the fixture task does not prove that
+In this standalone project, no provider CLI, paid request, live fleet, network
+MCP endpoint, approval gate or external subprocess is exercised. Killing the fixture task does not prove that
 Claude/Codex subprocesses have stopped. Source inspection of released provider
 adapters is recorded in design/016 and design/017. The core's optional restore
 callback is not automatically called; a host must persist and supply the id.

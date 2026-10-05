@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A no-LLM CLI with one observable child, used by the actual Oban worker."""
+"""A no-LLM CLI with one observable child, used by worker and stream tests."""
 import json
 import os
 from pathlib import Path
@@ -28,4 +28,9 @@ def stop(_signum, _frame):
 
 signal.signal(signal.SIGTERM, stop)
 (root / "pids").write_text(f"{os.getpid()} {child.pid}")
-child.wait()
+if (root / "stream").exists():
+    while child.poll() is None:
+        print(json.dumps({"type": "system", "subtype": "init", "session_id": "fake-session"}), flush=True)
+        time.sleep(0.05)
+else:
+    child.wait()

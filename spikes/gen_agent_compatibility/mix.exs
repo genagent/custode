@@ -13,7 +13,7 @@ defmodule CustodeGenAgentProof.MixProject do
         {:gen_agent_codex, "== 0.5.0"},
         {:oban_claude, "== 0.10.1"},
         {:oban_codex, "== 0.7.0"},
-        {:claude_wrapper, "== 0.15.2"},
+        {:claude_wrapper, "== 0.15.3"},
         {:codex_wrapper, "== 0.6.0"},
         {:forcola, "== 0.6.0"}
       ]
