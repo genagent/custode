@@ -250,7 +250,7 @@ def projection(private):
                       "decision": case["recovery"]["decision"]["status"]})
     return {"schema": "custode.native-crash-public.v1", "synthetic": private["synthetic"],
             "source_revision": private["source_revision"], "source_sha256": private["source_sha256"],
-            "status": private["status"], "native_invocation_requests": private["native_invocation_requests"], "cases": cases,
+            "status": private["status"], "model_launch_requests": private["model_launch_requests"], "cases": cases,
             "limits": ["No positive all-descendant settlement or reservation release.",
                        "No automatic retry, effect authority or human acceptance.",
                        "Initialization establishes a native session, not completed inference or quality.",
@@ -273,10 +273,12 @@ def main():
     root.chmod(0o700)
     sources = ["spikes/assurance/native_crash.py", "lib/custode/assurance/native/crash_proof.ex",
                "lib/mix/tasks/custode.assurance.crash_proof.ex", "test/fixtures/assurance_crash_cli.py",
-               "lib/custode/assurance/native.ex", "lib/custode/verification/runner.ex", "mix.lock"]
+               "lib/custode/assurance/native.ex", "lib/custode/assurance/native/events.ex",
+               "lib/custode/verification/runner.ex", "priv/assurance_native/baseline.py",
+               "priv/assurance_native/verify.py", "mix.lock"]
     private = {"schema": "custode.native-crash-private.v1", "synthetic": args.synthetic, "status": "incomplete",
                "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
-               "native_invocation_requests": 0, "source_sha256": {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in sources}, "cases": []}
+               "model_launch_requests": 0, "source_sha256": {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in sources}, "cases": []}
     snapshots = root / "source"
     snapshots.mkdir(mode=0o700)
     for name in sources:
@@ -286,7 +288,7 @@ def main():
         target.chmod(0o600)
     write(root / "report-private.json", private)
     for provider in ["claude", "codex"]:
-        private["native_invocation_requests"] += 1
+        private["model_launch_requests"] += 1
         write(root / "report-private.json", private)
         case = crash_case(args, provider, root / provider)
         private["cases"].append(case)

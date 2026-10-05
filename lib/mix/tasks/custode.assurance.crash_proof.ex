@@ -82,14 +82,12 @@ defmodule Mix.Tasks.Custode.Assurance.CrashProof do
   defp private_dir?(path), do: private?(path, :directory)
   defp private_file?(path), do: private?(path, :regular)
 
-  defp private?(path, type) when is_binary(path) do
+  defp private?(path, type) do
     case File.lstat(path) do
       {:ok, %{type: ^type, mode: mode}} -> Bitwise.band(mode, 0o077) == 0
       _other -> false
     end
   end
-
-  defp private?(_path, _type), do: false
 
   defp boot(options) do
     root = options.root

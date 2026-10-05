@@ -53,7 +53,7 @@ class ControllerTest(unittest.TestCase):
                     recovery={"native_record": {"secret": "secret"}, "controls": {key: True for key in proof.CONTROL_KEYS},
                               "decision": {"status": "escalated"}})
         private = {"cases": [case], "synthetic": True, "source_revision": "hash", "source_sha256": {},
-                   "status": "passed", "native_invocation_requests": 2}
+                   "status": "passed", "model_launch_requests": 2}
         self.assertNotIn("secret", json.dumps(proof.projection(private)))
 
 
