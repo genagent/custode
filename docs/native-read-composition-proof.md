@@ -183,8 +183,9 @@ retained traces identify the original caller and three underlying operations.
 No model is launched, and executable queues and schedulers are disabled.
 
 Private manifests and source copies bind every phase to the same exact source
-files and lockfile. The recorded checkout commit precedes the uncommitted proof
-implementation; the file hashes and copies bind the executed source. These are
+files and lockfile. The final repeat uses a committed implementation after
+integration with current main. Earlier prototype runs recorded uncommitted
+source using file hashes and copies; those are separate from the final repeat. These are
 process-reconstruction results, not evidence that a held Claude or Codex session
 received changed catalogs or prompts. No native identifiers, private capture
 hashes, account data or raw answers are added to this public report.
