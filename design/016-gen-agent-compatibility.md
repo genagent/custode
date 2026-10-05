@@ -8,12 +8,14 @@ runtime. #596 and #708 do not wait for this migration.
 
 Source reviewed at upstream 7ce6250650224bab8fffacd2641b3e4f1ce6147c and release
 tags. The standalone proof pins the packages it executes, not upstream main.
+The provider rows were refreshed against published Claude 0.2.6 and Codex
+0.5.0 archives on 2026-10-05; their tarball checksums match Hex metadata.
 
 | Package | Released version | Usable boundary | Remaining host responsibility |
 |---|---|---|---|
 | gen_agent | 0.6.2 | Streaming backend, correlated completion, active-turn checkpoint callback, interruption, bounded runtime snapshot | Durable checkpoint/restore, per-turn exact execution policy, normalized durable projections |
-| gen_agent_claude | 0.2.5 | Captured model/effort/tools/limits, session checkpoint, explicit resume helper | Correlate early id with durable admitted turn; rebuild safely when approved options change |
-| gen_agent_codex | 0.4.8 | Captured exec/sandbox/schema options, thread checkpoint, explicit resume helper | Preserve resume-option constraints and known/unknown cumulative usage baseline |
+| gen_agent_claude | 0.2.6 | Captured model/effort/tools/limits, session checkpoint, explicit resume helper | Correlate early id with durable admitted turn; rebuild safely when approved options change |
+| gen_agent_codex | 0.5.0 | Captured exec/sandbox/schema options, thread checkpoint, explicit resume helper | Preserve resume-option constraints and known/unknown cumulative usage baseline |
 | gen_agent_ensemble | 0.6.1 | Pool and other strategies, correlated completion, poll/await/cancel | Durable parent/child records, aggregate admission, external settlement |
 
 Core 0.7.0 is pending in upstream PR 313. External stream_to, list/0 and response
@@ -59,6 +61,30 @@ No actual provider CLI, live policy, durable Custode restore or approval
 continuation was tested. Fixed-profile reconstruction demonstrates an available
 seam, not complete canary parity. Session initialization events are not exposed
 as ordinary normalized events in this release.
+
+## Released provider coexistence follow-up
+
+The updated standalone project resolves and compiles both released adapters
+with Custode's exact current engines and wrappers: ObanClaude 0.10.1,
+ObanCodex 0.7.0, ClaudeWrapper 0.15.2, CodexWrapper 0.6.0 and Forcola 0.6.0.
+The previous wrapper-version conflict is resolved. Root dependencies remain unchanged.
+
+Six provider tests use the actual default backends, wrapper argument builders
+and frame parsers with a runner fixture that cannot launch a subprocess.
+Fresh and resumed captured policy, early checkpoints before failure, final
+response selection, unknown restored Codex usage and subsequent known deltas
+are exercised. Unsupported continuation/cap options are refused before the
+runner. The optional cleanup runner modules compile with the same Forcola
+release. This is released API interoperability, not durable Custode restore,
+live CLI flag conformance or process settlement.
+
+An exact deadline blocker remains in ClaudeWrapper 0.15.2 streaming:
+`Query.do_stream/2` passes `nil` as the runner timeout even when Config holds
+an explicit value. The provider fixture records that gap; the Codex path
+passes the requested deadline on fresh and resumed execution. The upstream
+session owns the wrapper fix. Custode's existing one-shot Claude execution
+uses a separate timeout path. Compatible package constraints alone do not
+make the standing host ready.
 
 ## Decision and implementation boundary
 

@@ -61,7 +61,7 @@ jobs:
             spikes/gen_agent_compatibility/deps
             spikes/gen_agent_compatibility/_build
           key: gen-agent-proof-${{ runner.os }}-${{ hashFiles('spikes/gen_agent_compatibility/mix.lock') }}
-      - name: Released runtime and ensemble contract
+      - name: Released runtime, provider and ensemble contract
         working-directory: spikes/gen_agent_compatibility
         run: |
           mix deps.get
