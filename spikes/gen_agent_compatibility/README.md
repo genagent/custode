@@ -1,7 +1,11 @@
 # Released GenAgent compatibility proof
 
-This separate Mix project pins core 0.6.2 and ensemble 0.6.1. Its lockfile is
-part of the proof. It does not add runtime dependencies to Custode.
+This separate Mix project pins core 0.6.2, ensemble 0.6.1, Claude adapter 0.2.6
+and Codex adapter 0.5.0 alongside Custode's current ObanClaude 0.10.1,
+ObanCodex 0.7.0, ClaudeWrapper 0.15.2, CodexWrapper 0.6.0 and Forcola 0.6.0.
+Its lockfile
+records a resolved, compiled released dependency set. It does not add runtime
+dependencies to Custode.
 
 From this directory:
 
@@ -24,6 +28,23 @@ The six tests use the real released core/coordinator with a fixture backend:
 - Two concurrent reviews, success and partial failure, and repeated actual child
   completion envelopes cannot replace their results or notify twice.
 - Cancellation closes the token; actual late child envelopes remain fenced.
+
+Six additional tests exercise the default released provider backends through
+actual wrapper argument builders and parsers, with an in-memory runner that
+cannot start a subprocess. They cover fresh/resumed model, effort, schema and
+permission arguments, early identities before failure, final Codex response
+text, unknown usage on external restore, later known deltas and unsupported
+continuation/cap options. The optional Forcola runner modules also compile
+with Custode's pinned cleanup dependency; no process settlement is tested.
+These tests call backend callbacks directly; the core/coordinator tests above
+use a separate fixture backend.
+
+A remaining deadline gap is explicit: Claude accepts `timeout: 500`, but
+ClaudeWrapper 0.15.2 streaming calls the runner with `nil`. The fixture asserts
+that observed limitation rather than claiming an enforced deadline. Codex
+passes the requested timeout on both fresh and resumed streams. The current
+Custode one-shot Claude query is a separate path. `tools: [""]` supplies the
+empty CLI tool argument; `tools: []` merely omits that flag.
 
 No provider CLI, paid request, live fleet, network MCP endpoint, approval gate or
 external subprocess is exercised. Killing the fixture task does not prove that
