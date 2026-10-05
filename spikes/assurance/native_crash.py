@@ -110,9 +110,10 @@ def observe(directory, process, deadline, provider, observed):
         rows = snapshot()
         for pid in descendants(process.pid, rows):
             old = observed.get(pid)
-            if old is not None and not same(old, rows[pid]):
+            if old is not None and old["started"] != rows[pid]["started"]:
                 raise ValueError("controlled process identity changed")
             observed[pid] = rows[pid]
+        write(directory / "startup-identities.json", list(observed.values()))
         state = directory / "proof" / "case-state.json"
         if state.is_file():
             context = json.loads(state.read_text())
