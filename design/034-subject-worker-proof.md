@@ -31,7 +31,11 @@ this proof record, design/021 acceptance accounting and shared MCP behavior/
 generated reference notes. Native-observation callback tests also assert inside
 the existing eventually helper so asynchronous capture is awaited; its retry
 contract catches assertion failures, not false predicate returns. The initial
-plan-head CI exposed this existing synchronization race at seed 564702.
+plan-head CI exposed this existing synchronization race at seed 564702. A second
+CI seed, 670873, exposed the status-vocabulary fixture's unisolated whole-fleet
+default selection and registry-before-durable-gate window. Its setup now clears
+attention, waits for its exact durable gate and asserts its own selected subject
+before comparing vocabulary; production selection and labels are unchanged.
 No new authority, provider option, scheduler, store, migration, native conformance,
 model receipt/use, OS confinement or physical-settlement claim. The completed
 scoped-MCP acceptance accounting is recorded in design/021; #784 disposition
@@ -41,8 +45,9 @@ Validation: the five baseline gates passed before plan publication. Integrated
 main 66cf0c4, including #829 and #830; independent code/fixture/acceptance review
 passed. All five gates and generated-reference check passed after the callback
 repair; the full suite passed 2485 checks (30 doctests, 2455 tests), three excluded,
-under the failing CI seed 564702, with zero Dialyzer errors. The combined 72-test
-regression group passes required seeds 1, 12345 and 777. Exact updated-head CI
+under the failing CI seed 670873, with zero Dialyzer errors. The earlier callback
+repair also passed full seed 564702. The combined 80-test subject/context/runner/
+status-vocabulary regression group passes required seeds 1, 12345 and 777. Exact updated-head CI
 remains a merge requirement. Validation uses the inactive sibling's own database,
 port and external temporary directory.
 

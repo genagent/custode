@@ -250,7 +250,7 @@ controlled-worker criterion.
 nested host metadata is canonicalized to JSON before scoped policy writes and
 immutable binding. Unsupported values and colliding JSON keys refuse before job
 insertion; existing bindings are never rehashed or bypassed. The controlled
-subject/receipt/runner regression group passes 72 tests under each required seed
+subject/receipt/runner/status-vocabulary regression group passes 80 tests under each required seed
 1, 12345 and 777 after integration with the output-navigation and runner-observation
 slices. All five repository gates and exact updated-head CI remain publication
 and merge requirements.
