@@ -59,6 +59,7 @@ defmodule Custode.Workflow.Runner do
   alias Custode.Workflow
   alias Custode.Workflow.Catalog
   alias Custode.Workflow.Definition
+  alias Custode.Workflow.ExecutionPolicy
   alias Custode.Workflow.Launch
   alias Custode.Workflow.NodeJob
   alias Custode.Workflow.Report
@@ -634,10 +635,7 @@ defmodule Custode.Workflow.Runner do
       |> put_unless_nil(:model, planned.settings.model)
       |> put_effort(planned.settings.effort)
       |> ObanClaude.Args.new()
-      |> Custode.IntegrationCatalog.apply_claude(%{
-        agent_id: "workflow-" <> run.run_id,
-        audience: "workflow"
-      })
+      |> execution_args(run)
 
     meta =
       %{
@@ -669,6 +667,17 @@ defmodule Custode.Workflow.Runner do
         )
 
         Run.fail(run.run_id, "could not enqueue #{planned.node_name}: #{inspect(reason)}")
+    end
+  end
+
+  defp execution_args(args, run) do
+    if ExecutionPolicy.selected?(run) do
+      ExecutionPolicy.admit_args(args)
+    else
+      Custode.IntegrationCatalog.apply_claude(args, %{
+        agent_id: "workflow-" <> run.run_id,
+        audience: "workflow"
+      })
     end
   end
 

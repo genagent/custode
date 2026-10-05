@@ -106,3 +106,14 @@ host callback without an attempt observation remains attempt_binding=unavailable
 Operating note: pull, migrate and restart for the nullable result validation
 column and new-launch contract. No existing result acquires historical evidence
 retroactively. Existing launch approval and budget-rail resume remain separate.
+
+## Explicit new-job execution profile
+
+Design/030 adds an opt-in `custode.workflow_tool_free.v1` definition profile.
+Its frozen host policy pins empty built-in tools/MCP, sealed settings and hooks,
+a fresh single native turn, admitted USD stop and whole-command deadline.
+Default workflows and historical definition fingerprints stay unchanged.
+The retained result contract includes exact effective query options/package
+versions for selected jobs and refuses altered or missing policy bindings.
+This is a requested host profile, not native conformance, all-descendant
+settlement, a hard token cap or a retry grant. RetryStatus still refuses retry.

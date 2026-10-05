@@ -1,7 +1,7 @@
 defmodule Custode.Workflow.ResultContract do
   @moduledoc "Frozen host callback validation; never native execution or replay authority."
   alias Custode.Repo
-  alias Custode.Workflow.{NodeJob, Results, Run}
+  alias Custode.Workflow.{ExecutionPolicy, NodeJob, Results, Run}
   alias Snodo.Schema.Validator.Basic
 
   @version "custode.workflow_result_contract.v1"
@@ -23,10 +23,14 @@ defmodule Custode.Workflow.ResultContract do
       "pinned_policy_sha256" => policy_revision(),
       "schema" => decode_schema(args["json_schema"])
     }
+    |> ExecutionPolicy.bind(run, args)
   end
 
   def check(run, job) do
     cond do
+      ExecutionPolicy.check(run, job) != :ok ->
+        {:error, :workflow_execution_policy_unbound}
+
       not required?(run) ->
         :ok
 
@@ -80,16 +84,27 @@ defmodule Custode.Workflow.ResultContract do
 
   defp matches_node?(_node, _stage, _job), do: false
 
-  def launch_check(%{meta: %{"workflow_run" => id}} = job) do
+  def launch_check(%{meta: %{"workflow_run" => id}} = job) when is_binary(id) do
     case Run.get(id) do
       nil -> if(job.meta["result_contract"], do: {:error, :unknown_run}, else: :ok)
       run -> check_launch(run, job)
     end
   end
 
-  def launch_check(_job), do: :ok
+  def launch_check(job) do
+    if Map.has_key?(job.meta, "result_contract"),
+      do: {:error, :workflow_execution_not_current},
+      else: :ok
+  end
 
   defp check_launch(run, job) do
+    case ExecutionPolicy.check(run, job) do
+      :ok -> check_result_launch(run, job)
+      {:error, _reason} -> {:error, :workflow_execution_policy_unbound}
+    end
+  end
+
+  defp check_result_launch(run, job) do
     if required?(run) do
       with :ok <- check(run, job),
            true <-

@@ -21,6 +21,13 @@ defmodule Custode.Workflow do
         ]
       }
 
+  ## Opt-in execution profile
+
+  A reviewed definition may select `execution_profile: "custode.workflow_tool_free.v1"`
+  for analysis of supplied input with empty native tools/MCP and sealed settings.
+  The exact host policy is frozen on new jobs. Built-in workflows retain their
+  current policy. This does not attest native confinement or allow failed-stage retry.
+
   ## Stages are barriers
 
   A stage starts when the previous one has all its results. With the
@@ -61,7 +68,7 @@ defmodule Custode.Workflow do
   alias Custode.Workflow.Stage
 
   @enforce_keys [:name, :stages]
-  defstruct [:name, :stages, model: nil, effort: nil, report: nil]
+  defstruct [:name, :stages, model: nil, effort: nil, report: nil, execution_profile: nil]
 
   @type report :: %{node: atom(), key: String.t(), filename: String.t()}
 
@@ -70,7 +77,8 @@ defmodule Custode.Workflow do
           stages: [Stage.t()],
           model: String.t() | nil,
           effort: String.t() | nil,
-          report: report() | nil
+          report: report() | nil,
+          execution_profile: String.t() | nil
         }
 
   defmodule Node do
@@ -126,7 +134,8 @@ defmodule Custode.Workflow do
       stages: stages,
       model: Keyword.get(opts, :model),
       effort: Keyword.get(opts, :effort),
-      report: Keyword.get(opts, :report)
+      report: Keyword.get(opts, :report),
+      execution_profile: Keyword.get(opts, :execution_profile)
     }
 
     case validate(workflow) do
@@ -149,7 +158,8 @@ defmodule Custode.Workflow do
   """
   @spec validate(t()) :: :ok | {:error, String.t()}
   def validate(%__MODULE__{} = workflow) do
-    with :ok <- validate_name(workflow.name),
+    with :ok <- validate_execution_profile(workflow.execution_profile),
+         :ok <- validate_name(workflow.name),
          :ok <- validate_stages(workflow.stages),
          :ok <- validate_first_stage(workflow.stages),
          :ok <- validate_unique(Enum.map(workflow.stages, & &1.name), "stage"),
@@ -210,6 +220,13 @@ defmodule Custode.Workflow do
       effort: node.effort || stage.effort || workflow.effort
     }
   end
+
+  defp validate_execution_profile(nil), do: :ok
+
+  defp validate_execution_profile("custode.workflow_tool_free.v1"), do: :ok
+
+  defp validate_execution_profile(_profile),
+    do: {:error, "unsupported workflow execution profile"}
 
   defp validate_name(name) when is_binary(name) and name != "", do: :ok
   defp validate_name(_), do: {:error, "name must be a non-empty string"}
