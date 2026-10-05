@@ -2250,13 +2250,13 @@ Inspect failed-stage replay preconditions without starting work.
 | --- | --- | --- | --- | --- |
 | run_id | string | yes |  | {"maxLength":160,"minLength":1} |
 
-**Result:** Bounded observed job states, definition/failure binding and explicit unavailable effect/settlement/budget replay facts. retry_offered is false for current worker contracts.
+**Result:** Bounded observed job states, definition/failure binding, and at most100 retained result-validation summaries with truncation. Schema-validated versus legacy/unbound results remain separate from unavailable effect/settlement/budget replay facts. retry_offered is false for current worker contracts.
 
 **Side effects:** Read only. No job enqueue, cancellation, resume, rail raise or file/provider effect.
 
 **Access:** Verified human or current caretaker fleet-control identity. Ordinary owners and temporary helpers cannot read this fleet operation.
 
-**Behavior, defaults and errors:** Terminal queue state is not physical settlement; disallowing Write/Edit does not confine Bash or MCP. The read is not atomic retry admission and never offers unsupported replay.
+**Behavior, defaults and errors:** Terminal queue state is not physical settlement; disallowing Write/Edit does not confine Bash or MCP. The read is not atomic retry admission and never offers unsupported replay. New workflow runs capture exact job arguments, pinned policy/package, frozen definition/input/schema and host callback validation receipts; changed or missing bindings cannot be downgraded to legacy. Unsupported schema assertions never become validated receipts. Legacy rows remain unbound. Schema validation is not native execution, physical settlement or reuse authority; absent callback attempts remain explicitly unavailable.
 
 ## Resources
 

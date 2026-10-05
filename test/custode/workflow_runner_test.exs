@@ -318,7 +318,17 @@ defmodule Custode.WorkflowRunnerTest do
     test "a node whose result missed its schema is stored as text and noted", %{run: run} do
       job = Enum.find(jobs(run.run_id), &(&1.meta["node_name"] == "spec"))
 
-      Runner.node_finished(job.meta, %ClaudeWrapper.Result{result: "prose, no schema", extra: %{}})
+      # Already queued legacy work keeps its old prose fallback; no retroactive receipt.
+      row = Repo.one!(from(r in Run.Row, where: r.run_id == ^run.run_id))
+      context = row.context |> Jason.decode!() |> Map.delete("result_contract_version")
+      row |> Ecto.Changeset.change(context: Jason.encode!(context)) |> Repo.update!()
+      legacy_meta = Map.delete(job.meta, "result_contract")
+      job |> Ecto.Changeset.change(meta: legacy_meta) |> Repo.update!()
+
+      Runner.node_finished(legacy_meta, %ClaudeWrapper.Result{
+        result: "prose, no schema",
+        extra: %{}
+      })
 
       [stored] = Results.for_stage(run.run_id, "mine")
       assert stored.result == %{"text" => "prose, no schema"}
