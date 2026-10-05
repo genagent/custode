@@ -281,8 +281,10 @@ defmodule Custode.Assurance.Native.CrashProof do
 
   defp write(root, name, value) do
     path = Path.join(root, name)
-    File.write!(path, Jason.encode!(value, pretty: true))
-    File.chmod!(path, 0o600)
+    pending = path <> ".pending"
+    File.write!(pending, Jason.encode!(value, pretty: true))
+    File.chmod!(pending, 0o600)
+    File.rename!(pending, path)
   end
 
   defp digest(bytes), do: :crypto.hash(:sha256, bytes) |> Base.encode16(case: :lower)

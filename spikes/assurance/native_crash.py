@@ -18,9 +18,9 @@ def write(path, value):
     path.chmod(0o600)
 
 
-def snapshot():
+def snapshot(timeout=3):
     # No argv or environment: env -i arguments can contain API credentials.
-    output = subprocess.check_output(["ps", "-axo", "pid=,ppid=,lstart=,comm="], timeout=3)
+    output = subprocess.check_output(["ps", "-axo", "pid=,ppid=,lstart=,comm="], timeout=timeout)
     rows = {}
     for line in output.decode(errors="replace").splitlines():
         fields = line.split(maxsplit=7)
@@ -44,10 +44,10 @@ def same(identity, row):
     return row is not None and all(identity[key] == row[key] for key in ["pid", "started", "image"])
 
 
-def signal_owned(identity, action, observed):
+def signal_owned(identity, action, observed, timeout=3):
     if observed.get(identity["pid"]) != identity:
         raise ValueError("unobserved identity refused")
-    current = snapshot().get(identity["pid"])
+    current = snapshot(timeout=timeout).get(identity["pid"])
     if not same(identity, current):
         return False
     try:
@@ -79,12 +79,15 @@ def initialized(provider, raw):
     return {"session_id": identities.pop(), "model": relevant[0].get("model")}
 
 
-def writer(path, host, rows):
+def writer(path, host, rows, deadline):
     owned = descendants(host, rows) - {host}
     candidates = []
     for pid in owned:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("native initialization deadline")
         proc = subprocess.run(["lsof", "-a", "-p", str(pid), "-d", "1", "-Fn"],
-                              capture_output=True, timeout=3)
+                              capture_output=True, timeout=min(3, remaining))
         names = [line[1:] for line in proc.stdout.decode(errors="replace").splitlines() if line.startswith("n")]
         if str(path) in names:
             candidates.append(pid)
@@ -107,7 +110,7 @@ def read_bounded(path):
 
 def observe(directory, process, deadline, provider, observed):
     while time.monotonic() < deadline:
-        rows = snapshot()
+        rows = snapshot(timeout=min(3, max(.01, deadline - time.monotonic())))
         for pid in descendants(process.pid, rows):
             old = observed.get(pid)
             if old is not None and old["started"] != rows[pid]["started"]:
@@ -127,7 +130,7 @@ def observe(directory, process, deadline, provider, observed):
                 read_bounded(path.with_name("stderr"))
                 init = initialized(provider, raw)
                 if init:
-                    identity = writer(path, host, rows)
+                    identity = writer(path, host, rows, deadline)
                     if identity:
                         return context, rows[host], identity, path, init, rows
         if process.poll() is not None:
@@ -137,16 +140,23 @@ def observe(directory, process, deadline, provider, observed):
 
 
 def cleanup(observed):
-    # Each identity is revalidated. Reparenting is allowed only for already observed identities.
-    for identity in reversed(list(observed.values())):
-        signal_owned(identity, signal.SIGKILL, observed)
+    # One outer deadline covers signals and observation, not one deadline per PID.
     deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        rows = snapshot()
-        alive = [row for row in observed.values() if same(row, rows.get(row["pid"]))]
-        if not alive:
-            return True
-        time.sleep(.05)
+    try:
+        for identity in reversed(list(observed.values())):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            signal_owned(identity, signal.SIGKILL, observed, timeout=min(3, remaining))
+        while time.monotonic() < deadline:
+            remaining = deadline - time.monotonic()
+            rows = snapshot(timeout=min(3, max(.01, remaining)))
+            alive = [row for row in observed.values() if same(row, rows.get(row["pid"]))]
+            if not alive:
+                return True
+            time.sleep(min(.05, max(0, deadline - time.monotonic())))
+    except subprocess.TimeoutExpired:
+        return False
     return False
 
 
