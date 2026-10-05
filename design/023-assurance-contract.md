@@ -78,7 +78,7 @@ no provider calls and does not rewrite their history.
 | Independent cross-provider check and opinion | Actual cold Codex verifier reruns ten fixed rows against Claude-produced wrapper; clean passes, seeded fails | A fixed fixture is not general provider-quality evidence or human acceptance |
 | Duplicate delivery and stale result | Native replay returns the original launch; immutable duplicate capture and stale-generation refusal controls pass | No new effect authority or general side-effect retry contract |
 | Custode restart reconstruction | Fresh BEAM OS process reassesses the retained store, persists clean accepted/seeded rejected, and a separate SQLite reader verifies unchanged native rows and original report | This is not a machine reboot or a crash during an actual native call |
-| Worker crash | Synthetic executable tests kill a launch owner; its unresolved workspace reservation refuses redelivery and another request | Actual native producer/verifier crash and recovery remain unproved; terminal status is not physical settlement |
+| Worker crash | [Bounded external controller](../docs/native-assurance-crash-proof.md) observes fake CLI initialization and its own process identities, separately kills a worker and its owning BEAM, and checks original-store recovery in fresh BEAM processes | Actual native producer/verifier crash and recovery remain unproved; terminal status is not physical settlement |
 
 The [fresh-process reconstruction audit](https://github.com/genagent/custode/issues/795#issuecomment-5984289899)
 advances the public proof's earlier SQLite store-process reopen control. It uses

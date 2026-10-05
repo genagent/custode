@@ -1,0 +1,75 @@
+{
+  "schema": "custode.native-crash-public.v1",
+  "synthetic": true,
+  "source_revision": "38510055a9f4630df239a9aebede1ec55b3316f4",
+  "source_sha256": {
+    "spikes/assurance/native_crash.py": "b67a466b8d487424dcf01e5b5a42faad899444d7fdf6b4982db081d1de81f4ca",
+    "lib/custode/assurance/native/crash_proof.ex": "648da3502166a384d305f65a268ebe077740ca80507e1674618024b88d327d21",
+    "lib/mix/tasks/custode.assurance.crash_proof.ex": "2765922a1c181160d0324af3604ebec01a8e3e528bd682dd86a4111ae7d9e1f5",
+    "test/fixtures/assurance_crash_cli.py": "cd6870f1e8d5768ec540e87d2a543651f4c40e8c7beb3becb1589215cbf4ec5d",
+    "lib/custode/assurance/native.ex": "543b4aa50f7a273195cdd3d26e3afd381ff726409b9dd031c5a84a1631461b14",
+    "lib/custode/assurance/native/events.ex": "46a557f9cdc50235b4723e98e02874aa45bd0aecfd07f38cf5990aa24422d5ad",
+    "lib/custode/verification/runner.ex": "f1002c8e81e4f7b830af3a127b6bc847f4ae5e80c861f6409bf079d5ee92e63a",
+    "priv/assurance_native/baseline.py": "630976e0c6dc969ff5136434878e335719d4882b75e1906c38f1519456e2dec8",
+    "priv/assurance_native/verify.py": "b2f8799bee747a55d319ed4b6b625be9832fabef18575f6553714712893b77d2",
+    "mix.lock": "998b676c0fb96379aa976aae80abbfa8e32041e6616faa70c7b47cbd9328d7e0"
+  },
+  "status": "passed",
+  "model_launch_requests": 2,
+  "cases": [
+    {
+      "provider": "claude",
+      "failure": "native_worker_killed",
+      "initialization_observed": true,
+      "native_status": "incomplete",
+      "observed_processes_gone": true,
+      "all_descendants_attestation": "missing",
+      "stdout_sha256": "969662dd32638d070dcd4381ff317a85d0f5e0ad4b478de48669cb576a092ee9",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "native_identity_sha256": "d34bb4918c7f4a5d7ae456bcb6ea17286407fb17668c183b6a80a74220e36722",
+      "native_session_sha256": "90846d75ebae2c97bb12b5861e0adbfb4dbf1f2ed34575e91c4a17642318f321",
+      "controls": {
+        "replay_preserves_original": true,
+        "workspace_redelivery_refused": true,
+        "stale_generation_refused": true,
+        "native_records_unchanged": true,
+        "one_original_native_record": true,
+        "missing_success_stays_missing": true,
+        "no_effect_authority": true,
+        "no_imported_late_evidence": true
+      },
+      "recovery_model_invocations": 0,
+      "decision": "escalated"
+    },
+    {
+      "provider": "codex",
+      "failure": "owning_BEAM_killed",
+      "initialization_observed": true,
+      "native_status": "running",
+      "observed_processes_gone": true,
+      "all_descendants_attestation": "missing",
+      "stdout_sha256": "18fc9004ec515a6068d6bc1fccd6ae968f78da728eac04ed716123b38b881b82",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "native_identity_sha256": "b054a5a6ae77489e2b479adeca8df166d7989aea74502aed1a689eccf0fa4d55",
+      "native_session_sha256": "90846d75ebae2c97bb12b5861e0adbfb4dbf1f2ed34575e91c4a17642318f321",
+      "controls": {
+        "replay_preserves_original": true,
+        "workspace_redelivery_refused": true,
+        "stale_generation_refused": true,
+        "native_records_unchanged": true,
+        "one_original_native_record": true,
+        "missing_success_stays_missing": true,
+        "no_effect_authority": true,
+        "no_imported_late_evidence": true
+      },
+      "recovery_model_invocations": 0,
+      "decision": "escalated"
+    }
+  ],
+  "limits": [
+    "No positive all-descendant settlement or reservation release.",
+    "No automatic retry, effect authority or human acceptance.",
+    "Initialization establishes a native session, not completed inference or quality.",
+    "Claude configured budget stop is not a billing ceiling; Codex cost unknown."
+  ]
+}
