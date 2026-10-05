@@ -12,18 +12,18 @@ defmodule Custode.Availability.Probe do
       {"type": "rate_limit_event", "rate_limit_info": {"unifiedWindows":
         {"five_hour": {"utilization": 0.12, ...}, "seven_day": {...}}}}
 
-  The fleet's real turns cannot see it. The engine runs
-  `ClaudeWrapper.query/2`, which asks the CLI for one JSON result and never
-  sees the stream. Until the engine surfaces the event from real turns, this
-  worker runs one sealed, one-turn haiku query through
-  `ClaudeWrapper.stream/2`, takes the event out of the stream, and hands it to
-  `Custode.Availability.Collectors.Claude`.
+  Observed one-shot execution retains typed rate-limit observations and
+  ObanClaude 0.10.1 exposes them on successful and failed run telemetry.
+  Custode caches useful observations without starting another model turn.
+  Those events have no individual timestamp, so their freshness uses the
+  run-start lower bound derived from duration; a long run cannot make early
+  evidence look current merely by completing. A newer cached observation wins.
 
-  The collector's moduledoc says there is no zero-work probe to call. That is
-  true; this is a near-zero one, and on a Max plan it is the cheapest thing
-  the fleet does all day. It still skips itself when the snapshot is fresh, so
-  the day real turns start feeding the collector this becomes a no-op that can
-  be deleted.
+  When no fresh observation exists, the worker still tries OAuth first,
+  then one sealed, one-turn haiku query through `ClaudeWrapper.stream/2`.
+  Event coverage from ordinary fleet work remains a prerequisite for any
+  later decision to remove this fallback. This worker skips both collection
+  paths when the existing snapshot is fresh.
 
   A probe that fails records nothing and says so in the log. Absence advises
   proceeding (`Custode.Availability`), so a broken probe cannot become an

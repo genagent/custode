@@ -78,6 +78,39 @@ defmodule Custode.Availability do
     :ok
   end
 
+  @doc "Cache a run observation only if no newer observation has already arrived."
+  @spec put_if_newer(Snapshot.t()) :: :stored | :older
+  def put_if_newer(%Snapshot{} = snapshot) do
+    ensure_table()
+
+    case current(snapshot.provider) do
+      nil ->
+        if :ets.insert_new(@table, {snapshot.provider, snapshot}),
+          do: :stored,
+          else: put_if_newer(snapshot)
+
+      existing ->
+        if DateTime.compare(snapshot.observed_at, existing.observed_at) == :lt do
+          :older
+        else
+          replace_snapshot(existing, snapshot)
+        end
+    end
+  end
+
+  defp replace_snapshot(existing, snapshot) do
+    # Compare the entire cached value atomically. A concurrent OAuth or
+    # other run observation must not be overwritten after the earlier read.
+    match = [
+      {{snapshot.provider, :"$1"}, [{:==, :"$1", {:const, existing}}],
+       [{:const, {snapshot.provider, snapshot}}]}
+    ]
+
+    if :ets.select_replace(@table, match) == 1,
+      do: :stored,
+      else: put_if_newer(snapshot)
+  end
+
   @doc "The cached observation for `provider`, or nil."
   @spec current(String.t()) :: Snapshot.t() | nil
   def current(provider) when is_binary(provider) do

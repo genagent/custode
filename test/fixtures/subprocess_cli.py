@@ -10,7 +10,7 @@ import time
 
 root = Path.cwd()
 if (root / "success").exists():
-    print(json.dumps({"result": "finished", "session_id": "fake-session", "is_error": False}))
+    print(json.dumps({"type": "result", "subtype": "success", "result": "finished", "session_id": "fake-session", "is_error": False}))
     sys.exit(0)
 
 if "--child" in sys.argv:

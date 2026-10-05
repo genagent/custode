@@ -183,8 +183,14 @@ using the same database. Stop the extra process and run `mix custode doctor`.
 
 ### Claude plan usage is blank or stale
 
-Every ten minutes Custode reads Claude plan usage from Anthropic's OAuth usage
-endpoint. It reads the Claude Code access token transiently from the macOS
+Ordinary Claude runs now refresh plan-usage evidence when the provider emits
+it, including observations from failed runs. These events have no individual
+timestamp, so Custode conservatively ages them from the run start; an early
+event in a long run does not become fresh at completion. Missing events do
+not imply zero usage, and newer cached readings take precedence.
+
+When the cache is stale, the ten-minute usage worker tries Anthropic's OAuth
+usage endpoint. It reads the Claude Code access token transiently from the macOS
 Keychain item or `<CLAUDE_CONFIG_DIR>/.credentials.json`, sends it only to
 `api.anthropic.com`, and never writes or logs it. Custode retains the resulting
 usage windows in memory. It does not refresh or modify Claude credentials.
