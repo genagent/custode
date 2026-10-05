@@ -60,7 +60,11 @@ This adds `composition_records`. Drain/stop the old instance, pull, migrate and
 restart before opting in. Nothing is activated by default; no prompt is changed.
 New tests cover both supported HTTP protocol revisions using real Snodo clients
 against controlled repository fixtures. They prove protocol and application
-contracts and durable activation across a supervised SQLite Repo process restart,
-not native model savings or a full OS-process restart. #799 owns the
-Claude/Codex comparison and catalog refresh experiments. #577 remains open for
-those proofs and future data-defined surfaces.
+contracts and durable activation across a supervised SQLite Repo process restart.
+The opt-in nonpaid `mix custode.composition.proof` task also reconstructs the actual
+operations store in three separate OS processes, exercises scoped HTTP reads and
+denial, and retains replacement, disable and rollback. See the
+[native and reconstruction proof](native-read-composition-proof.md) for its limits.
+#577 concludes the bounded design spike with the fixed dispatcher; #799 retains
+held native-session refresh and broader benefit acceptance. Individual dynamic
+publication and automatic synthesis remain deferred.
