@@ -20,6 +20,7 @@ defmodule Custode.SpendLedger do
   import Ecto.Query, only: [from: 2]
 
   alias Custode.{AgentHandoffIntent, Attempts, ProviderJobs, Repo}
+  alias Custode.Availability.RunObservations
 
   defmodule Entry do
     @moduledoc false
@@ -128,6 +129,9 @@ defmodule Custode.SpendLedger do
 
   defp do_handle_event([integration, :run, outcome], measurements, meta, _config)
        when integration in [:oban_claude, :oban_codex] do
+    if integration == :oban_claude,
+      do: RunObservations.observe(measurements, meta)
+
     case meta do
       %{job: %{meta: %{"agent_id" => agent_id}} = job} ->
         options =

@@ -141,14 +141,14 @@ defmodule Custode.Availability.Collectors.Claude do
   Claude availability from Agent SDK rate-limit events and OAuth usage (#393,
   #524).
 
-  Claude publishes rate-limit state DURING a run rather than through a
-  standalone preflight query, so this caches what running Attempts already
-  observe instead of asking. There is no zero-work probe to call, and the
-  interactive usage screen is explicitly not scraped.
+  Ordinary observed runs can supply provider-reported rate-limit events;
+  the separate OAuth usage adapter provides a preflight source without a
+  model call. The optional probe retains a sealed fallback when that source
+  is unavailable. The interactive usage screen is not scraped.
 
-  The consequence is honest rather than hidden: before the first Attempt of a
-  session there is no observation, and `Custode.Availability` reports that as
-  `unknown` rather than as headroom.
+  When no source has supplied usable evidence, `Custode.Availability`
+  reports `unknown` rather than headroom. Run observations use a conservative
+  run-start age bound because the released event has no individual timestamp.
   """
 
   alias Custode.Availability
