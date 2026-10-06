@@ -1,7 +1,7 @@
 defmodule Custode.MCP.ProjectProgressTools.Read do
   @moduledoc """
   Read one configured project's current execution, continuity, pending input,
-  blockers and full direct-operator exchanges. Only the authenticated operator
+  blockers, bounded work agreements and full direct-operator exchanges. Only the authenticated operator
   or caretaker may inspect this coordination view. It grants no sibling
   control and does not widen participant-only peer-message access.
 
@@ -71,4 +71,7 @@ defmodule Custode.MCP.ProjectProgressTools.Read do
     do: "invalid before cursor; use conversation.before from this routine's preceding page"
 
   defp error_text(reason) when is_binary(reason), do: reason
+
+  defp error_text(_reason),
+    do: "project progress is unavailable; refresh identity and retry the read"
 end

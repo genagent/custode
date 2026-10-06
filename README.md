@@ -347,6 +347,11 @@ report, and accepted work remain separate. Existing schedule previews, gates,
 spend rails, and direct project control still apply. See the
 [project-manager guide](guides/project-manager.md) for the workflow and proof.
 
+For committed work, optional [work agreements](docs/work-agreements.md) retain
+versioned intent, owner checkpoints, submitted evidence and an exact human
+resolution. The same bounded projection is available through MCP and project
+progress. Recording or revising an agreement never starts an agent.
+
 ## Development
 
 Work in a sibling git worktree (`../custode-work`), never in the checkout a

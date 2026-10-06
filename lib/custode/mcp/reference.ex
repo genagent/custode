@@ -61,15 +61,7 @@ defmodule Custode.MCP.Reference do
             {"prompts", "prompts/list"}
           ],
           into: %{} do
-        capability = if kind == "resourceTemplates", do: "resources", else: kind
-
-        if Map.has_key?(runtime.capabilities, capability) do
-          request = %{"jsonrpc" => "2.0", "id" => 1, "method" => method, "params" => %{}}
-          {:ok, %{"result" => result}} = Elixir.Snodo.Server.dispatch(runtime, request, transport)
-          {kind, Map.fetch!(result, kind)}
-        else
-          {kind, []}
-        end
+        {kind, discover_endpoint_kind(runtime, transport, kind, method)}
       end
 
     Map.merge(discovered, %{
@@ -78,6 +70,49 @@ defmodule Custode.MCP.Reference do
       "capabilities" => server.server_capabilities(),
       "protocolVersions" => Snodo.protocol_versions()
     })
+  end
+
+  defp discover_endpoint_kind(runtime, transport, kind, method) do
+    capability = if kind == "resourceTemplates", do: "resources", else: kind
+
+    if Map.has_key?(runtime.capabilities, capability) do
+      discovery_pages(kind, &discovery_page(runtime, transport, method, &1))
+    else
+      []
+    end
+  end
+
+  defp discovery_page(runtime, transport, method, params) do
+    request = %{"jsonrpc" => "2.0", "id" => 1, "method" => method, "params" => params}
+    {:ok, %{"result" => result}} = Elixir.Snodo.Server.dispatch(runtime, request, transport)
+    result
+  end
+
+  @doc false
+  def discovery_pages(kind, fetch) when kind in @kinds and is_function(fetch, 1),
+    do: discovery_pages(kind, fetch, %{}, %{}, [])
+
+  defp discovery_pages(kind, fetch, params, seen, pages) do
+    result = fetch.(params)
+    entries = Map.fetch!(result, kind)
+
+    unless is_list(entries), do: raise(ArgumentError, "#{kind} discovery did not return a list")
+
+    case result["nextCursor"] do
+      nil ->
+        [entries | pages] |> Enum.reverse() |> List.flatten()
+
+      cursor when is_binary(cursor) and cursor != "" ->
+        if Map.has_key?(seen, cursor),
+          do: raise(ArgumentError, "#{kind} discovery repeated a pagination cursor")
+
+        discovery_pages(kind, fetch, %{"cursor" => cursor}, Map.put(seen, cursor, true), [
+          entries | pages
+        ])
+
+      _invalid ->
+        raise ArgumentError, "#{kind} discovery returned an invalid pagination cursor"
+    end
   end
 
   defp endpoint_index(endpoints) do

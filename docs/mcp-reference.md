@@ -89,7 +89,7 @@ Routine instructions, prompt files, the `prompt_agent` tool, and an agent's stru
 
 | Endpoint | Server | Tools | Resources | Templates | Prompts |
 | --- | --- | ---: | ---: | ---: | ---: |
-| `/mcp` | custode 0.3.0 | 98 | 4 | 13 | 0 |
+| `/mcp` | custode 0.3.0 | 104 | 4 | 13 | 0 |
 | `/mcp/memory` | memory 0.3.0 | 7 | 0 | 0 | 0 |
 
 **`/mcp`**: protocol versions 2026-07-28, 2025-11-25, 2025-06-18; capabilities `{"resources":{},"tools":{}}`.
@@ -202,6 +202,12 @@ Categories are descriptive policy metadata, not an authorization guarantee.
 | [todo_list](#tool-todo_list) | read |
 | [update_profile](#tool-update_profile) | roster_write |
 | [update_routine](#tool-update_routine) | roster_write |
+| [work_agreement_checkpoint](#tool-work_agreement_checkpoint) | self_write |
+| [work_agreement_create](#tool-work_agreement_create) | operator |
+| [work_agreement_read](#tool-work_agreement_read) | read |
+| [work_agreement_resolve](#tool-work_agreement_resolve) | operator |
+| [work_agreement_revise](#tool-work_agreement_revise) | operator |
+| [work_agreement_submit](#tool-work_agreement_submit) | self_write |
 | [workflow_retry_status](#tool-workflow_retry_status) | read |
 
 ### Tool: add_routine
@@ -1310,13 +1316,13 @@ Read current project evidence and full operator constraints for coordination.
 | limit | integer | no | exchanges per page, 1..20; default 5 |  |
 | routine_id | string | no | required configured project routine id |  |
 
-**Result:** A custode.project_progress.v1 object with schema_version, observed_at, project (routine_id, repo, role), links.conversation, execution, continuity, pending_wake, attention, blocker and conversation. Execution distinguishes desired configuration, applied configuration and actual turns. Its active.provider_session_id is an optional early native handle correlated to the exact execution attempt, not proof of completion. Continuity retains an accepted handle through failure so a compatible later turn can resume; explicit provider session rejection clears the rejected handle while preserving a different fork target or replacement source. Attention is the routine's ranked current signal, including pause, budget and repository-check states; blocker is the narrower blocking question or approval. Both expose facts without resolving actions. Host, workflow and repository-wide infrastructure signals remain on list_attention. Conversation includes page (latest or older), snapshot_id, full exchanges with durable message IDs, before and has_older. The watermark covers conversation rows; execution, attention and blocker facts are independently observed at read time. Reports contains recent retained turn entries, latest_at, evidence=agent_authored and a scope note. Entries carry recorded owner, timestamp, optional typed report or validation error, and available provider/job/attempt/origin/correlation/configuration/turn identity. Legacy turns retain summary-only evidence. Reports are independent current reads even on older conversation pages; they never imply verified acceptance. current_run embeds the independently observed custode.current_run.v1 projection.
+**Result:** A custode.project_progress.v1 object with schema_version, observed_at, project (routine_id, repo, role), links.conversation, execution, continuity, pending_wake, attention, blocker and conversation. Execution distinguishes desired configuration, applied configuration and actual turns. Its active.provider_session_id is an optional early native handle correlated to the exact execution attempt, not proof of completion. Continuity retains an accepted handle through failure so a compatible later turn can resume; explicit provider session rejection clears the rejected handle while preserving a different fork target or replacement source. Attention is the routine's ranked current signal, including pause, budget and repository-check states; blocker is the narrower blocking question or approval. Both expose facts without resolving actions. Host, workflow and repository-wide infrastructure signals remain on list_attention. Conversation includes page (latest or older), snapshot_id, full exchanges with durable message IDs, before and has_older. The watermark covers conversation rows; execution, attention and blocker facts are independently observed at read time. Reports contains recent retained turn entries, latest_at, evidence=agent_authored and a scope note. Entries carry recorded owner, timestamp, optional typed report or validation error, and available provider/job/attempt/origin/correlation/configuration/turn identity. Legacy turns retain summary-only evidence. Reports are independent current reads even on older conversation pages; they never imply verified acceptance. current_run embeds the independently observed custode.current_run.v1 projection. work_agreements is a custode.work_agreement_list.v1 result for this routine, including each retained agreement's current intent, checkpoint, submission and exact resolution; further pages use work_agreement_read with its before_id.
 
 **Side effects:** Read only. Does not prompt or wake a routine, acknowledge messages, mark conversations read, dispatch work, change schedules or resolve gates.
 
 **Access:** Main endpoint only. Verified human operator or configured caretaker, checked again by the shared service against the captured execution role. Specialists, temporary agents, missing identities and unknown routine callers are refused. This read does not widen sibling control or peer-message visibility.
 
-**Behavior, defaults and errors:** routine_id is required and must name a configured routine. limit is an integer from 1 to 20, default 5, counting complete direct-operator exchanges. before is an opaque conversation.before cursor from the preceding page for the same routine, not a timestamp. Omitting before refreshes the latest evidence; older pages retain a stable conversation row watermark and must not stand in for a fresh coordination read. Unknown routines, invalid limits and invalid or cross-routine cursors return tool errors. Full operator prompt and successful result text is retained. Failed Codex exchanges expose the bounded error detail with recognized credential fields redacted and null result output, rather than captured raw CLI output or an earlier answer. Project messages are evidence, not approval or verified completion. Peer-message bodies remain available only through participant-scoped peer reads. The same limit bounds recent report entries separately from conversation exchanges. Missing or old reports are not proof that a project is idle. Reports do not wake the caretaker. Conversation answers use the latest receipt: a nonblank explicit answer takes precedence over summary and pending question/action, while an explicit null or blank answer suppresses fallback. Historical results without answer use question/action for their matching directive, then summary; plain-text results remain readable. Report-only objects are not rendered as JSON answers. Queued, executing, failed and refused exchanges have no current conversational answer. Waiting states can carry an answer alongside an unresolved question or approval. Summary/report remain independent compact status fields. Each exchange also exposes prior_answers retained before leaving a question/approval, including continuation, refusal and recovery. Entries have stable id, message_id for the owning prompt, complete answer and snapshot time at. These are separate historical answers, not successful results of the current turn; a later failure does not erase them or promote them to the current answer.
+**Behavior, defaults and errors:** routine_id is required and must name a configured routine. limit is an integer from 1 to 20, default 5, counting complete direct-operator exchanges. before is an opaque conversation.before cursor from the preceding page for the same routine, not a timestamp. Omitting before refreshes the latest evidence; older pages retain a stable conversation row watermark and must not stand in for a fresh coordination read. Unknown routines, invalid limits and invalid or cross-routine cursors return tool errors. Full operator prompt and successful result text is retained. Failed Codex exchanges expose the bounded error detail with recognized credential fields redacted and null result output, rather than captured raw CLI output or an earlier answer. Project messages are evidence, not approval or verified completion. Peer-message bodies remain available only through participant-scoped peer reads. The same limit bounds recent report entries separately from conversation exchanges. Missing or old reports are not proof that a project is idle. Reports do not wake the caretaker. Conversation answers use the latest receipt: a nonblank explicit answer takes precedence over summary and pending question/action, while an explicit null or blank answer suppresses fallback. Historical results without answer use question/action for their matching directive, then summary; plain-text results remain readable. Report-only objects are not rendered as JSON answers. Queued, executing, failed and refused exchanges have no current conversational answer. Waiting states can carry an answer alongside an unresolved question or approval. Summary/report remain independent compact status fields. Each exchange also exposes prior_answers retained before leaving a question/approval, including continuation, refusal and recovery. Entries have stable id, message_id for the owning prompt, complete answer and snapshot time at. These are separate historical answers, not successful results of the current turn; a later failure does not erase them or promote them to the current answer. work_agreements lists the same bounded current work-agreement projection for this routine, limited independently by limit. It records intent, owner-authored progress and exact human resolutions without launching work or validating linked evidence. Agreement bookkeeping does not replace independently observed execution or grant new authority; older conversation pages still use current agreement state.
 
 ### Tool: project_report_digest
 
@@ -2266,6 +2272,141 @@ Update an existing routine configuration.
 **Access:** Main endpoint capability: operator or caretaker routine. A human operator may write directly; a caretaker must also have a live human-approved continuation whose action class is roster. Specialists and temporary agents are refused before configuration changes.
 
 **Behavior, defaults and errors:** id is required and immutable. provider is claude or codex. Omitted fields stay unchanged; lists replace; drop removes overrides and wins over a supplied value. Preview before applying. This response does not promise changes to an already executing turn. Rewriting removes comments inside the edited configuration section; comments in other sections are preserved.
+
+### Tool: work_agreement_checkpoint
+
+Record owner-reported progress, next steps and blockers.
+
+**Endpoints:** /mcp. **Category:** self_write.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| agreement_id | string | yes |  | {"maxLength":160,"minLength":1} |
+| blockers | array | no |  | {"items":{"additionalProperties":false,"properties":{"id":{"maxLength":160,"minLength":1,"type":"string"},"references":{"items":{"additionalProperties":false,"properties":{"kind":{"enum":["operator_message","peer_message","helper_epoch","report","document","assurance","github","url","other"],"type":"string"},"label":{"maxLength":200,"minLength":1,"type":"string"},"revision":{"maxLength":160,"minLength":1,"type":"string"},"value":{"description":"opaque reference; never opened, fetched, verified or executed","maxLength":2048,"minLength":1,"type":"string"}},"required":["kind","value"],"type":"object"},"maxItems":20,"type":"array"},"resolver":{"additionalProperties":false,"properties":{"id":{"maxLength":160,"minLength":1,"type":"string"},"kind":{"enum":["operator","routine","external"],"type":"string"}},"required":["id","kind"],"type":"object"},"text":{"maxLength":2000,"minLength":1,"type":"string"}},"required":["id","resolver","text"],"type":"object"},"maxItems":20} |
+| decisions | array | no |  | {"items":{"additionalProperties":false,"properties":{"id":{"maxLength":160,"minLength":1,"type":"string"},"references":{"items":{"additionalProperties":false,"properties":{"kind":{"enum":["operator_message","peer_message","helper_epoch","report","document","assurance","github","url","other"],"type":"string"},"label":{"maxLength":200,"minLength":1,"type":"string"},"revision":{"maxLength":160,"minLength":1,"type":"string"},"value":{"description":"opaque reference; never opened, fetched, verified or executed","maxLength":2048,"minLength":1,"type":"string"}},"required":["kind","value"],"type":"object"},"maxItems":20,"type":"array"},"resolver":{"additionalProperties":false,"properties":{"id":{"maxLength":160,"minLength":1,"type":"string"},"kind":{"enum":["operator","routine","external"],"type":"string"}},"required":["id","kind"],"type":"object"},"text":{"maxLength":2000,"minLength":1,"type":"string"}},"required":["id","resolver","text"],"type":"object"},"maxItems":20} |
+| expected_revision | integer | yes |  | {"maximum":9223372036854775807,"minimum":1} |
+| next_steps | array | no |  | {"items":{"additionalProperties":false,"properties":{"id":{"maxLength":160,"minLength":1,"type":"string"},"references":{"items":{"additionalProperties":false,"properties":{"kind":{"enum":["operator_message","peer_message","helper_epoch","report","document","assurance","github","url","other"],"type":"string"},"label":{"maxLength":200,"minLength":1,"type":"string"},"revision":{"maxLength":160,"minLength":1,"type":"string"},"value":{"description":"opaque reference; never opened, fetched, verified or executed","maxLength":2048,"minLength":1,"type":"string"}},"required":["kind","value"],"type":"object"},"maxItems":20,"type":"array"},"text":{"maxLength":2000,"minLength":1,"type":"string"}},"required":["id","text"],"type":"object"},"maxItems":20} |
+| request_id | string | yes |  | {"maxLength":160,"minLength":1} |
+| summary | string | yes |  | {"maxLength":2000,"minLength":1} |
+
+**Result:** A custode.work_agreement_mutation.v1 receipt with agreement_id, revision, sequence, record_id, kind, recorded_at, authenticated recorded_by (kind, id, execution_revision) and duplicate.
+
+**Side effects:** Appends an attributed checkpoint without changing intent, execution state or acceptance.
+
+**Access:** Main endpoint only. Verified human operator or the exact owning routine. A caretaker may write only an agreement it owns; sibling and temporary-agent writes are refused.
+
+**Behavior, defaults and errors:** agreement_id, expected_revision and summary are required; next_steps, blockers and decisions default to empty arrays. Steps have unique id, text and optional references. Blockers and decisions also name resolver.kind (operator, routine or external) and resolver.id. These name who can help, not a verified dependency or a grant to control that identity. Only the current intent revision accepts checkpoints. All mutations require a stable request_id for one logical operation. An authorized exact retry returns the original receipt with duplicate=true before stale-revision checks; different semantic payloads with the same caller/request_id conflict. Intent revision and record sequence are distinct. Unknown fields and duplicate atom/string keys are refused. IDs are nonblank strings up to 160 characters; prose up to 2000; reference values up to 2048 and labels up to 200; arrays up to 20 entries; total mutation payload up to 65536 bytes. References are opaque attributed links, never fetched, verified or used as access grants. No operation starts, resumes, cancels, schedules or redispatches work.
+
+### Tool: work_agreement_create
+
+Record a work agreement without starting work.
+
+**Endpoints:** /mcp. **Category:** operator.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| intent | object | yes |  | {"additionalProperties":false,"properties":{"assignment_id":{"maxLength":160,"minLength":1,"type":"string"},"boundaries":{"items":{"maxLength":2000,"minLength":1,"type":"string"},"maxItems":20,"type":"array"},"criteria":{"items":{"additionalProperties":false,"properties":{"id":{"maxLength":160,"minLength":1,"type":"string"},"text":{"maxLength":2000,"minLength":1,"type":"string"}},"required":["id","text"],"type":"object"},"maxItems":20,"minItems":1,"type":"array"},"expected_outputs":{"items":{"additionalProperties":false,"properties":{"kind":{"enum":["operator_message","peer_message","helper_epoch","report","document","assurance","github","url","other"],"type":"string"},"label":{"maxLength":200,"minLength":1,"type":"string"},"revision":{"maxLength":160,"minLength":1,"type":"string"},"value":{"description":"opaque reference; never opened, fetched, verified or executed","maxLength":2048,"minLength":1,"type":"string"}},"required":["kind","value"],"type":"object"},"maxItems":20,"type":"array"},"inputs":{"items":{"additionalProperties":false,"properties":{"kind":{"enum":["operator_message","peer_message","helper_epoch","report","document","assurance","github","url","other"],"type":"string"},"label":{"maxLength":200,"minLength":1,"type":"string"},"revision":{"maxLength":160,"minLength":1,"type":"string"},"value":{"description":"opaque reference; never opened, fetched, verified or executed","maxLength":2048,"minLength":1,"type":"string"}},"required":["kind","value"],"type":"object"},"maxItems":20,"type":"array"},"outcome":{"maxLength":2000,"minLength":1,"type":"string"},"request_references":{"items":{"additionalProperties":false,"properties":{"kind":{"enum":["operator_message","peer_message","helper_epoch","report","document","assurance","github","url","other"],"type":"string"},"label":{"maxLength":200,"minLength":1,"type":"string"},"revision":{"maxLength":160,"minLength":1,"type":"string"},"value":{"description":"opaque reference; never opened, fetched, verified or executed","maxLength":2048,"minLength":1,"type":"string"}},"required":["kind","value"],"type":"object"},"maxItems":20,"type":"array"}},"required":["assignment_id","criteria","outcome"]} |
+| request_id | string | yes |  | {"maxLength":160,"minLength":1} |
+| routine_id | string | yes |  | {"maxLength":160,"minLength":1} |
+
+**Result:** A custode.work_agreement_mutation.v1 receipt with agreement_id, revision, sequence, record_id, kind, recorded_at, authenticated recorded_by (kind, id, execution_revision) and duplicate.
+
+**Side effects:** Creates durable agreement intent and an attributed created record; does not deliver an assignment.
+
+**Access:** Main endpoint only. Verified human operator or caretaker, rechecked by the shared service against the captured execution role. Other routine and temporary-agent callers are refused.
+
+**Behavior, defaults and errors:** routine_id names an existing configured owner. intent requires outcome, assignment_id and 1..20 criteria with unique id/text. Optional boundaries, request_references, inputs and expected_outputs default to empty collections. The agreement gets a new opaque UUID. An exact authorized retry can recover its receipt after the owner is removed; new agreements still require a configured routine. GitHub references do not clone or change issue/PR state. All mutations require a stable request_id for one logical operation. An authorized exact retry returns the original receipt with duplicate=true before stale-revision checks; different semantic payloads with the same caller/request_id conflict. Intent revision and record sequence are distinct. Unknown fields and duplicate atom/string keys are refused. IDs are nonblank strings up to 160 characters; prose up to 2000; reference values up to 2048 and labels up to 200; arrays up to 20 entries; total mutation payload up to 65536 bytes. References are opaque attributed links, never fetched, verified or used as access grants. No operation starts, resumes, cancels, schedules or redispatches work.
+
+### Tool: work_agreement_read
+
+Read agreement intent, current assessments and retained history.
+
+**Endpoints:** /mcp. **Category:** read.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| agreement_id | string | no | read one agreement; omit routine_id | {"maxLength":160,"minLength":1} |
+| before_id | string | no | agreement cursor for routine_id lists only | {"maxLength":160,"minLength":1} |
+| before_sequence | integer | no | history cursor for agreement_id reads only | {"maximum":9223372036854775807,"minimum":1} |
+| limit | integer | no | records or agreements per page; default 20 | {"maximum":100,"minimum":1} |
+| routine_id | string | no | list one routine's agreements; omit agreement_id | {"maxLength":160,"minLength":1} |
+
+**Result:** For agreement_id: custode.work_agreement.v1 with agreement_id, routine_id, current_revision, last_sequence, observed_at, current intent and its source record, checkpoint, latest current-revision submission, its resolution, status, and paginated history.records/has_more/before_sequence. For routine_id: custode.work_agreement_list.v1 with routine_id, observed_at, agreements, has_more and before_id. Current projections carry source=work_agreements, evidence=attributed_bookkeeping and effect_authority=none. Recorded history identifies revision, sequence, kind, payload, recorded_at and recorded_by.
+
+**Side effects:** Read only. Does not launch a model, read external references, resolve decisions or alter execution.
+
+**Access:** Main endpoint only. Verified human operator or caretaker can inspect all configured owners; other routines can read only their own agreements. Temporary agents and the memory endpoint have no agreement access.
+
+**Behavior, defaults and errors:** Provide exactly one of agreement_id or routine_id. Exact agreement_id reads remain available to authorized human/caretaker readers after its owner is removed; routine_id lists require a configured routine. Revisions and before_sequence are integers from 1 to 9223372036854775807. agreement_id reads the current intent and bounded retained history; limit defaults to 20, range 1..100, and before_sequence continues that agreement history. routine_id lists agreements in descending creation order with their full current projections; before_id is the returned agreement UUID cursor. Read/list cursor types cannot be mixed. Bounded historical pages still include the current projection, so historical evidence is never mistaken for current intent. Observed execution remains a separate read; checkpoints and criterion evidence are attributed assessments. Reference values are opaque and are not dereferenced.
+
+### Tool: work_agreement_resolve
+
+Record a human decision on an exact current submission.
+
+**Endpoints:** /mcp. **Category:** operator.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| agreement_id | string | yes |  | {"maxLength":160,"minLength":1} |
+| expected_revision | integer | yes |  | {"maximum":9223372036854775807,"minimum":1} |
+| outcome | string | yes |  | {"enum":["accepted","changes_requested","rejected"]} |
+| reason | string | yes |  | {"maxLength":2000,"minLength":1} |
+| request_id | string | yes |  | {"maxLength":160,"minLength":1} |
+| submission_id | string | yes |  | {"maxLength":160,"minLength":1} |
+
+**Result:** A custode.work_agreement_mutation.v1 receipt with agreement_id, revision, sequence, record_id, kind, recorded_at, authenticated recorded_by (kind, id, execution_revision) and duplicate.
+
+**Side effects:** Appends an attributed accepted, changes_requested or rejected resolution of one submission. Does not approve an execution gate, grant shell access or create an Assurance judgment.
+
+**Access:** Main endpoint only. Authenticated human operator only, enforced both in capabilities and the shared operation. Caretaker, worker and temporary-agent callers are refused.
+
+**Behavior, defaults and errors:** agreement_id, expected_revision, submission_id, outcome and reason are required. Only a submission from the current intent revision can be resolved. One terminal resolution is retained per submission; another decision requires a new submission. The current projection applies a decision only to its exact reviewed submission. All mutations require a stable request_id for one logical operation. An authorized exact retry returns the original receipt with duplicate=true before stale-revision checks; different semantic payloads with the same caller/request_id conflict. Intent revision and record sequence are distinct. Unknown fields and duplicate atom/string keys are refused. IDs are nonblank strings up to 160 characters; prose up to 2000; reference values up to 2048 and labels up to 200; arrays up to 20 entries; total mutation payload up to 65536 bytes. References are opaque attributed links, never fetched, verified or used as access grants. No operation starts, resumes, cancels, schedules or redispatches work.
+
+### Tool: work_agreement_revise
+
+Revise agreement intent with an exact revision check.
+
+**Endpoints:** /mcp. **Category:** operator.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| agreement_id | string | yes |  | {"maxLength":160,"minLength":1} |
+| expected_revision | integer | yes |  | {"maximum":9223372036854775807,"minimum":1} |
+| intent | object | yes |  | {"additionalProperties":false,"properties":{"assignment_id":{"maxLength":160,"minLength":1,"type":"string"},"boundaries":{"items":{"maxLength":2000,"minLength":1,"type":"string"},"maxItems":20,"type":"array"},"criteria":{"items":{"additionalProperties":false,"properties":{"id":{"maxLength":160,"minLength":1,"type":"string"},"text":{"maxLength":2000,"minLength":1,"type":"string"}},"required":["id","text"],"type":"object"},"maxItems":20,"minItems":1,"type":"array"},"expected_outputs":{"items":{"additionalProperties":false,"properties":{"kind":{"enum":["operator_message","peer_message","helper_epoch","report","document","assurance","github","url","other"],"type":"string"},"label":{"maxLength":200,"minLength":1,"type":"string"},"revision":{"maxLength":160,"minLength":1,"type":"string"},"value":{"description":"opaque reference; never opened, fetched, verified or executed","maxLength":2048,"minLength":1,"type":"string"}},"required":["kind","value"],"type":"object"},"maxItems":20,"type":"array"},"inputs":{"items":{"additionalProperties":false,"properties":{"kind":{"enum":["operator_message","peer_message","helper_epoch","report","document","assurance","github","url","other"],"type":"string"},"label":{"maxLength":200,"minLength":1,"type":"string"},"revision":{"maxLength":160,"minLength":1,"type":"string"},"value":{"description":"opaque reference; never opened, fetched, verified or executed","maxLength":2048,"minLength":1,"type":"string"}},"required":["kind","value"],"type":"object"},"maxItems":20,"type":"array"},"outcome":{"maxLength":2000,"minLength":1,"type":"string"},"request_references":{"items":{"additionalProperties":false,"properties":{"kind":{"enum":["operator_message","peer_message","helper_epoch","report","document","assurance","github","url","other"],"type":"string"},"label":{"maxLength":200,"minLength":1,"type":"string"},"revision":{"maxLength":160,"minLength":1,"type":"string"},"value":{"description":"opaque reference; never opened, fetched, verified or executed","maxLength":2048,"minLength":1,"type":"string"}},"required":["kind","value"],"type":"object"},"maxItems":20,"type":"array"}},"required":["assignment_id","criteria","outcome"]} |
+| request_id | string | yes |  | {"maxLength":160,"minLength":1} |
+
+**Result:** A custode.work_agreement_mutation.v1 receipt with agreement_id, revision, sequence, record_id, kind, recorded_at, authenticated recorded_by (kind, id, execution_revision) and duplicate.
+
+**Side effects:** Appends a new intent revision; retains prior checkpoints, submissions and decisions.
+
+**Access:** Main endpoint only. Verified human operator or caretaker, rechecked against the captured execution role. The owning worker has no authority to rewrite agreed intent.
+
+**Behavior, defaults and errors:** agreement_id, expected_revision and a complete replacement intent are required. Stale revisions are refused. Earlier acceptance never automatically applies to revised scope, criteria or assignment. Optional collections on the replacement intent default to empty, so send the complete desired intent. All mutations require a stable request_id for one logical operation. An authorized exact retry returns the original receipt with duplicate=true before stale-revision checks; different semantic payloads with the same caller/request_id conflict. Intent revision and record sequence are distinct. Unknown fields and duplicate atom/string keys are refused. IDs are nonblank strings up to 160 characters; prose up to 2000; reference values up to 2048 and labels up to 200; arrays up to 20 entries; total mutation payload up to 65536 bytes. References are opaque attributed links, never fetched, verified or used as access grants. No operation starts, resumes, cancels, schedules or redispatches work.
+
+### Tool: work_agreement_submit
+
+Retain a revision-bound result and its evidence limits.
+
+**Endpoints:** /mcp. **Category:** self_write.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| agreement_id | string | yes |  | {"maxLength":160,"minLength":1} |
+| agreement_revision | integer | yes |  | {"maximum":9223372036854775807,"minimum":1} |
+| assignment_id | string | yes |  | {"maxLength":160,"minLength":1} |
+| criterion_evidence | array | yes |  | {"items":{"additionalProperties":false,"properties":{"criterion_id":{"maxLength":160,"minLength":1,"type":"string"},"note":{"maxLength":2000,"minLength":1,"type":"string"},"references":{"items":{"additionalProperties":false,"properties":{"kind":{"enum":["operator_message","peer_message","helper_epoch","report","document","assurance","github","url","other"],"type":"string"},"label":{"maxLength":200,"minLength":1,"type":"string"},"revision":{"maxLength":160,"minLength":1,"type":"string"},"value":{"description":"opaque reference; never opened, fetched, verified or executed","maxLength":2048,"minLength":1,"type":"string"}},"required":["kind","value"],"type":"object"},"maxItems":20,"type":"array"}},"required":["criterion_id","note","references"],"type":"object"},"maxItems":20,"minItems":1} |
+| outputs | array | no |  | {"items":{"additionalProperties":false,"properties":{"kind":{"enum":["operator_message","peer_message","helper_epoch","report","document","assurance","github","url","other"],"type":"string"},"label":{"maxLength":200,"minLength":1,"type":"string"},"revision":{"maxLength":160,"minLength":1,"type":"string"},"value":{"description":"opaque reference; never opened, fetched, verified or executed","maxLength":2048,"minLength":1,"type":"string"}},"required":["kind","value"],"type":"object"},"maxItems":20} |
+| request_id | string | yes |  | {"maxLength":160,"minLength":1} |
+| summary | string | yes |  | {"maxLength":2000,"minLength":1} |
+| verification_limits | string | yes |  | {"maxLength":2000,"minLength":1} |
+
+**Result:** A custode.work_agreement_mutation.v1 receipt with agreement_id, revision, sequence, record_id, kind, recorded_at, authenticated recorded_by (kind, id, execution_revision) and duplicate.
+
+**Side effects:** Appends an attributed submission. A completed turn, a submitted result and human acceptance remain separate.
+
+**Access:** Main endpoint only. Verified human operator or exact owning routine; caretaker siblings and temporary agents cannot submit on behalf of the owner.
+
+**Behavior, defaults and errors:** agreement_id, agreement_revision, matching assignment_id, summary, nonempty criterion_evidence and verification_limits are required. Each evidence entry has criterion_id, references (possibly empty) and note; criterion IDs must name unique criteria in that retained revision. outputs may be empty for useful negative findings and defaults to empty. Late results for a historical revision remain visible but cannot complete current intent or inherit acceptance. All mutations require a stable request_id for one logical operation. An authorized exact retry returns the original receipt with duplicate=true before stale-revision checks; different semantic payloads with the same caller/request_id conflict. Intent revision and record sequence are distinct. Unknown fields and duplicate atom/string keys are refused. IDs are nonblank strings up to 160 characters; prose up to 2000; reference values up to 2048 and labels up to 200; arrays up to 20 entries; total mutation payload up to 65536 bytes. References are opaque attributed links, never fetched, verified or used as access grants. No operation starts, resumes, cancels, schedules or redispatches work.
 
 ### Tool: workflow_retry_status
 

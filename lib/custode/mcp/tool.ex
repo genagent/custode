@@ -1,6 +1,8 @@
 defmodule Custode.MCP.Tool do
   @moduledoc "Native Snodo callback adapter for Custode's shared tool operations."
 
+  alias Snodo.Schema.Validator.Basic
+
   @callback execute(map(), Custode.MCP.CallContext.t()) ::
               {:reply, Snodo.Result.t(), Custode.MCP.CallContext.t()}
 
@@ -16,12 +18,36 @@ defmodule Custode.MCP.Tool do
       @impl Snodo.Tool
       def call(params, context) do
         with {:ok, caller} <- Adapter.caller(context),
+             :ok <-
+               Custode.MCP.Tool.validate_raw(
+                 params,
+                 input_schema(),
+                 unquote(Keyword.get(opts, :strict_arguments, false))
+               ),
              {:ok, arguments} <-
                Arguments.validate(params, input_schema(), argument_keys()) do
           {:reply, result, _caller} = execute(arguments, caller)
           {:ok, result}
         end
       end
+    end
+  end
+
+  @doc false
+  def validate_raw(_params, _schema, false), do: :ok
+
+  def validate_raw(params, schema, true) do
+    case Basic.validate(params, schema) do
+      :ok ->
+        :ok
+
+      {:error, error} ->
+        {:error,
+         Snodo.Error.invalid_params("Invalid params", %{
+           "path" => error.path,
+           "keyword" => error.keyword,
+           "message" => error.message
+         })}
     end
   end
 
