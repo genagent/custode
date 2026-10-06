@@ -19,6 +19,7 @@ defmodule Custode.MCP.Capabilities do
 
   @worker_tools ~w(
     ask_operator integration_list subject_context return_context read_composition
+    work_agreement_read work_agreement_checkpoint work_agreement_submit
     peer_send peer_reply peer_list peer_read peer_ack
     list_routines agent_status start_agent prompt_agent await_agent
     agent_history approve_action reject_action run_job owner_review assurance_read
@@ -39,6 +40,7 @@ defmodule Custode.MCP.Capabilities do
   # them; their handlers have always refused routine callers.
   @caretaker_exposed_tools ~w(
     project_progress project_report_digest current_run route_preview list_asks list_disowned
+    work_agreement_create work_agreement_revise
     beat drop_note list_gates feed_tail pause_agent resume_agent spend_today
     preview_routine add_routine preview_routine_edit update_routine
     remove_routine

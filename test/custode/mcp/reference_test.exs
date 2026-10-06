@@ -21,9 +21,13 @@ defmodule Custode.MCP.ReferenceTest do
           {"resources", "resources/list"},
           {"resourceTemplates", "resources/templates/list"}
         ] do
-      {:reply, result, _} = Custode.TestHelpers.mcp_dispatch(method, %{}, frame, Server)
+      definitions =
+        Reference.discovery_pages(kind, fn params ->
+          {:reply, result, _} = Custode.TestHelpers.mcp_dispatch(method, params, frame, Server)
+          result
+        end)
 
-      for definition <- result[kind] do
+      for definition <- definitions do
         exported = Enum.find(catalog[kind], &(&1["name"] == definition["name"]))
         assert exported["definition"] == definition
       end
@@ -38,6 +42,42 @@ defmodule Custode.MCP.ReferenceTest do
 
     assert memory["tools"] |> Enum.sort() ==
              ~w(forget integration_list journal_read recall remember return_context subject_context)
+  end
+
+  test "the catalog includes every registered tool across default discovery pages" do
+    catalog = Reference.catalog(notes())
+    main = Enum.find(catalog["endpoints"], &(&1["path"] == "/mcp"))
+    expected = Server.tools() |> Enum.map(& &1.name()) |> Enum.sort()
+    assert length(expected) > 100
+    assert main["tools"] == expected
+    assert Enum.sort(Enum.map(catalog["tools"], & &1["name"])) == expected
+  end
+
+  test "every discovery kind follows cursors even across an empty page" do
+    for kind <- ~w(tools resources resourceTemplates prompts) do
+      assert [%{"name" => "first"}, %{"name" => "last"}] =
+               Reference.discovery_pages(kind, fn params ->
+                 case params["cursor"] do
+                   nil -> %{kind => [%{"name" => "first"}], "nextCursor" => "middle"}
+                   "middle" -> %{kind => [], "nextCursor" => "last"}
+                   "last" -> %{kind => [%{"name" => "last"}]}
+                 end
+               end)
+    end
+  end
+
+  test "repeated or invalid discovery cursors fail instead of looping or truncating" do
+    for kind <- ~w(tools resources resourceTemplates prompts) do
+      assert_raise ArgumentError, ~r/repeated a pagination cursor/, fn ->
+        Reference.discovery_pages(kind, fn _params -> %{kind => [], "nextCursor" => "again"} end)
+      end
+
+      for cursor <- ["", 123] do
+        assert_raise ArgumentError, ~r/invalid pagination cursor/, fn ->
+          Reference.discovery_pages(kind, fn _params -> %{kind => [], "nextCursor" => cursor} end)
+        end
+      end
+    end
   end
 
   test "missing, stale and blank semantics fail instead of producing incomplete documentation" do

@@ -173,6 +173,41 @@ defmodule Custode.MCPCapabilitiesTest do
     assert "project_progress" in tool_names(worker)
   end
 
+  test "agreement discovery separates owners, managers and human resolutions", ctx do
+    operator = session(ctx.operator_token, "/mcp")
+    worker = session(ctx.worker_token, "/mcp")
+    caretaker = session(ctx.caretaker_token, "/mcp")
+    sub = session(ctx.sub_token, "/mcp/memory")
+    operator_tools = tool_names(operator)
+    worker_tools = tool_names(worker)
+    caretaker_tools = tool_names(caretaker)
+    sub_tools = tool_names(sub)
+
+    for name <- ~w(work_agreement_read work_agreement_checkpoint work_agreement_submit) do
+      assert name in operator_tools
+      assert name in worker_tools
+      assert name in caretaker_tools
+      refute name in sub_tools
+      assert ("mcp__custode__" <> name) in Custode.Routine.mcp_tools(:backlog_worker)
+    end
+
+    for name <- ~w(work_agreement_create work_agreement_revise) do
+      assert name in operator_tools
+      assert name in caretaker_tools
+      refute name in worker_tools
+      refute name in sub_tools
+      assert ("mcp__custode__" <> name) in Custode.Routine.mcp_tools(:caretaker)
+    end
+
+    assert "work_agreement_resolve" in operator_tools
+    refute "work_agreement_resolve" in worker_tools
+    refute "work_agreement_resolve" in caretaker_tools
+    refute "work_agreement_resolve" in sub_tools
+
+    response = rpc(caretaker, "tools/call", %{name: "work_agreement_resolve", arguments: %{}})
+    assert get_in(response, ["error", "code"]) == -32_003
+  end
+
   test "peer calls preserve authenticated authorship through the HTTP adapter", ctx do
     worker = session(ctx.worker_token, "/mcp")
     caretaker = session(ctx.caretaker_token, "/mcp")
@@ -411,9 +446,18 @@ defmodule Custode.MCPCapabilitiesTest do
     assert Custode.Disowned.get(ctx.repo, number) == nil
   end
 
-  defp tool_names(client) do
-    %{"result" => %{"tools" => tools}} = rpc(client, "tools/list", %{})
-    Enum.map(tools, & &1["name"])
+  defp tool_names(client, params \\ %{}, seen \\ MapSet.new()) do
+    %{"result" => %{"tools" => tools} = result} = rpc(client, "tools/list", params)
+    names = Enum.map(tools, & &1["name"])
+
+    case result["nextCursor"] do
+      nil ->
+        names
+
+      cursor ->
+        refute MapSet.member?(seen, cursor)
+        names ++ tool_names(client, %{"cursor" => cursor}, MapSet.put(seen, cursor))
+    end
   end
 
   defp call(client, tool, arguments) do

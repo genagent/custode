@@ -20,11 +20,16 @@ defmodule Custode.ProjectProgress do
   includes resolving actions. Host, workflow and repository-wide infrastructure
   signals remain on the fleet attention surface. This is an observation, not
   an atomic snapshot or evidence of completed work.
+
+  `work_agreements` is the shared bounded agreement projection. Its intent,
+  checkpoints and reviewed submissions are attributed bookkeeping; they do
+  not replace independently observed execution or confer approval authority.
   """
 
   alias Custode.Attention.Fleet
   alias Custode.{ConversationArcs, ExecutionFacts, InboxWakes, OperatorMessages, Routine}
   alias Custode.Operator.Authority
+  alias Custode.WorkAgreements
 
   @default_limit 5
   @max_limit 20
@@ -35,6 +40,7 @@ defmodule Custode.ProjectProgress do
          {:ok, routine} <- configured_routine(routine_id),
          {:ok, options} <- options(opts),
          {:ok, current_run} <- Custode.CurrentRun.read(actor, routine.id),
+         {:ok, agreements} <- WorkAgreements.list(actor, routine.id, limit: options[:limit]),
          {:ok, conversation} <- OperatorMessages.conversation(routine.id, options) do
       {:ok,
        %{
@@ -46,6 +52,7 @@ defmodule Custode.ProjectProgress do
          },
          execution: execution(routine),
          current_run: current_run,
+         work_agreements: agreements,
          continuity: ConversationArcs.read_model(routine.id),
          pending_wake: InboxWakes.read_model(routine.id),
          reports: Custode.IntervalReports.recent(routine.id, options[:limit]),

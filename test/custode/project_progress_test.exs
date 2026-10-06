@@ -20,6 +20,13 @@ defmodule Custode.ProjectProgressTest do
     put_env!(:routines, routines)
 
     on_exit(fn ->
+      Repo.query!(
+        "DELETE FROM work_agreement_records WHERE agreement_id IN " <>
+          "(SELECT agreement_id FROM work_agreements WHERE routine_id IN (?, ?, ?))",
+        ids
+      )
+
+      Repo.query!("DELETE FROM work_agreements WHERE routine_id IN (?, ?, ?)", ids)
       Repo.delete_all(from(m in OperatorMessage, where: m.target_agent_id in ^ids))
       Repo.delete_all(from(m in PeerMessage, where: m.recipient in ^ids))
       Repo.delete_all(from(w in InboxWake, where: w.routine_id in ^ids))
@@ -228,6 +235,57 @@ defmodule Custode.ProjectProgressTest do
 
     assert {:error, {:invalid_cursor, ^cursor}} =
              ProjectProgress.read(ctx.actor, ctx.codex.id, before: cursor)
+  end
+
+  test "shares bounded agreement facts without calling a submitted result verified", ctx do
+    intent = %{
+      "outcome" => "Find the supported migration path",
+      "assignment_id" => uid("progress-assignment"),
+      "criteria" => [%{"id" => "compatibility", "text" => "Record compatibility evidence"}]
+    }
+
+    assert {:ok, created} =
+             Custode.WorkAgreements.create(@operator, %{
+               "request_id" => uid("progress-agreement"),
+               "routine_id" => ctx.claude.id,
+               "intent" => intent
+             })
+
+    agreement_id = created["agreement_id"]
+
+    assert {:ok, _} =
+             Custode.WorkAgreements.submit(identity(ctx.claude.id), agreement_id, %{
+               "request_id" => uid("progress-submission"),
+               "agreement_revision" => 1,
+               "assignment_id" => intent["assignment_id"],
+               "summary" => "The documented path appears compatible.",
+               "outputs" => [],
+               "criterion_evidence" => [
+                 %{
+                   "criterion_id" => "compatibility",
+                   "references" => [],
+                   "note" => "A reported finding, without a native proof."
+                 }
+               ],
+               "verification_limits" => "Documentation only; no native run."
+             })
+
+    assert {:ok, progress} = ProjectProgress.read(ctx.actor, ctx.claude.id, limit: 1)
+    assert {:ok, shared} = Custode.WorkAgreements.list(ctx.actor, ctx.claude.id, limit: 1)
+    # Only the observation time changes between two independent reads.
+    assert Map.drop(progress.work_agreements, ["observed_at", "agreements"]) ==
+             Map.drop(shared, ["observed_at", "agreements"])
+
+    [agreement] = progress.work_agreements["agreements"]
+    [shared_agreement] = shared["agreements"]
+    assert Map.delete(agreement, "observed_at") == Map.delete(shared_agreement, "observed_at")
+    assert agreement["agreement_id"] == agreement_id
+    assert agreement["current"]["intent"]["outcome"] == intent["outcome"]
+    assert agreement["current"]["status"] == "submitted"
+    assert agreement["current"]["resolution"] == nil
+    assert agreement["evidence"] == "attributed_bookkeeping"
+    assert progress.execution.active == nil
+    assert :offline = Agents.live_provider(ctx.claude.id)
   end
 
   test "current attention exposes a budget rail even on an older conversation page", ctx do

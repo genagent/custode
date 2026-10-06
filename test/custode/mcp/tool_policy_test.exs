@@ -57,6 +57,18 @@ defmodule Custode.MCP.ToolPolicyTest do
     assert ToolPolicy.fetch("project_progress") == {:ok, :read}
   end
 
+  test "agreement bookkeeping distinguishes owner evidence from operator management" do
+    assert ToolPolicy.fetch("work_agreement_read") == {:ok, :read}
+
+    for tool <- ~w(work_agreement_checkpoint work_agreement_submit) do
+      assert ToolPolicy.fetch(tool) == {:ok, :self_write}
+    end
+
+    for tool <- ~w(work_agreement_create work_agreement_revise work_agreement_resolve) do
+      assert ToolPolicy.fetch(tool) == {:ok, :operator}
+    end
+  end
+
   test "every repo write verb is in a gate class or listed as in none" do
     for {tool, verb} <- ToolPolicy.repo_writes() do
       assert verb in class_verbs() or verb in ToolPolicy.in_no_class(),

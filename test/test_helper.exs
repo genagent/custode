@@ -22,6 +22,8 @@ for table <- [
       "agent_authorization_snapshots",
       "conversation_arc_events",
       "conversation_arcs",
+      "work_agreement_records",
+      "work_agreements",
       "operator_messages",
       "helper_records",
       "integration_overrides",

@@ -72,13 +72,11 @@ defmodule Custode.MCPTransportTest do
     version = "2025-06-18"
 
     initialize("/mcp", operator, version)
-    operator_tools = result(rpc("/mcp", operator, version, 2, "tools/list"))["tools"]
-    operator_resources = result(rpc("/mcp", operator, version, 3, "resources/list"))["resources"]
+    operator_tools = discover("/mcp", operator, version, "tools/list", "tools")
+    operator_resources = discover("/mcp", operator, version, "resources/list", "resources")
 
     operator_templates =
-      result(rpc("/mcp", operator, version, 4, "resources/templates/list"))[
-        "resourceTemplates"
-      ]
+      discover("/mcp", operator, version, "resources/templates/list", "resourceTemplates")
 
     assert Enum.sort(Enum.map(operator_tools, & &1["name"])) ==
              Server.tools() |> Enum.map(& &1.name()) |> Enum.sort()
@@ -202,6 +200,29 @@ defmodule Custode.MCPTransportTest do
 
   defp notify(path, token, version, method) do
     post(path, token, version, %{"jsonrpc" => "2.0", "method" => method})
+  end
+
+  defp discover(path, token, version, method, kind, params \\ %{}, seen \\ MapSet.new()) do
+    page = result(rpc(path, token, version, System.unique_integer([:positive]), method, params))
+
+    case page["nextCursor"] do
+      nil ->
+        page[kind]
+
+      cursor ->
+        refute MapSet.member?(seen, cursor)
+
+        page[kind] ++
+          discover(
+            path,
+            token,
+            version,
+            method,
+            kind,
+            %{"cursor" => cursor},
+            MapSet.put(seen, cursor)
+          )
+    end
   end
 
   defp rpc(path, token, version, id, method, params \\ %{}) do

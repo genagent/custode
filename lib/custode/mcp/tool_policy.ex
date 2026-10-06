@@ -119,6 +119,13 @@ defmodule Custode.MCP.ToolPolicy do
     "executing_turns" => :read,
     "operator_bootstrap" => :read,
     "project_progress" => :read,
+    # Agreement records do not dispatch work or grant execution authority.
+    "work_agreement_read" => :read,
+    "work_agreement_create" => :operator,
+    "work_agreement_revise" => :operator,
+    "work_agreement_checkpoint" => :self_write,
+    "work_agreement_submit" => :self_write,
+    "work_agreement_resolve" => :operator,
     "project_report_digest" => :read,
     "current_run" => :read,
     "integration_list" => :read,
