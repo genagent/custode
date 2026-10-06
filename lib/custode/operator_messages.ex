@@ -516,12 +516,15 @@ defmodule Custode.OperatorMessages do
   def settle_removed(target_agent_id) when is_binary(target_agent_id) do
     now = now()
 
-    {updated, _rows} =
-      Repo.update_all(
-        from(m in OperatorMessage,
-          where: m.target_agent_id == ^target_agent_id and m.status in ^@active
-        ),
-        set: [
+    query =
+      from(m in OperatorMessage,
+        where: m.target_agent_id == ^target_agent_id and m.status in ^@active
+      )
+
+    updated =
+      persist_receipts(
+        query,
+        %{
           status: "refused",
           delivery: @refused_delivery,
           claim_token: nil,
@@ -529,9 +532,9 @@ defmodule Custode.OperatorMessages do
           claim_after_job_id: nil,
           detail: "routine removed before provider delivery",
           error: error_map(:delivery_refused, :routine_removed),
-          completed_at: now,
-          updated_at: now
-        ]
+          completed_at: now
+        },
+        now
       )
 
     broadcast_message_changes(updated, [target_agent_id])
@@ -691,7 +694,8 @@ defmodule Custode.OperatorMessages do
       delivery: latest.delivery,
       provider: latest_value(rows, :provider),
       detail: latest_value(rows, :detail),
-      answer: rows |> latest_value(:result) |> conversation_answer(),
+      answer: conversation_answer(latest),
+      prior_answers: prior_answers(rows),
       error: rows |> latest_value(:error) |> conversation_error(),
       result: latest_value(rows, :result),
       raw_error: latest_value(rows, :error),
@@ -717,25 +721,26 @@ defmodule Custode.OperatorMessages do
     |> Enum.find_value(&Map.get(&1, field))
   end
 
-  defp conversation_answer(%{"output" => nil}), do: nil
-  defp conversation_answer(%{"output" => output}), do: output_text(output)
-  defp conversation_answer(_result), do: nil
+  # Read the latest receipt only: a queued or failed continuation must not
+  # inherit the previous turn's answer. Keep raw results available separately.
+  defp conversation_answer(%{status: status})
+       when status not in ["completed", "waiting_for_input", "waiting_for_approval"], do: nil
 
-  defp output_text(output) when is_binary(output), do: output
+  defp conversation_answer(%{result: %{"output" => output}}),
+    do: Custode.ConversationAnswer.from_output(output)
 
-  defp output_text(%{"directive" => "ask_user", "question" => text}) when is_binary(text),
-    do: text
+  defp conversation_answer(_message), do: nil
 
-  defp output_text(%{"directive" => "request_permission", "action" => text})
-       when is_binary(text),
-       do: text
+  defp prior_answers(rows) do
+    rows
+    |> Enum.reverse()
+    |> Enum.flat_map(&retained_answers(&1.result))
+    |> Enum.uniq_by(& &1["id"])
+    |> Enum.sort_by(& &1["at"])
+  end
 
-  defp output_text(%{"summary" => text}) when is_binary(text), do: text
-
-  defp output_text(output) when is_map(output) or is_list(output),
-    do: Jason.encode!(output, pretty: true)
-
-  defp output_text(output), do: inspect(output)
+  defp retained_answers(%{"prior_answers" => answers}) when is_list(answers), do: answers
+  defp retained_answers(_result), do: []
 
   defp conversation_error(%{"detail" => detail}) when is_binary(detail), do: detail
   defp conversation_error(error) when is_map(error), do: Jason.encode!(error, pretty: true)
@@ -1091,25 +1096,33 @@ defmodule Custode.OperatorMessages do
   end
 
   defp release_admitting(query) do
-    Repo.update_all(query,
-      set: [
-        status: "queued",
-        delivery: "queued",
-        claim_token: nil,
-        claimed_at: nil,
-        claim_after_job_id: nil,
-        agent_generation: nil,
-        agent_turn_id: nil,
-        arc_id: nil,
-        provider_session_id: nil,
-        detail: nil,
-        result: nil,
-        error: nil,
-        started_at: nil,
-        completed_at: nil,
-        updated_at: now()
-      ]
-    )
+    attrs = %{
+      status: "queued",
+      delivery: "queued",
+      claim_token: nil,
+      claimed_at: nil,
+      claim_after_job_id: nil,
+      agent_generation: nil,
+      agent_turn_id: nil,
+      arc_id: nil,
+      provider_session_id: nil,
+      detail: nil,
+      result: nil,
+      error: nil,
+      started_at: nil,
+      completed_at: nil,
+      updated_at: now()
+    }
+
+    {:ok, _} =
+      Repo.transaction(
+        fn ->
+          Enum.each(Repo.all(query), fn message ->
+            update!(message, preserve_prior_answers(message, attrs, attrs.updated_at))
+          end)
+        end,
+        mode: :immediate
+      )
 
     :ok
   end
@@ -1192,25 +1205,28 @@ defmodule Custode.OperatorMessages do
     now = now()
 
     {:ok, updated} =
-      Repo.transaction(fn ->
-        cleared =
-          persist_statuses(
-            correlation_id,
-            ["queued", "executing"],
-            Map.put(attrs, :detail, nil),
-            now
-          )
+      Repo.transaction(
+        fn ->
+          cleared =
+            persist_statuses(
+              correlation_id,
+              ["queued", "executing"],
+              Map.put(attrs, :detail, nil),
+              now
+            )
 
-        retained =
-          persist_statuses(
-            correlation_id,
-            ["waiting_for_input", "waiting_for_approval"],
-            attrs,
-            now
-          )
+          retained =
+            persist_statuses(
+              correlation_id,
+              ["waiting_for_input", "waiting_for_approval"],
+              attrs,
+              now
+            )
 
-        retained + cleared
-      end)
+          retained + cleared
+        end,
+        mode: :immediate
+      )
 
     broadcast_message_changes(updated, targets)
     :ok
@@ -1255,18 +1271,96 @@ defmodule Custode.OperatorMessages do
   end
 
   defp persist_statuses(correlation_id, statuses, attrs, now) do
-    {updated, _rows} =
-      Repo.update_all(
-        from(m in OperatorMessage,
-          where:
-            m.provider_correlation_id == ^correlation_id and m.status in ^statuses and
-              (is_nil(m.delivery) or m.delivery != "queued")
-        ),
-        set: Map.to_list(Map.put(attrs, :updated_at, now))
+    query =
+      from(m in OperatorMessage,
+        where:
+          m.provider_correlation_id == ^correlation_id and m.status in ^statuses and
+            (is_nil(m.delivery) or m.delivery != "queued")
+      )
+
+    persist_receipts(query, attrs, now)
+  end
+
+  defp persist_receipts(query, attrs, now) do
+    attrs = Map.put(attrs, :updated_at, now)
+
+    if Map.has_key?(attrs, :result) or
+         attrs[:status] in ~w(queued executing completed failed refused) do
+      persist_answer_receipts(query, attrs, now)
+    else
+      {updated, _rows} = Repo.update_all(query, set: Map.to_list(attrs))
+      updated
+    end
+  end
+
+  defp persist_answer_receipts(query, attrs, now) do
+    {:ok, updated} =
+      Repo.transaction(
+        fn ->
+          rows = Repo.all(query)
+
+          Enum.each(rows, fn message ->
+            update!(message, preserve_prior_answers(message, attrs, now))
+          end)
+
+          length(rows)
+        end,
+        mode: :immediate
       )
 
     updated
   end
+
+  # A provider continuation replaces result.output. Retain the answer given
+  # before its question/approval so a later outcome cannot erase that prose.
+  # The snapshot is part of the same durable receipt update, not the capped feed.
+  defp preserve_prior_answers(message, attrs, now) do
+    prior = retained_answers(message.result)
+    answer = gated_answer(message, attrs)
+
+    prior =
+      if answer do
+        identity = [
+          message.provider_correlation_id,
+          message.provider,
+          message.agent_generation,
+          message.agent_turn_id || DateTime.to_iso8601(message.updated_at)
+        ]
+
+        id = :crypto.hash(:sha256, Jason.encode!(identity)) |> Base.url_encode64(padding: false)
+
+        snapshot = %{
+          "id" => id,
+          "message_id" => message.message_id,
+          "answer" => answer,
+          "at" => DateTime.to_iso8601(now)
+        }
+
+        Enum.uniq_by(prior ++ [snapshot], & &1["id"])
+      else
+        prior
+      end
+
+    if prior == [] do
+      attrs
+    else
+      result =
+        if answer do
+          Map.get(attrs, :result) || %{"output" => nil}
+        else
+          Map.get(attrs, :result, message.result) || %{"output" => nil}
+        end
+
+      Map.put(attrs, :result, Map.put(result, "prior_answers", prior))
+    end
+  end
+
+  defp gated_answer(%{status: status, result: %{"output" => output}}, %{status: next_status})
+       when status in ["waiting_for_input", "waiting_for_approval"] and
+              next_status in ["queued", "executing", "completed", "failed", "refused"],
+       do: Custode.ConversationAnswer.explicit(output)
+
+  defp gated_answer(_message, _attrs), do: nil
 
   defp persist_latest_detail(correlation_id, detail, now) do
     latest_id =

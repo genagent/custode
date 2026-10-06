@@ -4,6 +4,7 @@ defmodule Custode.OperatorMessagesTest do
   import Custode.TestHelpers
 
   alias Custode.{Agents, OperatorMessage, OperatorMessages, Repo}
+  alias Custode.Operator.Actions
 
   setup do
     Repo.delete_all(OperatorMessage)
@@ -410,6 +411,373 @@ defmodule Custode.OperatorMessagesTest do
     end
   end
 
+  for provider <- [:claude, :codex] do
+    @answer_provider provider
+
+    test "#{provider} full structured answers survive durable reads without replacing reports" do
+      provider = @answer_provider
+      id = start_provider_agent!(provider)
+
+      answer =
+        "## Findings\n\n" <>
+          String.duplicate("- Full Markdown detail with `code` and café.\n", 600)
+
+      assert String.length(answer) > 16_384
+
+      output = %{
+        "directive" => "none",
+        "summary" => "Compared the options.",
+        "answer" => answer,
+        "report" => %{
+          "done" => ["Compared two approaches."],
+          "verified" => ["Fixture evidence only."]
+        }
+      }
+
+      assert {:ok, message, :created} = send_message(id, "explain the options fully")
+      assert_receive {:provider_enqueued, ^provider, _args, meta}
+
+      response =
+        case provider do
+          :claude -> ObanClaude.Testing.structured_result(output, session_id: "full-answer")
+          :codex -> ObanCodex.Testing.structured_result(output, session_id: "full-answer")
+        end
+
+      finish(provider, meta, response)
+      assert {:ok, :idle} = Agents.await(id, :idle, 1_000)
+      assert {:ok, receipt, false} = OperatorMessages.await(message.message_id, 1_000)
+      assert receipt.result == %{"output" => output}
+
+      # These are fresh database reads, as after reconnect, not the provider
+      # return value or an in-memory chat projection. The answer stays uncapped.
+      assert {:ok, %{exchanges: [exchange]}} = OperatorMessages.conversation(id)
+      assert exchange.answer == answer
+      assert exchange.result["output"]["summary"] == "Compared the options."
+      assert {:ok, %{exchanges: [reloaded]}} = Custode.ConversationTimeline.page(id)
+      assert reloaded.answer == answer
+
+      reports = Custode.IntervalReports.recent(id)
+      assert [%{"summary" => "Compared the options."}] = reports.entries
+      refute inspect(reports) =~ "Full Markdown detail"
+    end
+  end
+
+  for provider <- [:claude, :codex], outcome <- [:success, :failure] do
+    @history_provider provider
+    @history_outcome outcome
+
+    test "#{provider} retains a full gated answer after continuation #{outcome}" do
+      provider = @history_provider
+      outcome = @history_outcome
+      id = start_provider_agent!(provider)
+
+      answer =
+        "## Review\n\n" <> String.duplicate("- Complete `diff` reasoning with café.\n", 600)
+
+      assert String.length(answer) > 16_384
+
+      assert {:ok, request, :created} = send_message(id, "review and prepare the change")
+      assert_receive {:provider_enqueued, ^provider, _args, initial_meta}
+
+      finish(provider, initial_meta, approval_answer(provider, answer))
+
+      assert {:ok, {:awaiting_permission, %{id: action_id}}} =
+               Agents.await(id, :awaiting_permission, 1_000)
+
+      eventually(fn ->
+        assert OperatorMessages.get(request.message_id).status == "waiting_for_approval"
+      end)
+
+      assert :processing = Agents.approve_action(id, action_id)
+      assert_receive {:provider_enqueued, ^provider, _args, continued_meta}
+
+      eventually(fn ->
+        assert OperatorMessages.get(request.message_id).status == "executing"
+      end)
+
+      replay_running_transition(provider, id, continued_meta)
+      assert {:ok, %{exchanges: [running]}} = OperatorMessages.conversation(id)
+      assert running.answer == nil
+      assert [%{"answer" => ^answer} = snapshot] = running.prior_answers
+      assert is_binary(snapshot["id"])
+      assert {:ok, _, _} = DateTime.from_iso8601(snapshot["at"])
+
+      case outcome do
+        :success -> finish(provider, continued_meta, result(provider, "Change applied.", "done"))
+        :failure -> finish_failed_answer(provider, continued_meta)
+      end
+
+      case outcome do
+        :success ->
+          assert {:ok, :idle} = Agents.await(id, :idle, 1_000)
+
+        :failure ->
+          assert {:ok, {:awaiting_permission, _}} = Agents.await(id, :awaiting_permission, 1_000)
+      end
+
+      assert {:ok, receipt, false} = OperatorMessages.await(request.message_id, 1_000)
+      expected_status = if outcome == :success, do: "completed", else: "failed"
+      expected_answer = if outcome == :success, do: "Change applied.", else: nil
+      assert receipt.status == expected_status
+      assert receipt.result["prior_answers"] == [snapshot]
+      assert OperatorMessages.public(receipt).result["prior_answers"] == [snapshot]
+
+      # Re-read both projections after the next turn replaced result.output.
+      # Neither the current outcome nor the bounded feed is the answer archive.
+      assert {:ok, %{exchanges: [exchange]}} = OperatorMessages.conversation(id)
+      assert exchange.status == expected_status
+      assert exchange.answer == expected_answer
+      assert exchange.prior_answers == [snapshot]
+      assert {:ok, %{exchanges: [reloaded]}} = Custode.ConversationTimeline.page(id)
+      assert reloaded.answer == expected_answer
+      assert reloaded.prior_answers == [snapshot]
+    end
+  end
+
+  test "equal answers from two approval turns retain distinct historical identities" do
+    provider = :claude
+    id = start_provider_agent!(provider)
+    answer = "The **review** is still valid; the next action needs approval."
+    assert {:ok, request, :created} = send_message(id, "review both steps")
+    assert_receive {:provider_enqueued, :claude, _args, first_meta}
+
+    finish(provider, first_meta, approval_answer(provider, answer))
+
+    assert {:ok, {:awaiting_permission, %{id: first_action}}} =
+             Agents.await(id, :awaiting_permission, 1_000)
+
+    eventually(fn ->
+      assert OperatorMessages.get(request.message_id).status == "waiting_for_approval"
+    end)
+
+    assert :processing = Agents.approve_action(id, first_action)
+    assert_receive {:provider_enqueued, :claude, _args, second_meta}
+    refute first_meta["agent_turn_id"] == second_meta["agent_turn_id"]
+    finish(provider, second_meta, approval_answer(provider, answer))
+
+    assert {:ok, {:awaiting_permission, %{id: second_action}}} =
+             Agents.await(id, :awaiting_permission, 1_000)
+
+    eventually(fn ->
+      assert OperatorMessages.get(request.message_id).status == "waiting_for_approval"
+    end)
+
+    assert :processing = Agents.approve_action(id, second_action)
+    assert_receive {:provider_enqueued, :claude, _args, final_meta}
+
+    eventually(fn ->
+      assert OperatorMessages.get(request.message_id).status == "executing"
+    end)
+
+    replay_running_transition(provider, id, final_meta)
+    finish(provider, final_meta, result(provider, "Both steps are complete.", "done"))
+    assert {:ok, :idle} = Agents.await(id, :idle, 1_000)
+    assert {:ok, receipt, false} = OperatorMessages.await(request.message_id, 1_000)
+
+    assert [%{"answer" => ^answer} = first, %{"answer" => ^answer} = second] =
+             receipt.result["prior_answers"]
+
+    refute first["id"] == second["id"]
+    assert {:ok, %{exchanges: [exchange]}} = Custode.ConversationTimeline.page(id)
+    assert exchange.prior_answers == [first, second]
+    assert exchange.answer == "Both steps are complete."
+  end
+
+  test "successive questions retain each answer under the prompt that elicited it" do
+    id = start_provider_agent!(:claude)
+    first_answer = "Staging limits the blast radius; production serves real traffic."
+    second_answer = "Staging is selected. A dry run can verify the change before applying it."
+
+    assert {:ok, request, :created} = send_message(id, "compare the deployment targets")
+    assert_receive {:provider_enqueued, :claude, _args, first_meta}
+
+    finish(
+      :claude,
+      first_meta,
+      ObanClaude.Testing.structured_result(
+        %{
+          "directive" => "ask_user",
+          "question" => "Which target?",
+          "summary" => "Compared deployment targets.",
+          "answer" => first_answer
+        },
+        session_id: "first-question"
+      )
+    )
+
+    assert {:ok, {:waiting_for_user, "Which target?"}} =
+             Agents.await(id, :waiting_for_user, 1_000)
+
+    eventually(fn ->
+      assert OperatorMessages.get(request.message_id).status == "waiting_for_input"
+    end)
+
+    assert {:ok, first_reply, :created} = send_message(id, "staging")
+    assert first_reply.continues_message_id == request.message_id
+    assert_receive {:provider_enqueued, :claude, _args, second_meta}
+
+    finish(
+      :claude,
+      second_meta,
+      ObanClaude.Testing.structured_result(
+        %{
+          "directive" => "ask_user",
+          "question" => "Dry run or apply?",
+          "summary" => "Prepared the staging change.",
+          "answer" => second_answer
+        },
+        session_id: "second-question"
+      )
+    )
+
+    assert {:ok, {:waiting_for_user, "Dry run or apply?"}} =
+             Agents.await(id, :waiting_for_user, 1_000)
+
+    eventually(fn ->
+      assert OperatorMessages.get(first_reply.message_id).status == "waiting_for_input"
+    end)
+
+    assert {:ok, second_reply, :created} = send_message(id, "dry run")
+    assert second_reply.continues_message_id == first_reply.message_id
+    assert_receive {:provider_enqueued, :claude, _args, final_meta}
+
+    finish(:claude, final_meta, result(:claude, "Dry run completed.", "questions-complete"))
+    assert {:ok, :idle} = Agents.await(id, :idle, 1_000)
+
+    assert {:ok, %{status: "completed"}, false} =
+             OperatorMessages.await(second_reply.message_id, 1_000)
+
+    first_message_id = request.message_id
+    second_message_id = first_reply.message_id
+    assert {:ok, %{exchanges: [exchange]}} = OperatorMessages.conversation(id)
+
+    assert [
+             %{"answer" => ^first_answer, "message_id" => ^first_message_id},
+             %{"answer" => ^second_answer, "message_id" => ^second_message_id}
+           ] = exchange.prior_answers
+
+    assert exchange.answer == "Dry run completed."
+    assert {:ok, %{exchanges: [reloaded]}} = Custode.ConversationTimeline.page(id)
+    assert reloaded.prior_answers == exchange.prior_answers
+  end
+
+  test "rejecting an action preserves the answer delivered with its approval request" do
+    id = start_provider_agent!(:claude)
+    answer = "The **review** found the change ready, subject to your approval."
+    assert {:ok, request, :created} = send_message(id, "review the proposed change")
+    assert_receive {:provider_enqueued, :claude, _args, meta}
+    finish(:claude, meta, approval_answer(:claude, answer))
+
+    assert {:ok, {:awaiting_permission, %{id: action_id}}} =
+             Agents.await(id, :awaiting_permission, 1_000)
+
+    eventually(fn ->
+      assert OperatorMessages.get(request.message_id).status == "waiting_for_approval"
+    end)
+
+    assert :ok =
+             Actions.reject(id, action_id, "Do not apply this change", standing: false)
+
+    assert {:ok, receipt, false} = OperatorMessages.await(request.message_id, 1_000)
+    assert receipt.status == "refused"
+    assert receipt.result["output"] == nil
+    assert [%{"answer" => ^answer} = snapshot] = receipt.result["prior_answers"]
+    assert snapshot["message_id"] == request.message_id
+
+    assert {:ok, %{exchanges: [exchange]}} = OperatorMessages.conversation(id)
+    assert exchange.status == "refused"
+    assert exchange.answer == nil
+    assert exchange.error == "Do not apply this change"
+    assert exchange.prior_answers == [snapshot]
+    assert {:ok, %{exchanges: [reloaded]}} = Custode.ConversationTimeline.page(id)
+    assert reloaded.prior_answers == [snapshot]
+  end
+
+  test "routine removal retains answers already delivered before a pending question or approval" do
+    for status <- ["waiting_for_input", "waiting_for_approval"] do
+      target = uid("removed-answer")
+      answer = "The investigation is complete; the next step needs your input."
+      actor = %{kind: :operator, id: uid("removal-operator")}
+      message = conversation_message!(target, "investigate the options", actor)
+
+      message
+      |> Ecto.Changeset.change(
+        status: status,
+        agent_generation: "removed-generation",
+        agent_turn_id: "removed-turn",
+        result: %{"output" => %{"answer" => answer, "summary" => "Investigation complete."}}
+      )
+      |> Repo.update!()
+
+      assert :ok = OperatorMessages.settle_removed(target)
+      assert {:ok, receipt, false} = OperatorMessages.await(message.message_id, 0)
+      assert receipt.status == "refused"
+      assert receipt.result["output"] == nil
+      assert [%{"answer" => ^answer} = snapshot] = receipt.result["prior_answers"]
+      assert snapshot["message_id"] == message.message_id
+      assert {:ok, %{exchanges: [exchange]}} = OperatorMessages.conversation(target)
+      assert exchange.answer == nil
+      assert exchange.prior_answers == [snapshot]
+    end
+  end
+
+  test "history distinguishes explicit answers, legacy prose and report-only output" do
+    cases = [
+      {%{
+         "answer" => "Full answer",
+         "summary" => "Brief",
+         "directive" => "ask_user",
+         "question" => "Which?"
+       }, "Full answer"},
+      {%{"answer" => nil, "summary" => "Quiet sweep", "report" => %{"done" => ["Checked."]}},
+       nil},
+      {%{"answer" => " \n", "summary" => "Quiet sweep"}, nil},
+      {%{"report" => %{"done" => ["Legacy report without prose."]}}, nil},
+      {%{"directive" => "ask_user", "question" => "Which?", "summary" => "Waiting"}, "Which?"},
+      {%{"directive" => "request_permission", "action" => "Publish?", "summary" => "Ready"},
+       "Publish?"},
+      {%{"summary" => "Legacy answer"}, "Legacy answer"},
+      {"Plain **Markdown** answer", "Plain **Markdown** answer"}
+    ]
+
+    for {output, expected} <- cases do
+      target = uid("answer-history")
+
+      message =
+        conversation_message!(target, "question", %{kind: :operator, id: "history-reader"})
+
+      message
+      |> Ecto.Changeset.change(status: "completed", result: %{"output" => output})
+      |> Repo.update!()
+
+      assert {:ok, %{exchanges: [exchange]}} = OperatorMessages.conversation(target)
+      assert exchange.answer == expected
+      assert exchange.result == %{"output" => output}
+    end
+  end
+
+  test "failed and refused receipts never promote a structured answer to successful prose" do
+    for status <- ["failed", "refused"] do
+      target = uid("unsuccessful-answer")
+
+      message =
+        conversation_message!(target, "do the work", %{kind: :operator, id: "failure-reader"})
+
+      message
+      |> Ecto.Changeset.change(
+        status: status,
+        result: %{"output" => %{"answer" => "Proposed outcome", "summary" => "Tentative report"}},
+        error: %{"detail" => "Execution did not succeed"}
+      )
+      |> Repo.update!()
+
+      assert {:ok, %{exchanges: [exchange]}} = OperatorMessages.conversation(target)
+      assert exchange.answer == nil
+      assert exchange.error == "Execution did not succeed"
+      assert exchange.result["output"]["answer"] == "Proposed outcome"
+    end
+  end
+
   test "a question and its answer share provider correlation but keep public provenance" do
     id = start_provider_agent!(:claude)
 
@@ -420,7 +788,12 @@ defmodule Custode.OperatorMessagesTest do
       :claude,
       request_meta,
       ObanClaude.Testing.structured_result(
-        %{"directive" => "ask_user", "question" => "staging or production?"},
+        %{
+          "directive" => "ask_user",
+          "question" => "staging or production?",
+          "summary" => "Waiting for target selection.",
+          "answer" => "Staging limits the blast radius; production serves real traffic."
+        },
         session_id: "question-session"
       )
     )
@@ -432,6 +805,11 @@ defmodule Custode.OperatorMessagesTest do
       assert %{status: "waiting_for_input", detail: "staging or production?"} =
                OperatorMessages.get(request.message_id)
     end)
+
+    assert {:ok, %{exchanges: [waiting]}} = OperatorMessages.conversation(id)
+    assert waiting.status == "waiting_for_input"
+    assert waiting.answer == "Staging limits the blast radius; production serves real traffic."
+    assert waiting.detail == "staging or production?"
 
     assert {:ok, answer, :created} = send_message(id, "staging")
     assert answer.message_id != request.message_id
@@ -463,6 +841,9 @@ defmodule Custode.OperatorMessagesTest do
     assert exchange.detail == "staging or production?"
     assert exchange.answer == "target recorded"
 
+    assert [%{"answer" => "Staging limits the blast radius; production serves real traffic."}] =
+             exchange.prior_answers
+
     assert [request_prompt, answer_prompt] = exchange.prompts
     assert request_prompt.text == "choose a target"
     assert request_prompt.detail == "staging or production?"
@@ -473,7 +854,7 @@ defmodule Custode.OperatorMessagesTest do
     # conversation read model owns de-duplication and emits one final answer.
     assert Enum.count(
              Repo.all(OperatorMessage),
-             &(&1.target_agent_id == id and &1.result == %{"output" => "target recorded"})
+             &(&1.target_agent_id == id and &1.result["output"] == "target recorded")
            ) == 2
   end
 
@@ -487,7 +868,12 @@ defmodule Custode.OperatorMessagesTest do
       :codex,
       request_meta,
       ObanCodex.Testing.structured_result(
-        %{"directive" => "request_permission", "action" => "merge the change"},
+        %{
+          "directive" => "request_permission",
+          "action" => "merge the change",
+          "summary" => "Ready for review.",
+          "answer" => "The change is ready; merging still requires your approval."
+        },
         session_id: "gate-session"
       )
     )
@@ -499,6 +885,11 @@ defmodule Custode.OperatorMessagesTest do
       assert %{status: "waiting_for_approval", detail: "merge the change"} =
                OperatorMessages.get(request.message_id)
     end)
+
+    assert {:ok, %{exchanges: [waiting]}} = OperatorMessages.conversation(id)
+    assert waiting.status == "waiting_for_approval"
+    assert waiting.answer == "The change is ready; merging still requires your approval."
+    assert waiting.detail == "merge the change"
 
     assert :processing = Agents.approve_action(id, action_id)
     assert_receive {:provider_enqueued, :codex, _args, approval_meta}
@@ -686,6 +1077,67 @@ defmodule Custode.OperatorMessagesTest do
 
     assert %{status: "executing", delivery: "started", started_at: ^now} =
              OperatorMessages.get(durable.message_id)
+  end
+
+  test "restart recovery preserves a gated answer before adopting a newer available job" do
+    target = uid("recovered-answer")
+    actor = %{kind: :operator, id: uid("recovery-operator")}
+    answer = "The staging checks passed; choose whether to continue."
+    request = conversation_message!(target, "check staging", actor)
+
+    request
+    |> Ecto.Changeset.change(
+      status: "waiting_for_input",
+      agent_generation: "prior-generation",
+      agent_turn_id: "prior-turn",
+      result: %{"output" => %{"answer" => answer, "summary" => "Staging checks passed."}}
+    )
+    |> Repo.update!()
+
+    continuation = conversation_message!(target, "continue", actor)
+    assert continuation.provider_correlation_id == request.provider_correlation_id
+
+    meta = %{
+      "agent_id" => target,
+      "correlation_id" => request.provider_correlation_id,
+      "agent_generation" => "recovered-generation",
+      "agent_turn_id" => "recovered-turn",
+      "arc_id" => "recovered-arc"
+    }
+
+    job =
+      %{"prompt" => "continue"}
+      |> Oban.Job.new(worker: ObanClaude.Agent.Job, queue: :agents, meta: meta)
+      |> Repo.insert!()
+
+    delete_job_on_exit(job)
+    assert job.state == "available"
+    assert :ok = OperatorMessages.reconcile!()
+
+    recovered = OperatorMessages.get(request.message_id)
+    assert recovered.status == "queued"
+    assert recovered.agent_turn_id == "recovered-turn"
+    assert recovered.result["output"] == nil
+    assert [%{"answer" => ^answer} = snapshot] = recovered.result["prior_answers"]
+    assert snapshot["message_id"] == request.message_id
+
+    replay_running_transition(:claude, target, meta)
+    failure = ObanClaude.Testing.result(result: "Continuation failed", is_error: true)
+
+    assert :ok =
+             OperatorMessages.handle_event(
+               [:oban_claude, :run, :stop],
+               %{duration: 1},
+               %{result: failure, args: %{}, job: %{meta: meta}},
+               nil
+             )
+
+    assert {:ok, %{exchanges: [exchange]}} = OperatorMessages.conversation(target)
+    assert exchange.status == "failed"
+    assert exchange.answer == nil
+    assert exchange.prior_answers == [snapshot]
+    assert {:ok, %{exchanges: [reloaded]}} = Custode.ConversationTimeline.page(target)
+    assert reloaded.prior_answers == [snapshot]
   end
 
   test "restart reconciliation preserves messages deferred behind a config handoff" do
@@ -1220,6 +1672,65 @@ defmodule Custode.OperatorMessagesTest do
       },
       query_fun: ObanCodex.Testing.respond(result)
     )
+  end
+
+  defp approval_answer(provider, answer) do
+    output = %{
+      "directive" => "request_permission",
+      "action" => "Apply the reviewed change",
+      "summary" => "Review complete; awaiting approval.",
+      "answer" => answer
+    }
+
+    case provider do
+      :claude -> ObanClaude.Testing.structured_result(output, session_id: "approval")
+      :codex -> ObanCodex.Testing.structured_result(output, session_id: "approval")
+    end
+  end
+
+  defp replay_running_transition(provider, id, meta) do
+    assert :ok =
+             OperatorMessages.handle_event(
+               [telemetry_provider(provider), :agent, :transition],
+               %{},
+               %{
+                 agent_id: id,
+                 correlation_id: meta["correlation_id"],
+                 to: :running,
+                 agent_generation: meta["agent_generation"],
+                 agent_turn_id: meta["agent_turn_id"],
+                 arc_id: meta["arc_id"]
+               },
+               nil
+             )
+  end
+
+  defp finish_failed_answer(provider, meta) do
+    failed =
+      case provider do
+        :claude ->
+          ObanClaude.Testing.structured_result(
+            %{"answer" => "Unconfirmed result", "summary" => "Not completed"},
+            is_error: true,
+            result: "Error: provider stopped before completion"
+          )
+
+        :codex ->
+          ObanCodex.Testing.failed_result("Error: provider stopped before completion")
+      end
+
+    :telemetry.execute(
+      [telemetry_provider(provider), :run, :stop],
+      %{duration: 1, cost_usd: 0.0},
+      %{result: failed, args: %{}, job: %{meta: meta}}
+    )
+
+    job = %Oban.Job{meta: meta, attempt: 1, max_attempts: 1}
+
+    case provider do
+      :claude -> ObanClaude.Agent.Job.handle_error({:error, :result_error}, failed, job)
+      :codex -> ObanCodex.Agent.Job.handle_error({:error, {:command_failed, 1}}, failed, job)
+    end
   end
 
   defp finish(provider, meta, result) do

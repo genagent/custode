@@ -955,7 +955,7 @@ defmodule Custode.Routine do
 
     properties =
       Map.new(schema.properties, fn
-        {key, property} when key in [:directive, :summary] ->
+        {key, property} when key in [:directive, :summary, :answer] ->
           {key, property}
 
         {:report, property} ->
@@ -985,6 +985,10 @@ defmodule Custode.Routine do
       properties: %{
         directive: %{type: "string", enum: ["none", "ask_user", "request_permission"]},
         summary: %{type: "string", description: "one-line sweep report"},
+        answer: %{
+          type: ["string", "null"],
+          description: "complete Markdown answer to the operator, or null for report-only work"
+        },
         report: Custode.IntervalReports.schema(),
         question: %{type: "string", description: "set when directive=ask_user"},
         action: %{type: "string", description: "set when directive=request_permission"},

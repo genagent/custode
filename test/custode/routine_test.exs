@@ -532,6 +532,8 @@ defmodule Custode.RoutineTest do
       assert schema["properties"]["issues_touched"]["items"] == %{"type" => "integer"}
       # a sweep that touched nothing must still validate
       assert schema["required"] == ["directive", "summary"]
+      assert schema["properties"]["answer"]["type"] == ["string", "null"]
+      refute Map.has_key?(schema["properties"]["answer"], "maxLength")
       assert schema["properties"]["report"]["additionalProperties"] == false
       assert schema["properties"]["report"]["properties"]["done"]["maxItems"] == 3
 
@@ -666,6 +668,10 @@ defmodule Custode.RoutineTest do
 
       refute Map.has_key?(codex_schema["properties"]["directive"], "anyOf")
       refute Map.has_key?(codex_schema["properties"]["summary"], "anyOf")
+
+      assert codex_schema["properties"]["answer"]["type"] == ["string", "null"]
+      assert "answer" in codex_schema["required"]
+      refute Map.has_key?(codex_schema["properties"]["answer"], "maxLength")
 
       overrides = args["config_overrides"]
       operator_skill = Path.join(OperatorSkill.destination(:codex), "SKILL.md")

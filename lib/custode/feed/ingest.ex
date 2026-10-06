@@ -281,19 +281,17 @@ defmodule Custode.Feed.Ingest do
   defp agent_of(%{job: %{meta: %{"agent_id" => id}}}), do: id
   defp agent_of(_meta), do: "?"
 
-  # The full response text for an operator-origin turn, nil otherwise.
-  # Capped generously: prompt answers are prose, not payloads, and the cap
-  # only guards against a pathological turn flooding a feed row.
+  # The feed carries a bounded answer preview for operator turns. The full
+  # answer remains in the durable message receipt, independent of the report.
   @response_cap 16_384
   defp prompt_response(provider, %{job: %{meta: %{"origin" => "operator"}}, result: result}) do
-    # a schema'd run's raw text IS the directive JSON, and the whole answer
-    # already persists uncapped in the entry's summary -- echoing the blob
-    # here just renders the answer twice, once as escaped JSON (#201)
-    case {structured(provider, result), text(provider, result)} do
-      {%{}, _raw} -> nil
-      {nil, text} when is_binary(text) and text != "" -> String.slice(text, 0, @response_cap)
-      _other -> nil
-    end
+    answer =
+      case structured(provider, result) do
+        nil -> Custode.ConversationAnswer.from_output(text(provider, result))
+        output -> Custode.ConversationAnswer.explicit(output)
+      end
+
+    if answer, do: String.slice(answer, 0, @response_cap)
   end
 
   defp prompt_response(_provider, _meta), do: nil

@@ -54,7 +54,12 @@ sweep is a fresh session.
   otherwise use empty arrays. A quiet sweep may omit report or use null when
   supported. Do not manufacture work or filler. Verified names actual checks,
   evidence links and limitations; it never means approval or acceptance.
-  Keep the full answer to an operator question separate from this brief report.
+  Put the complete Markdown answer to the operator in answer, separate from
+  summary and report. Do not shorten an answer to fit a status report. Always set
+  answer to null when there is no conversational answer, including report-only
+  scheduled work. An answer may accompany ask_user or request_permission; put
+  the pending question or action in its own field. An answer does not resolve
+  that question, grant permission or claim that the proposed action happened.
   Summarize helper outcomes you evaluated, not every helper tool event.
   Reports are durable progress for custode; writing one does not wake it.
   Use the existing peer path for requested completions, important changes,
