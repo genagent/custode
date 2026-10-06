@@ -178,6 +178,248 @@ defmodule CustodeWeb.ConversationLiveTest do
     refute has_element?(view, "#conversation-empty")
   end
 
+  test "an explicit answer stays visible alongside a pending question", %{
+    agent: agent,
+    conn: conn
+  } do
+    message =
+      gated_operator_message!(
+        agent.id,
+        %{
+          "directive" => "ask_user",
+          "summary" => "Waiting for the deployment target.",
+          "answer" => "The **staging** checks passed. Production remains unchecked.",
+          "question" => "Which deployment target should I inspect next?"
+        },
+        :waiting_for_user,
+        "waiting_for_input"
+      )
+
+    {:ok, view, _html} = live(conn, "/agents/#{agent.id}/conversation")
+    exchange = "#exchange-#{message.provider_correlation_id}"
+
+    assert has_element?(view, exchange <> ~s([data-status="waiting_for_input"]))
+    assert has_element?(view, exchange <> " strong", "staging")
+    assert has_element?(view, exchange, "Production remains unchecked.")
+    assert has_element?(view, exchange, "Which deployment target should I inspect next?")
+    assert has_element?(view, exchange <> " #conversation-actions form#reply-answer-0")
+    assert has_element?(view, "#message-0 button[type=submit]", "Answer")
+
+    view |> element("#conversation-updates-toggle") |> render_click()
+    assert has_element?(view, exchange <> " strong", "staging")
+    assert has_element?(view, exchange <> " #conversation-actions form#reply-answer-0")
+  end
+
+  test "an explicit answer stays visible alongside pending approval controls", %{
+    agent: agent,
+    conn: conn
+  } do
+    message =
+      gated_operator_message!(
+        agent.id,
+        %{
+          "directive" => "request_permission",
+          "summary" => "Deployment review needs approval.",
+          "answer" => "The **review** found a rollback step missing from the plan.",
+          "action" => "Add the rollback step to the deployment plan"
+        },
+        :awaiting_permission,
+        "waiting_for_approval"
+      )
+
+    {:ok, view, _html} = live(conn, "/agents/#{agent.id}/conversation")
+    exchange = "#exchange-#{message.provider_correlation_id}"
+
+    assert has_element?(view, exchange <> ~s([data-status="waiting_for_approval"]))
+    assert has_element?(view, exchange <> " strong", "review")
+    assert has_element?(view, exchange, "Add the rollback step to the deployment plan")
+    assert has_element?(view, exchange <> ~s( #conversation-actions button[phx-value-op=approve]))
+
+    assert has_element?(
+             view,
+             exchange <> ~s( #conversation-actions form[phx-submit=reject] button[type=submit])
+           )
+
+    view |> element("#conversation-updates-toggle") |> render_click()
+    assert has_element?(view, exchange <> " strong", "review")
+    assert has_element?(view, exchange <> ~s( #conversation-actions button[phx-value-op=approve]))
+  end
+
+  test "a report-only turn with an explicit null answer does not turn its summary into chat", %{
+    agent: agent,
+    conn: conn
+  } do
+    summary = "Report-only status must stay out of the answer."
+    report = %{"verified" => ["Checked the deployment status."]}
+    generation = uid("report-generation")
+    turn = uid("report-turn")
+
+    message =
+      operator_message!(agent.id, "Inspect the deployment status")
+      |> Ecto.Changeset.change(
+        status: "completed",
+        provider: "claude",
+        agent_generation: generation,
+        agent_turn_id: turn,
+        result: %{
+          "output" => %{
+            "directive" => "none",
+            "summary" => summary,
+            "answer" => nil,
+            "report" => report
+          }
+        }
+      )
+      |> Repo.update!()
+
+    Feed.record(%{
+      event: "turn",
+      agent: agent.id,
+      provider: "claude",
+      correlation_id: message.provider_correlation_id,
+      generation: generation,
+      turn_id: turn,
+      summary: summary,
+      report: report
+    })
+
+    {:ok, view, _html} = live(conn, "/agents/#{agent.id}/conversation")
+    exchange = "#exchange-#{message.provider_correlation_id}"
+
+    assert has_element?(view, exchange <> " details", "Checked the deployment status.")
+    refute has_element?(view, exchange, summary)
+
+    view |> element("#conversation-updates-toggle") |> render_click()
+    refute has_element?(view, exchange <> " details")
+    refute has_element?(view, exchange, summary)
+    assert has_element?(view, exchange, "Inspect the deployment status")
+  end
+
+  test "a legacy structured question already shown as prompt detail is not repeated as an answer",
+       %{
+         agent: agent,
+         conn: conn
+       } do
+    detail = "Which legacy deployment target should I inspect?"
+
+    message =
+      operator_message!(agent.id, "Inspect the legacy deployment")
+      |> Ecto.Changeset.change(
+        status: "completed",
+        detail: detail,
+        result: %{
+          "output" => %{
+            "directive" => "ask_user",
+            "question" => detail,
+            "summary" => "Waiting for the legacy deployment target."
+          }
+        }
+      )
+      |> Repo.update!()
+
+    {:ok, view, _html} = live(conn, "/agents/#{agent.id}/conversation")
+    exchange = "#exchange-#{message.provider_correlation_id}"
+    html = view |> element(exchange) |> render()
+
+    assert length(:binary.matches(html, detail)) == 1
+    refute has_element?(view, exchange, "Waiting for the legacy deployment target.")
+  end
+
+  test "a failed continuation retains the full earlier answer beyond the feed response cap", %{
+    agent: agent,
+    conn: conn
+  } do
+    evidence = String.duplicate("Detailed retained evidence. ", 800)
+    answer = "**Earlier assessment**\n\n" <> evidence <> "\n\nEND_OF_EARLIER_ANSWER"
+    assert byte_size(answer) > 16_384
+
+    original =
+      operator_message!(agent.id, "Assess the deployment before choosing a target")
+      |> Ecto.Changeset.change(
+        status: "waiting_for_input",
+        detail: "Which deployment target should I inspect?"
+      )
+      |> Repo.update!()
+
+    continuation = operator_message!(agent.id, "Inspect staging")
+    assert continuation.continues_message_id == original.message_id
+    assert continuation.provider_correlation_id == original.provider_correlation_id
+
+    prior = %{
+      "id" => uid("prior-answer"),
+      "message_id" => original.message_id,
+      "answer" => answer,
+      "at" => DateTime.to_iso8601(DateTime.utc_now())
+    }
+
+    for message <- [original, continuation] do
+      message
+      |> Ecto.Changeset.change(
+        status: "failed",
+        result: %{"output" => nil, "prior_answers" => [prior]},
+        error: %{"kind" => "provider_result_error", "detail" => "Continuation could not start."}
+      )
+      |> Repo.update!()
+    end
+
+    assert {:ok, %{exchanges: [exchange]}} = OperatorMessages.conversation(agent.id)
+    assert exchange.answer == nil
+    assert exchange.prior_answers == [prior]
+
+    {:ok, view, _html} = live(conn, "/agents/#{agent.id}/conversation")
+    selector = "#exchange-#{original.provider_correlation_id}"
+
+    assert has_element?(view, selector <> ~s([data-status="failed"]))
+    assert has_element?(view, selector <> " [data-prior-answer]", "Earlier answer")
+    assert has_element?(view, selector <> " [data-prior-answer] strong", "Earlier assessment")
+
+    assert has_element?(
+             view,
+             selector <> " [data-prior-answer] [data-foldable-full]",
+             "END_OF_EARLIER_ANSWER"
+           )
+
+    assert view |> element(selector <> " [data-prior-answer]") |> render() =~
+             String.trim(evidence)
+
+    assert has_element?(view, selector, "Continuation could not start.")
+    assert has_element?(view, selector, "you replied")
+
+    view |> element("#conversation-updates-toggle") |> render_click()
+
+    assert view |> element(selector <> " [data-prior-answer]") |> render() =~
+             String.trim(evidence)
+
+    assert has_element?(view, selector, "Continuation could not start.")
+  end
+
+  test "an explicit answer equal to historical prompt detail is still rendered", %{
+    agent: agent,
+    conn: conn
+  } do
+    detail = "The deployment target is staging."
+
+    message =
+      operator_message!(agent.id, "Confirm the deployment target")
+      |> Ecto.Changeset.change(
+        status: "completed",
+        detail: detail,
+        result: %{
+          "output" => %{
+            "directive" => "none",
+            "summary" => "Target confirmed.",
+            "answer" => detail
+          }
+        }
+      )
+      |> Repo.update!()
+
+    {:ok, view, _html} = live(conn, "/agents/#{agent.id}/conversation")
+    html = view |> element("#exchange-#{message.provider_correlation_id}") |> render()
+
+    assert length(:binary.matches(html, detail)) == 2
+  end
+
   test "the control room links the selected agent to its focused conversation", %{
     agent: agent,
     conn: conn
@@ -317,6 +559,40 @@ defmodule CustodeWeb.ConversationLiveTest do
     view |> element("#conversation-updates-toggle") |> render_click()
     refute has_element?(view, "[data-conversation-update]")
     assert has_element?(view, ~s(#conversation-pending-action button[phx-value-op=approve]))
+  end
+
+  defp gated_operator_message!(agent_id, output, state, status) do
+    test_pid = self()
+
+    {:ok, _pid} =
+      Agent.start_agent(agent_id,
+        enqueue_fun: fn args, meta ->
+          send(test_pid, {:enqueued, args, meta})
+          {:ok, :queued}
+        end
+      )
+
+    on_exit(fn -> Agent.stop_agent(agent_id) end)
+    message = operator_message!(agent_id, "Review the deployment plan")
+
+    :processing =
+      Agent.submit_prompt(agent_id, message.prompt,
+        origin: :operator,
+        correlation_id: message.provider_correlation_id
+      )
+
+    assert_receive {:enqueued, _args, turn_meta}
+    result = Testing.structured_result(output)
+    meta = %{result: result, job: %{meta: turn_meta}}
+    measurements = %{cost_usd: 0.0}
+
+    :ok = Ingest.handle_event([:oban_claude, :run, :stop], measurements, meta, nil)
+    :ok = OperatorMessages.handle_event([:oban_claude, :run, :stop], measurements, meta, nil)
+    :ok = finish_agent_turn(turn_meta, result)
+    {:ok, _status} = Agent.await(agent_id, state, 1_000)
+    eventually(fn -> assert OperatorMessages.get(message.message_id).status == status end)
+
+    message
   end
 
   defp operator_message!(agent_id, prompt) do

@@ -345,6 +345,122 @@ defmodule Custode.FeedTest do
     assert entry["response"] == nil
   end
 
+  for {provider, runner, fixtures} <- [
+        {:claude, ObanClaude, ObanClaude.Testing},
+        {:codex, ObanCodex, ObanCodex.Testing}
+      ] do
+    @provider provider
+    @runner runner
+    @fixtures fixtures
+
+    test "#{provider} keeps a bounded Markdown answer separate from its interval report" do
+      agent = uid("feed-answer-#{@provider}")
+      answer = "## Findings\n\n" <> String.duplicate("- **Verified:** résumé is retained.\n", 700)
+      report = %{"done" => ["Reviewed the design"], "next" => ["Choose the next step"]}
+
+      output = %{
+        "directive" => "none",
+        "summary" => "Reviewed the design",
+        "answer" => answer,
+        "report" => report
+      }
+
+      assert {:ok, _} =
+               @runner.run(%{"prompt" => "explain the design"},
+                 job: %Oban.Job{meta: %{"agent_id" => agent, "origin" => "operator"}},
+                 query_fun: @fixtures.respond(@fixtures.structured_result(output))
+               )
+
+      assert [entry] = Custode.Feed.for_agent(agent)
+      assert entry["event"] == "turn"
+      assert entry["summary"] == "Reviewed the design"
+      assert entry["response"] == String.slice(answer, 0, 16_384)
+      assert String.length(entry["response"]) == 16_384
+      assert entry["report"]["done"] == report["done"]
+      assert entry["report"]["next"] == report["next"]
+
+      assert %{entries: [interval]} = Custode.IntervalReports.recent(agent)
+      assert interval["summary"] == "Reviewed the design"
+      assert interval["report"] == entry["report"]
+      refute Map.has_key?(interval, "response")
+      refute Jason.encode!(interval) =~ "résumé"
+    end
+
+    test "#{provider} omits answer previews for scheduled, report-only and legacy turns" do
+      for {origin, fields} <- [
+            {"tick", %{"answer" => "A scheduled answer must not become an operator reply"}},
+            {"operator", %{"answer" => nil}},
+            {"operator", %{"answer" => " \n "}},
+            {"operator", %{}}
+          ] do
+        agent = uid("feed-no-answer-#{@provider}")
+
+        output =
+          Map.merge(
+            %{
+              "directive" => "none",
+              "summary" => "Repository is healthy",
+              "report" => %{"done" => ["Checked repository health"]}
+            },
+            fields
+          )
+
+        assert {:ok, _} =
+                 @runner.run(%{"prompt" => "check health"},
+                   job: %Oban.Job{meta: %{"agent_id" => agent, "origin" => origin}},
+                   query_fun: @fixtures.respond(@fixtures.structured_result(output))
+                 )
+
+        assert [entry] = Custode.Feed.for_agent(agent)
+        assert entry["event"] == "turn"
+        assert entry["summary"] == "Repository is healthy"
+        assert entry["report"]["done"] == ["Checked repository health"]
+        assert entry["response"] == nil
+      end
+    end
+
+    test "#{provider} does not publish an answer or report from a failed structured result" do
+      agent = uid("feed-failed-answer-#{@provider}")
+
+      output = %{
+        "directive" => "none",
+        "summary" => "Unconfirmed completion",
+        "answer" => "This proposed answer must not be published as a successful reply",
+        "report" => %{"done" => ["Unconfirmed work"]}
+      }
+
+      result = @fixtures.structured_result(output)
+
+      failed =
+        case @provider do
+          :claude -> %{result | is_error: true, result: "provider failed before completion"}
+          :codex -> %{result | success: false, exit_code: 17, stderr: "provider failed"}
+        end
+
+      assert {{:error, _reason}, ^failed} =
+               @runner.run(%{"prompt" => "explain the result"},
+                 job: %Oban.Job{meta: %{"agent_id" => agent, "origin" => "operator"}},
+                 query_fun: @fixtures.respond(failed)
+               )
+
+      assert [entry] = Custode.Feed.for_agent(agent)
+      assert entry["event"] == "turn_failed"
+
+      case @provider do
+        :claude ->
+          assert entry["detail"] =~ "provider failed"
+
+        :codex ->
+          assert entry["detail"] == "exit 17: Codex exited unsuccessfully without a diagnostic"
+      end
+
+      refute Map.has_key?(entry, "response")
+      refute Map.has_key?(entry, "summary")
+      refute Map.has_key?(entry, "report")
+      assert %{entries: []} = Custode.IntervalReports.recent(agent)
+    end
+  end
+
   test "a failed run writes a turn_failed entry with the error kind AND its detail" do
     {{:error, :command_failed}, _} =
       ObanClaude.run(%{"prompt" => "x"},

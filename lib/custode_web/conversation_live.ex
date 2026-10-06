@@ -362,6 +362,13 @@ defmodule CustodeWeb.ConversationLive do
                   <.markdown text={prompt.detail} />
                 </div>
               </div>
+              <div :for={answer <- exchange.prior_answers} :if={answer["message_id"] == prompt.id}
+                class="flex justify-start" data-prior-answer>
+                <div class="max-w-[88%] rounded-box border border-base-300 bg-base-100 px-4 py-3 shadow-sm sm:max-w-[75%]">
+                  <p class="mb-1 text-xs font-semibold text-base-content/50">{@agent_id} · Earlier answer</p>
+                  <.message_content text={answer["answer"]} agent={@agent_id} markdown fold id={"prior-answer-#{answer["id"]}"} />
+                </div>
+              </div>
             </div>
 
             <div :if={final_answer(exchange)} class="flex justify-start">
@@ -646,10 +653,12 @@ defmodule CustodeWeb.ConversationLive do
   defp after_action({:error, reason}, socket, _notice),
     do: {:noreply, socket |> assign(notice: "failed: #{inspect(reason)}") |> refresh_latest()}
 
-  defp final_answer(%{status: status, answer: answer, prompts: prompts})
-       when status in ["completed", "failed", "refused"] and is_binary(answer) do
+  defp final_answer(%{status: status, answer: answer, prompts: prompts} = exchange)
+       when status in ["completed", "waiting_for_input", "waiting_for_approval"] and
+              is_binary(answer) do
     details = Enum.map(prompts, & &1.detail)
-    if answer in details, do: nil, else: answer
+    explicit? = match?(%{"output" => %{"answer" => _}}, exchange.result)
+    if not explicit? and answer in details, do: nil, else: answer
   end
 
   defp final_answer(_exchange), do: nil
