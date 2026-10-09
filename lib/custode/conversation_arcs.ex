@@ -94,6 +94,12 @@ defmodule Custode.ConversationArcs do
   def operator_delivery(routine, prompt) do
     with {:ok, prepared} <- prepare(routine, :operator) do
       opts = [arc_id: prepared.arc_id, session: prepared.session, origin: :operator]
+
+      opts =
+        if prepared.decision == :resume and nonblank?(prepared.arc.provider_session_id),
+          do: Keyword.put(opts, :resume_session_id, prepared.arc.provider_session_id),
+          else: opts
+
       {:ok, recovery_prompt(routine, prompt, prepared), opts}
     end
   end
