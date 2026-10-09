@@ -228,6 +228,134 @@ defmodule CustodeWeb.WorkstreamsLiveTest do
     refute has_element?(view, "#workstream-doing", "Older active assignment")
   end
 
+  test "older agreement pages reach old open work by links, reload and refresh", ctx do
+    owner = ctx.ids.software
+    detail = "/workstreams/#{owner}"
+    old = old_open_agreement!(owner)
+    for n <- 1..6, do: accepted!(owner, "Accepted newer assignment #{n}")
+
+    report!(
+      owner,
+      "Current report while paging agreements",
+      %{},
+      DateTime.add(DateTime.utc_now(), -60)
+    )
+
+    {:ok, ask} = Custode.Asks.ask(owner, "Which current release should I target?")
+    agreement!(ctx.ids.research, "Earlier research agreement")
+    for n <- 1..3, do: agreement!(ctx.ids.research, "Newest research agreement #{n}")
+    before = counts()
+
+    {:ok, view, _} = live(ctx.conn, detail)
+    assert has_element?(view, "#workstream-agreement-coverage", "Limited agreement coverage")
+    assert has_element?(view, "#workstream-agreement-coverage", "Reports, open questions")
+    refute has_element?(view, "#workstream-agreement-coverage a", "Newest agreements")
+    refute has_element?(view, "#workstream-doing", "old-assignment")
+    assert_purposes(view, [6, 5, 4])
+
+    second = click_older(view)
+    assert second =~ ~r"^/workstreams/[^?]+\?agreements_before=[^&]+$"
+    assert has_element?(view, "#workstream-agreement-coverage[data-agreement-page=older]")
+    assert has_element?(view, "#workstream-agreement-coverage", "Still older agreements")
+    assert has_element?(view, ~s(#workstream-agreement-coverage a[href="#{detail}"]), "Newest")
+    assert_purposes(view, [3, 2, 1])
+
+    third = click_older(view)
+    assert_purposes(view, [])
+    assert_old_page(view, old)
+    assert has_element?(view, "#workstream-agreement-coverage", "Older agreements")
+    assert has_element?(view, "#workstream-agreement-coverage", "No older agreements")
+    refute has_element?(view, "#workstream-agreement-coverage a", "Older agreements")
+    assert has_element?(view, "#workstream-done", "Current report while paging agreements")
+    assert has_element?(view, "#workstream-decisions", "Which current release should I target?")
+
+    {:ok, reloaded, _} = live(ctx.conn, third)
+    assert_old_page(reloaded, old)
+    assert counts() == before
+
+    accepted!(owner, "Recorded after the page was opened")
+    report!(owner, "Updated current report while paging agreements", %{})
+    ask |> Ecto.Changeset.change(status: "answered", answer: "The next release") |> Repo.update!()
+    before = counts()
+    send(view.pid, {:work_agreement_changed, owner})
+    send(view.pid, :refresh)
+    assert_old_page(view, old)
+    refute has_element?(view, "#workstream-purpose", "Recorded after the page was opened")
+
+    assert has_element?(
+             view,
+             "#workstream-done",
+             "Updated current report while paging agreements"
+           )
+
+    refute has_element?(view, "#workstream-done", "Current report while paging agreements")
+    refute has_element?(view, "#workstream-decisions", "Which current release should I target?")
+
+    {:ok, middle, _} = live(ctx.conn, second)
+    assert_purposes(middle, [3, 2, 1])
+
+    view |> element("#workstream-agreement-coverage a", "Newest agreements") |> render_click()
+    assert_patch(view, detail)
+    assert has_element?(view, "#workstream-purpose", "Recorded after the page was opened")
+    refute has_element?(view, "#workstream-doing", "old-assignment")
+
+    render_patch(view, third)
+    assert_old_page(view, old)
+    render_patch(view, "/workstreams/#{ctx.ids.research}")
+    assert has_element?(view, "#workstream-detail[data-workstream-owner='#{ctx.ids.research}']")
+    assert has_element?(view, "#workstream-agreement-coverage[data-agreement-page=newest]")
+    assert has_element?(view, "#workstream-purpose", "Newest research agreement 3")
+    refute has_element?(view, "#workstream-purpose", "Earlier research agreement")
+    refute has_element?(view, "#workstream-doing", "old-assignment")
+    render_patch(view, third)
+    assert_old_page(view, old)
+    view |> element("#workstream-detail a", "All workstreams") |> render_click()
+    assert_patch(view, "/")
+    assert has_element?(view, "#workstream-home")
+    render_patch(view, detail)
+    assert has_element?(view, "#workstream-agreement-coverage[data-agreement-page=newest]")
+    refute has_element?(view, "#workstream-doing", "old-assignment")
+    assert counts() == before
+  end
+
+  test "malformed, stale and foreign agreement cursors are errors with a newest recovery link",
+       ctx do
+    owner = ctx.ids.software
+    detail = "/workstreams/#{owner}"
+    agreement!(owner, "Current owner assignment")
+    foreign = agreement!(ctx.ids.research, "Another owner's assignment")
+    before = counts()
+
+    for {cursor, message} <- [
+          {"", "malformed"},
+          {String.duplicate("x", 161), "malformed"},
+          {foreign, "does not match a current agreement"},
+          {Ecto.UUID.generate(), "does not match a current agreement"}
+        ] do
+      {:ok, view, _} = live(ctx.conn, "#{detail}?agreements_before=#{cursor}")
+      assert has_element?(view, "#workstream-error [role=alert]", message)
+      refute has_element?(view, "#workstream-detail")
+      refute has_element?(view, "#workstream-purpose", "Another owner's assignment")
+
+      send(view.pid, :refresh)
+      assert has_element?(view, "#workstream-error [role=alert]", message)
+
+      view
+      |> element(~s(#workstream-error nav a[href="#{detail}"]), "Newest agreements")
+      |> render_click()
+
+      assert_patch(view, detail)
+      assert has_element?(view, "#workstream-purpose", "Current owner assignment")
+      refute has_element?(view, "#workstream-error")
+    end
+
+    {:ok, home, _} = live(ctx.conn, "/?agreements_before=#{foreign}")
+    assert has_element?(home, "#workstream-error", "apply to one workstream")
+    refute has_element?(home, "#workstream-error a", "Newest agreements")
+    refute has_element?(home, "#workstream-home")
+    assert counts() == before
+  end
+
   test "failed reports do not become a completed-outcome count", ctx do
     at = DateTime.utc_now()
 
@@ -301,11 +429,89 @@ defmodule CustodeWeb.WorkstreamsLiveTest do
     receipt["agreement_id"]
   end
 
-  defp checkpoint!(id, step, blocker) do
+  defp old_open_agreement!(owner) do
+    id = agreement!(owner, "Oldest open assignment")
+
+    {:ok, _} =
+      WorkAgreements.revise(@human, id, %{
+        request_id: uid("revise"),
+        expected_revision: 1,
+        intent: %{
+          outcome: "Oldest open assignment, revised",
+          assignment_id: "old-assignment",
+          criteria: [%{id: "evidence", text: "Record the outcome with sources and limits"}]
+        }
+      })
+
+    checkpoint!(id, "Oldest committed step", "Oldest unresolved blocker", 2)
+    id
+  end
+
+  defp accepted!(owner, outcome) do
+    id = agreement!(owner, outcome)
+
+    {:ok, submission} =
+      WorkAgreements.submit(@human, id, %{
+        request_id: uid("page-submit"),
+        agreement_revision: 1,
+        assignment_id: "bounded-assignment",
+        summary: "Reviewed #{outcome}",
+        criterion_evidence: [
+          %{criterion_id: "evidence", references: [], note: "No further source available"}
+        ],
+        verification_limits: "No independent verification"
+      })
+
+    {:ok, _} =
+      WorkAgreements.resolve(@human, id, %{
+        request_id: uid("page-resolve"),
+        expected_revision: 1,
+        submission_id: submission["record_id"],
+        outcome: "accepted",
+        reason: "Accepted with limits"
+      })
+
+    id
+  end
+
+  defp click_older(view) do
+    view
+    |> element("#workstream-agreement-coverage nav[aria-label='Agreement pages'] a", "Older")
+    |> render_click()
+
+    assert_patch(view)
+  end
+
+  defp assert_purposes(view, shown) do
+    for n <- 1..6 do
+      selector = "#workstream-purpose"
+      text = "Accepted newer assignment #{n}"
+
+      if n in shown,
+        do: assert(has_element?(view, selector, text)),
+        else: refute(has_element?(view, selector, text))
+    end
+  end
+
+  defp assert_old_page(view, old) do
+    assert has_element?(view, "#workstream-agreement-coverage[data-agreement-page=older]")
+    assert has_element?(view, "#workstream-purpose", "Oldest open assignment, revised")
+    assert has_element?(view, "#workstream-doing", "old-assignment")
+    assert has_element?(view, "#workstream-doing", old)
+    assert has_element?(view, "#workstream-doing", "revision 2")
+    assert has_element?(view, "#workstream-doing", "One bounded follow-up remains")
+    assert has_element?(view, "#workstream-todo", "Oldest committed step")
+    assert has_element?(view, "#workstream-todo", "revision 2")
+    assert has_element?(view, "#workstream-blockers", "Oldest unresolved blocker")
+    assert has_element?(view, "#workstream-blockers", "operator")
+    assert has_element?(view, "#workstream-todo > summary", "1 shown")
+  end
+
+  defp checkpoint!(id, step, blocker, revision \\ 1) do
     {:ok, _} =
       WorkAgreements.checkpoint(@human, id, %{
         request_id: uid("checkpoint"),
-        expected_revision: 1,
+        expected_revision: revision,
         summary: "One bounded follow-up remains",
         next_steps: [%{id: "next", text: step, references: []}],
         blockers: [
