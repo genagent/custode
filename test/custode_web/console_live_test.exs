@@ -247,15 +247,15 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert has_element?(view, "button[phx-click=new_skip]", "Skip for now")
   end
 
-  test "the console is home and legacy dashboard URLs redirect into it", %{
+  test "the console remains available and legacy agent URLs redirect into it", %{
     conn: conn,
     sleeper: sleeper
   } do
-    {:ok, view, html} = live(conn, "/")
+    {:ok, view, html} = live(conn, "/console")
     assert html =~ ~s(id="rail-filter")
     refute has_element?(view, ~s(header a[href="/fleet"]), "fleet")
 
-    # the rail's links leave home for the subject's own address
+    # the rail's links keep the subject's own address
     view |> element(~s(a[href="/console/#{sleeper.id}"])) |> render_click()
     assert_patched(view, "/console/#{sleeper.id}")
 

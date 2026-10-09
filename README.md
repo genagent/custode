@@ -211,13 +211,15 @@ toggles them ([guides/ui-hierarchy.md](guides/ui-hierarchy.md)).
 
 | Page | What it is |
 |---|---|
-| `/` | **The console.** A rail of every subject grouped by what it needs (needs you, watching, working, scheduled, quiet), filterable by name, repository, tag or state. A subject pane with a message box that works in any state and tabs: attention, activity, work, notebook, panel, turns, config. An item pane with the evidence (failing checks, risk, the agent's context) and one control per thing you can do. |
+| `/` | **Workstream dashboard.** Compact purpose, latest report, observed execution and ranked attention for configured project/domain owners. Reads stored records without a model call. |
+| `/workstreams/:id` | **Workstream detail.** Purpose, Done, Doing, Todo, Decisions and Blockers, with attributed evidence, verification limits and configuration behind disclosures. Recorded next steps stay separate from report suggestions; existing actions open in the Console. |
+| `/console`, `/console/:id` | **The console.** A rail of every subject grouped by what it needs (needs you, watching, working, scheduled, quiet), filterable by name, repository, tag or state. A subject pane with a message box that works in any state and tabs: attention, activity, work, notebook, panel, turns, config. An item pane with the evidence (failing checks, risk, the agent's context) and one control per thing you can do. |
 | `/agents/:id/conversation` | **A focused agent conversation.** Operator prompts, provider replies, questions, approvals, and their outcomes appear as correlated exchanges in one full-height transcript, with stable older-history loading and the same saved draft as the console. |
-| `/custode` | **Ask custode.** Discuss ideas and coordinate project work in the manager's durable conversation. Pending plans, reports and fleet actions stay reachable beside the transcript; direct project conversations remain available. |
+| `/custode` | **PM conversation.** Discuss ideas and coordinate project work in the manager's durable conversation. Pending plans, reports and fleet actions stay reachable beside the transcript; direct project conversations remain available. |
 | `/messages`, `/messages/:id` | Durable agent-to-agent messages and correlated exchanges. Reach them from either agent or fleet activity; reads never acknowledge a message. |
 | `/metrics` | Spend, approval rates by agent, by gate class and risk, and writes observed outside an approval. |
 | `/inbox`, `/repos`, `/workflows`, `/suggestions` | The needs-you queue, repository overviews, workflow runs, advisor suggestions. |
-| `/fleet`, `/agents/:id` | Legacy bookmarks; redirect to the console and selected subject. |
+| `/fleet`, `/agents/:id` | Legacy bookmarks; redirect to the dashboard and selected Console subject. |
 
 Ranking is never done in a page. `Custode.Attention` is a pure resolver
 ([design/007-attention.md](design/007-attention.md)) and every surface draws
@@ -378,10 +380,16 @@ MIX_ENV=test PREVIEW_PAGE=console PREVIEW_THEME=paper \
 MIX_ENV=test PREVIEW_PAGE=custode PREVIEW_THEME=ink \
   PREVIEW_OUT=tmp/custode-preview.html \
   mix test --include preview test/support/preview/dashboard_preview_test.exs
+
+MIX_ENV=test PREVIEW_PAGE=workstreams PREVIEW_THEME=paper \
+  PREVIEW_OUT=tmp/workstreams-preview.html \
+  mix test --include preview test/support/preview/dashboard_preview_test.exs
 ```
 
 Preview tests carry the `preview` tag and are excluded from the ordinary test
-suite. Open the generated file in a browser; no server remains running.
+suite. The workstreams fixture also writes `workstream-detail.html` beside the
+home preview; set `PREVIEW_STRESS=1` to include a long token and wide table.
+Open the generated file in a browser; no server remains running.
 
 Things that bite:
 
