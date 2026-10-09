@@ -273,10 +273,18 @@ defmodule Custode.Operator.Actions do
     with :ok <- resume(agent_id, opts), do: submit(agent_id, text, :resumed, correlation_id)
   end
 
+  defp deliver_ready(agent_id, text, :waiting_for_user, _opts, correlation_id),
+    do: answer_question(agent_id, text, correlation_id)
+
+  defp deliver_ready(agent_id, text, _state, _opts, correlation_id),
+    do: submit(agent_id, text, :delivered, correlation_id)
+
   # An answer belongs to the arc that asked the question. Omitting arc_id
   # makes the wrapper keep its active arc while origin=:operator still marks
-  # the response as human input.
-  defp deliver_ready(agent_id, text, :waiting_for_user, _opts, correlation_id) do
+  # the response as human input. Immediate delivery and replay both answer
+  # through here, so a message queued behind the asking turn cannot select an
+  # unrelated operator arc (#853).
+  defp answer_question(agent_id, text, correlation_id) do
     case Agents.submit_prompt(agent_id, text,
            origin: :operator,
            correlation_id: correlation_id
@@ -286,11 +294,11 @@ defmodule Custode.Operator.Actions do
 
       {:error, reason} ->
         {:error, reason}
+
+      other ->
+        {:error, {:unexpected_submit_reply, other}}
     end
   end
-
-  defp deliver_ready(agent_id, text, _state, _opts, correlation_id),
-    do: submit(agent_id, text, :delivered, correlation_id)
 
   @doc false
   def replay_next(agent_id) do
@@ -305,7 +313,7 @@ defmodule Custode.Operator.Actions do
          :ok <- replay_ready(state),
          {:ok, provider} <- admission_provider(agent_id),
          {:ok, claimed} <- OperatorMessages.claim_delivery(message) do
-      settle_replay(claimed, provider, replay(claimed))
+      settle_replay(claimed, provider, replay(claimed, state))
     else
       {:deferred, _reason} = deferred -> deferred
       {:error, :not_queued} -> resolve_replay_claim_miss(message)
@@ -330,7 +338,15 @@ defmodule Custode.Operator.Actions do
     end
   end
 
-  defp replay(%{caller_kind: "operator"} = message) do
+  defp replay(%{caller_kind: "operator"} = message, :waiting_for_user) do
+    answer_question(
+      message.target_agent_id,
+      message.prompt,
+      message.provider_correlation_id
+    )
+  end
+
+  defp replay(%{caller_kind: "operator"} = message, _state) do
     submit_replay(
       message.target_agent_id,
       message.prompt,
@@ -338,7 +354,7 @@ defmodule Custode.Operator.Actions do
     )
   end
 
-  defp replay(message) do
+  defp replay(message, _state) do
     case Agents.submit_prompt(message.target_agent_id, message.prompt,
            correlation_id: message.provider_correlation_id
          ) do

@@ -11,6 +11,11 @@ defmodule Custode.WorkstreamDashboard do
   summary. Desired settings and retained turns are omitted there (`nil` and
   `[]`); they are not claims that configuration or history is absent. A targeted
   read includes the full execution facts for the selected routine.
+
+  A targeted read may page agreements with `agreement_before: agreement_id`,
+  the `before_id` of a previous page. The cursor selects only the agreement
+  page; reports, open decisions and execution remain current. An unknown,
+  deleted or foreign cursor is an error, never the newest page.
   """
 
   alias Custode.Attention.Fleet
@@ -26,7 +31,7 @@ defmodule Custode.WorkstreamDashboard do
   }
 
   @digest_options [:window_hours, :project_limit, :report_limit, :now]
-  @options @digest_options ++ [:agreement_limit, :routine_id]
+  @options @digest_options ++ [:agreement_limit, :agreement_before, :routine_id]
 
   @doc "Read the overview, or a single configured workstream with `routine_id: id`."
   def read(actor, opts \\ []) do
@@ -45,7 +50,8 @@ defmodule Custode.WorkstreamDashboard do
       signals: signals_by_id,
       next_beats: NextBeat.pending(),
       routines: routines,
-      detailed?: not is_nil(options.routine_id)
+      detailed?: not is_nil(options.routine_id),
+      agreement_before: options.agreement_before
     }
 
     with {:ok, workstreams} <- workstreams(actor, digest.projects, sources, options) do
@@ -58,7 +64,12 @@ defmodule Custode.WorkstreamDashboard do
          window: digest.window,
          workstreams: Enum.sort_by(workstreams, &{Map.get(ranks, &1.id, length(signals)), &1.id}),
          attention: Enum.filter(signals, &Signal.needs_you?/1),
-         coverage: Map.put(digest.coverage, :agreement_limit, options.agreement_limit),
+         coverage:
+           Map.merge(digest.coverage, %{
+             agreement_limit: options.agreement_limit,
+             agreement_before: options.agreement_before,
+             agreement_page: page_position(options.agreement_before)
+           }),
          links: %{
            manager: "/custode",
            inbox: "/inbox",
@@ -77,22 +88,31 @@ defmodule Custode.WorkstreamDashboard do
     if Keyword.keyword?(opts) and Enum.all?(Keyword.keys(opts), &(&1 in @options)) and
          length(opts) == length(Enum.uniq(Keyword.keys(opts))) do
       agreement_limit = Keyword.get(opts, :agreement_limit, 3)
+      agreement_before = Keyword.get(opts, :agreement_before)
+      routine_id = Keyword.get(opts, :routine_id)
 
-      if is_integer(agreement_limit) and agreement_limit in 1..10 do
-        {:ok,
-         %{
-           agreement_limit: agreement_limit,
-           routine_id: Keyword.get(opts, :routine_id),
-           digest:
-             opts
-             |> Keyword.take(@digest_options)
-             |> Keyword.put_new(:window_hours, 168)
-             |> Keyword.put_new(:project_limit, 50)
-             |> Keyword.put_new(:report_limit, 1)
-             |> Keyword.put_new(:now, DateTime.utc_now())
-         }}
-      else
-        {:error, :invalid_bounds}
+      cond do
+        not (is_integer(agreement_limit) and agreement_limit in 1..10) ->
+          {:error, :invalid_bounds}
+
+        # Agreement pages are per owner; the fleet home always shows the newest.
+        not is_nil(agreement_before) and is_nil(routine_id) ->
+          {:error, :invalid_options}
+
+        true ->
+          {:ok,
+           %{
+             agreement_limit: agreement_limit,
+             agreement_before: agreement_before,
+             routine_id: routine_id,
+             digest:
+               opts
+               |> Keyword.take(@digest_options)
+               |> Keyword.put_new(:window_hours, 168)
+               |> Keyword.put_new(:project_limit, 50)
+               |> Keyword.put_new(:report_limit, 1)
+               |> Keyword.put_new(:now, DateTime.utc_now())
+           }}
       end
     else
       {:error, :invalid_options}
@@ -132,8 +152,13 @@ defmodule Custode.WorkstreamDashboard do
   end
 
   defp workstreams(actor, projects, sources, options) do
+    list_options =
+      if is_nil(options.agreement_before),
+        do: [limit: options.agreement_limit],
+        else: [limit: options.agreement_limit, before_id: options.agreement_before]
+
     Enum.reduce_while(projects, {:ok, []}, fn project, {:ok, rows} ->
-      case WorkAgreements.list(actor, project.owner, limit: options.agreement_limit) do
+      case WorkAgreements.list(actor, project.owner, list_options) do
         {:ok, agreements} ->
           {:cont, {:ok, [workstream(project, agreements, sources) | rows]}}
 
@@ -152,6 +177,7 @@ defmodule Custode.WorkstreamDashboard do
       routine && (Map.get(sources.next_beats, id) || Scheduler.next_beat_at(routine.cron))
 
     execution = execution(project, sources)
+    detail = "/workstreams/#{URI.encode(id, &URI.char_unreserved?/1)}"
 
     %{
       id: id,
@@ -160,18 +186,33 @@ defmodule Custode.WorkstreamDashboard do
       purpose: purpose(agreements),
       digest: project,
       agreements: agreements,
+      agreement_page: agreement_page(agreements, detail, sources),
       execution: execution,
       signal: signal,
       next_beat_at: next_beat,
       state: execution_state(execution, signal, next_beat),
-      links:
-        Map.put(
-          project.links,
-          :detail,
-          "/workstreams/#{URI.encode(id, &URI.char_unreserved?/1)}"
-        )
+      links: Map.put(project.links, :detail, detail)
     }
   end
+
+  # Pages are keyed by an agreement id, not an offset, so agreements recorded
+  # after a page was opened do not shift it. Only a detail read links pages.
+  defp agreement_page(agreements, detail, sources) do
+    before = sources.agreement_before
+    next = sources.detailed? && agreements["has_more"] && agreements["before_id"]
+
+    %{
+      position: page_position(before),
+      before: before,
+      shown: length(agreements["agreements"]),
+      has_more: agreements["has_more"],
+      older: if(next, do: detail <> "?" <> URI.encode_query(%{"agreements_before" => next})),
+      newest: if(is_nil(before), do: nil, else: detail)
+    }
+  end
+
+  defp page_position(nil), do: :newest
+  defp page_position(_before), do: :older
 
   defp execution(project, %{detailed?: false}) do
     %{
