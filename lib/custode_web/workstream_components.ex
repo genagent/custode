@@ -145,6 +145,9 @@ defmodule CustodeWeb.WorkstreamComponents do
   attr(:workstream, :map, required: true)
   attr(:dashboard, :map, required: true)
 
+  attr(:answer_forms, :map, default: %{})
+  attr(:answer_feedback, :string, default: nil)
+
   def detail(assigns) do
     agreements = assigns.workstream.agreements["agreements"]
     active = Enum.reject(agreements, &(&1["current"]["status"] in ["accepted", "rejected"]))
@@ -159,8 +162,9 @@ defmodule CustodeWeb.WorkstreamComponents do
       |> assign(:blockers, checkpoint_entries(active, "blockers"))
       |> assign(
         :open_decisions,
-        assigns.workstream.digest.decisions.gates ++ assigns.workstream.digest.decisions.asks
+        assigns.workstream.decisions.gates ++ assigns.workstream.decisions.asks
       )
+      |> assign(:retained_answers, retained_answers(assigns))
       |> assign(:reported_decisions, concerns(assigns.workstream, :decisions))
       |> assign(:reported_blockers, concerns(assigns.workstream, :blockers))
 
@@ -234,12 +238,23 @@ defmodule CustodeWeb.WorkstreamComponents do
           <p :if={@steps == []} class="text-base-content/60">No committed next steps recorded in the shown agreement checkpoints.</p>
           <.checkpoint_entry :for={entry <- @steps} entry={entry} prefix="todo" />
         </.section>
-        <.section id="workstream-decisions" title="Decisions" count={length(@open_decisions) + length(@decisions) + length(@reported_decisions)} open={@open_decisions != [] || @decisions != []}>
-          <p :if={@open_decisions == [] && @decisions == [] && @reported_decisions == []} class="text-base-content/60">No open questions, gates or recorded decision requests in this view.</p>
+        <.section id="workstream-decisions" title="Decisions" count={length(@open_decisions) + length(@decisions) + length(@reported_decisions)} open={@open_decisions != [] || @decisions != [] || @retained_answers != [] || !is_nil(@answer_feedback)}>
+          <p :if={@answer_feedback} id="workstream-answer-feedback" role="status" class="text-sm">{@answer_feedback}</p>
+          <p :if={@open_decisions == [] && @decisions == [] && @reported_decisions == [] && @retained_answers == []} class="text-base-content/60">No open questions, gates or recorded decision requests in this view.</p>
           <div :for={decision <- @open_decisions} class="space-y-2 border-b border-base-300 pb-3 last:border-0">
             <p class="font-semibold">{if decision.blocking, do: "Open gate", else: "Open question"} #{decision.id}</p>
             <.foldable_text text={decision.text || "No detail recorded."} markdown id={"decision-#{decision.kind}-#{decision.id}"} />
+            <.foldable_text :if={decision.kind == "ask" && decision.context} text={decision.context} markdown id={"decision-context-#{decision.id}"} />
             <p class="text-xs text-base-content/60">Current open record · opened <.ago at={decision.opened_at} /> · resolver: operator</p>
+            <.answer_form :if={decision.kind == "ask"} form={@answer_forms[{@workstream.id, to_string(decision.id)}]} />
+            <.link :if={decision.blocking} navigate={@workstream.links.control_room} class="link text-xs">Open in Console</.link>
+          </div>
+          <div :for={form <- @retained_answers} class="space-y-2 border-b border-base-300 pb-3">
+            <p class="font-semibold">Question #{form.decision.id} · no longer open in this view</p>
+            <.foldable_text text={form.decision.text} markdown id={"decision-ask-#{form.decision.id}"} />
+            <.foldable_text :if={form.decision.context} text={form.decision.context} markdown id={"decision-context-#{form.decision.id}"} />
+            <p class="text-xs text-base-content/60">Draft retained for this exact question. Check its state in Console.</p>
+            <.answer_form form={form} />
             <.link navigate={@workstream.links.control_room} class="link text-xs">Open in Console</.link>
           </div>
           <p :if={@workstream.digest.decisions.has_more_asks || @workstream.digest.decisions.has_more_gates} class="text-xs text-base-content/60">More open records are available in <.link navigate={@workstream.links.control_room} class="link">Console</.link>.</p>
@@ -255,6 +270,34 @@ defmodule CustodeWeb.WorkstreamComponents do
       </div>
       <.coverage dashboard={@dashboard} />
     </article>
+    """
+  end
+
+  defp retained_answers(assigns) do
+    current = Enum.map(assigns.workstream.decisions.asks, & &1.id)
+
+    assigns.answer_forms
+    |> Map.values()
+    |> Enum.filter(fn form ->
+      form.decision.owner == assigns.workstream.id and form.decision.id not in current and
+        (form.text != "" or not is_nil(form.error))
+    end)
+    |> Enum.sort_by(& &1.decision.id)
+  end
+
+  attr(:form, :map, required: true)
+
+  defp answer_form(assigns) do
+    ~H"""
+    <form id={"workstream-answer-#{@form.decision.id}"} phx-change="draft_answer" phx-submit="answer_ask" class="space-y-2">
+      <input type="hidden" name="owner" value={@form.decision.owner} />
+      <input type="hidden" name="ask_id" value={@form.decision.id} />
+      <label for={"workstream-answer-text-#{@form.decision.id}"} class="block text-sm font-semibold">Answer question #{@form.decision.id}</label>
+      <textarea id={"workstream-answer-text-#{@form.decision.id}"} name="text" rows="3" required class="textarea textarea-bordered w-full" aria-invalid={if @form.error, do: "true", else: "false"} aria-describedby={if @form.error, do: "workstream-answer-error-#{@form.decision.id}"}>{@form.text}</textarea>
+      <p :if={@form.error} id={"workstream-answer-error-#{@form.decision.id}"} role="alert" class="text-sm text-error">{@form.error}</p>
+      <button type="submit" class="btn btn-primary btn-sm" phx-disable-with="Sending...">Send answer <span class="sr-only">for question #{@form.decision.id}</span></button>
+      <button type="button" phx-click="discard_answer" phx-value-owner={@form.decision.owner} phx-value-ask_id={@form.decision.id} class="btn btn-ghost btn-sm">Discard draft <span class="sr-only">for question #{@form.decision.id}</span></button>
+    </form>
     """
   end
 
