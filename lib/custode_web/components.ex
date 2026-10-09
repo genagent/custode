@@ -71,9 +71,9 @@ defmodule CustodeWeb.Components do
   @doc "The title, current summary and optional action for an ordinary page."
   def page_header(assigns) do
     ~H"""
-    <header id={@id} aria-labelledby={"#{@id}-title"} class="mb-6 flex flex-wrap items-start gap-3">
-      <div class="min-w-0 flex-1">
-        <h1 id={"#{@id}-title"} class="text-2xl font-bold">{@title}</h1>
+    <header id={@id} aria-labelledby={"#{@id}-title"} class="mb-6 flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap">
+      <div class="min-w-0 w-full sm:flex-1">
+        <h1 id={"#{@id}-title"} class="break-words text-2xl font-bold">{@title}</h1>
         <p class="mt-1 text-sm text-base-content/70">{@summary}</p>
       </div>
       <div :if={@action != []} class="flex flex-wrap items-center gap-2 sm:ml-auto">
@@ -399,11 +399,11 @@ defmodule CustodeWeb.Components do
           class="order-3 flex w-full gap-3 overflow-x-auto text-sm sm:order-none sm:w-auto"
         >
           <.link
-            navigate="/console"
-            class={nav_class(@active in [:console, :fleet])}
-            aria-current={if @active in [:console, :fleet], do: "page"}
+            navigate="/"
+            class={nav_class(@active == :dashboard)}
+            aria-current={if @active == :dashboard, do: "page"}
           >
-            Console
+            Dashboard
           </.link>
           <.link
             navigate="/custode"
@@ -411,7 +411,14 @@ defmodule CustodeWeb.Components do
             aria-current={if @active == :custode, do: "page"}
             title="Shift+Cmd/Ctrl+K"
           >
-            Ask
+            PM conversation
+          </.link>
+          <.link
+            navigate="/console"
+            class={nav_class(@active in [:console, :fleet])}
+            aria-current={if @active in [:console, :fleet], do: "page"}
+          >
+            Console
           </.link>
           <.link
             navigate="/inbox"

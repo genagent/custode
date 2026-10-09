@@ -42,6 +42,25 @@ defmodule Custode.ProjectReportDigest do
     end
   end
 
+  @doc "Read one configured owner's digest, including owners outside the fleet page limit."
+  def read_project(actor, routine_id, opts \\ []) do
+    with :ok <- authorize(actor),
+         {:ok, options} <- options(opts),
+         {:ok, routine} <- configured_routine(routine_id) do
+      since = DateTime.add(options.now, -options.window_hours * 3600)
+      {:ok, project(routine, since, options)}
+    end
+  end
+
+  defp configured_routine(id) when is_binary(id) and id != "" do
+    case Routine.get(id) do
+      nil -> {:error, :unknown_routine}
+      routine -> {:ok, routine}
+    end
+  end
+
+  defp configured_routine(_id), do: {:error, :invalid_routine_id}
+
   defp authorize(%{kind: kind, id: id} = actor)
        when kind in [:operator, :routine] and is_binary(id) and id != "",
        do: Authority.fleet_control(actor)

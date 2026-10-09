@@ -41,8 +41,9 @@ defmodule CustodeWeb.Router do
     # The live layout is set here rather than per-page so a page added later
     # cannot forget it and silently lose its flash messages (#337).
     live_session :dashboard, layout: {CustodeWeb.Layouts, :app} do
-      # the console is home (#450); legacy page URLs redirect above
-      live("/", CustodeWeb.ConsoleLive)
+      # the compact workstream dashboard is home (#850); the console remains available
+      live("/", CustodeWeb.WorkstreamsLive)
+      live("/workstreams/:id", CustodeWeb.WorkstreamsLive)
       live("/console", CustodeWeb.ConsoleLive)
       live("/console/:id", CustodeWeb.ConsoleLive)
       live("/agents/:id/conversation", CustodeWeb.ConversationLive)

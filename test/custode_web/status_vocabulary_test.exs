@@ -17,7 +17,7 @@ defmodule CustodeWeb.StatusVocabularyTest do
   @endpoint CustodeWeb.Endpoint
 
   setup do
-    # The unselected homepage opens the highest-ranked whole-fleet signal.
+    # The unselected Console opens the highest-ranked whole-fleet signal.
     clear_attention!()
     path = Path.join(System.tmp_dir!(), uid("sv-feed") <> ".jsonl")
     put_env!(:feed_path, path)
@@ -136,7 +136,7 @@ defmodule CustodeWeb.StatusVocabularyTest do
     defp assert_same_word(conn, id, status, machine_word) do
       label = status_label(status)
 
-      for path <- ["/", "/console/#{id}", "/feed"] do
+      for path <- ["/console", "/console/#{id}", "/feed"] do
         {:ok, view, html} = live(conn, path)
 
         if path != "/feed" do

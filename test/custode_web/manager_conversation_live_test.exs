@@ -105,8 +105,9 @@ defmodule CustodeWeb.ManagerConversationLiveTest do
     {:ok, repos, repos_html} = live(conn, "/repos")
 
     expected = [
+      {"Dashboard", "/"},
+      {"PM conversation", "/custode"},
       {"Console", "/console"},
-      {"Ask", "/custode"},
       {"Inbox", "/inbox"},
       {"Repos", "/repos"},
       {"Suggestions", "/suggestions"},
@@ -117,7 +118,7 @@ defmodule CustodeWeb.ManagerConversationLiveTest do
     assert primary_nav(root_html) == expected
     assert primary_nav(console_html) == expected
     assert primary_nav(repos_html) == expected
-    assert has_element?(root, "#application-header a[aria-current=page]", "Ask")
+    assert has_element?(root, "#application-header a[aria-current=page]", "PM conversation")
     assert has_element?(console, "#application-header a[aria-current=page]", "Console")
     assert has_element?(repos, "#application-header a[aria-current=page]", "Repos")
     assert has_element?(root, "#conversation-scroll[phx-hook=ConversationScroll]")
