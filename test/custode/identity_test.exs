@@ -46,6 +46,9 @@ defmodule Custode.IdentityTest do
       new_pid = Process.whereis(Identity)
       assert is_pid(new_pid)
       refute new_pid == old_pid
+
+      # Registration precedes init completing token and config reprovisioning.
+      :sys.get_state(new_pid)
     end)
 
     {:ok, new_token} = Identity.token(:routine, routine.id)
