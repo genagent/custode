@@ -205,6 +205,120 @@ defmodule Custode.WorkstreamDashboardTest do
     assert revised["current"]["resolution"] == nil
   end
 
+  test "a detail read pages older agreements by cursor without hiding old open work", ctx do
+    old = agreement!(ctx.software.id, "Oldest open assignment")
+
+    assert {:ok, _} =
+             WorkAgreements.revise(@operator, old["agreement_id"], %{
+               "request_id" => uid("revision"),
+               "expected_revision" => 1,
+               "intent" => intent("Oldest open assignment, revised")
+             })
+
+    old_checkpoint = checkpoint!(ctx.software.id, old, "Finish the oldest step", 2)
+
+    newer =
+      for n <- 1..6 do
+        agreement = agreement!(ctx.software.id, "Accepted newer assignment #{n}")
+        submit_and_accept!(ctx.software.id, agreement, "Result #{n}", "result-#{n}.md")
+        agreement
+      end
+
+    expected = Enum.reverse(Enum.map([old | newer], & &1["agreement_id"]))
+    before = dispatch_counts()
+    detail = "/workstreams/#{URI.encode(ctx.software.id, &URI.char_unreserved?/1)}"
+
+    assert {:ok, newest} = WorkstreamDashboard.read(@operator, routine_id: ctx.software.id)
+    first = stream(newest, ctx.software.id)
+    assert newest.coverage.agreement_page == :newest
+    assert newest.coverage.agreement_before == nil
+    assert first.agreement_page.position == :newest
+    assert first.agreement_page.newest == nil
+    assert first.agreement_page.shown == 3
+    assert first.agreement_page.has_more
+
+    assert first.agreement_page.older ==
+             detail <> "?agreements_before=" <> first.agreements["before_id"]
+
+    refute Enum.any?(first.agreements["agreements"], &(&1["agreement_id"] == old["agreement_id"]))
+
+    pages = pages(ctx.software.id, first.agreements["before_id"], [first])
+    assert Enum.flat_map(pages, &agreement_ids/1) == expected
+    assert length(pages) == 3
+
+    last = List.last(pages)
+    assert last.agreement_page.position == :older
+    refute last.agreement_page.has_more
+    assert last.agreement_page.older == nil
+    assert last.agreement_page.newest == detail
+    assert [oldest] = last.agreements["agreements"]
+    assert oldest["agreement_id"] == old["agreement_id"]
+    assert oldest["current_revision"] == 2
+    assert oldest["current"]["status"] == "open"
+    assert oldest["current"]["intent"]["outcome"] == "Oldest open assignment, revised"
+    assert oldest["current"]["checkpoint"]["record_id"] == old_checkpoint["record_id"]
+    assert oldest["current"]["checkpoint"]["revision"] == 2
+
+    assert [%{"text" => "Finish the oldest step"}] =
+             oldest["current"]["checkpoint"]["payload"]["next_steps"]
+
+    assert [%{"id" => "source"}] = oldest["current"]["checkpoint"]["payload"]["blockers"]
+
+    middle = Enum.at(pages, 1)
+    assert dispatch_counts() == before
+    agreement!(ctx.software.id, "Recorded after the page was opened")
+    before = dispatch_counts()
+
+    assert {:ok, reread} =
+             WorkstreamDashboard.read(@operator,
+               routine_id: ctx.software.id,
+               agreement_before: middle.agreement_page.before
+             )
+
+    assert agreement_ids(stream(reread, ctx.software.id)) == agreement_ids(middle)
+
+    assert reread.coverage.agreement_page == :older
+    assert reread.coverage.agreement_before == middle.agreement_page.before
+    assert dispatch_counts() == before
+  end
+
+  test "agreement cursors are detail-only and stale or foreign cursors are errors", ctx do
+    own = agreement!(ctx.software.id, "Owner agreement")
+    foreign = agreement!(ctx.research.id, "Foreign agreement")
+    before = dispatch_counts()
+
+    assert {:error, :invalid_options} =
+             WorkstreamDashboard.read(@operator, agreement_before: own["agreement_id"])
+
+    for cursor <- ["", "   ", String.duplicate("x", 161), 12, false] do
+      assert {:error, :invalid_arguments} =
+               WorkstreamDashboard.read(@operator,
+                 routine_id: ctx.software.id,
+                 agreement_before: cursor
+               )
+    end
+
+    for cursor <- [foreign["agreement_id"], Ecto.UUID.generate()] do
+      assert {:error, :invalid_cursor} =
+               WorkstreamDashboard.read(@operator,
+                 routine_id: ctx.software.id,
+                 agreement_before: cursor
+               )
+    end
+
+    assert {:error, _} =
+             WorkstreamDashboard.read(@operator,
+               routine_id: ctx.software.id,
+               agreement_before: own["agreement_id"],
+               agreement_limit: 0
+             )
+
+    assert {:ok, overview} = WorkstreamDashboard.read(@operator)
+    assert overview.coverage.agreement_page == :newest
+    assert stream(overview, ctx.software.id).agreement_page.older == nil
+    assert dispatch_counts() == before
+  end
+
   test "attention keeps the resolver's oldest-first order and independent open decisions", ctx do
     older = DateTime.add(DateTime.utc_now(), -7200)
     newer = DateTime.add(older, 3600)
@@ -334,6 +448,21 @@ defmodule Custode.WorkstreamDashboardTest do
 
   defp stream(dashboard, id), do: Enum.find(dashboard.workstreams, &(&1.id == id))
 
+  defp agreement_ids(stream), do: Enum.map(stream.agreements["agreements"], & &1["agreement_id"])
+
+  defp pages(_owner, nil, acc), do: Enum.reverse(acc)
+
+  defp pages(owner, cursor, acc) do
+    assert length(acc) < 10, "agreement pages did not terminate"
+
+    assert {:ok, dashboard} =
+             WorkstreamDashboard.read(@operator, routine_id: owner, agreement_before: cursor)
+
+    page = stream(dashboard, owner)
+    assert page.agreement_page.before == cursor
+    pages(owner, page.agreements["before_id"], [page | acc])
+  end
+
   defp intent(outcome) do
     %{
       "outcome" => outcome,
@@ -353,11 +482,11 @@ defmodule Custode.WorkstreamDashboardTest do
     Map.put(receipt, "intent", attrs["intent"])
   end
 
-  defp checkpoint!(owner, agreement, step) do
-    assert {:ok, _} =
+  defp checkpoint!(owner, agreement, step, revision \\ 1) do
+    assert {:ok, receipt} =
              WorkAgreements.checkpoint(%{kind: :routine, id: owner}, agreement["agreement_id"], %{
                "request_id" => uid("checkpoint"),
-               "expected_revision" => 1,
+               "expected_revision" => revision,
                "summary" => "Recorded checkpoint",
                "next_steps" => [%{"id" => "next", "text" => step}],
                "blockers" => [
@@ -369,6 +498,8 @@ defmodule Custode.WorkstreamDashboardTest do
                ],
                "decisions" => []
              })
+
+    receipt
   end
 
   defp submit_and_accept!(owner, agreement, summary, output) do

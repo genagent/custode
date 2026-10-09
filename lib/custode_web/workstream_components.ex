@@ -173,10 +173,7 @@ defmodule CustodeWeb.WorkstreamComponents do
           <.link navigate={@dashboard.links.manager} class="btn btn-outline btn-sm">PM conversation</.link>
         </:action>
       </.page_header>
-      <aside :if={@workstream.agreements["has_more"]} id="workstream-agreement-coverage" aria-label="Agreement coverage" class="mb-5 rounded-box border border-base-300 bg-base-200 p-4 text-sm">
-        <p class="font-semibold">Limited agreement coverage</p>
-        <p class="mt-1 text-base-content/70">Showing the newest {length(@agreements)} agreements. Older assignments, committed steps, decisions and blockers may still be open.</p>
-      </aside>
+      <.agreement_page page={@workstream.agreement_page} />
       <div class="mb-5 space-y-2 text-sm">
         <.state state={@workstream.state} />
         <p class="text-base-content/70">{@workstream.state.detail}</p>
@@ -258,6 +255,28 @@ defmodule CustodeWeb.WorkstreamComponents do
       </div>
       <.coverage dashboard={@dashboard} />
     </article>
+    """
+  end
+
+  attr(:page, :map, required: true)
+
+  defp agreement_page(assigns) do
+    ~H"""
+    <aside :if={@page.position == :older || @page.has_more} id="workstream-agreement-coverage" aria-labelledby="workstream-agreement-coverage-title" data-agreement-page={@page.position} class="mb-5 rounded-box border border-base-300 bg-base-200 p-4 text-sm">
+      <p :if={@page.position == :newest} id="workstream-agreement-coverage-title" class="font-semibold">Limited agreement coverage</p>
+      <p :if={@page.position == :newest} class="mt-1 text-base-content/70">Showing the newest {@page.shown} agreements. Older assignments, committed steps, decisions and blockers may still be open.</p>
+      <p :if={@page.position == :older} id="workstream-agreement-coverage-title" class="font-semibold">Older agreements</p>
+      <p :if={@page.position == :older} class="mt-1 text-base-content/70">
+        Showing {@page.shown} older agreements.
+        <span :if={@page.has_more}>Still older agreements may contain open work.</span>
+        <span :if={!@page.has_more}>No older agreements are recorded for this owner.</span>
+      </p>
+      <p class="mt-1 text-xs text-base-content/60">Purpose, submissions, assignments, committed steps, recorded decisions and blockers cover this agreement page. Reports, open questions and gates, and observed execution remain current.</p>
+      <nav aria-label="Agreement pages" class="mt-2 flex flex-wrap gap-4">
+        <.link :if={@page.newest} patch={@page.newest} class="link">Newest agreements</.link>
+        <.link :if={@page.older} patch={@page.older} class="link">Older agreements</.link>
+      </nav>
+    </aside>
     """
   end
 

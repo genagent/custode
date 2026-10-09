@@ -19,12 +19,27 @@ defmodule CustodeWeb.WorkstreamsLive do
       Process.send_after(self(), :refresh_workstreams, @refresh_interval)
     end
 
-    {:ok, assign(socket, dashboard: nil, selected_id: nil, error: nil, refresh_pending: false)}
+    {:ok,
+     assign(socket,
+       dashboard: nil,
+       selected_id: nil,
+       agreements_before: nil,
+       error: nil,
+       recovery: nil,
+       refresh_pending: false
+     )}
   end
 
+  # The agreement cursor lives in the URL, so a reload or refresh keeps the
+  # same page and a patch to the owner or home without it returns to newest.
+  # A present but empty or malformed value is passed on and reported, never
+  # read as the newest page.
   @impl Phoenix.LiveView
   def handle_params(params, _uri, socket) do
-    {:noreply, socket |> assign(:selected_id, params["id"]) |> refresh()}
+    {:noreply,
+     socket
+     |> assign(selected_id: params["id"], agreements_before: Map.get(params, "agreements_before"))
+     |> refresh()}
   end
 
   @impl Phoenix.LiveView
@@ -53,6 +68,7 @@ defmodule CustodeWeb.WorkstreamsLive do
         <h1 class="text-2xl font-bold">Workstream unavailable</h1>
         <p role="alert" class="mt-3 text-base-content/70">{@error}</p>
         <nav aria-label="Recovery" class="mt-4 flex flex-wrap gap-4 text-sm">
+          <.link :if={@recovery} patch={@recovery} class="link">Newest agreements</.link>
           <.link patch="/" class="link">Dashboard</.link>
           <.link navigate="/console" class="link">Open Console</.link>
         </nav>
@@ -75,21 +91,43 @@ defmodule CustodeWeb.WorkstreamsLive do
   end
 
   defp refresh(socket) do
-    opts = if socket.assigns.selected_id, do: [routine_id: socket.assigns.selected_id], else: []
+    %{selected_id: id, agreements_before: before} = socket.assigns
+    opts = if id, do: [routine_id: id], else: []
+    opts = if is_nil(before), do: opts, else: [{:agreement_before, before} | opts]
 
     case WorkstreamDashboard.read(@operator, opts) do
       {:ok, dashboard} ->
-        assign(socket, dashboard: dashboard, error: nil)
+        assign(socket, dashboard: dashboard, error: nil, recovery: nil)
 
-      {:error, :unknown_routine} ->
-        assign(socket, dashboard: nil, error: "This owner is not configured.")
-
-      {:error, _reason} ->
+      {:error, reason} ->
         assign(socket,
           dashboard: nil,
-          error:
-            "The current workstream records could not be loaded. The Console remains available."
+          error: error_text(reason, id, before),
+          recovery: recovery(reason, id, before)
         )
     end
   end
+
+  defp error_text(:unknown_routine, _id, _before), do: "This owner is not configured."
+
+  defp error_text(:invalid_options, nil, before) when not is_nil(before),
+    do: "Agreement pages apply to one workstream. Open a workstream to page its agreements."
+
+  defp error_text(:invalid_arguments, _id, before) when not is_nil(before),
+    do: "This agreement page link is malformed. It does not name an agreement."
+
+  defp error_text(:invalid_cursor, _id, before) when not is_nil(before),
+    do:
+      "This agreement page link does not match a current agreement for this owner. " <>
+        "It may have been removed or belong to another owner."
+
+  defp error_text(_reason, _id, _before),
+    do: "The current workstream records could not be loaded. The Console remains available."
+
+  defp recovery(reason, id, before)
+       when reason in [:invalid_arguments, :invalid_cursor] and is_binary(id) and
+              not is_nil(before),
+       do: "/workstreams/#{URI.encode(id, &URI.char_unreserved?/1)}"
+
+  defp recovery(_reason, _id, _before), do: nil
 end
