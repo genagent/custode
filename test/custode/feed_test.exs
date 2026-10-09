@@ -693,15 +693,12 @@ defmodule Custode.FeedTest do
 
     # the answer arrived by cast, so the card is marked resolved by the
     # transition handler after :running is already visible (#257)
-    question =
-      eventually(fn ->
-        assert [question] =
-                 Custode.Feed.for_agent(id) |> Enum.filter(&(&1["event"] == "needs_input"))
+    eventually(fn ->
+      assert [question] =
+               Custode.Feed.for_agent(id) |> Enum.filter(&(&1["event"] == "needs_input"))
 
-        question
-      end)
-
-    assert question["resolved"] == "answered"
+      assert question["resolved"] == "answered"
+    end)
   end
 
   test "last_message/2 hides resolved gate events, shows live ones" do
