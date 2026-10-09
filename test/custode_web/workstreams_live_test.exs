@@ -52,7 +52,7 @@ defmodule CustodeWeb.WorkstreamsLiveTest do
       Repo.delete_all(from(g in Custode.Gates.Gate, where: g.agent_id in ^owners))
     end)
 
-    %{ids: ids, conn: build_conn()}
+    %{ids: ids, workspace: workspace, conn: build_conn()}
   end
 
   test "home is compact, read-only and keeps the PM and control room reachable", ctx do
@@ -90,6 +90,321 @@ defmodule CustodeWeb.WorkstreamsLiveTest do
     assert_patch(view, "/workstreams/#{ctx.ids.software}")
     assert has_element?(view, "#workstream-detail[data-workstream-owner='#{ctx.ids.software}']")
     assert has_element?(view, ~s(a[href="/agents/#{ctx.ids.software}/conversation"]))
+    assert counts() == before
+  end
+
+  test "answers the exact displayed question once and updates another open view", ctx do
+    owner = ctx.ids.software
+    first = ask!(owner, "First choice")
+    second = ask!(owner, "Second choice")
+    {:ok, view, _} = live(ctx.conn, "/workstreams/#{owner}")
+    {:ok, other, _} = live(ctx.conn, "/workstreams/#{owner}")
+    {:ok, home, _} = live(ctx.conn, "/")
+    assert has_element?(home, "#workstream-attention", owner)
+    before = counts()
+    view |> answer_form(second, "Keep this other draft") |> render_change()
+    other |> answer_form(second, "Draft in another open view") |> render_change()
+    send(view.pid, :refresh)
+    assert has_element?(view, "#workstream-answer-text-#{second.id}", "Keep this other draft")
+
+    assert has_element?(
+             view,
+             "#workstream-answer-#{first.id} label[for=workstream-answer-text-#{first.id}]"
+           )
+
+    assert has_element?(view, "#workstream-answer-text-#{first.id}[required]")
+    assert has_element?(view, "#workstream-answer-#{first.id} button[type=submit]", "Send answer")
+
+    view |> answer_form(first, "  Choose first  ") |> render_submit()
+    assert Custode.Asks.get(first.id).answer == "Choose first"
+    assert Custode.Asks.get(first.id).status == "answered"
+    assert Custode.Asks.get(second.id).status == "open"
+    assert has_element?(view, "#workstream-answer-feedback[role=status]", "Answer sent")
+    refute has_element?(view, "#workstream-answer-#{first.id}")
+    assert has_element?(view, "#workstream-answer-#{second.id}")
+    assert has_element?(view, "#workstream-answer-text-#{second.id}", "Keep this other draft")
+    refute Map.has_key?(cached_answers(view), {owner, to_string(first.id)})
+
+    eventually(fn ->
+      refute has_element?(other, "#workstream-answer-#{first.id}")
+      assert has_element?(other, "#workstream-answer-#{second.id}")
+
+      assert has_element?(
+               other,
+               "#workstream-answer-text-#{second.id}",
+               "Draft in another open view"
+             )
+    end)
+
+    render_submit(view, "answer_ask", answer_params(first, "Duplicate"))
+
+    assert has_element?(
+             view,
+             "#workstream-answer-feedback",
+             "not displayed for this owner"
+           )
+
+    assert Custode.Asks.get(second.id).status == "open"
+    assert answer_events(owner, first.id) == 1
+    assert inbox_events(owner, first.id) == 1
+    assert [path] = Path.wildcard(Path.join(ctx.workspace, "inbox/answer-#{first.id}.md"))
+    assert File.read!(path) =~ "Choose first"
+    view |> answer_form(second, "Finish the other question") |> render_submit()
+    eventually(fn -> refute has_element?(home, "#workstream-attention", owner) end)
+    assert cached_answers(view) == %{}
+    assert counts() == before
+  end
+
+  test "refresh during typing keeps exact binding and the selected agreement page", ctx do
+    owner = ctx.ids.software
+    old_open_agreement!(owner)
+    for n <- 1..6, do: accepted!(owner, "Accepted newer assignment #{n}")
+    first = ask!(owner, "Original question")
+    second = ask!(owner, "Other question")
+    {:ok, view, _} = live(ctx.conn, "/workstreams/#{owner}")
+    selected_page = click_older(view)
+    view |> answer_form(first, "My unfinished answer") |> render_change()
+    send(view.pid, :refresh)
+    assert has_element?(view, "#workstream-answer-text-#{first.id}", "My unfinished answer")
+
+    render_patch(view, "/workstreams/#{owner}?agreements_before=missing-agreement")
+    assert has_element?(view, "#workstream-error")
+    render_patch(view, selected_page)
+    assert has_element?(view, "#workstream-answer-text-#{first.id}", "My unfinished answer")
+
+    assert {:ok, _} = Custode.Asks.dismiss(first.id)
+    third = ask!(owner, "New question after typing")
+    send(view.pid, :refresh)
+    assert has_element?(view, "#workstream-answer-text-#{first.id}", "My unfinished answer")
+    assert has_element?(view, "#workstream-agreement-coverage[data-agreement-page=older]")
+    assert_purposes(view, [1, 2, 3])
+
+    view |> answer_form(first, "My unfinished answer") |> render_submit()
+    assert has_element?(view, "#workstream-answer-error-#{first.id}", "already dismissed")
+    assert has_element?(view, "#workstream-answer-text-#{first.id}", "My unfinished answer")
+    assert Custode.Asks.get(second.id).status == "open"
+    assert Custode.Asks.get(third.id).status == "open"
+    assert answer_events(owner, first.id) == 0
+    assert inbox_events(owner, first.id) == 0
+    assert has_element?(view, "#workstream-agreement-coverage[data-agreement-page=older]")
+    # Reloading the same URL confirms the action did not replace its cursor.
+    render_patch(view, selected_page)
+    assert_purposes(view, [1, 2, 3])
+    view |> answer_form(second, "Answer the other exact question") |> render_submit()
+    assert Custode.Asks.get(second.id).status == "answered"
+    assert Custode.Asks.get(third.id).status == "open"
+    assert has_element?(view, "#workstream-agreement-coverage[data-agreement-page=older]")
+    assert_purposes(view, [1, 2, 3])
+  end
+
+  test "blank and stale answers keep drafts and never dispatch another question", ctx do
+    owner = ctx.ids.research
+    blank = ask!(owner, "Needs an answer")
+    closed = ask!(owner, "Answered elsewhere")
+    gone = ask!(owner, "Deleted elsewhere")
+    {:ok, view, _} = live(ctx.conn, "/workstreams/#{owner}")
+    before = counts()
+
+    view |> answer_form(blank, "   ") |> render_submit()
+    assert has_element?(view, "#workstream-answer-error-#{blank.id}[role=alert]", "needs text")
+    assert has_element?(view, "#workstream-answer-text-#{blank.id}[aria-invalid=true]")
+
+    assert render(view) =~
+             ~r/<textarea[^>]+id="workstream-answer-text-#{blank.id}"[^>]*>\s*<\/textarea>/
+
+    send(view.pid, :refresh)
+    assert has_element?(view, "#workstream-answer-error-#{blank.id}", "needs text")
+
+    view |> answer_form(closed, "Retained stale answer") |> render_change()
+    view |> answer_form(gone, "Retained missing answer") |> render_change()
+    assert {:ok, _} = Custode.Asks.answer(closed.id, "External answer")
+    Repo.delete!(gone)
+    render_submit(view, "answer_ask", answer_params(closed, "Retained stale answer"))
+    assert has_element?(view, "#workstream-answer-error-#{closed.id}", "already answered")
+    assert has_element?(view, "#workstream-answer-text-#{closed.id}", "Retained stale answer")
+    render_submit(view, "answer_ask", answer_params(gone, "Retained missing answer"))
+    assert has_element?(view, "#workstream-answer-error-#{gone.id}", "no ask")
+    assert has_element?(view, "#workstream-answer-text-#{gone.id}", "Retained missing answer")
+    assert Custode.Asks.get(blank.id).status == "open"
+    assert answer_events(owner, blank.id) == 0
+    assert answer_events(owner, closed.id) == 1
+    assert inbox_events(owner, closed.id) == 1
+    assert counts() == before
+  end
+
+  test "refresh prunes obsolete empty forms but preserves real drafts across owner navigation",
+       ctx do
+    owner = ctx.ids.software
+    empty = ask!(owner, "Empty form", "Obsolete context")
+    whitespace = ask!(owner, "Whitespace form")
+    draft = ask!(owner, "Keep this draft")
+    foreign = ask!(ctx.ids.research, "Another owner question")
+    {:ok, view, _} = live(ctx.conn, "/workstreams/#{owner}")
+    view |> answer_form(whitespace, "   ") |> render_change()
+    view |> answer_form(draft, "Real unfinished answer") |> render_change()
+    before = counts()
+    assert {:ok, _} = Custode.Asks.dismiss(empty.id)
+    assert {:ok, _} = Custode.Asks.dismiss(whitespace.id)
+    assert {:ok, _} = Custode.Asks.dismiss(draft.id)
+    send(view.pid, :refresh)
+    refute has_element?(view, "#workstream-answer-#{empty.id}")
+    refute has_element?(view, "#workstream-answer-#{whitespace.id}")
+    assert has_element?(view, "#workstream-answer-text-#{draft.id}", "Real unfinished answer")
+    assert Map.keys(cached_answers(view)) == [{owner, to_string(draft.id)}]
+
+    fresh = ask!(owner, "Open but untouched form")
+    send(view.pid, :refresh)
+    assert has_element?(view, "#workstream-answer-#{fresh.id}")
+    render_patch(view, "/workstreams/#{ctx.ids.research}")
+    refute Map.has_key?(cached_answers(view), {owner, to_string(fresh.id)})
+    view |> answer_form(foreign, "Keep another owner's draft") |> render_change()
+    render_patch(view, "/")
+    assert map_size(cached_answers(view)) == 2
+    render_patch(view, "/workstreams/#{owner}")
+    assert has_element?(view, "#workstream-answer-text-#{draft.id}", "Real unfinished answer")
+    render_patch(view, "/workstreams/#{ctx.ids.research}")
+
+    assert has_element?(
+             view,
+             "#workstream-answer-text-#{foreign.id}",
+             "Keep another owner's draft"
+           )
+
+    assert Custode.Asks.get(foreign.id).status == "open"
+    assert counts() == before
+  end
+
+  test "discarding a stale failed draft is local and editing clears obsolete errors", ctx do
+    owner = ctx.ids.software
+    stale = ask!(owner, "Stale question")
+    other = ask!(owner, "Keep another draft")
+    {:ok, view, _} = live(ctx.conn, "/workstreams/#{owner}")
+    view |> answer_form(stale, "Stale draft") |> render_change()
+    view |> answer_form(other, "Other unfinished answer") |> render_change()
+    assert {:ok, _} = Custode.Asks.dismiss(stale.id)
+    view |> answer_form(stale, "Stale draft") |> render_submit()
+    assert has_element?(view, "#workstream-answer-error-#{stale.id}", "already dismissed")
+
+    view |> answer_form(stale, "Edited stale draft") |> render_change()
+    refute has_element?(view, "#workstream-answer-error-#{stale.id}")
+    assert has_element?(view, "#workstream-answer-text-#{stale.id}[aria-invalid=false]")
+    view |> answer_form(stale, "Edited stale draft") |> render_submit()
+    assert has_element?(view, "#workstream-answer-error-#{stale.id}", "already dismissed")
+    before = counts()
+    closed = Custode.Asks.get(stale.id)
+    open = Custode.Asks.get(other.id)
+    events = Repo.aggregate(Feed.Entry, :count)
+
+    render_click(view, "discard_answer", %{answer_params(stale, "") | "owner" => ctx.ids.research})
+
+    assert has_element?(view, "#workstream-answer-text-#{stale.id}", "Edited stale draft")
+
+    view
+    |> element("#workstream-answer-#{stale.id} button[type=button]", "Discard draft")
+    |> render_click()
+
+    refute has_element?(view, "#workstream-answer-#{stale.id}")
+    refute Map.has_key?(cached_answers(view), {owner, to_string(stale.id)})
+    assert has_element?(view, "#workstream-answer-text-#{other.id}", "Other unfinished answer")
+    assert has_element?(view, "#workstream-answer-feedback[role=status]", "Draft discarded")
+    assert Custode.Asks.get(stale.id) == closed
+    assert Custode.Asks.get(other.id) == open
+    assert Repo.aggregate(Feed.Entry, :count) == events
+    assert answer_events(owner, stale.id) == 0
+    assert inbox_events(owner, stale.id) == 0
+    assert counts() == before
+
+    # Editing an open question clears its obsolete validation error.
+    render_patch(view, "/workstreams/#{ctx.ids.research}")
+    render_patch(view, "/workstreams/#{owner}")
+    assert has_element?(view, "#workstream-answer-text-#{other.id}", "Other unfinished answer")
+    view |> answer_form(other, " ") |> render_submit()
+    assert has_element?(view, "#workstream-answer-error-#{other.id}", "needs text")
+    view |> answer_form(other, "Corrected answer draft") |> render_change()
+    refute has_element?(view, "#workstream-answer-error-#{other.id}")
+    assert Custode.Asks.get(other.id).status == "open"
+    assert counts() == before
+
+    # Clearing a failed stale draft also drops its error and cached context.
+    assert {:ok, _} = Custode.Asks.dismiss(other.id)
+    view |> answer_form(other, "Corrected answer draft") |> render_submit()
+    assert has_element?(view, "#workstream-answer-error-#{other.id}", "already dismissed")
+    view |> answer_form(other, "   ") |> render_change()
+    refute has_element?(view, "#workstream-answer-#{other.id}")
+    assert cached_answers(view) == %{}
+    assert Custode.Asks.get(other.id).status == "dismissed"
+    assert answer_events(owner, other.id) == 0
+    assert inbox_events(owner, other.id) == 0
+    assert counts() == before
+  end
+
+  test "foreign owners and undisplayed IDs cannot answer through a selected workstream", ctx do
+    own = ask!(ctx.ids.software, "Own question")
+    foreign = ask!(ctx.ids.research, "Foreign question")
+    {:ok, view, _} = live(ctx.conn, "/workstreams/#{ctx.ids.software}")
+    before = counts()
+
+    for params <- [
+          answer_params(foreign, "Foreign submission"),
+          %{answer_params(foreign, "Forged owner") | "owner" => ctx.ids.software},
+          %{answer_params(own, "Forged owner") | "owner" => ctx.ids.research}
+        ] do
+      render_submit(view, "answer_ask", params)
+      assert has_element?(view, "#workstream-answer-feedback", "not displayed for this owner")
+    end
+
+    # Even a formerly displayed owner's form is rejected after owner selection changes.
+    render_patch(view, "/workstreams/#{ctx.ids.research}")
+    render_submit(view, "answer_ask", answer_params(own, "Old owner form"))
+    assert Custode.Asks.get(own.id).status == "open"
+    assert Custode.Asks.get(foreign.id).status == "open"
+    assert answer_events(ctx.ids.software, own.id) == 0
+    assert inbox_events(ctx.ids.research, foreign.id) == 0
+    assert counts() == before
+  end
+
+  test "full question and context use keyboard disclosures and blocking records keep Console links",
+       ctx do
+    owner = ctx.ids.research
+
+    question =
+      String.duplicate("Read this evidence. ", 80) <> "Question tail <script>bad()</script>"
+
+    context = String.duplicate("Source context. ", 100) <> "Context tail"
+    ask = ask!(owner, question, context)
+
+    for {kind, detail} <- [{"question", "Blocking choice"}, {"approval", "Approval choice"}] do
+      Repo.insert!(%Custode.Gates.Gate{
+        agent_id: owner,
+        action_id: uid("blocking"),
+        kind: kind,
+        detail: detail,
+        status: "open"
+      })
+    end
+
+    before = counts()
+    {:ok, view, html} = live(ctx.conn, "/workstreams/#{owner}")
+    assert has_element?(view, "#decision-ask-#{ask.id} [data-foldable-full]", "Question tail")
+    assert has_element?(view, "#decision-context-#{ask.id} [data-foldable-full]", "Context tail")
+
+    assert has_element?(
+             view,
+             "#decision-ask-#{ask.id}-disclosure[phx-hook=DisclosureState] > summary"
+           )
+
+    assert has_element?(view, "#decision-context-#{ask.id}-disclosure > summary")
+    refute html =~ "<script>bad()</script>"
+    assert has_element?(view, "#workstream-decisions", "Blocking choice")
+    assert has_element?(view, "#workstream-decisions", "Approval choice")
+
+    assert has_element?(
+             view,
+             "#workstream-decisions a[href='/console/#{owner}']",
+             "Open in Console"
+           )
+
+    assert length(Regex.scan(~r/<form[^>]+phx-submit="answer_ask"/, html)) == 1
     assert counts() == before
   end
 
@@ -412,6 +727,28 @@ defmodule CustodeWeb.WorkstreamsLiveTest do
     {:ok, missing, _} = live(ctx.conn, "/workstreams/does-not-exist")
     assert has_element?(missing, "#workstream-error")
     assert has_element?(missing, ~s(a[href="/"]))
+  end
+
+  defp cached_answers(view), do: :sys.get_state(view.pid).socket.assigns.answer_forms
+
+  defp ask!(owner, question, context \\ nil) do
+    Repo.insert!(%Custode.Asks.Ask{agent_id: owner, question: question, detail: context})
+  end
+
+  defp answer_params(ask, text),
+    do: %{"owner" => ask.agent_id, "ask_id" => to_string(ask.id), "text" => text}
+
+  defp answer_form(view, ask, text),
+    do: form(view, "#workstream-answer-#{ask.id}", answer_params(ask, text))
+
+  defp answer_events(owner, ask_id) do
+    Repo.all(from(f in Feed.Entry, where: f.agent == ^owner and f.event == "answered"))
+    |> Enum.count(&(Jason.decode!(&1.entry)["ask_id"] == ask_id))
+  end
+
+  defp inbox_events(owner, ask_id) do
+    Repo.all(from(f in Feed.Entry, where: f.agent == ^owner and f.event == "inbox_note"))
+    |> Enum.count(&(Jason.decode!(&1.entry)["note"] == "answer-#{ask_id}.md"))
   end
 
   defp agreement!(owner, outcome) do

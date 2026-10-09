@@ -124,6 +124,39 @@ defmodule Custode.WorkstreamDashboardTest do
     assert report.evidence == "agent_authored"
   end
 
+  test "detail loads full bounded ask question and context without changing the digest", ctx do
+    question = String.duplicate("Question evidence. ", 80) <> "Question tail"
+    context = String.duplicate("Context evidence. ", 80) <> "Context tail"
+    ask = ask!(ctx.software.id, ctx.now, question)
+    ask |> Ecto.Changeset.change(detail: context) |> Repo.update!()
+    ask!(ctx.research.id, ctx.now, "Foreign question")
+
+    for n <- 1..12 do
+      ask!(ctx.software.id, DateTime.add(ctx.now, n), "Additional question #{n}")
+    end
+
+    before = dispatch_counts()
+    assert {:ok, home} = WorkstreamDashboard.read(@operator)
+    overview = stream(home, ctx.software.id)
+    assert overview.decisions == overview.digest.decisions
+    assert String.length(hd(overview.decisions.asks).text) == 1000
+    refute Map.has_key?(hd(overview.decisions.asks), :context)
+
+    assert {:ok, detail} = WorkstreamDashboard.read(@operator, routine_id: ctx.software.id)
+    selected = stream(detail, ctx.software.id)
+    assert selected.digest.decisions == overview.digest.decisions
+    assert length(selected.decisions.asks) == length(overview.digest.decisions.asks)
+    assert selected.decisions.has_more_asks
+
+    assert %{id: id, text: ^question, context: ^context, owner: owner} =
+             hd(selected.decisions.asks)
+
+    assert id == ask.id
+    assert owner == ctx.software.id
+    assert Enum.all?(selected.decisions.asks, &(&1.owner == ctx.software.id))
+    assert dispatch_counts() == before
+  end
+
   test "requested next beats override cron while unscheduled manual routines remain explicit",
        ctx do
     scheduled = [ctx.software.id, ctx.research.id]

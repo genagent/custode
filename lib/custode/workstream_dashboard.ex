@@ -10,7 +10,9 @@ defmodule Custode.WorkstreamDashboard do
   Overview execution reuses the digest's observed process and active-turn
   summary. Desired settings and retained turns are omitted there (`nil` and
   `[]`); they are not claims that configuration or history is absent. A targeted
-  read includes the full execution facts for the selected routine.
+  read includes the full execution facts for the selected routine, plus full
+  question and context for its bounded displayed Ask IDs in `decisions`.
+  The digest retains its compact question text.
 
   A targeted read may page agreements with `agreement_before: agreement_id`,
   the `before_id` of a previous page. The cursor selects only the agreement
@@ -18,12 +20,15 @@ defmodule Custode.WorkstreamDashboard do
   deleted or foreign cursor is an error, never the newest page.
   """
 
+  import Ecto.Query, only: [from: 2]
+
   alias Custode.Attention.Fleet
 
   alias Custode.{
     ExecutionFacts,
     NextBeat,
     ProjectReportDigest,
+    Repo,
     Routine,
     Scheduler,
     Signal,
@@ -185,6 +190,7 @@ defmodule Custode.WorkstreamDashboard do
       role: project.configured_role,
       purpose: purpose(agreements),
       digest: project,
+      decisions: decisions(project, sources.detailed?),
       agreements: agreements,
       agreement_page: agreement_page(agreements, detail, sources),
       execution: execution,
@@ -193,6 +199,30 @@ defmodule Custode.WorkstreamDashboard do
       state: execution_state(execution, signal, next_beat),
       links: Map.put(project.links, :detail, detail)
     }
+  end
+
+  # The digest stays compact. Only the selected owner's bounded ask IDs load
+  # full question/context for answering; a disappeared row is not substituted.
+  defp decisions(project, false), do: project.decisions
+
+  defp decisions(project, true) do
+    ids = Enum.map(project.decisions.asks, & &1.id)
+    owner = project.owner
+
+    rows =
+      Repo.all(
+        from(a in Custode.Asks.Ask,
+          where: a.id in ^ids and a.agent_id == ^owner and a.status == "open"
+        )
+      )
+      |> Map.new(&{&1.id, &1})
+
+    asks =
+      for decision <- project.decisions.asks, row = rows[decision.id], row do
+        Map.merge(decision, %{text: row.question, context: row.detail, owner: owner})
+      end
+
+    %{project.decisions | asks: asks}
   end
 
   # Pages are keyed by an agreement id, not an offset, so agreements recorded
