@@ -72,7 +72,7 @@ defmodule Custode.Verification.RunnerTest do
 
   @tag timeout: 15_000
   test "timeout kills descendants in the owned process tree" do
-    fixture = process_tree_fixture(:wait)
+    fixture = process_tree_fixture()
     test_pid = self()
     timeout_check = make_ref()
 
@@ -113,7 +113,7 @@ defmodule Custode.Verification.RunnerTest do
   end
 
   test "cancellation kills descendants and is distinct from timeout" do
-    fixture = process_tree_fixture(:wait)
+    fixture = process_tree_fixture()
 
     spec =
       spec!(
@@ -136,7 +136,7 @@ defmodule Custode.Verification.RunnerTest do
   end
 
   test "a normal parent exit cleans up observed descendants before returning" do
-    fixture = process_tree_fixture(:release)
+    fixture = process_tree_fixture()
 
     spec =
       spec!(
@@ -145,14 +145,47 @@ defmodule Custode.Verification.RunnerTest do
         timeout_ms: 5_000
       )
 
-    task = Task.async(fn -> Runner.run(spec, File.cwd!()) end)
-    assert eventually(fn -> File.exists?(fixture.ready) end)
-    assert eventually(fn -> observed_descendant?(fixture) end)
-    File.touch!(fixture.release)
+    start = make_ref()
 
-    assert {:ok, result} = Task.await(task, 2_000)
-    assert result["status"] == "pass"
-    assert_processes_dead(fixture)
+    task =
+      Task.async(fn ->
+        receive do
+          ^start -> Runner.run(spec, File.cwd!())
+        end
+      end)
+
+    session = :trace.session_create(:runner_observation, self(), [])
+
+    try do
+      assert Code.ensure_loaded?(Runner)
+
+      assert :trace.function(
+               session,
+               {Runner, :observe_process_tree, 2},
+               [{:_, [], [{:return_trace}]}],
+               [:local]
+             ) == 1
+
+      assert :trace.process(session, task.pid, true, [:call]) == 1
+      send(task.pid, start)
+
+      assert eventually(fn -> File.exists?(fixture.ready) end)
+      pids = fixture_pids(fixture)
+      assert length(pids) == 3
+
+      # A completed runner sampler must have recorded every fixture identity.
+      # The task starts only after tracing is installed, and the isolated session
+      # leaves other runners and async tests' trace settings alone.
+      await_observed_tree(task.pid, pids, System.monotonic_time(:millisecond) + 3_000)
+      File.touch!(fixture.release)
+
+      assert {:ok, result} = Task.await(task, 2_000)
+      assert result["status"] == "pass"
+      assert_processes_dead(fixture)
+    after
+      :trace.session_destroy(session)
+      if Process.alive?(task.pid), do: Task.shutdown(task, :brutal_kill)
+    end
   end
 
   test "a terminated command exit is recorded as cancellation" do
@@ -283,16 +316,10 @@ defmodule Custode.Verification.RunnerTest do
     Keyword.merge(defaults, overrides)
   end
 
-  defp process_tree_fixture(parent_action) do
+  defp process_tree_fixture do
     root = Path.join(System.tmp_dir!(), "verification-tree-#{Ecto.UUID.generate()}")
     script = Path.join(root, "spawn.sh")
     File.mkdir_p!(root)
-
-    parent_command =
-      case parent_action do
-        :wait -> ~s(while [ ! -f "$1/release" ]; do sleep 0.01; done)
-        :release -> ~s(while [ ! -f "$1/release" ]; do sleep 0.01; done; sleep 0.1)
-      end
 
     File.write!(
       script,
@@ -308,7 +335,7 @@ defmodule Custode.Verification.RunnerTest do
         printf ready > "$1/ready"
         wait
       ' child "$1" &
-      #{parent_command}
+      while [ ! -f "$1/release" ]; do sleep 0.01; done
       """
     )
 
@@ -338,10 +365,27 @@ defmodule Custode.Verification.RunnerTest do
     assert eventually(fn -> Enum.all?(pids, &(not process_alive?(&1))) end)
   end
 
-  defp observed_descendant?(fixture) do
-    case fixture_pids(fixture) do
-      [parent, child | _rest] -> child in descendants_of(parent)
-      _incomplete -> false
+  defp await_observed_tree(task_pid, pids, deadline) do
+    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+    receive do
+      {:trace, ^task_pid, :return_from, {Runner, :observe_process_tree, 2}, known} ->
+        observed = Map.take(known, pids)
+
+        if map_size(observed) == length(pids) and
+             Enum.all?(Map.values(observed), &(is_binary(&1) and &1 != "")) do
+          known
+        else
+          await_observed_tree(task_pid, pids, deadline)
+        end
+
+      {:trace, ^task_pid, :call, {Runner, :observe_process_tree, _arguments}} ->
+        await_observed_tree(task_pid, pids, deadline)
+    after
+      remaining ->
+        flunk(
+          "Runner did not complete an observation of all fixture identities: #{inspect(pids)}"
+        )
     end
   end
 
@@ -358,25 +402,6 @@ defmodule Custode.Verification.RunnerTest do
       {:error, _reason} ->
         []
     end)
-  end
-
-  defp descendants_of(parent) do
-    case System.cmd("ps", ["-axo", "pid=,ppid="], stderr_to_stdout: true) do
-      {output, 0} ->
-        output
-        |> String.split("\n", trim: true)
-        |> Enum.flat_map(&direct_child(&1, parent))
-
-      {_output, _status} ->
-        []
-    end
-  end
-
-  defp direct_child(line, parent) do
-    case line |> String.split(~r/\s+/, trim: true) |> Enum.map(&Integer.parse/1) do
-      [{pid, ""}, {^parent, ""}] -> [pid]
-      _other -> []
-    end
   end
 
   defp process_alive?(pid) do
