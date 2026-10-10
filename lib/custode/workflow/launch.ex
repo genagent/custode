@@ -145,11 +145,8 @@ defmodule Custode.Workflow.Launch do
         []
 
       proposed ->
-        resolved =
-          for event <- [@approved, @rejected],
-              entry <- Feed.recent_by_event(event, limit: 50, since: @window_s),
-              into: MapSet.new(),
-              do: entry["proposal"]
+        ids = Enum.map(proposed, & &1["proposal"])
+        resolved = ids |> terminal_entries() |> MapSet.new(& &1["proposal"])
 
         Enum.reject(proposed, &(&1["proposal"] in resolved))
     end
@@ -194,63 +191,141 @@ defmodule Custode.Workflow.Launch do
   end
 
   @doc """
-  Approve a standing proposal: record the decision and start the run.
-
-  The run is launched with the rail the card quoted, so what the operator
-  approved and what the run enforces are the same number. Returns
-  `{:ok, run}`, or `{:error, :no_such_proposal}` for an id that is not
-  standing (an already-answered gate cannot be answered twice).
+  Admit the exact proposal atomically with its approval. Same-decision retries
+  return the retained run and recover only a still-pending initial dispatch;
+  an opposite decision is refused. Notification and initial dispatch happen
+  only after the admission commits.
   """
   def approve(proposal_id) do
-    case find(proposal_id) do
-      nil ->
-        {:error, :no_such_proposal}
+    case decide(proposal_id, :approve, nil) do
+      {:ok, {run_id, events}} ->
+        Enum.each(events, &Runner.publish_launch_event/1)
+        Runner.advance_admitted(run_id)
 
-      entry ->
-        opts = launch_opts_of(entry)
-
-        case Runner.launch(entry["workflow"], entry["repo"], opts) do
-          {:ok, run} ->
-            Feed.record(%{
-              event: @approved,
-              agent: nil,
-              proposal: proposal_id,
-              workflow: entry["workflow"],
-              repo: entry["repo"],
-              run: run.run_id,
-              summary:
-                "approved #{entry["workflow"]} on #{entry["repo"]} -- run #{run.run_id}, " <>
-                  "rail $#{fmt(opts[:budget_usd])}"
-            })
-
-            {:ok, run}
-
-          {:error, reason} ->
-            # the gate stays standing: a launch that could not start is not a
-            # decision the operator has to take again
-            {:error, reason}
-        end
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
-  @doc "Reject a standing proposal. The reason rides the feed entry."
+  @doc "Reject the exact proposal. Repeating rejection retains the original decision and reason."
   def reject(proposal_id, reason \\ "rejected from the dashboard") do
-    case find(proposal_id) do
-      nil ->
-        {:error, :no_such_proposal}
-
-      entry ->
-        Feed.record(%{
-          event: @rejected,
-          agent: nil,
-          proposal: proposal_id,
-          workflow: entry["workflow"],
-          repo: entry["repo"],
-          summary: "rejected #{entry["workflow"]} on #{entry["repo"]}: #{reason}"
-        })
-
+    case decide(proposal_id, :reject, reason) do
+      {:ok, {nil, events}} ->
+        Enum.each(events, &Runner.publish_launch_event/1)
         :ok
+
+      {:error, reason} ->
+        {:error, reason}
     end
+  end
+
+  defp decide(proposal_id, decision, reason) do
+    if Repo.in_transaction?() do
+      {:error, :outer_transaction_unsupported}
+    else
+      Repo.transaction(fn -> decide_locked(proposal_id, decision, reason) end, mode: :immediate)
+    end
+  rescue
+    _error -> {:error, :admission_failed}
+  end
+
+  defp decide_locked(proposal_id, decision, reason) do
+    case terminal_entries([proposal_id]) do
+      [] ->
+        record_decision(proposal_id, decision, reason)
+
+      [%{"event" => @approved} = entry] when decision == :approve ->
+        {retained_run!(entry), []}
+
+      [%{"event" => @rejected}] when decision == :reject ->
+        {nil, []}
+
+      _opposite_or_inconsistent ->
+        Repo.rollback(:decision_conflict)
+    end
+  end
+
+  defp retained_run!(%{"run" => run_id}) when is_binary(run_id) do
+    if Run.get(run_id), do: run_id, else: Repo.rollback(:retained_run_missing)
+  end
+
+  defp retained_run!(_entry), do: Repo.rollback(:retained_run_missing)
+
+  defp record_decision(proposal_id, decision, reason) do
+    entry = exact_pending!(proposal_id)
+
+    {run_id, events} = prepare_decision(entry, decision)
+
+    event = %{
+      event: if(decision == :approve, do: @approved, else: @rejected),
+      agent: nil,
+      proposal: proposal_id,
+      workflow: entry["workflow"],
+      repo: entry["repo"],
+      run: run_id,
+      reason: if(decision == :reject, do: reason),
+      summary: decision_summary(entry, decision, run_id, reason)
+    }
+
+    case Feed.record_in_transaction(event) do
+      {:ok, saved} -> {run_id, events ++ [saved]}
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp prepare_decision(entry, :approve) do
+    case Runner.prepare_launch(entry["workflow"], entry["repo"], launch_opts_of(entry)) do
+      {:ok, run, event} -> {run.run_id, [event]}
+      {:error, reason} -> Repo.rollback(reason)
+      :error -> Repo.rollback(:unknown_workflow)
+    end
+  end
+
+  defp prepare_decision(_entry, :reject), do: {nil, []}
+
+  defp decision_summary(entry, :approve, run_id, _reason) do
+    "approved #{entry["workflow"]} on #{entry["repo"]} -- run #{run_id}, " <>
+      "rail $#{fmt(launch_opts_of(entry)[:budget_usd])}"
+  end
+
+  defp decision_summary(entry, :reject, _run_id, reason),
+    do: "rejected #{entry["workflow"]} on #{entry["repo"]}: #{reason}"
+
+  defp exact_pending!(proposal_id) do
+    row =
+      Repo.one(
+        from(f in Feed.Entry,
+          where:
+            f.event == @proposed and
+              fragment("json_extract(?, '$.proposal')", f.entry) == ^proposal_id
+        )
+      )
+
+    case row do
+      nil ->
+        Repo.rollback(:no_such_proposal)
+
+      row ->
+        if DateTime.diff(DateTime.utc_now(), row.at) >= @window_s,
+          do: Repo.rollback(:expired_proposal)
+
+        Jason.decode!(row.entry)
+    end
+  end
+
+  # Neither authorization nor the pending display may mask decisions using a
+  # bounded history window. Resolve only the exact displayed/requested IDs.
+  defp terminal_entries(ids) do
+    events = [@approved, @rejected]
+
+    Repo.all(
+      from(f in Feed.Entry,
+        where: f.event in ^events and fragment("json_extract(?, '$.proposal')", f.entry) in ^ids,
+        order_by: [asc: f.id],
+        select: f.entry
+      )
+    )
+    |> Enum.map(&Jason.decode!/1)
   end
 
   @doc """
@@ -400,8 +475,6 @@ defmodule Custode.Workflow.Launch do
   # ---------------------------------------------------------------------------
   # internals
   # ---------------------------------------------------------------------------
-
-  defp find(proposal_id), do: Enum.find(pending(), &(&1["proposal"] == proposal_id))
 
   # The proposal carries the launch options forward so approving runs what was
   # priced, not what the defaults happen to be at approval time.

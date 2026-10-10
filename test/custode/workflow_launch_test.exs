@@ -1,7 +1,7 @@
 defmodule Custode.WorkflowLaunchTest do
   use ExUnit.Case, async: false
 
-  import Custode.TestHelpers, only: [uid: 1]
+  import Custode.TestHelpers, only: [put_env!: 2, tmp_workspace!: 0, uid: 1]
   import Ecto.Query, only: [from: 2]
 
   alias Custode.Feed
@@ -10,12 +10,14 @@ defmodule Custode.WorkflowLaunchTest do
   alias Custode.Workflow
   alias Custode.Workflow.Launch
   alias Custode.Workflow.Node
+  alias Custode.Workflow.ResultContract
   alias Custode.Workflow.Results
   alias Custode.Workflow.Run
   alias Custode.Workflow.Runner
   alias Custode.Workflow.Stage
 
   setup do
+    previous_workflows = Application.get_env(:custode, :extra_workflows)
     Repo.delete_all(Results.Result)
     Repo.delete_all(Run.Row)
     Repo.delete_all(Feed.Entry)
@@ -23,7 +25,10 @@ defmodule Custode.WorkflowLaunchTest do
     Repo.delete_all(from(j in Oban.Job, where: j.worker == "Custode.Workflow.NodeJob"))
 
     on_exit(fn ->
-      Application.delete_env(:custode, :extra_workflows)
+      if previous_workflows,
+        do: Application.put_env(:custode, :extra_workflows, previous_workflows),
+        else: Application.delete_env(:custode, :extra_workflows)
+
       # A standing proposal and a parked run are needs-you signals now (#447),
       # so one left behind shows up in every later test that reads the inbox,
       # the chip or the console.
@@ -152,7 +157,9 @@ defmodule Custode.WorkflowLaunchTest do
 
       # the gate is answered: it leaves the standing list and does not come back
       assert Launch.pending() == []
-      assert {:error, :no_such_proposal} = Launch.approve(proposal.id)
+      assert {:ok, replay} = Launch.approve(proposal.id)
+      assert replay.run_id == run.run_id
+      assert length(jobs(run.run_id)) == 2
     end
 
     test "rejecting leaves no run and closes the gate" do
@@ -164,6 +171,556 @@ defmodule Custode.WorkflowLaunchTest do
       assert Launch.pending() == []
       assert "workflow_launch_rejected" in events()
     end
+  end
+
+  describe "exact launch decisions (#846)" do
+    alias Custode.Operator.Actions
+
+    test "shared actions refuse every explicit nonhuman actor before mutation" do
+      workflow = register(fixed_workflow(uid("authority")))
+      {:ok, proposal} = Launch.propose(workflow.name, uid("repo"))
+
+      for actor <- [
+            nil,
+            %{},
+            %{kind: :routine, id: "caretaker"},
+            %{kind: :routine, id: "worker"},
+            %{kind: :sub_agent, id: "helper"}
+          ] do
+        assert {:error, _} = Actions.approve_launch(proposal.id, actor: actor)
+        assert {:error, _} = Actions.reject_launch(proposal.id, "no", actor: actor)
+      end
+
+      assert Run.list() == []
+      assert decisions(proposal.id) == []
+      assert Enum.any?(Launch.pending(), &(&1["proposal"] == proposal.id))
+    end
+
+    for pair <- [[:approve, :approve], [:reject, :reject], [:approve, :reject]] do
+      @pair pair
+      test "concurrent #{Enum.join(pair, "/")} consumes exactly one proposal" do
+        workflow = register(fixed_workflow(uid("concurrent")))
+        {:ok, proposal} = Launch.propose(workflow.name, uid("repo"))
+        caller = self()
+
+        tasks =
+          for decision <- @pair do
+            Task.async(fn ->
+              send(caller, {:ready, self()})
+
+              receive do
+                :decide ->
+                  case decision do
+                    :approve -> Launch.approve(proposal.id)
+                    :reject -> Launch.reject(proposal.id, "first reason")
+                  end
+              end
+            end)
+          end
+
+        for _ <- tasks, do: assert_receive({:ready, _pid}, 1_000)
+        for task <- tasks, do: send(task.pid, :decide)
+        outcomes = Enum.map(tasks, &Task.await(&1, 10_000))
+        assert [decision] = decisions(proposal.id)
+        assert Launch.pending() == []
+
+        case decision["event"] do
+          "workflow_launch_approved" ->
+            assert [run] = Run.list()
+            assert run.context["launch_admission_pending"] == false
+            assert decision["run"] == run.run_id
+            assert length(jobs(run.run_id)) == 2
+
+            assert Enum.count(outcomes, &match?({:ok, _}, &1)) ==
+                     Enum.count(@pair, &(&1 == :approve))
+
+            assert {:ok, replay} = Launch.approve(proposal.id)
+            assert replay.run_id == run.run_id
+            assert {:error, :decision_conflict} = Launch.reject(proposal.id)
+
+          "workflow_launch_rejected" ->
+            assert Run.list() == []
+            assert Enum.count(outcomes, &(&1 == :ok)) == Enum.count(@pair, &(&1 == :reject))
+            assert :ok = Launch.reject(proposal.id, "replacement reason")
+            assert [retained] = decisions(proposal.id)
+            assert retained["reason"] == "first reason"
+            assert {:error, :decision_conflict} = Launch.approve(proposal.id)
+        end
+
+        assert length(decisions(proposal.id)) == 1
+      end
+    end
+
+    for {state, selection} <- [
+          {"cancelled", :one},
+          {"cancelled", :all},
+          {"discarded", :one},
+          {"discarded", :all}
+        ] do
+      @terminal_state state
+      @selection selection
+      test "approval replay does not replace #{@selection} #{@terminal_state} nodes" do
+        workflow = register(fixed_workflow(uid("terminal-replay")))
+        {:ok, proposal} = Launch.propose(workflow.name, uid("repo"))
+        {:ok, run} = Launch.approve(proposal.id)
+        initial = jobs(run.run_id)
+        assert length(initial) == 2
+        selected = if @selection == :one, do: Enum.take(initial, 1), else: initial
+        ids = Enum.map(selected, & &1.id)
+        Repo.update_all(from(j in Oban.Job, where: j.id in ^ids), set: [state: @terminal_state])
+        retained_jobs = jobs(run.run_id)
+        assert Enum.count(retained_jobs, &(&1.state == @terminal_state)) == length(ids)
+        retained_run = Run.get(run.run_id)
+        assert retained_run.status == "running"
+        assert retained_run.context["launch_admission_pending"] == false
+
+        assert {:ok, ^retained_run} = Launch.approve(proposal.id)
+        assert jobs(run.run_id) == retained_jobs
+        assert Enum.map(jobs(run.run_id), & &1.id) == Enum.map(initial, & &1.id)
+        assert length(decisions(proposal.id)) == 1
+      end
+    end
+
+    test "context prompts and job hashes use the consumed admission state" do
+      workflow =
+        Workflow.new!(uid("context-hash"), [
+          %Stage{
+            name: :mine,
+            nodes: [
+              %Node{name: :inspect, prompt: "context <%= Jason.encode!(@context) %>", schema: %{}}
+            ]
+          }
+        ])
+        |> register()
+
+      {:ok, proposal} = Launch.propose(workflow.name, uid("repo"))
+      assert {:ok, run} = Launch.approve(proposal.id)
+      assert [job] = jobs(run.run_id)
+      assert run.context["launch_admission_pending"] == false
+      assert [planned] = Runner.plan(Run.get(run.run_id), workflow)
+      assert job.args["prompt"] == planned.prompt
+      assert job.meta["args_hash"] == planned.args_hash
+      assert ResultContract.check(run, job) == :ok
+
+      assert {:ok, _} = Runner.advance(run.run_id)
+      assert {:ok, _} = Launch.approve(proposal.id)
+      assert [same_job] = jobs(run.run_id)
+      assert same_job.id == job.id
+      assert same_job.meta["args_hash"] == planned.args_hash
+    end
+
+    test "pruned jobs and launch events do not restore approval dispatch authority" do
+      workflow = register(fixed_workflow(uid("pruned-replay")))
+      {:ok, proposal} = Launch.propose(workflow.name, uid("repo"))
+      {:ok, run} = Launch.approve(proposal.id)
+      assert length(jobs(run.run_id)) == 2
+
+      Repo.delete_all(
+        from(j in Oban.Job,
+          where: fragment("json_extract(?, '$.workflow_run')", j.meta) == ^run.run_id
+        )
+      )
+
+      Repo.delete_all(
+        from(f in Feed.Entry,
+          where:
+            f.event == "workflow_launched" and
+              fragment("json_extract(?, '$.run')", f.entry) == ^run.run_id
+        )
+      )
+
+      assert Run.get(run.run_id).context["launch_admission_pending"] == false
+      assert {:ok, ^run} = Launch.approve(proposal.id)
+      assert jobs(run.run_id) == []
+      assert length(decisions(proposal.id)) == 1
+    end
+
+    test "legacy admission with no marker or jobs returns retained state without dispatch" do
+      workflow = register(fixed_workflow(uid("legacy-replay")))
+
+      for context <- [
+            %{},
+            %{"launch_admission_pending" => false},
+            %{"launch_admission_pending" => "true"},
+            %{"launch_admission_pending" => 1}
+          ] do
+        {:ok, proposal} = Launch.propose(workflow.name, uid("repo"))
+        run = Run.start(uid("legacy-run"), workflow.name, proposal.repo, :mine, context)
+        Feed.record(%{event: "workflow_launch_approved", proposal: proposal.id, run: run.run_id})
+        refute run.context["launch_admission_pending"] == true
+        assert jobs(run.run_id) == []
+        assert {:ok, ^run} = Launch.approve(proposal.id)
+        assert jobs(run.run_id) == []
+        assert Run.get(run.run_id) == run
+      end
+    end
+
+    test "first postcommit dispatch racing an approval retry consumes one initial jobset" do
+      workflow = register(fixed_workflow(uid("first-dispatch-race")))
+      {:ok, proposal} = Launch.propose(workflow.name, uid("repo"))
+
+      {:ok, run} =
+        Repo.transaction(
+          fn ->
+            {:ok, run, _event} = Runner.prepare_launch(workflow.name, proposal.repo, [])
+
+            {:ok, _decision} =
+              Feed.record_in_transaction(%{
+                event: "workflow_launch_approved",
+                proposal: proposal.id,
+                run: run.run_id
+              })
+
+            run
+          end,
+          mode: :immediate
+        )
+
+      assert run.context["launch_admission_pending"] == true
+      assert jobs(run.run_id) == []
+      caller = self()
+
+      tasks =
+        for operation <- [
+              fn -> Runner.advance_admitted(run.run_id) end,
+              fn -> Launch.approve(proposal.id) end
+            ] do
+          Task.async(fn ->
+            send(caller, {:ready, self()})
+
+            receive do
+              :dispatch -> operation.()
+            end
+          end)
+        end
+
+      for _ <- tasks, do: assert_receive({:ready, _pid}, 1_000)
+      for task <- tasks, do: send(task.pid, :dispatch)
+      outcomes = Enum.map(tasks, &Task.await(&1, 10_000))
+
+      for {:ok, admitted} <- outcomes do
+        assert admitted.run_id == run.run_id
+        assert admitted.context["launch_admission_pending"] == false
+      end
+
+      assert Enum.all?(outcomes, &match?({:ok, _}, &1))
+      assert length(jobs(run.run_id)) == 2
+      assert Run.get(run.run_id).context["launch_admission_pending"] == false
+      job_ids = Enum.map(jobs(run.run_id), & &1.id)
+      assert {:ok, _same_run} = Launch.approve(proposal.id)
+      assert Enum.map(jobs(run.run_id), & &1.id) == job_ids
+    end
+
+    test "supplied context cannot suppress initial dispatch or reauthorize a replay" do
+      workflow = register(fixed_workflow(uid("context-spoof")))
+
+      for supplied <- [
+            %{launch_admission_pending: false},
+            %{"launch_admission_pending" => false},
+            %{"launch_admission_pending" => true},
+            %{"launch_admission_pending" => "true"}
+          ] do
+        {:ok, proposal} = Launch.propose(workflow.name, uid("repo"), context: supplied)
+        {:ok, run} = Launch.approve(proposal.id)
+        assert run.context["launch_admission_pending"] == false
+        assert length(jobs(run.run_id)) == 2
+        ids = Enum.map(jobs(run.run_id), & &1.id)
+        Repo.update_all(from(j in Oban.Job, where: j.id in ^ids), set: [state: "cancelled"])
+
+        Repo.query!(
+          "UPDATE feed_entries SET entry = json_set(entry, '$.launch_opts.context.launch_admission_pending', json('true')) WHERE event = 'workflow_launch_proposed' AND json_extract(entry, '$.proposal') = ?",
+          [proposal.id]
+        )
+
+        retained = jobs(run.run_id)
+        assert {:ok, replay} = Launch.approve(proposal.id)
+        assert replay.context["launch_admission_pending"] == false
+        assert jobs(run.run_id) == retained
+      end
+
+      assert {:ok, direct} =
+               Runner.launch(workflow.name, uid("repo"),
+                 context: %{launch_admission_pending: false}
+               )
+
+      assert direct.context["launch_admission_pending"] == false
+      assert length(jobs(direct.run_id)) == 2
+    end
+
+    test "initial budget pause consumes dispatch evidence without authorizing replay to resume" do
+      workflow = register(fixed_workflow(uid("initial-pause")))
+      {:ok, proposal} = Launch.propose(workflow.name, uid("repo"), budget_usd: 0.0)
+      assert {:ok, run} = Launch.approve(proposal.id)
+      assert run.status == "budget_paused"
+      assert run.context["launch_admission_pending"] == false
+      assert jobs(run.run_id) == []
+      assert {:ok, ^run} = Launch.approve(proposal.id)
+      assert jobs(run.run_id) == []
+    end
+
+    test "initial definition failure commits consumption with the failed state" do
+      workflow = register(fixed_workflow(uid("initial-failure")))
+      {:ok, proposal} = Launch.propose(workflow.name, uid("repo"))
+
+      {:ok, run} =
+        Repo.transaction(
+          fn ->
+            {:ok, run, _event} = Runner.prepare_launch(workflow.name, proposal.repo, [])
+
+            {:ok, _decision} =
+              Feed.record_in_transaction(%{
+                event: "workflow_launch_approved",
+                proposal: proposal.id,
+                run: run.run_id
+              })
+
+            run
+          end,
+          mode: :immediate
+        )
+
+      assert run.context["launch_admission_pending"] == true
+      register(%{workflow | stages: Enum.reverse(workflow.stages)})
+      assert {:ok, failed} = Launch.approve(proposal.id)
+      assert failed.status == "failed"
+      assert failed.context["launch_admission_pending"] == false
+      assert jobs(run.run_id) == []
+      register(workflow)
+      assert {:ok, ^failed} = Launch.approve(proposal.id)
+      assert jobs(run.run_id) == []
+    end
+
+    test "a failure after run insertion rolls back both events and publishes nothing" do
+      workflow = register(fixed_workflow(uid("rollback")))
+      mirror = Path.join(tmp_workspace!(), "feed.jsonl")
+      put_env!(:feed_path, mirror)
+      {:ok, proposal} = Launch.propose(workflow.name, uid("repo"))
+      before_mirror = File.read!(mirror)
+      :ok = Custode.PubSubBridge.subscribe()
+      trigger = uid("launch_abort") |> String.replace("-", "_")
+
+      Repo.query!("""
+      CREATE TRIGGER #{trigger} BEFORE INSERT ON feed_entries
+      WHEN NEW.event = 'workflow_launch_approved'
+        AND json_extract(NEW.entry, '$.proposal') = '#{proposal.id}'
+      BEGIN SELECT RAISE(ABORT, 'fixture approval write failure'); END
+      """)
+
+      on_exit(fn -> Repo.query!("DROP TRIGGER IF EXISTS #{trigger}") end)
+      assert {:error, _} = Launch.approve(proposal.id)
+      assert Run.list() == []
+      assert decisions(proposal.id) == []
+
+      assert Repo.aggregate(
+               from(j in Oban.Job, where: j.worker == "Custode.Workflow.NodeJob"),
+               :count
+             ) == 0
+
+      assert Feed.recent_by_event("workflow_launched") == []
+      assert File.read!(mirror) == before_mirror
+      refute_receive {:feed_entry, %{"event" => "workflow_launched"}}
+      proposal_id = proposal.id
+      refute_receive {:feed_entry, %{"proposal" => ^proposal_id}}
+      assert Enum.any?(Launch.pending(), &(&1["proposal"] == proposal.id))
+      Repo.query!("DROP TRIGGER #{trigger}")
+      assert {:ok, _run} = Launch.approve(proposal.id)
+    end
+
+    test "committed admission without advance is recovered by retry and boot resume" do
+      workflow = register(fixed_workflow(uid("recovery")))
+
+      for recovery <- [:retry, :boot] do
+        {:ok, proposal} = Launch.propose(workflow.name, uid("repo"))
+
+        {:ok, run} =
+          Repo.transaction(
+            fn ->
+              {:ok, run, _unpublished} =
+                Runner.prepare_launch(workflow.name, proposal.repo, budget_usd: 3.5)
+
+              {:ok, _decision} =
+                Feed.record_in_transaction(%{
+                  event: "workflow_launch_approved",
+                  proposal: proposal.id,
+                  run: run.run_id
+                })
+
+              run
+            end,
+            mode: :immediate
+          )
+
+        assert jobs(run.run_id) == []
+        assert run.context["launch_admission_pending"] == true
+
+        case recovery do
+          :retry ->
+            assert {:ok, replay} = Launch.approve(proposal.id)
+            assert replay.run_id == run.run_id
+
+          :boot ->
+            outcomes = Runner.resume_all()
+
+            assert Enum.any?(outcomes, fn {id, outcome} ->
+                     id == run.run_id and match?({:ok, _}, outcome)
+                   end)
+        end
+
+        assert Run.get(run.run_id).context["launch_admission_pending"] == false
+        assert length(jobs(run.run_id)) == 2
+        assert {:ok, replay} = Launch.approve(proposal.id)
+        assert replay.run_id == run.run_id
+        assert replay.context["launch_admission_pending"] == false
+        assert length(jobs(run.run_id)) == 2
+        assert length(decisions(proposal.id)) == 1
+      end
+
+      assert length(Run.list()) == 2
+    end
+
+    test "postcommit advance failure retains admission and retry recovers the same run" do
+      workflow = register(fixed_workflow(uid("advance_failure")))
+      {:ok, proposal} = Launch.propose(workflow.name, uid("repo"))
+      trigger = uid("enqueue_abort") |> String.replace("-", "_")
+
+      Repo.query!("""
+      CREATE TRIGGER #{trigger} BEFORE INSERT ON oban_jobs
+      WHEN json_extract(NEW.meta, '$.workflow') = '#{workflow.name}'
+      BEGIN SELECT RAISE(ABORT, 'fixture enqueue failure'); END
+      """)
+
+      on_exit(fn -> Repo.query!("DROP TRIGGER IF EXISTS #{trigger}") end)
+      assert {:ok, admitted} = Launch.approve(proposal.id)
+      assert admitted == Run.get(admitted.run_id)
+      assert admitted.context["launch_admission_pending"] == true
+      assert jobs(admitted.run_id) == []
+      assert [decision] = decisions(proposal.id)
+      assert decision["run"] == admitted.run_id
+      assert Launch.pending() == []
+      assert {:error, :decision_conflict} = Launch.reject(proposal.id)
+      Repo.query!("DROP TRIGGER #{trigger}")
+      assert {:ok, recovered} = Launch.approve(proposal.id)
+      assert recovered.run_id == admitted.run_id
+      assert recovered.context["launch_admission_pending"] == false
+      assert length(Run.list()) == 1
+      assert length(jobs(admitted.run_id)) == 2
+    end
+
+    test "more than fifty later decisions cannot resurrect or replace resolved proposals" do
+      workflow = register(fixed_workflow(uid("history")))
+      {:ok, rejected} = Launch.propose(workflow.name, uid("repo"))
+      {:ok, approved} = Launch.propose(workflow.name, uid("repo"))
+      assert :ok = Launch.reject(rejected.id)
+      assert {:ok, run} = Launch.approve(approved.id)
+
+      for _ <- 1..51, event <- ~w(workflow_launch_approved workflow_launch_rejected) do
+        Feed.record(%{event: event, proposal: uid("later"), run: uid("later-run")})
+      end
+
+      assert Launch.pending() == []
+      assert :ok = Launch.reject(rejected.id)
+      assert {:error, :decision_conflict} = Launch.approve(rejected.id)
+      assert {:ok, replay} = Launch.approve(approved.id)
+      assert replay.run_id == run.run_id
+      assert length(Run.list()) == 1
+    end
+
+    test "a pending proposal outside the display window remains decidable by exact ID" do
+      workflow = register(fixed_workflow(uid("hidden")))
+      {:ok, hidden} = Launch.propose(workflow.name, uid("repo"))
+      for _ <- 1..51, do: Launch.propose(workflow.name, uid("later-repo"))
+      refute Enum.any?(Launch.pending(), &(&1["proposal"] == hidden.id))
+      assert {:ok, run} = Launch.approve(hidden.id)
+      assert {:ok, replay} = Launch.approve(hidden.id)
+      assert replay.run_id == run.run_id
+      assert length(Run.list()) == 1
+      assert length(decisions(hidden.id)) == 1
+    end
+
+    test "missed postcommit publication does not undo approval or rejection" do
+      workflow = register(fixed_workflow(uid("publication")))
+      {:ok, approval} = Launch.propose(workflow.name, uid("repo"))
+      {:ok, rejection} = Launch.propose(workflow.name, uid("repo"))
+      # A directory is not an appendable mirror. Durable history still commits.
+      put_env!(:feed_path, tmp_workspace!())
+      assert {:ok, run} = Launch.approve(approval.id)
+      assert :ok = Launch.reject(rejection.id)
+      assert length(decisions(approval.id)) == 1
+      assert length(decisions(rejection.id)) == 1
+      assert {:ok, replay} = Launch.approve(approval.id)
+      assert replay.run_id == run.run_id
+      assert Launch.pending() == []
+    end
+
+    test "unknown, expired and invalid-definition proposals stay unconsumed" do
+      workflow = register(fixed_workflow(uid("stale")))
+      assert {:error, :no_such_proposal} = Launch.approve(uid("unknown"))
+      assert {:error, :no_such_proposal} = Launch.reject(uid("unknown"))
+      {:ok, expired} = Launch.propose(workflow.name, uid("repo"))
+      cutoff = DateTime.add(DateTime.utc_now(), -8 * 24 * 60 * 60)
+
+      Repo.update_all(
+        from(f in Feed.Entry,
+          where: fragment("json_extract(?, '$.proposal')", f.entry) == ^expired.id
+        ),
+        set: [at: cutoff]
+      )
+
+      assert {:error, :expired_proposal} = Launch.approve(expired.id)
+      assert {:error, :expired_proposal} = Launch.reject(expired.id)
+      {:ok, invalid} = Launch.propose(workflow.name, uid("repo"))
+      register(%{workflow | stages: []})
+      assert {:error, _} = Launch.approve(invalid.id)
+      assert decisions(invalid.id) == []
+      Application.put_env(:custode, :extra_workflows, %{})
+      assert {:error, :unknown_workflow} = Launch.approve(invalid.id)
+      assert Run.list() == []
+      assert Enum.any?(Launch.pending(), &(&1["proposal"] == invalid.id))
+    end
+
+    test "missing retained run and unsupported outer transactions refuse without a new run" do
+      workflow = register(fixed_workflow(uid("missing")))
+      {:ok, proposal} = Launch.propose(workflow.name, uid("repo"))
+
+      assert {:ok, :ok} =
+               Repo.transaction(fn ->
+                 assert {:error, :outer_transaction_unsupported} = Launch.approve(proposal.id)
+                 assert {:error, :outer_transaction_unsupported} = Launch.reject(proposal.id)
+
+                 assert {:error, :outer_transaction_unsupported} =
+                          Runner.launch(workflow.name, proposal.repo)
+
+                 :ok
+               end)
+
+      assert_raise ArgumentError, fn ->
+        Runner.prepare_launch(workflow.name, proposal.repo, [])
+      end
+
+      Feed.record(%{
+        event: "workflow_launch_approved",
+        proposal: proposal.id,
+        run: uid("missing-run")
+      })
+
+      assert {:error, :retained_run_missing} = Launch.approve(proposal.id)
+      assert Run.list() == []
+      assert Launch.pending() == []
+    end
+  end
+
+  defp decisions(proposal_id) do
+    events = ~w(workflow_launch_approved workflow_launch_rejected)
+
+    Repo.all(
+      from(f in Feed.Entry,
+        where:
+          f.event in ^events and
+            fragment("json_extract(?, '$.proposal')", f.entry) == ^proposal_id,
+        select: f.entry
+      )
+    )
+    |> Enum.map(&Jason.decode!/1)
   end
 
   describe "the run budget rail (#271 slice 2)" do
@@ -477,9 +1034,9 @@ defmodule Custode.WorkflowLaunchTest do
       assert [%{status: "running", budget_usd: 3.5}] = Run.list()
       assert Launch.pending() == []
 
-      # answered once: the same click again is an error, not a second run
-      assert {:error, :no_such_proposal} =
-               Actions.run(:approve_launch, %{proposal: proposal.id}, %{}, via: :liveview)
+      # A lost click response can be retried without admitting another run.
+      assert :ok = Actions.run(:approve_launch, %{proposal: proposal.id}, %{}, via: :liveview)
+      assert length(Run.list()) == 1
     end
 
     test "run/4 rejects a launch, with the reason given or the surface it came from" do
