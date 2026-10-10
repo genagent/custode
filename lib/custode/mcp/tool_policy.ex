@@ -116,6 +116,8 @@ defmodule Custode.MCP.ToolPolicy do
     "list_policies" => :read,
     "list_workflows" => :read,
     "workflow_retry_status" => :read,
+    "workflow_launch_approve" => :operator,
+    "workflow_launch_reject" => :operator,
     "executing_turns" => :read,
     "operator_bootstrap" => :read,
     "project_progress" => :read,

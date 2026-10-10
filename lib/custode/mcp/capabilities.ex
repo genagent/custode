@@ -35,6 +35,8 @@ defmodule Custode.MCP.Capabilities do
     repo_disown_pr repo_reclaim_pr
   )
 
+  # Workflow launch decisions are human-only. The main operator catalog admits
+  # all registered tools; neither caretaker nor worker bundles include them.
   # Kept compact because these names enter every caretaker prompt. Human-only
   # ask decisions are deliberately absent even though older allowlists exposed
   # them; their handlers have always refused routine callers.

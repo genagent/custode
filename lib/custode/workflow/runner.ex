@@ -95,9 +95,43 @@ defmodule Custode.Workflow.Runner do
       as the execution plan for one WorkItem. Individual node results link to
       their own Attempts when an Attempt-aware caller supplies that metadata.
 
-  Returns `{:ok, run}` or `{:error, reason}`.
+  Returns `{:ok, run}`, `:error` for an unknown catalog name, or
+  `{:error, reason}` for other refusals.
   """
   def launch(workflow, repo, opts \\ []) do
+    if Repo.in_transaction?() do
+      {:error, :outer_transaction_unsupported}
+    else
+      launch_prepared(workflow, repo, opts)
+    end
+  end
+
+  defp launch_prepared(workflow, repo, opts) do
+    case Repo.transaction(fn -> prepare_or_rollback(workflow, repo, opts) end, mode: :immediate) do
+      {:ok, {run, event}} ->
+        publish_launch_event(event)
+        advance_admitted(run.run_id)
+
+      {:error, :unknown_workflow} ->
+        :error
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp prepare_or_rollback(workflow, repo, opts) do
+    case prepare_launch(workflow, repo, opts) do
+      {:ok, run, event} -> {run, event}
+      {:error, reason} -> Repo.rollback(reason)
+      :error -> Repo.rollback(:unknown_workflow)
+    end
+  end
+
+  @doc "Persist a validated run and launch event inside a transaction, without side effects."
+  def prepare_launch(workflow, repo, opts) do
+    unless Repo.in_transaction?(), do: raise(ArgumentError, "a transaction is required")
+
     with {:ok, definition} <- resolve(workflow),
          :ok <- Workflow.validate(definition) do
       run_id = Keyword.get(opts, :run_id) || mint_run_id(definition.name)
@@ -110,6 +144,7 @@ defmodule Custode.Workflow.Runner do
         |> Map.put("working_dir", working_dir(repo, opts))
         |> Map.put("max_budget_usd", per_node_budget(opts))
         |> Map.put("result_contract_version", ResultContract.version())
+        |> Map.put("launch_admission_pending", true)
         # where a report artifact lands (slice 5). Stored on the run rather
         # than derived at write time, so a resume writes where the launch
         # would have, and the janitor can tell later which tree it may delete
@@ -129,8 +164,70 @@ defmodule Custode.Workflow.Runner do
           definition: Definition.snapshot(definition)
         )
 
-      record(run, "workflow_launched", launch_summary(definition, run))
-      advance(run_id)
+      case Custode.Feed.record_in_transaction(%{
+             event: "workflow_launched",
+             agent: nil,
+             run: run.run_id,
+             workflow: run.workflow,
+             repo: run.repo,
+             summary: "#{run.workflow} [#{run.run_id}] #{launch_summary(definition, run)}"
+           }) do
+        {:ok, event} -> {:ok, run, event}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  @doc "Best-effort notification of an event whose database transaction already committed."
+  def publish_launch_event(event) do
+    Custode.Feed.publish_committed(event, [])
+  rescue
+    _error -> :ok
+  catch
+    :exit, _reason -> :ok
+  end
+
+  @doc """
+  Dispatch only an admission whose server-owned first-dispatch marker is pending.
+  Once consumed, approval replay returns retained state without advancing work.
+  A failed dispatch transaction retains the marker for safe initial recovery.
+  """
+  def advance_admitted(run_id) do
+    if Repo.in_transaction?() do
+      {:error, :outer_transaction_unsupported}
+    else
+      dispatch_admitted(run_id)
+    end
+  end
+
+  defp dispatch_admitted(run_id) do
+    case Repo.transaction(fn -> advance_admitted_locked(run_id) end, mode: :immediate) do
+      {:ok, {:ok, run}} -> {:ok, run}
+      _failed_advance -> admitted_state(run_id)
+    end
+  rescue
+    _error -> admitted_state(run_id)
+  catch
+    :exit, _reason -> admitted_state(run_id)
+  end
+
+  defp advance_admitted_locked(run_id) do
+    case Run.get(run_id) do
+      %{status: "running", context: %{"launch_admission_pending" => true}} ->
+        advance_locked(run_id)
+
+      nil ->
+        {:error, :retained_run_missing}
+
+      run ->
+        {:ok, run}
+    end
+  end
+
+  defp admitted_state(run_id) do
+    case Run.get(run_id) do
+      nil -> {:error, :retained_run_missing}
+      run -> {:ok, run}
     end
   end
 
@@ -150,7 +247,7 @@ defmodule Custode.Workflow.Runner do
   defp advance_locked(run_id) do
     case Run.get(run_id) do
       nil -> {:error, :no_such_run}
-      %{status: "running"} = run -> advance_running(run)
+      %{status: "running"} = run -> run |> Run.consume_launch_admission() |> advance_running()
       run -> {:ok, run}
     end
   end

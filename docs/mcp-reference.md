@@ -89,7 +89,7 @@ Routine instructions, prompt files, the `prompt_agent` tool, and an agent's stru
 
 | Endpoint | Server | Tools | Resources | Templates | Prompts |
 | --- | --- | ---: | ---: | ---: | ---: |
-| `/mcp` | custode 0.3.0 | 104 | 4 | 13 | 0 |
+| `/mcp` | custode 0.3.0 | 106 | 4 | 13 | 0 |
 | `/mcp/memory` | memory 0.3.0 | 7 | 0 | 0 | 0 |
 
 **`/mcp`**: protocol versions 2026-07-28, 2025-11-25, 2025-06-18; capabilities `{"resources":{},"tools":{}}`.
@@ -208,6 +208,8 @@ Categories are descriptive policy metadata, not an authorization guarantee.
 | [work_agreement_resolve](#tool-work_agreement_resolve) | operator |
 | [work_agreement_revise](#tool-work_agreement_revise) | operator |
 | [work_agreement_submit](#tool-work_agreement_submit) | self_write |
+| [workflow_launch_approve](#tool-workflow_launch_approve) | operator |
+| [workflow_launch_reject](#tool-workflow_launch_reject) | operator |
 | [workflow_retry_status](#tool-workflow_retry_status) | read |
 
 ### Tool: add_routine
@@ -2407,6 +2409,118 @@ Retain a revision-bound result and its evidence limits.
 **Access:** Main endpoint only. Verified human operator or exact owning routine; caretaker siblings and temporary agents cannot submit on behalf of the owner.
 
 **Behavior, defaults and errors:** agreement_id, agreement_revision, matching assignment_id, summary, nonempty criterion_evidence and verification_limits are required. Each evidence entry has criterion_id, references (possibly empty) and note; criterion IDs must name unique criteria in that retained revision. outputs may be empty for useful negative findings and defaults to empty. Late results for a historical revision remain visible but cannot complete current intent or inherit acceptance. All mutations require a stable request_id for one logical operation. An authorized exact retry returns the original receipt with duplicate=true before stale-revision checks; different semantic payloads with the same caller/request_id conflict. Intent revision and record sequence are distinct. Unknown fields and duplicate atom/string keys are refused. IDs are nonblank strings up to 160 characters; prose up to 2000; reference values up to 2048 and labels up to 200; arrays up to 20 entries; total mutation payload up to 65536 bytes. References are opaque attributed links, never fetched, verified or used as access grants. No operation starts, resumes, cancels, schedules or redispatches work.
+
+### Tool: workflow_launch_approve
+
+Approve an existing workflow proposal and admit its retained run.
+
+**Endpoints:** /mcp. **Category:** operator.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| proposal_id | string | yes |  | {"maxLength":160,"minLength":1} |
+
+**Result:** Bounded structured proposal_id, decision approved, admitted run_id, actual status and budget_usd. Admission permits asynchronous work but does not guarantee execution or completion. Same-decision replay returns the retained run state; it may recover only a still-pending initial dispatch.
+
+**Side effects:** Exact proposal lookup, run creation and approval event commit in one immediate SQLite transaction. Postcommit notification is best effort. Initial dispatch consumes a server-owned durable context marker in the same immediate transaction as the first jobs, budget pause or failure. The tool call does not invoke a model; jobs may execute asynchronously.
+
+**Access:** Main endpoint, verified authenticated human operator only. Shared Operator.Actions enforces human authority. Caretakers, routines, subagents and absent identity refuse without mutations; no default MCP caller identity.
+
+**Behavior, defaults and errors:** Input proposal_id is required, 1 to 160 characters. Unknown or week-old pending proposals refuse. Authorization never uses bounded display history. Approval retry retains the first decision and same run; an existing rejection refuses. Missing retained run refuses without a fresh launch. Precommit admission failure rolls back the run and decision and leaves the proposal pending. After admission, only a running run with explicit server-owned launch_admission_pending=true may dispatch through approval or its replay. A failed initial-dispatch transaction rolls back this marker with its jobs, permitting safe initial recovery by approval retry or existing boot advancement. Once consumed, approval replay does not advance, resume or replace cancelled, discarded or pruned jobs, even if jobs or launch events are absent. Legacy runs without the marker return retained state without dispatch. Supplied proposal context cannot override or restore this evidence. General workflow advancement, unpause and boot resume policy are unchanged; this marker does not establish physical model settlement. Outer transactions are unsupported. Errors omit private paths, raw exceptions and secrets.
+
+**Output schema:**
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "budget_usd": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "decision": {
+      "enum": [
+        "approved"
+      ],
+      "type": "string"
+    },
+    "proposal_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "type": "string"
+    },
+    "run_id": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "running",
+        "budget_paused",
+        "complete",
+        "failed"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "budget_usd",
+    "decision",
+    "proposal_id",
+    "run_id",
+    "status"
+  ],
+  "type": "object"
+}
+```
+
+### Tool: workflow_launch_reject
+
+Reject an existing workflow proposal with an optional bounded reason.
+
+**Endpoints:** /mcp. **Category:** operator.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| proposal_id | string | yes |  | {"maxLength":160,"minLength":1} |
+| reason | string | no |  | {"maxLength":2000} |
+
+**Result:** Bounded structured proposal_id and recorded decision rejected. The retained reason is not echoed.
+
+**Side effects:** Exact proposal lookup and rejection event commit in one immediate SQLite transaction. Postcommit notification is best effort. No run or model call.
+
+**Access:** Main endpoint, verified authenticated human operator only. Shared Operator.Actions enforces human authority. Caretakers, routines, subagents and absent identity refuse without mutations; no default MCP caller identity.
+
+**Behavior, defaults and errors:** Input proposal_id is required, 1 to 160 characters; reason is optional, at most 2000 characters. An omitted or blank reason records rejected via mcp. Unknown or week-old pending proposals refuse. Authorization never uses bounded display history. Rejection retry retains the original decision and reason; an existing approval refuses. Precommit failure rolls back the decision and leaves the proposal pending. Outer transactions are unsupported. Errors omit private paths, raw exceptions and secrets.
+
+**Output schema:**
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "decision": {
+      "enum": [
+        "rejected"
+      ],
+      "type": "string"
+    },
+    "proposal_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "decision",
+    "proposal_id"
+  ],
+  "type": "object"
+}
+```
 
 ### Tool: workflow_retry_status
 

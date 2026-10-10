@@ -832,7 +832,9 @@ defmodule Custode.Operator.Actions do
   proposal quoted and returns it, so a surface can name the run it started.
   """
   @spec approve_launch(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def approve_launch(proposal_id, _opts \\ []), do: Launch.approve(proposal_id)
+  def approve_launch(proposal_id, opts \\ []) do
+    with :ok <- Authority.human(actor(opts)), do: Launch.approve(proposal_id)
+  end
 
   @doc """
   Reject a standing workflow launch (#447). The reason rides the feed entry,
@@ -841,13 +843,15 @@ defmodule Custode.Operator.Actions do
   """
   @spec reject_launch(String.t(), String.t() | nil, keyword()) :: result()
   def reject_launch(proposal_id, reason, opts \\ []) do
-    reason =
-      case String.trim(to_string(reason)) do
-        "" -> "rejected via #{Keyword.get(opts, :via, :liveview)}"
-        given -> given
-      end
+    with :ok <- Authority.human(actor(opts)) do
+      reason =
+        case String.trim(to_string(reason)) do
+          "" -> "rejected via #{Keyword.get(opts, :via, :liveview)}"
+          given -> given
+        end
 
-    Launch.reject(proposal_id, reason)
+      Launch.reject(proposal_id, reason)
+    end
   end
 
   @doc """

@@ -114,6 +114,16 @@ defmodule Custode.Workflow.Run do
     update(run_id, stage: to_string(stage))
   end
 
+  @doc "Consume initial dispatch evidence in the same transaction as the first advance."
+  def consume_launch_admission(%{context: %{"launch_admission_pending" => true}} = run) do
+    unless Repo.in_transaction?(), do: raise(ArgumentError, "a transaction is required")
+
+    context = Map.put(run.context, "launch_admission_pending", false)
+    update(run.run_id, context: Jason.encode!(context))
+  end
+
+  def consume_launch_admission(run), do: run
+
   @doc "Mark a run finished. No stage cursor remains -- there is nothing next."
   def complete(run_id) do
     update(run_id, status: "complete", stage: nil, finished_at: DateTime.utc_now())
