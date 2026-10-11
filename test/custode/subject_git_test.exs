@@ -16,6 +16,8 @@ defmodule Custode.SubjectGitTest do
     File.write!(Path.join(root, @path), "Committed source with uncertainty.\n")
     File.write!(Path.join(root, "private.md"), "Unrelated private source.\n")
     git!(root, ["init", "--quiet"])
+    # Keep the descriptor snapshot independent of detached auto-maintenance.
+    git!(root, ["config", "--local", "maintenance.auto", "false"])
     git!(root, ["add", "."])
     commit!(root, "feat: record controlled subject Git fixture")
     head = String.trim(git!(root, ["rev-parse", "HEAD"]))
