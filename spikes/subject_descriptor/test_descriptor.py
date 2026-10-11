@@ -280,6 +280,9 @@ class GitDescriptorTests(unittest.TestCase):
         self.document = self.path / "research/source.md"
         self.document.write_text("committed source\n")
         self.git("init", "--quiet")
+        # Git 2.55 can retain a detached maintenance lock after commit returns.
+        # Fixture layout must be stable; explicit gc below still exercises packs.
+        self.git("config", "--local", "maintenance.auto", "false")
         self.git("add", "research/source.md")
         self.commit("initial")
         self.head = self.git("rev-parse", "HEAD").strip()
@@ -294,6 +297,19 @@ class GitDescriptorTests(unittest.TestCase):
 
     def commit(self, message):
         self.git("-c", "user.name=Docs", "-c", "user.email=docs@example.test", "commit", "--quiet", "-m", message)
+
+    def test_maintenance_lock_is_refused_until_removed(self):
+        actions = ("history", "diff")
+        requests = [{"action": action, "path": "research/source.md"} for action in actions]
+        before = [self.root.invoke(request) for request in requests]
+        lock = self.path / ".git/objects/maintenance.lock"
+        lock.write_bytes(b"")
+        for request in requests:
+            with self.subTest(action=request["action"]):
+                with self.assertRaisesRegex(MODULE.Refused, "git_object_layout_unavailable"):
+                    self.root.invoke(request)
+        lock.unlink()
+        self.assertEqual([self.root.invoke(request) for request in requests], before)
 
     def test_real_history_and_working_diff_preserve_head_index_and_unrelated_work(self):
         (self.path / "unrelated.md").write_text("staged unrelated\n")
