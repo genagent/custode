@@ -329,6 +329,8 @@ defmodule Custode.Workflow.Launch do
   end
 
   @doc """
+  Low-level local control for explicit rail changes. Operator surfaces use
+  `Custode.Operator.Actions.resume_run/3` with an exact pause reference.
   Let a budget-paused run go on, optionally on a raised rail. Records the
   decision in the feed and advances the run -- resuming onto an unraised rail
   parks it again immediately, which is the honest answer rather than a silent
@@ -358,23 +360,6 @@ defmodule Custode.Workflow.Launch do
 
       _running ->
         {:error, :not_paused}
-    end
-  end
-
-  @doc """
-  Let a parked run go on with its rail DOUBLED: the one act every surface
-  offers for a budget pause (#447).
-
-  Resuming onto the same ceiling parks the run again on its next advance, so
-  the button raises the rail rather than pretending the limit is gone. The
-  factor lives here because the workflows page and the inbox both offer the
-  button, and two pages must not come to hold two ideas of what it does. A run
-  with no rail is resumed as it is.
-  """
-  def raise_and_resume(run_id) do
-    case Run.get(run_id) do
-      %{budget_usd: budget} when is_number(budget) -> unpause(run_id, budget_usd: budget * 2)
-      _no_rail_or_no_run -> unpause(run_id)
     end
   end
 

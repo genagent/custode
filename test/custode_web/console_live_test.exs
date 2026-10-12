@@ -2,13 +2,17 @@ defmodule CustodeWeb.ConsoleLiveTest do
   use ExUnit.Case, async: false
 
   import Custode.TestHelpers
+  import Ecto.Query, only: [from: 2]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
   alias Custode.Asks
   alias Custode.Availability.Collectors.Claude, as: ClaudeUsage
   alias Custode.GitHub.Cache
+  alias Custode.Operator.Actions
+  alias Custode.Repo
   alias Custode.Workflow
+  alias Custode.Workflow.BudgetResume
   alias Custode.Workflow.Launch
   alias Custode.Workflow.Run
   alias CustodeWeb.Console.Item
@@ -1121,6 +1125,111 @@ defmodule CustodeWeb.ConsoleLiveTest do
     assert Launch.pending() == []
     assert [%{workflow: name, status: "running"}] = Run.list()
     assert name == workflow.name
+  end
+
+  for previous_decision <- [:admitted, :superseded] do
+    @previous_decision previous_decision
+
+    test "a delayed #{@previous_decision} budget click cannot resume the pause now in the console",
+         %{
+           conn: conn
+         } do
+      workflow =
+        Workflow.new!(uid("console-budget"), [
+          %Workflow.Stage{
+            name: :fixture,
+            nodes: [%Workflow.Node{name: :fixture, prompt: "fixture only", schema: %{}}]
+          }
+        ])
+
+      put_env!(:extra_workflows, %{workflow.name => workflow})
+      run = Run.start(uid("console-budget-run"), workflow.name, uid("repo"), :fixture, %{}, 1.0)
+      paused = Run.budget_pause(run.run_id, "fixture first pause", ["fixture"])
+
+      on_exit(fn ->
+        Repo.delete_all(
+          from(j in Oban.Job,
+            where: fragment("json_extract(?, '$.workflow_run')", j.meta) == ^run.run_id
+          )
+        )
+
+        Repo.delete_all(from(r in Run.Row, where: r.run_id == ^run.run_id))
+
+        Repo.delete_all(
+          from(f in Custode.Feed.Entry,
+            where: fragment("json_extract(?, '$.run')", f.entry) == ^run.run_id
+          )
+        )
+      end)
+
+      {:ok, view, _html} = live(conn, Rail.subject_path("#{workflow.name} on #{run.repo}"))
+      button = "button[phx-value-op=resume_run]"
+      assert has_element?(view, ~s(#{button}[phx-value-run="#{run.run_id}"]))
+      assert has_element?(view, ~s(#{button}[phx-value-pause="#{paused.budget_pause_id}"]))
+
+      original_click = %{
+        "op" => "resume_run",
+        "run" => run.run_id,
+        "pause" => paused.budget_pause_id
+      }
+
+      case @previous_decision do
+        :admitted ->
+          assert {:ok, _receipt} = Actions.resume_run(run.run_id, paused.budget_pause_id)
+
+        :superseded ->
+          Run.unpause(run.run_id)
+      end
+
+      current = Run.budget_pause(run.run_id, "fixture later pause", ["fixture"])
+      refute current.budget_pause_id == paused.budget_pause_id
+      send(view.pid, {:feed_entry, %{}})
+      assert has_element?(view, ~s(#{button}[phx-value-pause="#{current.budget_pause_id}"]))
+      refute has_element?(view, ~s(#{button}[phx-value-pause="#{paused.budget_pause_id}"]))
+
+      decision_query = from(r in BudgetResume.Row, where: r.run_id == ^run.run_id)
+
+      job_query =
+        from(j in Oban.Job,
+          where: fragment("json_extract(?, '$.workflow_run')", j.meta) == ^run.run_id,
+          order_by: [asc: j.id]
+        )
+
+      retained_decisions = Repo.all(decision_query)
+      retained_jobs = Repo.all(job_query)
+      html = render_click(view, "op", original_click)
+
+      case @previous_decision do
+        :admitted -> assert html =~ "Resume approved for this pause"
+        :superseded -> assert html =~ "different budget pause now"
+      end
+
+      for missing <- [
+            %{"op" => "resume_run"},
+            %{"op" => "resume_run", "run" => run.run_id},
+            %{"op" => "resume_run", "run" => run.run_id, "pause" => ""}
+          ] do
+        assert render_click(view, "op", missing) =~ "No pause reference was supplied"
+        assert Run.get(run.run_id) == current
+        assert Repo.all(decision_query) == retained_decisions
+        assert Repo.all(job_query) == retained_jobs
+      end
+
+      assert render_click(view, "op", %{
+               "op" => "resume_run",
+               "pause" => current.budget_pause_id
+             }) =~ "This workflow run no longer exists"
+
+      assert Run.get(run.run_id) == current
+      assert Repo.all(decision_query) == retained_decisions
+      assert Repo.all(job_query) == retained_jobs
+
+      view |> element(button) |> render_click()
+      resumed = Run.get(run.run_id)
+      assert resumed.status == "running"
+      assert resumed.budget_usd == current.budget_usd * 2
+      assert length(Repo.all(decision_query)) == length(retained_decisions) + 1
+    end
   end
 
   describe "the item pane" do

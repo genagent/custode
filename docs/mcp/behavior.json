@@ -271,7 +271,7 @@
     "list_attention": {
       "access": "Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.",
       "effects": "None.",
-      "notes": "group optionally filters needs_you, watching, working, scheduled or quiet. Unknown group values return no matching groups rather than a validation error. Signal order is the fleet's current attention ranking.",
+      "notes": "group optionally filters needs_you, watching, working, scheduled or quiet. Unknown group values return no matching groups rather than a validation error. Signal order is the fleet's current attention ranking. A workflow_rail signal's resume_run args carry run and the exact pause id; a run with no known pause id offers only open_workflows. Its raised_at is null when the pause time is unknown.",
       "result": "groups array, each with group and signals. Signals contain subject, kind, group, urgency, headline, detail, raised_at and resolving actions (label, op, args).",
       "summary": "Read the fleet attention ranking grouped by need."
     },
@@ -848,6 +848,13 @@
       "effects": "Exact proposal lookup and rejection event commit in one immediate SQLite transaction. Postcommit notification is best effort. No run or model call.",
       "result": "Bounded structured proposal_id and recorded decision rejected. The retained reason is not echoed.",
       "notes": "Input proposal_id is required, 1 to 160 characters; reason is optional, at most 2000 characters. An omitted or blank reason records rejected via mcp. Unknown or week-old pending proposals refuse. Authorization never uses bounded display history. Rejection retry retains the original decision and reason; an existing approval refuses. Precommit failure rolls back the decision and leaves the proposal pending. Outer transactions are unsupported. Errors omit private paths, raw exceptions and secrets."
+    },
+    "workflow_budget_resume": {
+      "summary": "Raise the rail of one exact workflow budget pause and admit its run to continue.",
+      "access": "Main endpoint, verified authenticated human operator only. The tool checks the verified identity before calling shared Operator.Actions, which enforces human authority again. Caretakers, routines, subagents and absent identity refuse without mutations; no default MCP caller identity.",
+      "effects": "Exact run and pause lookup, rail raise and resume admission in the shared operation. The tool call does not invoke a model; queued nodes may execute asynchronously.",
+      "result": "custode.workflow_budget_resume.v1 receipt: schema_version, run_id, pause_id, decision resumed, previous_budget_usd and budget_usd (null when unbounded) and status running. The receipt describes the run at admission. Admission is not execution, completion or subprocess settlement.",
+      "notes": "Input run_id (1 to 1024 characters) and pause_id (1 to 160 characters) are both required; pause_id is the pause arg of the workflow_rail signal's resume_run action in list_attention. The latest pause is never substituted for a missing or different one. Repeating the exact pause returns the original receipt, even after the run pauses again, completes or fails; it never raises the rail twice and may only recover a still-pending initial dispatch. A pause that is no longer current refuses stale_pause; a run that is not parked refuses not_paused. Refusal codes are human_identity_required, pause_required, no_such_run, stale_pause, not_paused, outer_transaction_unsupported and admission_failed. Errors omit private paths, raw exceptions and secrets."
     }
   }
 }

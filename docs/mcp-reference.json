@@ -141,6 +141,7 @@
         "work_agreement_resolve",
         "work_agreement_revise",
         "work_agreement_submit",
+        "workflow_budget_resume",
         "workflow_launch_approve",
         "workflow_launch_reject",
         "workflow_retry_status"
@@ -1656,7 +1657,7 @@
       "behavior": {
         "access": "Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.",
         "effects": "None.",
-        "notes": "group optionally filters needs_you, watching, working, scheduled or quiet. Unknown group values return no matching groups rather than a validation error. Signal order is the fleet's current attention ranking.",
+        "notes": "group optionally filters needs_you, watching, working, scheduled or quiet. Unknown group values return no matching groups rather than a validation error. Signal order is the fleet's current attention ranking. A workflow_rail signal's resume_run args carry run and the exact pause id; a run with no known pause id offers only open_workflows. Its raised_at is null when the pause time is unknown.",
         "result": "groups array, each with group and signals. Signals contain subject, kind, group, urgency, headline, detail, raised_at and resolving actions (label, op, args).",
         "summary": "Read the fleet attention ranking grouped by need."
       },
@@ -6276,6 +6277,101 @@
         "/mcp"
       ],
       "name": "work_agreement_submit"
+    },
+    {
+      "behavior": {
+        "access": "Main endpoint, verified authenticated human operator only. The tool checks the verified identity before calling shared Operator.Actions, which enforces human authority again. Caretakers, routines, subagents and absent identity refuse without mutations; no default MCP caller identity.",
+        "effects": "Exact run and pause lookup, rail raise and resume admission in the shared operation. The tool call does not invoke a model; queued nodes may execute asynchronously.",
+        "notes": "Input run_id (1 to 1024 characters) and pause_id (1 to 160 characters) are both required; pause_id is the pause arg of the workflow_rail signal's resume_run action in list_attention. The latest pause is never substituted for a missing or different one. Repeating the exact pause returns the original receipt, even after the run pauses again, completes or fails; it never raises the rail twice and may only recover a still-pending initial dispatch. A pause that is no longer current refuses stale_pause; a run that is not parked refuses not_paused. Refusal codes are human_identity_required, pause_required, no_such_run, stale_pause, not_paused, outer_transaction_unsupported and admission_failed. Errors omit private paths, raw exceptions and secrets.",
+        "result": "custode.workflow_budget_resume.v1 receipt: schema_version, run_id, pause_id, decision resumed, previous_budget_usd and budget_usd (null when unbounded) and status running. The receipt describes the run at admission. Admission is not execution, completion or subprocess settlement.",
+        "summary": "Raise the rail of one exact workflow budget pause and admit its run to continue."
+      },
+      "category": "operator",
+      "definition": {
+        "annotations": {},
+        "description": "Raise the budget rail of one exact workflow budget pause and resume its run as the verified human. Success is admission; work may continue asynchronously and completion is not guaranteed. Repeating the same pause returns the original receipt and never raises the rail twice.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "pause_id": {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            },
+            "run_id": {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "pause_id",
+            "run_id"
+          ],
+          "type": "object"
+        },
+        "name": "workflow_budget_resume",
+        "outputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "budget_usd": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "decision": {
+              "enum": [
+                "resumed"
+              ],
+              "type": "string"
+            },
+            "pause_id": {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            },
+            "previous_budget_usd": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "run_id": {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            },
+            "schema_version": {
+              "enum": [
+                "custode.workflow_budget_resume.v1"
+              ],
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "running"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "budget_usd",
+            "decision",
+            "pause_id",
+            "previous_budget_usd",
+            "run_id",
+            "schema_version",
+            "status"
+          ],
+          "type": "object"
+        },
+        "title": "workflow_budget_resume"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "workflow_budget_resume"
     },
     {
       "behavior": {

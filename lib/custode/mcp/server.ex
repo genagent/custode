@@ -62,6 +62,7 @@ defmodule Custode.MCP.Server do
     Custode.MCP.WorkflowRetryTools.Read,
     Custode.MCP.WorkflowDecisionTools.Approve,
     Custode.MCP.WorkflowDecisionTools.Reject,
+    Custode.MCP.WorkflowBudgetTools.Resume,
     Custode.MCP.ReadTools.ExecutingTurns,
     Custode.MCP.ProjectProgressTools.Read,
     Custode.MCP.WorkAgreementTools.Create,

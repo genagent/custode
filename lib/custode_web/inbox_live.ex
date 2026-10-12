@@ -21,6 +21,7 @@ defmodule CustodeWeb.InboxLive do
 
   alias Custode.Operator.Actions
   alias Custode.Operator.Inbox
+  alias Custode.Operator.WorkflowBudget
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
@@ -92,13 +93,15 @@ defmodule CustodeWeb.InboxLive do
     {:noreply, socket |> put_flash(:info, "launch rejected") |> refresh()}
   end
 
-  def handle_event("resume_run", %{"id" => id}, socket) do
-    case Actions.resume_run(id, via: :liveview) do
-      {:ok, _run} ->
-        {:noreply, socket |> put_flash(:info, "run #{id} resumed on a raised rail") |> refresh()}
+  # The click names the pause the row showed (#846). Without one there is
+  # nothing to resume: the current pause is never picked in its place.
+  def handle_event("resume_run", %{"id" => id} = params, socket) do
+    case Actions.resume_run(id, params["pause"], via: :liveview) do
+      {:ok, receipt} ->
+        {:noreply, socket |> put_flash(:info, WorkflowBudget.resumed(receipt)) |> refresh()}
 
       {:error, reason} ->
-        {:noreply, socket |> put_flash(:error, "resume refused: #{inspect(reason)}") |> refresh()}
+        {:noreply, socket |> put_flash(:error, WorkflowBudget.refused(reason)) |> refresh()}
     end
   end
 
@@ -376,6 +379,7 @@ defmodule CustodeWeb.InboxLive do
       variant={:primary}
       phx-click="resume_run"
       phx-value-id={@action.args[:run]}
+      phx-value-pause={@action.args[:pause]}
       data-confirm="Double this run's rail and let it go on?"
     >
       {@action.label}

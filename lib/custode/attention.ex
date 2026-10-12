@@ -269,9 +269,10 @@ defmodule Custode.Attention do
 
     * `:launches` -- each as `%{id:, workflow:, repo:, summary:, why:,
       proposed_at:}`.
-    * `:paused_runs` -- each as `%{run_id:, workflow:, repo:, reason:,
-      paused_at:}`, the reason being the run's own note of what it spent and
-      which nodes it did not run.
+    * `:paused_runs` -- each as `%{run_id:, pause_id:, workflow:, repo:,
+      reason:, paused_at:}`, the reason being the run's own note of what it
+      spent and which nodes it did not run. `pause_id` is the exact pause a
+      resume must name; `paused_at` is nil when the pause time is unknown.
 
   The subject is the workflow and the repository, which is how the operator
   tells two of them apart; the ops carry the proposal or run id.
@@ -305,8 +306,21 @@ defmodule Custode.Attention do
 
   # "Raise the rail and resume" rather than "Resume": resuming onto the same
   # ceiling parks the run again on its next advance, so the one useful act is
-  # the raise. `Custode.Workflow.Launch.raise_and_resume/1` owns by how much.
+  # the raise. `Custode.Workflow.BudgetResume` owns by how much.
+  #
+  # The op quotes the exact pause it was raised for (#846). A run with no
+  # usable pause id offers only the workflows page: resuming "whatever pause
+  # is current" is the guess the pause id exists to prevent.
   defp workflow_rail(run) do
+    resume =
+      case run[:pause_id] do
+        pause when is_binary(pause) and pause != "" ->
+          [op("Raise the rail and resume", :resume_run, %{run: run.run_id, pause: pause})]
+
+        _unknown ->
+          []
+      end
+
     %Signal{
       subject: workflow_subject(run),
       kind: :workflow_rail,
@@ -316,10 +330,7 @@ defmodule Custode.Attention do
       detail: run[:reason],
       item: {:run, run.run_id},
       raised_at: run[:paused_at],
-      resolving: [
-        op("Raise the rail and resume", :resume_run, %{run: run.run_id}),
-        op("Open workflows", :open_workflows, %{})
-      ]
+      resolving: resume ++ [op("Open workflows", :open_workflows, %{})]
     }
   end
 

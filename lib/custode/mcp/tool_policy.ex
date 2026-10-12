@@ -118,6 +118,7 @@ defmodule Custode.MCP.ToolPolicy do
     "workflow_retry_status" => :read,
     "workflow_launch_approve" => :operator,
     "workflow_launch_reject" => :operator,
+    "workflow_budget_resume" => :operator,
     "executing_turns" => :read,
     "operator_bootstrap" => :read,
     "project_progress" => :read,

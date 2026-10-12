@@ -4,6 +4,7 @@
 Custode.Repo.query!("UPDATE work_items SET parent_id = NULL")
 Custode.Repo.query!("DELETE FROM workflow_runner_observations")
 Custode.Repo.query!("DELETE FROM workflow_node_results")
+Custode.Repo.query!("DELETE FROM workflow_budget_resumes")
 Custode.Repo.query!("DELETE FROM workflow_runs")
 Custode.Repo.query!("UPDATE artifacts SET producer_attempt_id = NULL")
 Custode.Repo.query!("UPDATE attempts SET caused_by_attempt_id = NULL")
