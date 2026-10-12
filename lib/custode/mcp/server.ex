@@ -5,6 +5,8 @@ defmodule Custode.MCP.Server do
     Custode.MCP.Tools.AgentStatus,
     Custode.MCP.Tools.StartAgent,
     Custode.MCP.Tools.PromptAgent,
+    Custode.MCP.AttachmentTools.Upload,
+    Custode.MCP.AttachmentTools.Read,
     Custode.MCP.Tools.AwaitAgent,
     Custode.MCP.Tools.AgentHistory,
     Custode.MCP.Tools.ApproveAction,

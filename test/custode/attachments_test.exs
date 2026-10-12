@@ -5,10 +5,14 @@ defmodule Custode.Operator.AttachmentsTest do
 
   alias Custode.Operator.Attachments
 
+  @png Base.decode64!(
+         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+       )
+
   setup do
     workspace = tmp_workspace!()
     tmp = Path.join(System.tmp_dir!(), uid("upload"))
-    File.write!(tmp, "not really a png")
+    File.write!(tmp, @png)
     on_exit(fn -> File.rm(tmp) end)
     %{routine: %{workspace: workspace}, tmp: tmp, workspace: workspace}
   end
@@ -19,20 +23,31 @@ defmodule Custode.Operator.AttachmentsTest do
 
     assert Path.type(path) == :absolute
     assert Path.dirname(path) == Path.join(Path.expand(workspace), "uploads")
-    assert File.read!(path) == "not really a png"
+    assert File.read!(path) == @png
   end
 
   # this is the code that writes an operator-supplied file to disk
   test "the client's filename never steers the write", %{routine: routine, tmp: tmp} do
     path = Attachments.store!(routine, tmp, "../../../etc/passwd.png")
 
-    assert Path.basename(path) =~ ~r/^[0-9a-f]{16}\.png$/
+    assert Path.basename(path) =~ ~r/^[0-9a-f]{64}\.png$/
     refute path =~ ".."
   end
 
-  test "an extension off the allowlist is stored as .png", %{routine: routine, tmp: tmp} do
-    assert Path.extname(Attachments.store!(routine, tmp, "payload.exe")) == ".png"
-    assert Path.extname(Attachments.store!(routine, tmp, "PHOTO.JPG")) == ".jpg"
+  test "unknown extensions and declared formats that mismatch bytes are refused", %{
+    routine: routine,
+    tmp: tmp
+  } do
+    assert_raise ArgumentError, fn -> Attachments.store!(routine, tmp, "payload.exe") end
+    assert_raise ArgumentError, fn -> Attachments.store!(routine, tmp, "PHOTO.JPG") end
+    assert Path.extname(Attachments.store!(routine, tmp, "PHOTO.PNG")) == ".png"
+  end
+
+  test "a symlinked uploads directory cannot steer storage", %{routine: routine, tmp: tmp} do
+    outside = tmp_workspace!()
+    File.ln_s!(outside, Path.join(routine.workspace, "uploads"))
+    assert_raise ArgumentError, fn -> Attachments.store!(routine, tmp, "a.png") end
+    assert File.ls!(outside) == ["inbox"]
   end
 
   test "the same content dropped twice is one file", %{routine: routine, tmp: tmp} do

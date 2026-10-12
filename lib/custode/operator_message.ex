@@ -16,6 +16,7 @@ defmodule Custode.OperatorMessage do
     field(:idempotency_key, :string)
     field(:prompt_hash, :string)
     field(:prompt, :string)
+    field(:attachment_id, :string)
     field(:provider_correlation_id, :string)
     field(:continues_message_id, :string)
     field(:status, :string, default: "queued")
@@ -79,6 +80,7 @@ defmodule Custode.OperatorMessage do
       :idempotency_key,
       :prompt_hash,
       :prompt,
+      :attachment_id,
       :provider_correlation_id,
       :continues_message_id,
       :status,

@@ -45,6 +45,19 @@ defmodule CustodeWeb.FeedThumbnailsTest do
       assert Uploads.url(routine.id, image) == "/agents/#{routine.id}/uploads/shot.png"
     end
 
+    test "refuses a symlinked image and a symlinked uploads directory", %{
+      routine: routine,
+      image: image
+    } do
+      File.ln_s!(image, Path.join(Path.dirname(image), "alias.png"))
+      assert Uploads.path(routine.id, "alias.png") == :error
+
+      moved = Path.join(routine.workspace, "old-uploads")
+      File.rename!(Path.dirname(image), moved)
+      File.ln_s!(moved, Path.dirname(image))
+      assert Uploads.path(routine.id, "shot.png") == :error
+    end
+
     test "refuses everything outside it", %{routine: routine, image: image} do
       assert Uploads.path(routine.id, "../../../etc/passwd") == :error
       assert Uploads.path(routine.id, "../mix.exs") == :error

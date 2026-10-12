@@ -24,6 +24,7 @@ defmodule Custode.Janitor do
 
   import Ecto.Query, only: [from: 2]
 
+  alias Custode.Operator.Attachments
   alias Custode.Repo
   alias Custode.Workflow.ExecutionObservation
   alias Custode.Workflow.Results
@@ -314,29 +315,39 @@ defmodule Custode.Janitor do
     rows |> Enum.map(&Map.get(&1, field)) |> Enum.reject(&is_nil/1) |> Enum.sum()
   end
 
-  # #39/#180: content-hashed screenshots under <workspace>/uploads age out
-  # once their turn is long past; the prompt text carries the path, so a
-  # very old feed entry may reference a pruned file -- retention matches
-  # the feed's own story, not forever.
+  # Managed images are retained by durable message state, not file mtime.
+  # Legacy files still age out, except paths retained by active legacy messages.
   defp prune_uploads do
     case retention(:uploads_days) do
       nil ->
         0
 
       days ->
+        managed = Attachments.prune(days)
+        protected = Attachments.protected_paths()
         cutoff = System.os_time(:second) - days * 86_400
 
-        Custode.Routine.all()
-        |> Enum.flat_map(fn routine ->
-          routine.workspace |> Path.expand() |> Path.join("uploads/*") |> Path.wildcard()
-        end)
-        |> Enum.count(&stale_upload_removed?(&1, cutoff))
+        legacy =
+          Custode.Routine.all()
+          |> Enum.flat_map(fn routine ->
+            routine.workspace
+            |> Path.expand()
+            |> Path.join("uploads/*")
+            |> Path.wildcard()
+            |> Enum.map(&{routine.workspace, &1})
+          end)
+          |> Enum.count(fn {workspace, path} ->
+            not MapSet.member?(protected, path) and
+              Attachments.safe_file?(workspace, path) and stale_upload_removed?(path, cutoff)
+          end)
+
+        managed + legacy
     end
   end
 
   defp stale_upload_removed?(path, cutoff) do
-    case File.stat(path, time: :posix) do
-      {:ok, %{mtime: mtime}} when mtime < cutoff -> File.rm(path) == :ok
+    case File.lstat(path, time: :posix) do
+      {:ok, %{type: :regular, mtime: mtime}} when mtime < cutoff -> File.rm(path) == :ok
       _fresh_or_gone -> false
     end
   end

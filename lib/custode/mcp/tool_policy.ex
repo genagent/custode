@@ -48,6 +48,8 @@ defmodule Custode.MCP.ToolPolicy do
     "agent_history" => :read,
     "start_agent" => :delegate,
     "prompt_agent" => :delegate,
+    "attachment_upload" => :operator,
+    "attachment_read" => :operator,
     "approve_action" => :delegate,
     "reject_action" => :delegate,
     "run_job" => :delegate,

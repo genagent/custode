@@ -10,6 +10,7 @@ defmodule CustodeWeb.ConsoleLiveTest do
   alias Custode.Availability.Collectors.Claude, as: ClaudeUsage
   alias Custode.GitHub.Cache
   alias Custode.Operator.Actions
+  alias Custode.Operator.Attachments
   alias Custode.Repo
   alias Custode.Workflow
   alias Custode.Workflow.BudgetResume
@@ -1875,6 +1876,35 @@ defmodule CustodeWeb.ConsoleLiveTest do
            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
          )
 
+    test "an invalid image does not send its accompanying text or clear the draft", %{
+      conn: conn,
+      sleeper: sleeper
+    } do
+      {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
+
+      view
+      |> file_input("form[phx-submit=message]", :image, [
+        %{name: "invalid.png", content: "not a PNG", type: "image/png"}
+      ])
+      |> render_upload("invalid.png")
+
+      html =
+        view
+        |> form("form[phx-submit=message]", %{"text" => "keep this draft"})
+        |> render_submit()
+
+      assert html =~ Attachments.error_message(:invalid_image)
+      assert has_element?(view, "form#message-0")
+      subject = sleeper.id
+      refute_push_event(view, "draft:clear", %{subject: ^subject})
+      assert :offline = Custode.Agents.live_provider(sleeper.id)
+
+      assert Repo.aggregate(
+               from(m in Custode.OperatorMessage, where: m.target_agent_id == ^sleeper.id),
+               :count
+             ) == 0
+    end
+
     test "a chosen image shows as a chip, can be removed, and rides the message as a path",
          %{conn: conn, sleeper: sleeper} do
       {:ok, view, _html} = live(conn, "/console/#{sleeper.id}")
@@ -1911,6 +1941,20 @@ defmodule CustodeWeb.ConsoleLiveTest do
       [_, path] = Regex.run(~r/attached image: (\S+)/, turn.args["prompt"])
       assert Path.dirname(path) == Path.join(Path.expand(sleeper.workspace), "uploads")
       assert File.read!(path) == @png
+
+      [message] =
+        Repo.all(from(m in Custode.OperatorMessage, where: m.target_agent_id == ^sleeper.id))
+
+      assert is_binary(message.attachment_id)
+
+      assert {:ok, attachment} =
+               Attachments.read(
+                 %{kind: :operator, id: "operator"},
+                 message.attachment_id
+               )
+
+      assert attachment.agent_id == sleeper.id
+      assert attachment.data_base64 == Base.encode64(@png)
     end
   end
 

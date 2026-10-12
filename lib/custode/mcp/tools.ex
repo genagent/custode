@@ -437,19 +437,27 @@ defmodule Custode.MCP.Tools.PromptAgent do
   this is the answer to its pending question; if it is busy, the prompt queues.
   Follow with await_agent to see the outcome.
   """
-  use Custode.MCP.Tool, name: "prompt_agent"
+  use Custode.MCP.Tool, name: "prompt_agent", strict_arguments: true
 
   import Custode.MCP.Tools
 
   alias Custode.{AgentHandoff, Agents, OperatorMessages}
+  alias Custode.MCP.AttachmentTools
   alias Custode.Operator.Actions
 
   input_schema(%{
     "properties" => %{
       "agent_id" => %{"type" => "string"},
+      "attachment_id" => %{
+        "description" =>
+          "one image reference owned by the verified operator and bound to this routine",
+        "type" => "string",
+        "minLength" => 1,
+        "maxLength" => 128
+      },
       "idempotency_key" => %{
         "description" => "deduplicate this caller's delivery to this agent",
-        "type" => "string"
+        "type" => ["string", "null"]
       },
       "prompt" => %{"type" => "string"}
     },
@@ -458,6 +466,13 @@ defmodule Custode.MCP.Tools.PromptAgent do
   })
 
   @impl true
+  def execute(%{agent_id: agent_id, prompt: prompt, attachment_id: _id} = params, frame) do
+    case AttachmentTools.verified_operator(frame) do
+      {:ok, _actor} -> operator_prompt(agent_id, prompt, params, frame)
+      {:error, reason} -> AttachmentTools.refusal(frame, reason)
+    end
+  end
+
   def execute(%{agent_id: agent_id, prompt: prompt} = params, frame) do
     case check_delegated_target(frame, agent_id, :manage) do
       :ok -> prompt(agent_id, prompt, params, frame)
@@ -483,6 +498,11 @@ defmodule Custode.MCP.Tools.PromptAgent do
           actor: Custode.MCP.caller(frame),
           idempotency_key: params[:idempotency_key]
         ]
+
+    opts =
+      if Map.has_key?(params, :attachment_id),
+        do: Keyword.put(opts, :attachment_id, params.attachment_id),
+        else: opts
 
     case Actions.message_with_receipt(agent_id, prompt, opts) do
       {:ok, message, disposition} -> reply_message(message, disposition, frame)

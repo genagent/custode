@@ -2,11 +2,13 @@ defmodule CustodeWeb.ConversationLiveTest do
   use ExUnit.Case, async: false
 
   import Custode.TestHelpers
+  import Ecto.Query, only: [from: 2]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
   alias Custode.{Feed, Gates, OperatorMessage, OperatorMessages, Repo, Routine}
   alias Custode.Feed.Ingest
+  alias Custode.Operator.Attachments
   alias ObanClaude.{Agent, Testing}
 
   @endpoint CustodeWeb.Endpoint
@@ -79,6 +81,64 @@ defmodule CustodeWeb.ConversationLiveTest do
     assert has_element?(view, "#message-help-0", "Sending starts a turn with your message.")
     assert has_element?(view, "#message-0 input[type=file]")
     assert has_element?(view, "#message-0 button[type=submit]", "Start and send")
+  end
+
+  test "invalid image content preserves the conversation draft without sending its text", %{
+    agent: agent,
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, "/agents/#{agent.id}/conversation")
+
+    view
+    |> file_input("form[phx-submit=message]", :image, [
+      %{name: "bad.png", content: "not a PNG", type: "image/png"}
+    ])
+    |> render_upload("bad.png")
+
+    html =
+      view |> form("form[phx-submit=message]", %{"text" => "keep this draft"}) |> render_submit()
+
+    assert html =~ Attachments.error_message(:invalid_image)
+    assert has_element?(view, "form#message-0")
+    subject = agent.id
+    refute_push_event(view, "draft:clear", %{subject: ^subject})
+    assert :offline = Custode.Agents.live_provider(agent.id)
+    assert Repo.all(from(m in OperatorMessage, where: m.target_agent_id == ^agent.id)) == []
+  end
+
+  test "an image-only conversation message retains an owned reference", %{
+    agent: agent,
+    conn: conn
+  } do
+    png =
+      Base.decode64!(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+      )
+
+    {:ok, view, _html} = live(conn, "/agents/#{agent.id}/conversation")
+    on_exit(fn -> Agent.stop_agent(agent.id) end)
+
+    view
+    |> file_input("form[phx-submit=message]", :image, [
+      %{name: "only.png", content: png, type: "image/png"}
+    ])
+    |> render_upload("only.png")
+
+    view |> form("form[phx-submit=message]", %{"text" => ""}) |> render_submit()
+    subject = agent.id
+    assert_push_event(view, "draft:clear", %{subject: ^subject})
+    [message] = Repo.all(from(m in OperatorMessage, where: m.target_agent_id == ^agent.id))
+    assert is_binary(message.attachment_id)
+    assert message.prompt =~ "attached image:"
+
+    assert {:ok, attachment} =
+             Attachments.read(
+               %{kind: :operator, id: "operator"},
+               message.attachment_id
+             )
+
+    assert attachment.agent_id == agent.id
+    assert attachment.data_base64 == Base.encode64(png)
   end
 
   test "current input survives a new view and refreshes without starting the agent", %{
