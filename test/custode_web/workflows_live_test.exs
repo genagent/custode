@@ -8,6 +8,7 @@ defmodule CustodeWeb.WorkflowsLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
+  alias Custode.Operator.Actions
   alias Custode.Repo
   alias Custode.Workflow
   alias Custode.Workflow.Launch
@@ -142,11 +143,55 @@ defmodule CustodeWeb.WorkflowsLiveTest do
     assert html =~ "Raise the rail and resume"
     assert has_element?(view, "[data-stage-state='done'] .sr-only", "Done")
 
-    resumed = view |> element("button[phx-click='resume_run']") |> render_click()
+    pause = Run.get(run.run_id).budget_pause_id
+    assert is_binary(pause)
+
+    resumed =
+      view
+      |> element("button[phx-click='resume_run'][phx-value-pause='#{pause}']")
+      |> render_click()
+
     assert resumed =~ "running"
+    assert resumed =~ "Resume approved for this pause"
     # the rail was RAISED, not removed -- resuming onto the same ceiling would
     # park the run again immediately
     assert Run.get(run.run_id).budget_usd == 2.0
+  end
+
+  test "an admitted pause retry and missing reference cannot resume a later pause", %{conn: conn} do
+    workflow = register(uid("toy"))
+    {:ok, run} = Runner.launch(workflow.name, "owner/repo", budget_usd: 1.0)
+    Run.budget_pause(run.run_id, "run budget rail hit: $1.20 of $1.00", ["merge"])
+    stale = Run.get(run.run_id).budget_pause_id
+
+    assert {:ok, _receipt} =
+             Actions.resume_run(run.run_id, stale, via: :liveview)
+
+    Run.budget_pause(run.run_id, "run budget rail hit: $2.40 of $2.00", ["merge"])
+    current = Run.get(run.run_id)
+    refute current.budget_pause_id == stale
+
+    {:ok, view, _html} = live(conn, "/workflows")
+    card = "[data-workflow-run='#{run.run_id}']"
+
+    assert has_element?(
+             view,
+             card <> " button[phx-value-pause='#{current.budget_pause_id}']"
+           )
+
+    html = render_click(view, "resume_run", %{"id" => run.run_id, "pause" => stale})
+    assert html =~ "Resume approved for this pause"
+
+    html = render_click(view, "resume_run", %{"id" => run.run_id, "pause" => "unknown-pause"})
+    assert html =~ "different budget pause now"
+
+    html = render_click(view, "resume_run", %{"id" => run.run_id})
+    assert html =~ "No pause reference was supplied"
+
+    after_clicks = Run.get(run.run_id)
+    assert after_clicks.status == "budget_paused"
+    assert after_clicks.budget_usd == 2.0
+    assert after_clicks.budget_pause_id == current.budget_pause_id
   end
 
   test "a failed stage contains its full escaped error and keeps successful siblings", %{

@@ -6,6 +6,7 @@ defmodule CustodeWeb.InboxLiveTest do
   import Phoenix.LiveViewTest
 
   alias Custode.Asks
+  alias Custode.Operator.Actions
   alias Custode.Sensors.CiStatus
   alias Custode.Sensors.CiStatus.Infrastructure
   alias Custode.Workflow
@@ -308,14 +309,55 @@ defmodule CustodeWeb.InboxLiveTest do
          %{conn: conn} do
       run = parked_run!(register_workflow!(), 1.0)
 
+      pause = Run.get(run.run_id).budget_pause_id
+      assert is_binary(pause)
+
       {:ok, view, _html} = live(conn, "/inbox")
-      html = view |> element("button[phx-click=resume_run]") |> render_click()
+      button = "button[phx-click=resume_run][phx-value-pause='#{pause}']"
+      assert has_element?(view, button)
+      html = view |> element(button) |> render_click()
 
       resumed = Run.get(run.run_id)
       assert resumed.status == "running"
       assert resumed.budget_usd == 2.0
-      assert html =~ "resumed on a raised rail"
+      assert html =~ "budget $1.00 → $2.00"
+      assert html =~ "Resume approved for this pause"
       refute html =~ "is parked on its budget rail"
+    end
+
+    test "an admitted pause retry and missing reference cannot resume a later pause", %{
+      conn: conn
+    } do
+      run = parked_run!(register_workflow!(), 1.0)
+      stale = Run.get(run.run_id).budget_pause_id
+
+      assert {:ok, _receipt} = Actions.resume_run(run.run_id, stale, via: :liveview)
+      Run.budget_pause(run.run_id, "run budget rail hit: $2.40 of $2.00", ["merge"])
+      current = Run.get(run.run_id)
+      assert current.status == "budget_paused"
+      refute current.budget_pause_id == stale
+
+      {:ok, view, _html} = live(conn, "/inbox")
+
+      html = render_click(view, "resume_run", %{"id" => run.run_id, "pause" => stale})
+      assert html =~ "Resume approved for this pause"
+
+      html = render_click(view, "resume_run", %{"id" => run.run_id, "pause" => "unknown-pause"})
+      assert html =~ "different budget pause now"
+
+      html = render_click(view, "resume_run", %{"id" => run.run_id})
+      assert html =~ "No pause reference was supplied"
+
+      html = render_click(view, "resume_run", %{"id" => run.run_id, "pause" => ""})
+      assert html =~ "No pause reference was supplied"
+
+      html = render_click(view, "resume_run", %{"id" => uid("inbox-missing"), "pause" => stale})
+      assert html =~ "This workflow run no longer exists"
+
+      after_clicks = Run.get(run.run_id)
+      assert after_clicks.status == "budget_paused"
+      assert after_clicks.budget_usd == 2.0
+      assert after_clicks.budget_pause_id == current.budget_pause_id
     end
 
     test "the header chip counts a launch proposal on every page", %{conn: conn} do

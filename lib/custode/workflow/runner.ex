@@ -200,6 +200,34 @@ defmodule Custode.Workflow.Runner do
     end
   end
 
+  @doc "Recover only the first dispatch of this exact budget-resume admission."
+  def advance_budget_admitted(run_id, pause_id) do
+    if Repo.in_transaction?() do
+      {:error, :outer_transaction_unsupported}
+    else
+      dispatch_budget_admitted(run_id, pause_id)
+    end
+  end
+
+  defp dispatch_budget_admitted(run_id, pause_id) do
+    case Repo.transaction(fn -> advance_budget_locked(run_id, pause_id) end, mode: :immediate) do
+      {:ok, result} -> result
+      _failed_advance -> admitted_state(run_id)
+    end
+  rescue
+    _error -> admitted_state(run_id)
+  catch
+    :exit, _reason -> admitted_state(run_id)
+  end
+
+  defp advance_budget_locked(run_id, pause_id) do
+    case Run.get(run_id) do
+      %{status: "running", budget_resume_pending: ^pause_id} -> advance_locked(run_id)
+      nil -> {:error, :no_such_run}
+      run -> {:ok, run}
+    end
+  end
+
   defp dispatch_admitted(run_id) do
     case Repo.transaction(fn -> advance_admitted_locked(run_id) end, mode: :immediate) do
       {:ok, {:ok, run}} -> {:ok, run}
@@ -246,9 +274,17 @@ defmodule Custode.Workflow.Runner do
 
   defp advance_locked(run_id) do
     case Run.get(run_id) do
-      nil -> {:error, :no_such_run}
-      %{status: "running"} = run -> run |> Run.consume_launch_admission() |> advance_running()
-      run -> {:ok, run}
+      nil ->
+        {:error, :no_such_run}
+
+      %{status: "running"} = run ->
+        run
+        |> Run.consume_launch_admission()
+        |> Run.consume_budget_admission()
+        |> advance_running()
+
+      run ->
+        {:ok, run}
     end
   end
 

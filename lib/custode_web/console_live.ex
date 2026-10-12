@@ -39,6 +39,7 @@ defmodule CustodeWeb.ConsoleLive do
   alias Custode.Operator.DirectoryBrowser
   alias Custode.Operator.RoutineEdit
   alias Custode.Operator.RoutineNew
+  alias Custode.Operator.WorkflowBudget
   alias Custode.Signal
   alias CustodeWeb.Console.Commands
   alias CustodeWeb.Console.Rail
@@ -551,6 +552,19 @@ defmodule CustodeWeb.ConsoleLive do
     :reject
     |> Actions.run(%{agent: agent, action: action}, params, @opts)
     |> after_action(socket, "rejected")
+  end
+
+  # A delayed click must name the pause that was rendered, even after a feed
+  # update replaces the selected signal. Missing references never use the
+  # current signal as a fallback; the shared action refuses them.
+  def handle_event("op", %{"op" => "resume_run"} = params, socket) do
+    case Actions.resume_run(params["run"], params["pause"], @opts) do
+      {:ok, receipt} ->
+        after_action(:ok, socket, WorkflowBudget.resumed(receipt))
+
+      {:error, reason} ->
+        {:noreply, socket |> assign(notice: WorkflowBudget.refused(reason)) |> refresh()}
+    end
   end
 
   # Any other op comes from the selected subject's own signal. The args are

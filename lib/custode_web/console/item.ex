@@ -416,6 +416,20 @@ defmodule CustodeWeb.Console.Item do
     """
   end
 
+  defp op(%{op: %{op: :resume_run}} = assigns) do
+    ~H"""
+    <.action_button
+      variant={:secondary}
+      phx-click="op"
+      phx-value-op="resume_run"
+      phx-value-run={@op.args.run}
+      phx-value-pause={@op.args.pause}
+    >
+      {@op.label}
+    </.action_button>
+    """
+  end
+
   defp op(assigns) do
     ~H"""
     <.action_button

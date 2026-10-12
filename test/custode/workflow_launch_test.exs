@@ -5,6 +5,7 @@ defmodule Custode.WorkflowLaunchTest do
   import Ecto.Query, only: [from: 2]
 
   alias Custode.Feed
+  alias Custode.Operator.Actions
   alias Custode.Repo
   alias Custode.SpendLedger
   alias Custode.Workflow
@@ -174,8 +175,6 @@ defmodule Custode.WorkflowLaunchTest do
   end
 
   describe "exact launch decisions (#846)" do
-    alias Custode.Operator.Actions
-
     test "shared actions refuse every explicit nonhuman actor before mutation" do
       workflow = register(fixed_workflow(uid("authority")))
       {:ok, proposal} = Launch.propose(workflow.name, uid("repo"))
@@ -1000,31 +999,36 @@ defmodule Custode.WorkflowLaunchTest do
       assert %DateTime{} = signal.raised_at
     end
 
-    test "raise_and_resume/1 doubles the rail, lets the run go on and clears the signal" do
+    test "exact-pause resume doubles the rail, lets the run go on and clears the signal" do
       workflow = register(fanning_workflow(uid("railed")))
       {:ok, proposal} = Launch.propose(workflow.name, "owner/repo", budget_usd: 1.0)
       {:ok, run} = Launch.approve(proposal.id)
       park!(run)
 
-      assert {:ok, resumed} = Launch.raise_and_resume(run.run_id)
+      assert {:ok, resumed} =
+               Actions.resume_run(
+                 run.run_id,
+                 Run.get(run.run_id).budget_pause_id
+               )
+
       assert resumed.status == "running"
       assert resumed.budget_usd == 2.0
       assert Enum.any?(jobs(run.run_id), &(&1.meta["node_name"] == "merge"))
       assert workflow_signals() == []
     end
 
-    test "raise_and_resume/1 refuses a run that is not parked, and one that does not exist" do
+    test "exact-pause resume refuses a run that is not parked, and one that does not exist" do
       workflow = register(fixed_workflow(uid("fixed")))
       {:ok, run} = Runner.launch(workflow.name, "owner/repo", run_id: uid("live"))
 
-      assert {:error, :not_paused} = Launch.raise_and_resume(run.run_id)
-      assert {:error, :no_such_run} = Launch.raise_and_resume(uid("ghost"))
+      assert {:error, :not_paused} = Actions.resume_run(run.run_id, uid("pause"))
+
+      assert {:error, :no_such_run} =
+               Actions.resume_run(uid("ghost"), uid("pause"))
     end
   end
 
   describe "the operator's ops (#447)" do
-    alias Custode.Operator.Actions
-
     test "run/4 approves a launch from the signal's own args" do
       workflow = register(fixed_workflow(uid("fixed")))
       {:ok, proposal} = Launch.propose(workflow.name, "owner/repo", budget_usd: 3.5)
@@ -1066,9 +1070,11 @@ defmodule Custode.WorkflowLaunchTest do
       park!(run)
 
       assert Actions.handles?(:resume_run)
-      assert :ok = Actions.run(:resume_run, %{run: run.run_id}, %{}, via: :liveview)
+      args = %{run: run.run_id, pause: Run.get(run.run_id).budget_pause_id}
+      assert :ok = Actions.run(:resume_run, args, %{}, via: :liveview)
       assert %{status: "running", budget_usd: 2.0} = Run.get(run.run_id)
-      assert {:error, :not_paused} = Actions.run(:resume_run, %{run: run.run_id})
+      assert :ok = Actions.run(:resume_run, args)
+      assert {:error, :pause_required} = Actions.run(:resume_run, %{run: run.run_id})
     end
   end
 

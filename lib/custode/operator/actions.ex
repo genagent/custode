@@ -26,6 +26,7 @@ defmodule Custode.Operator.Actions do
   alias Custode.Operator.Authority
   alias Custode.OperatorMessages
   alias Custode.Suggestions
+  alias Custode.Workflow.BudgetResume
   alias Custode.Workflow.Launch
 
   @type result :: :ok | {:error, term()}
@@ -855,11 +856,20 @@ defmodule Custode.Operator.Actions do
   end
 
   @doc """
-  Let a run parked on its budget rail go on, with the rail raised (#447). By
-  how much is `Custode.Workflow.Launch.raise_and_resume/1`'s to say.
+  Admit a human budget increase for the exact displayed pause. Repeating the
+  reference returns its retained receipt without raising a later pause's rail.
   """
-  @spec resume_run(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def resume_run(run_id, _opts \\ []), do: Launch.raise_and_resume(run_id)
+  @spec resume_run(String.t(), String.t() | nil, keyword()) :: {:ok, map()} | {:error, term()}
+  def resume_run(run_id, pause_id, opts \\ []) do
+    with :ok <- Authority.human(actor(opts)) do
+      BudgetResume.resume(
+        run_id,
+        pause_id,
+        actor(opts),
+        Keyword.get(opts, :via, :liveview)
+      )
+    end
+  end
 
   @doc """
   Run a signal's `resolving` op. `params` carries what the op needs beyond its
@@ -903,7 +913,9 @@ defmodule Custode.Operator.Actions do
   def run(:reject_launch, %{proposal: id}, params, opts),
     do: reject_launch(id, params["reason"], opts)
 
-  def run(:resume_run, %{run: id}, _params, opts), do: id |> resume_run(opts) |> outcome()
+  def run(:resume_run, %{run: id} = args, _params, opts),
+    do: id |> resume_run(Map.get(args, :pause), opts) |> outcome()
+
   def run(op, _args, _params, _opts), do: {:error, {:unhandled_op, op}}
 
   # `run/4` answers `:ok` or an error; the run a workflow op returns is for a

@@ -48,6 +48,9 @@ defmodule Custode.Workflow.Run do
       field(:notes, :string)
       field(:error, :string)
       field(:budget_usd, :float)
+      field(:budget_pause_id, :string)
+      field(:budget_paused_at, :utc_datetime_usec)
+      field(:budget_resume_pending, :string)
       field(:work_item_id, :string)
       field(:execution_generation, :string)
       field(:definition_snapshot, :string)
@@ -126,7 +129,14 @@ defmodule Custode.Workflow.Run do
 
   @doc "Mark a run finished. No stage cursor remains -- there is nothing next."
   def complete(run_id) do
-    update(run_id, status: "complete", stage: nil, finished_at: DateTime.utc_now())
+    update(run_id,
+      status: "complete",
+      stage: nil,
+      finished_at: DateTime.utc_now(),
+      budget_pause_id: nil,
+      budget_paused_at: nil,
+      budget_resume_pending: nil
+    )
   end
 
   @doc """
@@ -139,6 +149,9 @@ defmodule Custode.Workflow.Run do
       status: "failed",
       error: to_string(reason),
       failure_identity: encode_optional(identity),
+      budget_pause_id: nil,
+      budget_paused_at: nil,
+      budget_resume_pending: nil,
       finished_at: DateTime.utc_now()
     )
   end
@@ -152,8 +165,30 @@ defmodule Custode.Workflow.Run do
   run says what it has NOT done rather than reading like a thin one.
   """
   def budget_pause(run_id, reason, pending \\ []) do
-    note(run_id, pause_note(reason, pending))
-    update(run_id, status: "budget_paused", error: to_string(reason))
+    case get(run_id) do
+      nil ->
+        nil
+
+      run ->
+        note(run_id, pause_note(reason, pending))
+
+        same_pause? = run.status == "budget_paused" and is_binary(run.budget_pause_id)
+
+        pause_id =
+          if same_pause?,
+            do: run.budget_pause_id,
+            else: "wbp-" <> Base.encode16(:crypto.strong_rand_bytes(16), case: :lower)
+
+        paused_at = if same_pause?, do: run.budget_paused_at, else: DateTime.utc_now()
+
+        update(run_id,
+          status: "budget_paused",
+          error: to_string(reason),
+          budget_pause_id: pause_id,
+          budget_paused_at: paused_at,
+          budget_resume_pending: nil
+        )
+    end
   end
 
   defp pause_note(reason, []), do: "#{reason}; paused with no node outstanding"
@@ -172,9 +207,38 @@ defmodule Custode.Workflow.Run do
   the honest outcome rather than a silent overrun.
   """
   def unpause(run_id, budget_usd \\ :keep) do
-    changes = [status: "running", error: nil]
+    changes = [
+      status: "running",
+      error: nil,
+      budget_pause_id: nil,
+      budget_paused_at: nil,
+      budget_resume_pending: nil
+    ]
+
     changes = if budget_usd == :keep, do: changes, else: [{:budget_usd, budget_usd} | changes]
     update(run_id, changes)
+  end
+
+  @doc "Persist an exact-pause admission inside its decision transaction."
+  def admit_budget_resume(run_id, pause_id, budget) do
+    unless Repo.in_transaction?(), do: raise(ArgumentError, "a transaction is required")
+
+    update(run_id,
+      status: "running",
+      error: nil,
+      budget_usd: budget,
+      budget_pause_id: nil,
+      budget_paused_at: nil,
+      budget_resume_pending: pause_id
+    )
+  end
+
+  @doc "Consume budget-resume dispatch evidence in the transaction that advances work."
+  def consume_budget_admission(%{budget_resume_pending: nil} = run), do: run
+
+  def consume_budget_admission(run) do
+    unless Repo.in_transaction?(), do: raise(ArgumentError, "a transaction is required")
+    update(run.run_id, budget_resume_pending: nil)
   end
 
   @doc """
@@ -239,6 +303,9 @@ defmodule Custode.Workflow.Run do
       notes: Jason.decode!(row.notes),
       error: row.error,
       budget_usd: row.budget_usd,
+      budget_pause_id: row.budget_pause_id,
+      budget_paused_at: row.budget_paused_at,
+      budget_resume_pending: row.budget_resume_pending,
       work_item_id: row.work_item_id,
       execution_generation: row.execution_generation,
       definition_snapshot: decode_optional(row.definition_snapshot),

@@ -135,33 +135,22 @@ defmodule Custode.Attention.Fleet do
     }
   end
 
-  # The run row records that it is parked and why, not when: the pause is a
-  # status change on a row with no timestamp for it. The `workflow_budget_paused`
-  # feed entry is the record of when, and it is only read when a run is
-  # actually parked, which is rare.
+  # The run row names its current pause and when it was taken (#846). The pause
+  # id is what a resume must quote, so a click on a row the operator saw cannot
+  # resume a later pause. A legacy pause has an id but no known time: nil, not
+  # a guess from bounded feed history.
   defp paused_runs do
-    case Run.list(status: "budget_paused") do
-      [] ->
-        []
-
-      runs ->
-        paused_at =
-          "workflow_budget_paused"
-          |> Custode.Feed.recent_by_event(limit: 50)
-          |> Enum.reverse()
-          |> Map.new(&{&1["run"], parse_at(&1["at"])})
-
-        for run <- runs do
-          %{
-            run_id: run.run_id,
-            workflow: run.workflow,
-            repo: run.repo,
-            # the pause note says what was spent AND which nodes did not run;
-            # `error` is the same sentence without the second half
-            reason: List.last(run.notes) || run.error,
-            paused_at: Map.get(paused_at, run.run_id)
-          }
-        end
+    for run <- Run.list(status: "budget_paused") do
+      %{
+        run_id: run.run_id,
+        pause_id: run.budget_pause_id,
+        workflow: run.workflow,
+        repo: run.repo,
+        # the pause note says what was spent AND which nodes did not run;
+        # `error` is the same sentence without the second half
+        reason: List.last(run.notes) || run.error,
+        paused_at: run.budget_paused_at
+      }
     end
   end
 

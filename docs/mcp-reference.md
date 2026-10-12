@@ -89,7 +89,7 @@ Routine instructions, prompt files, the `prompt_agent` tool, and an agent's stru
 
 | Endpoint | Server | Tools | Resources | Templates | Prompts |
 | --- | --- | ---: | ---: | ---: | ---: |
-| `/mcp` | custode 0.3.0 | 106 | 4 | 13 | 0 |
+| `/mcp` | custode 0.3.0 | 107 | 4 | 13 | 0 |
 | `/mcp/memory` | memory 0.3.0 | 7 | 0 | 0 | 0 |
 
 **`/mcp`**: protocol versions 2026-07-28, 2025-11-25, 2025-06-18; capabilities `{"resources":{},"tools":{}}`.
@@ -208,6 +208,7 @@ Categories are descriptive policy metadata, not an authorization guarantee.
 | [work_agreement_resolve](#tool-work_agreement_resolve) | operator |
 | [work_agreement_revise](#tool-work_agreement_revise) | operator |
 | [work_agreement_submit](#tool-work_agreement_submit) | self_write |
+| [workflow_budget_resume](#tool-workflow_budget_resume) | operator |
 | [workflow_launch_approve](#tool-workflow_launch_approve) | operator |
 | [workflow_launch_reject](#tool-workflow_launch_reject) | operator |
 | [workflow_retry_status](#tool-workflow_retry_status) | read |
@@ -789,7 +790,7 @@ Read the fleet attention ranking grouped by need.
 
 **Access:** Main endpoint capability: operator or caretaker routine. Specialists and temporary agents are refused. The handler has no narrower caller-identity check.
 
-**Behavior, defaults and errors:** group optionally filters needs_you, watching, working, scheduled or quiet. Unknown group values return no matching groups rather than a validation error. Signal order is the fleet's current attention ranking.
+**Behavior, defaults and errors:** group optionally filters needs_you, watching, working, scheduled or quiet. Unknown group values return no matching groups rather than a validation error. Signal order is the fleet's current attention ranking. A workflow_rail signal's resume_run args carry run and the exact pause id; a run with no known pause id offers only open_workflows. Its raised_at is null when the pause time is unknown.
 
 ### Tool: list_disowned
 
@@ -2409,6 +2410,85 @@ Retain a revision-bound result and its evidence limits.
 **Access:** Main endpoint only. Verified human operator or exact owning routine; caretaker siblings and temporary agents cannot submit on behalf of the owner.
 
 **Behavior, defaults and errors:** agreement_id, agreement_revision, matching assignment_id, summary, nonempty criterion_evidence and verification_limits are required. Each evidence entry has criterion_id, references (possibly empty) and note; criterion IDs must name unique criteria in that retained revision. outputs may be empty for useful negative findings and defaults to empty. Late results for a historical revision remain visible but cannot complete current intent or inherit acceptance. All mutations require a stable request_id for one logical operation. An authorized exact retry returns the original receipt with duplicate=true before stale-revision checks; different semantic payloads with the same caller/request_id conflict. Intent revision and record sequence are distinct. Unknown fields and duplicate atom/string keys are refused. IDs are nonblank strings up to 160 characters; prose up to 2000; reference values up to 2048 and labels up to 200; arrays up to 20 entries; total mutation payload up to 65536 bytes. References are opaque attributed links, never fetched, verified or used as access grants. No operation starts, resumes, cancels, schedules or redispatches work.
+
+### Tool: workflow_budget_resume
+
+Raise the rail of one exact workflow budget pause and admit its run to continue.
+
+**Endpoints:** /mcp. **Category:** operator.
+
+| Argument | Type | Schema required | Description | Other schema constraints |
+| --- | --- | --- | --- | --- |
+| pause_id | string | yes |  | {"maxLength":160,"minLength":1} |
+| run_id | string | yes |  | {"maxLength":1024,"minLength":1} |
+
+**Result:** custode.workflow_budget_resume.v1 receipt: schema_version, run_id, pause_id, decision resumed, previous_budget_usd and budget_usd (null when unbounded) and status running. The receipt describes the run at admission. Admission is not execution, completion or subprocess settlement.
+
+**Side effects:** Exact run and pause lookup, rail raise and resume admission in the shared operation. The tool call does not invoke a model; queued nodes may execute asynchronously.
+
+**Access:** Main endpoint, verified authenticated human operator only. The tool checks the verified identity before calling shared Operator.Actions, which enforces human authority again. Caretakers, routines, subagents and absent identity refuse without mutations; no default MCP caller identity.
+
+**Behavior, defaults and errors:** Input run_id (1 to 1024 characters) and pause_id (1 to 160 characters) are both required; pause_id is the pause arg of the workflow_rail signal's resume_run action in list_attention. The latest pause is never substituted for a missing or different one. Repeating the exact pause returns the original receipt, even after the run pauses again, completes or fails; it never raises the rail twice and may only recover a still-pending initial dispatch. A pause that is no longer current refuses stale_pause; a run that is not parked refuses not_paused. Refusal codes are human_identity_required, pause_required, no_such_run, stale_pause, not_paused, outer_transaction_unsupported and admission_failed. Errors omit private paths, raw exceptions and secrets.
+
+**Output schema:**
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "budget_usd": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "decision": {
+      "enum": [
+        "resumed"
+      ],
+      "type": "string"
+    },
+    "pause_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "type": "string"
+    },
+    "previous_budget_usd": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "run_id": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "type": "string"
+    },
+    "schema_version": {
+      "enum": [
+        "custode.workflow_budget_resume.v1"
+      ],
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "running"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "budget_usd",
+    "decision",
+    "pause_id",
+    "previous_budget_usd",
+    "run_id",
+    "schema_version",
+    "status"
+  ],
+  "type": "object"
+}
+```
 
 ### Tool: workflow_launch_approve
 

@@ -26,6 +26,7 @@ defmodule CustodeWeb.WorkflowsLive do
   import CustodeWeb.Components
 
   alias Custode.Operator.Actions
+  alias Custode.Operator.WorkflowBudget
   alias Custode.Workflow.Catalog
   alias Custode.Workflow.Launch
   alias Custode.Workflow.Results
@@ -61,15 +62,16 @@ defmodule CustodeWeb.WorkflowsLive do
   end
 
   # Letting a parked run go on is a rail RAISE, not a rail removal. By how
-  # much is `Launch.raise_and_resume/1`'s to say, since the inbox offers the
-  # same button (#447).
-  def handle_event("resume_run", %{"id" => id}, socket) do
-    case Actions.resume_run(id, via: :liveview) do
-      {:ok, _run} ->
-        {:noreply, socket |> put_flash(:info, "run #{id} resumed") |> refresh()}
+  # much is the shared budget-resume service's to say, since the inbox offers the
+  # same button (#447). The click names the pause the card showed (#846);
+  # without one nothing is resumed, and the current pause is never assumed.
+  def handle_event("resume_run", %{"id" => id} = params, socket) do
+    case Actions.resume_run(id, params["pause"], via: :liveview) do
+      {:ok, receipt} ->
+        {:noreply, socket |> put_flash(:info, WorkflowBudget.resumed(receipt)) |> refresh()}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "resume refused: #{inspect(reason)}")}
+        {:noreply, socket |> put_flash(:error, WorkflowBudget.refused(reason)) |> refresh()}
     end
   end
 
@@ -279,16 +281,26 @@ defmodule CustodeWeb.WorkflowsLive do
           </ul>
         </div>
 
-        <div :if={@entry.run.status == "budget_paused"} class="card-actions justify-end">
+        <div
+          :if={@entry.run.status == "budget_paused" && pause_id(@entry.run)}
+          class="card-actions justify-end"
+        >
           <.action_button
             variant={:primary}
             phx-click="resume_run"
             phx-value-id={@entry.run.run_id}
+            phx-value-pause={pause_id(@entry.run)}
             data-confirm="Double this run's rail and let it go on?"
           >
             Raise the rail and resume
           </.action_button>
         </div>
+        <p
+          :if={@entry.run.status == "budget_paused" && !pause_id(@entry.run)}
+          class="text-xs text-base-content/60"
+        >
+          This pause has no recorded id, so it cannot be resumed from here.
+        </p>
       </div>
     </section>
     """
@@ -325,6 +337,9 @@ defmodule CustodeWeb.WorkflowsLive do
   defp stage_class(:failed), do: "text-error"
   defp stage_class(:not_run), do: "text-base-content/50"
   defp stage_class(:unavailable), do: "text-error"
+
+  defp pause_id(%{budget_pause_id: pause}) when is_binary(pause) and pause != "", do: pause
+  defp pause_id(_run), do: nil
 
   defp run_tone("running"), do: :info
   defp run_tone("complete"), do: :success

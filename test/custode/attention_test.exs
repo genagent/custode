@@ -285,6 +285,7 @@ defmodule Custode.AttentionTest do
     defp paused(run_id, fields \\ []) do
       Enum.into(fields, %{
         run_id: run_id,
+        pause_id: "pause-1",
         workflow: "backlog-mine",
         repo: "acme/widgets",
         reason: "run budget rail hit: $1.20 of $1.00; paused before merge",
@@ -330,9 +331,27 @@ defmodule Custode.AttentionTest do
       assert signal.raised_at == ~U[2026-07-26 01:30:00Z]
 
       assert [
-               %{label: "Raise the rail and resume", op: :resume_run, args: %{run: "run-9"}},
+               %{
+                 label: "Raise the rail and resume",
+                 op: :resume_run,
+                 args: %{run: "run-9", pause: "pause-1"}
+               },
                %{op: :open_workflows}
              ] = signal.resolving
+    end
+
+    test "a parked run with no known pause offers no resume, only the workflows page" do
+      for pause_id <- [nil, ""] do
+        assert [signal] =
+                 Attention.workflows(%{
+                   launches: [],
+                   paused_runs: [paused("run-9", pause_id: pause_id, paused_at: nil)]
+                 })
+
+        assert signal.kind == :workflow_rail
+        assert signal.raised_at == nil
+        assert [%{op: :open_workflows}] = signal.resolving
+      end
     end
 
     test "every proposal and every parked run is its own signal" do
