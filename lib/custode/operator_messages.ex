@@ -12,6 +12,7 @@ defmodule Custode.OperatorMessages do
   import Ecto.Query, only: [from: 2]
 
   alias Custode.{AgentHandoff, Agents, OperatorMessage, Repo}
+  alias Custode.Operator.Attachments
 
   @handler_id "custode-operator-messages"
   @events [
@@ -70,11 +71,12 @@ defmodule Custode.OperatorMessages do
   @spec submit(String.t(), String.t(), keyword(), (OperatorMessage.t() -> term())) ::
           {:ok, OperatorMessage.t(), :created | :duplicate} | {:error, term()}
   def submit(target_agent_id, prompt, opts, deliver) when is_function(deliver, 1) do
-    with {:ok, caller} <- caller(opts),
-         {:ok, prompt} <- prompt(prompt) do
+    with :ok <- submission_boundary(opts[:attachment_id]),
+         {:ok, caller} <- caller(opts),
+         {:ok, prompt} <- prompt(prompt, opts[:attachment_id]) do
       message_id = message_id()
       idempotency_key = Keyword.get(opts, :idempotency_key) || message_id
-      prompt_hash = hash(prompt)
+      prompt_hash = request_hash(prompt, opts[:attachment_id])
       continued = waiting_message(target_agent_id)
       provider_correlation_id = correlation_of(continued) || message_id
 
@@ -87,6 +89,7 @@ defmodule Custode.OperatorMessages do
         idempotency_key: idempotency_key,
         prompt_hash: prompt_hash,
         prompt: prompt,
+        attachment_id: opts[:attachment_id],
         provider_correlation_id: provider_correlation_id,
         continues_message_id: continued && continued.message_id,
         provider: target_agent_id |> configured_provider() |> to_string(),
@@ -222,6 +225,7 @@ defmodule Custode.OperatorMessages do
     %{
       message_id: message.message_id,
       target_agent_id: message.target_agent_id,
+      attachment_id: message.attachment_id,
       caller: %{
         kind: message.caller_kind,
         id: message.caller_id,
@@ -251,6 +255,7 @@ defmodule Custode.OperatorMessages do
     %{
       message_id: message.message_id,
       agent_id: message.target_agent_id,
+      attachment_id: message.attachment_id,
       status: message.status,
       delivery: message.delivery,
       provider: message.provider,
@@ -583,24 +588,51 @@ defmodule Custode.OperatorMessages do
       :ok
   end
 
+  # Resolve and pin an attachment in the same writer transaction as the
+  # message. Cleanup uses this boundary too. Provider admission stays outside
+  # the transaction, so no external effect can precede durable acceptance.
   defp insert_or_get(attrs, prompt_hash, deliver) do
-    changeset = OperatorMessage.create_changeset(attrs)
-
-    case Repo.insert(changeset,
-           on_conflict: :nothing,
-           conflict_target: [:caller_kind, :caller_id, :target_agent_id, :idempotency_key],
-           returning: true
-         ) do
-      {:ok, %OperatorMessage{id: nil}} ->
-        duplicate(attrs, prompt_hash)
-
-      {:ok, %OperatorMessage{} = message} ->
-        deliver_new(message, deliver)
-
-      {:error, changeset} ->
-        {:error, changeset}
+    case Repo.transaction(fn -> insert_or_retry(attrs, prompt_hash) end, mode: :immediate) do
+      {:ok, {:created, message}} -> deliver_new(message, deliver)
+      {:ok, {:duplicate, message}} -> {:ok, message, :duplicate}
+      {:ok, {:error, reason}} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
     end
   end
+
+  defp insert_or_retry(attrs, prompt_hash) do
+    attachment_id = attrs.attachment_id
+
+    case existing_submission(attrs) do
+      nil ->
+        with {:ok, attrs} <- resolve_attachment(attrs),
+             {:ok, message} <- Repo.insert(OperatorMessage.create_changeset(attrs)) do
+          {:created, message}
+        else
+          {:error, reason} -> {:error, reason}
+        end
+
+      %{prompt_hash: ^prompt_hash, attachment_id: ^attachment_id} = message ->
+        # A receipt survives expired bytes and routine moves. An exact replay
+        # must not resolve the attachment again or invoke the provider again.
+        {:duplicate, message}
+
+      _different_request ->
+        {:error, :idempotency_conflict}
+    end
+  end
+
+  defp resolve_attachment(%{attachment_id: nil} = attrs), do: {:ok, attrs}
+
+  defp resolve_attachment(%{caller_kind: "operator"} = attrs) do
+    actor = %{kind: :operator, id: attrs.caller_id}
+
+    with {:ok, path} <- Attachments.resolve(actor, attrs.attachment_id, attrs.target_agent_id) do
+      {:ok, %{attrs | prompt: Attachments.compose(attrs.prompt, [path])}}
+    end
+  end
+
+  defp resolve_attachment(_attrs), do: {:error, :human_identity_required}
 
   defp scope_target(query, nil), do: query
 
@@ -708,6 +740,7 @@ defmodule Custode.OperatorMessages do
     %{
       id: message.message_id,
       text: message.prompt,
+      attachment_id: message.attachment_id,
       caller_id: message.caller_id,
       continued: not is_nil(message.continues_message_id),
       detail: message.detail,
@@ -746,21 +779,16 @@ defmodule Custode.OperatorMessages do
   defp conversation_error(error) when is_map(error), do: Jason.encode!(error, pretty: true)
   defp conversation_error(_error), do: nil
 
-  defp duplicate(attrs, prompt_hash) do
-    existing =
-      Repo.one!(
-        from(m in OperatorMessage,
-          where:
-            m.caller_kind == ^attrs.caller_kind and m.caller_id == ^attrs.caller_id and
-              m.target_agent_id == ^attrs.target_agent_id and
-              m.idempotency_key == ^attrs.idempotency_key,
-          limit: 1
-        )
+  defp existing_submission(attrs) do
+    Repo.one(
+      from(m in OperatorMessage,
+        where:
+          m.caller_kind == ^attrs.caller_kind and m.caller_id == ^attrs.caller_id and
+            m.target_agent_id == ^attrs.target_agent_id and
+            m.idempotency_key == ^attrs.idempotency_key,
+        limit: 1
       )
-
-    if existing.prompt_hash == prompt_hash,
-      do: {:ok, existing, :duplicate},
-      else: {:error, :idempotency_conflict}
+    )
   end
 
   defp deliver_new(message, deliver) do
@@ -1452,12 +1480,32 @@ defmodule Custode.OperatorMessages do
     end
   end
 
-  defp prompt(text) do
-    case text |> to_string() |> String.trim() do
-      "" -> {:error, :empty}
-      prompt -> {:ok, prompt}
+  defp submission_boundary(nil), do: :ok
+
+  defp submission_boundary(_attachment_id) do
+    if Repo.in_transaction?(), do: {:error, :outer_transaction_unsupported}, else: :ok
+  end
+
+  defp prompt(text, attachment_id) do
+    text = text |> to_string() |> String.trim()
+
+    cond do
+      not is_nil(attachment_id) and
+          (not is_binary(attachment_id) or byte_size(attachment_id) not in 1..128) ->
+        {:error, :invalid_attachment}
+
+      text == "" and is_nil(attachment_id) ->
+        {:error, :empty}
+
+      true ->
+        {:ok, text}
     end
   end
+
+  # Keep the original text-only fingerprint for existing receipt retries.
+  # Attachment identity is independent of its resolved provider path.
+  defp request_hash(prompt, nil), do: hash(prompt)
+  defp request_hash(prompt, id), do: hash("attachment-v1:" <> Jason.encode!([prompt, id]))
 
   defp correlation(meta), do: meta[:correlation_id]
 

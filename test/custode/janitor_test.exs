@@ -4,6 +4,7 @@ defmodule Custode.JanitorTest do
   import Custode.TestHelpers
 
   alias Custode.Janitor
+  alias Custode.Operator.{Attachment, Attachments}
 
   defp perform!, do: Janitor.perform(%Oban.Job{args: %{}})
 
@@ -127,6 +128,47 @@ defmodule Custode.JanitorTest do
 
     refute File.exists?(old)
     assert File.exists?(fresh)
+  end
+
+  test "old managed and legacy images stay while durable messages still need them" do
+    routine = routine_fixture!(tmp_workspace!())
+    actor = %{kind: :operator, id: uid("janitor-image-owner")}
+    png = <<137, "PNG\r\n", 26, "\n", "fixture">>
+
+    {:ok, image} = Attachments.upload(actor, routine.id, "image/png", png)
+
+    attachment =
+      Custode.Repo.get_by!(Attachment, attachment_id: image.attachment_id)
+
+    {:ok, message, :created} =
+      Custode.OperatorMessages.submit(
+        routine.id,
+        "inspect",
+        [actor: actor, attachment_id: image.attachment_id, idempotency_key: uid("janitor-image")],
+        fn _message -> {:ok, :queued} end
+      )
+
+    legacy = Path.join(Path.dirname(attachment.path), "legacy image.png")
+    File.write!(legacy, png)
+    prompt = Attachments.compose("inspect", [legacy])
+
+    {:ok, legacy_message, :created} =
+      Custode.OperatorMessages.submit(
+        routine.id,
+        prompt,
+        [actor: actor, idempotency_key: uid("legacy-image")],
+        fn _message -> {:ok, :queued} end
+      )
+
+    backdate!("operator_attachments", attachment.id, "inserted_at", 90)
+    backdate!("operator_messages", message.id, "updated_at", 90)
+    backdate!("operator_messages", legacy_message.id, "updated_at", 90)
+    File.touch!(attachment.path, System.os_time(:second) - 90 * 86_400)
+    File.touch!(legacy, System.os_time(:second) - 90 * 86_400)
+    :ok = perform!()
+    assert File.exists?(attachment.path)
+    assert File.exists?(legacy)
+    assert Custode.Repo.get!(Attachment, attachment.id).deleted_at == nil
   end
 
   test "compacted journal entries retire only once aged out; live entries are immortal (#214)" do

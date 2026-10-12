@@ -45,6 +45,8 @@
         "approve_action",
         "ask_operator",
         "assurance_read",
+        "attachment_read",
+        "attachment_upload",
         "await_agent",
         "beat",
         "compact_journal",
@@ -847,6 +849,187 @@
         "/mcp"
       ],
       "name": "assurance_read"
+    },
+    {
+      "behavior": {
+        "access": "Main endpoint, verified authenticated human operator with nonempty identity ID only. The caller must own the reference. No fallback caller; routine and subagent tokens refuse.",
+        "effects": "Reads retained bytes after ownership, current workspace, regular-file, digest and retention checks. Does not create a message, start work or extend retention.",
+        "notes": "Required attachment_id is 1 to 128 characters. Unknown, foreign, expired, moved-workspace, missing or changed image references refuse without substituting other bytes. Historical message references may remain after image retention ends. Reading an image does not prove that an agent read or understood it.",
+        "result": "Closed structured attachment_id, agent_id, media_type, byte_count, sha256, retention, ISO created_at and data_base64. No private path is returned.",
+        "summary": "Read owned image metadata and Base64 bytes by an opaque reference."
+      },
+      "category": "operator",
+      "definition": {
+        "annotations": {},
+        "description": "Read an image by its server-owned attachment reference as the same verified human operator who uploaded it. Returns bounded metadata and Base64 bytes, never a selectable filesystem path. Reading does not start work.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "attachment_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "attachment_id"
+          ],
+          "type": "object"
+        },
+        "name": "attachment_read",
+        "outputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "agent_id": {
+              "type": "string"
+            },
+            "attachment_id": {
+              "type": "string"
+            },
+            "byte_count": {
+              "maximum": 10000000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "created_at": {
+              "type": "string"
+            },
+            "data_base64": {
+              "maxLength": 13333336,
+              "type": "string"
+            },
+            "media_type": {
+              "enum": [
+                "image/png",
+                "image/jpeg",
+                "image/gif",
+                "image/webp"
+              ],
+              "type": "string"
+            },
+            "retention": {
+              "type": "string"
+            },
+            "sha256": {
+              "maxLength": 64,
+              "minLength": 64,
+              "type": "string"
+            }
+          },
+          "required": [
+            "agent_id",
+            "attachment_id",
+            "byte_count",
+            "created_at",
+            "data_base64",
+            "media_type",
+            "retention",
+            "sha256"
+          ],
+          "type": "object"
+        },
+        "title": "attachment_read"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "attachment_read"
+    },
+    {
+      "behavior": {
+        "access": "Main endpoint, verified authenticated human operator with nonempty identity ID only. No fallback caller. Shared storage repeats the identity check and binds the reference to this operator and configured routine.",
+        "effects": "Validates the declared media type, decoded size and image header, then stores bytes under a server-owned path in the routine workspace and records ownership. Does not create a message, start an agent or call a model.",
+        "notes": "Required agent_id, media_type and data_base64. Types are image/png, image/jpeg, image/gif and image/webp. Decoded bytes must be at most 10,000,000; Base64 length at most 13,333,336. Validation checks the header, not full codec validity. Clients cannot choose paths. Identical live bytes for the same operator, routine and workspace reuse the retained reference. Active messages pin their attachment; otherwise configured upload retention applies. Janitor commits an expired reference before attempting file cleanup; reads then refuse it. Failed file removals are retried on a later prune. Main MCP requests allow 14,000,000 bytes to accommodate the image envelope; the memory endpoint keeps its 2,000,000-byte limit. Errors omit private paths and raw exceptions.",
+        "result": "Closed structured attachment_id, agent_id, media_type, byte_count, sha256, retention and ISO created_at. No path or image bytes in this result.",
+        "summary": "Store one bounded image and return an owned reference for an operator message."
+      },
+      "category": "operator",
+      "definition": {
+        "annotations": {},
+        "description": "Upload one bounded PNG, JPEG, GIF or WebP image for a configured routine as its verified human operator. Returns an owned attachment reference for prompt_agent; uploading does not start work. The server validates size and image header, not full codec validity.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "agent_id": {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            },
+            "data_base64": {
+              "maxLength": 13333336,
+              "minLength": 1,
+              "type": "string"
+            },
+            "media_type": {
+              "enum": [
+                "image/png",
+                "image/jpeg",
+                "image/gif",
+                "image/webp"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "agent_id",
+            "data_base64",
+            "media_type"
+          ],
+          "type": "object"
+        },
+        "name": "attachment_upload",
+        "outputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "agent_id": {
+              "type": "string"
+            },
+            "attachment_id": {
+              "type": "string"
+            },
+            "byte_count": {
+              "maximum": 10000000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "created_at": {
+              "type": "string"
+            },
+            "media_type": {
+              "enum": [
+                "image/png",
+                "image/jpeg",
+                "image/gif",
+                "image/webp"
+              ],
+              "type": "string"
+            },
+            "retention": {
+              "type": "string"
+            },
+            "sha256": {
+              "maxLength": 64,
+              "minLength": 64,
+              "type": "string"
+            }
+          },
+          "required": [
+            "agent_id",
+            "attachment_id",
+            "byte_count",
+            "created_at",
+            "media_type",
+            "retention",
+            "sha256"
+          ],
+          "type": "object"
+        },
+        "title": "attachment_upload"
+      },
+      "endpoints": [
+        "/mcp"
+      ],
+      "name": "attachment_upload"
     },
     {
       "behavior": {
@@ -1778,7 +1961,7 @@
         "access": "Main endpoint capability: human operator only. The tool is named in no routine's exposure list, so only the operator discovers it, and the handler repeats the human-only check.",
         "effects": "None; reads existing durable operator-message records.",
         "notes": "Returns only messages authored by the authenticated operator identity, newest first. agent_id and status are optional exact filters. status accepts queued, executing, waiting_for_input, waiting_for_approval, completed, failed or refused. limit defaults to 20, must be positive and is capped at 100. Each row carries only a 160-character prompt preview for disambiguation; full prompts, idempotency keys and hashes, claim fields, results, errors and provider-turn/session details are omitted. Use the recovered agent_id and message_id with await_agent for the authoritative exact receipt.",
-        "result": "messages array of message_id, agent_id, status, delivery, provider, continuation message id, prompt preview and inserted, started and completed timestamps.",
+        "result": "messages array of message_id, agent_id, nullable attachment_id, status, delivery, provider, continuation message id, prompt preview and inserted, started and completed timestamps. attachment_id retains the original image reference; it is null for messages without a managed attachment.",
         "summary": "Discover this operator's durable messages after a fresh session or reconnect."
       },
       "category": "read",
@@ -2978,11 +3161,11 @@
     },
     {
       "behavior": {
-        "access": "Main endpoint capability: operator, caretaker, or specialist routine. A routine may prompt only a temporary agent whose durable spawn record names it as parent; the operator may message any target through the shared operator action. Missing or reconciled records do not widen access.",
+        "access": "Main endpoint capability: operator, caretaker, or specialist routine. A routine may prompt only a temporary agent whose durable spawn record names it as parent; the operator may message any target through the shared operator action. Missing or reconciled records do not widen access. Supplying attachment_id requires a verified authenticated human identity with a nonempty ID; routine and subagent delegation refuses attachments explicitly rather than dropping them. The attachment path never uses the legacy default caller identity.",
         "effects": "Creates a durable operator-message record, then sends or queues work exactly once for a new caller/target/idempotency tuple. For an operator, can resume a paused agent or start an offline configured routine and records activity. If a configured routine is adopting a changed provider contract, the durable message waits behind that boundary and is submitted after the replacement is ready.",
-        "notes": "agent_id and prompt are required. idempotency_key is optional; omission creates a new logical message, while retrying the same caller, target and key with the same prompt returns the existing receipt and duplicate=true. Reusing the key with different text is a tool error. Waiting-for-user input creates a new public message linked to the question while retaining its provider correlation. Other compatible operator continuations restore the exact retained session handle even if the running provider evicted it from its bounded cache. A conflicting live handle is refused before enqueue; queued input is retained, never retried into a fresh session to bypass the conflict. how='queued' means the durable message is waiting because the provider is busy or because the routine is adopting its current execution configuration. how='admitting' means Custode has claimed the durable message for provider admission but has not yet durably recorded the final delivery path; use the returned message_id with await_agent. delivered=true means the durable submission was accepted rather than refused; it does not mean the provider turn completed. Operator how='started' means startup was accepted, not that execution began. A refusal before enqueue returns a durable refused receipt with delivered=false rather than losing the attempt. New clients should pass the returned message_id to await_agent.",
-        "result": "The durable message receipt: message_id, target and caller provenance, status, delivery path, provider and exact turn identity when known, continuation link, detail, result, error and timestamps; plus agent_id, delivered, how and duplicate.",
-        "summary": "Send one durable, idempotent message or answer to an agent."
+        "notes": "agent_id and prompt are required. Optional attachment_id is a 1 to 128 character string owned by the operator and bound to this routine; one image per message. Empty prompt with a valid image is supported. Explicit attachment_id:null is invalid; omit it for text-only messages. Ownership, target, workspace and retained bytes are validated during atomic message admission; a failed image refuses the whole message. idempotency_key is optional; omission or null creates a new logical message, while retrying the same caller, target and key with identical text and attachment reference returns the existing receipt and duplicate=true. Changing either text or image reference is a tool error. A valid existing receipt remains retrievable after image retention expires; it does not restore expired bytes. Waiting-for-user input creates a new public message linked to the question while retaining its provider correlation. Other compatible operator continuations restore the exact retained session handle even if the running provider evicted it from its bounded cache. A conflicting live handle is refused before enqueue; queued input is retained, never retried into a fresh session to bypass the conflict. how='queued' means the durable message is waiting because the provider is busy or because the routine is adopting its current execution configuration. how='admitting' means Custode has claimed the durable message for provider admission but has not yet durably recorded the final delivery path; use the returned message_id with await_agent. delivered=true means the durable submission was accepted rather than refused; it does not mean the provider turn completed. Operator how='started' means startup was accepted, not that execution began. A refusal before enqueue returns a durable refused receipt with delivered=false rather than losing the attempt. New clients should pass the returned message_id to await_agent.",
+        "result": "The durable message receipt: message_id, nullable attachment_id, target and caller provenance, status, delivery path, provider and exact turn identity when known, continuation link, detail, result, error and timestamps; plus agent_id, delivered, how and duplicate. attachment_id is the originally admitted reference, not an assertion of image consumption by the model.",
+        "summary": "Send one durable, idempotent message or answer to an agent, optionally with an owned image reference."
       },
       "category": "delegate",
       "definition": {
@@ -2993,9 +3176,18 @@
             "agent_id": {
               "type": "string"
             },
+            "attachment_id": {
+              "description": "one image reference owned by the verified operator and bound to this routine",
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
             "idempotency_key": {
               "description": "deduplicate this caller's delivery to this agent",
-              "type": "string"
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "prompt": {
               "type": "string"

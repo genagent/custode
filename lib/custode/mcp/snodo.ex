@@ -41,6 +41,7 @@ defmodule Custode.MCP.Snodo do
          runtime: configured_runtime,
          executor: @executor,
          path: path,
+         max_body_bytes: if(path == "/mcp", do: 14_000_000, else: 2_000_000),
          request_timeout: @request_timeout
        )}
     end

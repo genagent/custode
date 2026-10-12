@@ -3,7 +3,7 @@ defmodule Custode.Uploads do
   The `uploads/` directory of a routine's workspace, addressed safely.
 
   An image dropped on a prompt box (#180) is written into the routine's own
-  workspace as `uploads/<content-hash>.<ext>`, and the prompt text keeps the
+  workspace under `uploads/` with a server-owned filename, and the prompt text keeps the
   absolute path so the agent can `Read` it. This module is the one place that
   turns an `{agent, filename}` pair back into a file on disk and into the URL
   the dashboard serves it at, so the web route and the thumbnail component
@@ -15,10 +15,10 @@ defmodule Custode.Uploads do
   the upload boxes accept, and the file must actually be a regular file.
   """
 
-  @image_types ~w(.png .jpg .jpeg .gif .webp)
+  alias Custode.Operator.Attachments
 
   @doc "The image extensions a dropped file may carry."
-  def image_types, do: @image_types
+  def image_types, do: Attachments.image_types()
 
   @doc """
   The on-disk path of one uploaded image, or `:error` when it is not
@@ -27,10 +27,11 @@ defmodule Custode.Uploads do
   def path(agent, file) when is_binary(agent) and is_binary(file) do
     name = Path.basename(file)
 
-    with true <- Path.extname(String.downcase(name)) in @image_types,
+    with true <- Path.extname(String.downcase(name)) in Attachments.image_types(),
          routine when not is_nil(routine) <- Custode.Routine.get(agent),
          resolved = Path.join([Path.expand(routine.workspace), "uploads", name]),
-         true <- File.regular?(resolved) do
+         true <- Attachments.safe_file?(routine.workspace, resolved),
+         false <- Attachments.retired_path?(resolved) do
       {:ok, resolved}
     else
       _unreachable -> :error

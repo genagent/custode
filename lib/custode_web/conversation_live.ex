@@ -144,12 +144,13 @@ defmodule CustodeWeb.ConversationLive do
     do: {:noreply, assign(socket, notice: "set up a caretaker before sending")}
 
   def handle_event("message", %{"text" => text}, socket) do
-    text = Attachments.compose(text, save_images(socket))
-
-    case Actions.message(socket.assigns.agent_id, text, @opts) do
-      {:ok, how} ->
-        socket = push_event(socket, "draft:clear", %{subject: socket.assigns.agent_id})
-        after_action(:ok, socket, sent_notice(how))
+    with {:ok, attachment_opts} <- save_images(socket),
+         {:ok, how} <- Actions.message(socket.assigns.agent_id, text, @opts ++ attachment_opts) do
+      socket = push_event(socket, "draft:clear", %{subject: socket.assigns.agent_id})
+      after_action(:ok, socket, sent_notice(how))
+    else
+      {:error, {:attachment, reason}} ->
+        {:noreply, assign(socket, notice: Attachments.error_message(reason))}
 
       {:error, reason} ->
         after_action({:error, reason}, socket, nil)
@@ -623,12 +624,36 @@ defmodule CustodeWeb.ConversationLive do
   end
 
   defp save_images(%{assigns: %{subject: %{routine: %{} = routine}}} = socket) do
-    consume_uploaded_entries(socket, :image, fn %{path: path}, entry ->
-      {:ok, Attachments.store!(routine, path, entry.client_name)}
-    end)
+    case uploaded_entries(socket, :image) do
+      {_completed, []} ->
+        results =
+          consume_uploaded_entries(socket, :image, fn %{path: path}, entry ->
+            {:ok,
+             Attachments.upload_file(
+               %{kind: :operator, id: "operator"},
+               routine.id,
+               path,
+               entry.client_name
+             )}
+          end)
+
+        case results do
+          [] -> {:ok, []}
+          [{:ok, attachment}] -> {:ok, [attachment_id: attachment.attachment_id]}
+          [{:error, reason}] -> {:error, {:attachment, reason}}
+        end
+
+      _upload_in_progress ->
+        {:error, {:attachment, :invalid_attachment}}
+    end
   end
 
-  defp save_images(_socket), do: []
+  defp save_images(socket) do
+    case uploaded_entries(socket, :image) do
+      {[], []} -> {:ok, []}
+      _images -> {:error, {:attachment, :no_such_routine}}
+    end
+  end
 
   defp sent_notice(:delivered), do: "sent"
   defp sent_notice(:queued), do: "queued for the next safe turn"

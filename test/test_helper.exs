@@ -26,6 +26,7 @@ for table <- [
       "work_agreement_records",
       "work_agreements",
       "operator_messages",
+      "operator_attachments",
       "helper_records",
       "integration_overrides",
       "integration_requests",

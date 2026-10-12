@@ -70,20 +70,18 @@ defmodule Custode.Operator.Actions do
     |> submit_message(agent_id, opts)
   end
 
-  defp submit_message("", _agent_id, _opts), do: {:error, :empty}
-
   defp submit_message(text, agent_id, opts) do
     agent_id
-    |> OperatorMessages.submit(text, opts, &deliver_message(agent_id, text, opts, &1))
-    |> record_prompt_submission(agent_id, text)
+    |> OperatorMessages.submit(text, opts, &deliver_message(agent_id, &1.prompt, opts, &1))
+    |> record_prompt_submission(agent_id)
   end
 
-  defp record_prompt_submission({:ok, _message, :created} = result, agent_id, text) do
-    :ok = Custode.Feed.record_prompted(agent_id, text)
+  defp record_prompt_submission({:ok, message, :created} = result, agent_id) do
+    :ok = Custode.Feed.record_prompted(agent_id, message.prompt)
     result
   end
 
-  defp record_prompt_submission(result, _agent_id, _text), do: result
+  defp record_prompt_submission(result, _agent_id), do: result
 
   defp deliver_message(agent_id, text, opts, message) do
     case Routine.get(agent_id) do
