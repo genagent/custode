@@ -1,7 +1,8 @@
 # Independent MCP conformance proof
 
 This bounded proof references #848; it does not close it. The consumer is
-`scripts/mcp_conformance.py`, a Python 3 standard-library HTTP JSON-RPC client.
+`scripts/mcp_conformance.py`, a Python 3 standard-library HTTP JSON-RPC client,
+extended for workflow launch decisions by `scripts/mcp_workflow_conformance.py`.
 It imports no Custode or Elixir code, reads no database or local contracts,
 and makes assertions only from public HTTP responses. It uses advertised
 input schemas and the current v1 result contracts documented in
@@ -93,6 +94,62 @@ Before surfacing child output, the wrapper checks for private fixture data
 with a boolean assertion and fixed sanitized message. It checks proof markers and counts as well as exit status, then
 checks that jobs, durable messages and owner inbox wakes did not increase.
 It performs no model or provider calls.
+
+## Workflow launch decisions
+
+`scripts/mcp_workflow_conformance.py` reuses the same client, request
+framing, budgets and sanitized diagnostics for the `workflow_launch_approve`
+and `workflow_launch_reject` tools. Run it through its ExUnit wrapper:
+
+```sh
+CUSTODE_TEST_MCP_PORT=6185 mix test test/custode/mcp_workflow_client_conformance_test.exs --seed 1
+```
+
+Each protocol test seeds three proposals for a unique synthetic workflow and
+repository with queues disabled, and configures one synthetic caretaker. The
+client receives the URL, repository name and protocol as arguments and the
+operator and caretaker tokens through the child environment. The initial client is never
+given proposal IDs. The proof covers:
+
+- Discovery of `list_attention` and both decision tools under both versions,
+  with input and output schema parity.
+- Proposal IDs read from the `needs_you` group of `list_attention`, using
+  the `approve_launch` and `reject_launch` resolving actions of each
+  `workflow_launch` signal for the fixture repository.
+- Missing and invalid authorization as HTTP 401. A caretaker token sees the
+  pending proposal but is not offered either decision tool, and both calls
+  are refused with JSON-RPC error -32003. All three proposals remain pending.
+- Approval and rejection with the exact request retried. First receipts are
+  retained only for comparison; retries use the original proposal IDs. This
+  verifies replay and reconciliation, not an injected transport failure.
+  Retries return the identical receipt. Receipts are checked
+  against the advertised output schema: exact required keys, types, length
+  bounds and the `decision` and `status` enums. Approval status is `running`.
+- Decided proposals leave attention. Opposite decisions from the stale view
+  refuse with `decision_conflict`; unknown IDs refuse with
+  `no_such_proposal`. Refusals are HTTP 200 `isError` results with no
+  structured content and a code from the closed set the tools emit. Missing
+  `proposal_id` is an `isError` result; an undeclared argument is JSON-RPC
+  error -32602 (HTTP 400 under 2026-07-28, HTTP 200 under 2025-11-25).
+- A fresh Python interpreter receives the operator token and only the two
+  proposal IDs the first client retained. It reauthenticates, rediscovers
+  tools, confirms the retained proposals are no longer pending, repeats both
+  decisions, and gets the same run and the same refusals for opposite
+  decisions. A run fingerprint links the two processes without printing IDs.
+
+The wrapper then checks the database: exactly one run and one never-attempted
+initial job for the approval, no run for the rejection, the original
+rejection reason retained after a retry with a different reason, the third
+proposal still pending, total jobs up by exactly one, and no operator or peer
+messages. Output must not contain tokens, repository, workflow, caretaker,
+proposal or run identifiers. Cleanup removes the fixture's runs, jobs, feed
+entries and authorization snapshots.
+
+Limits: resolved proposals are not discoverable over MCP, so recovery relies
+on IDs the client retained. Expired proposals, admission failures and
+subagent refusals remain covered only by the in-process
+`test/custode/mcp_workflow_decision_test.exs`. Admission is not execution;
+queues stay disabled and no job runs.
 
 Remaining #848 journeys include durable prompt/status/outcome journeys using
 deterministic provider fixtures, server restart recovery, attachments,
